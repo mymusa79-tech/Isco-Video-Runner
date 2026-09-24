@@ -28,6 +28,8 @@ MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
+YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
+OMAN_OFFSET = timedelta(hours=4)
 
 FALLBACK_IDEAS = [
     ("لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟", "التسويف وتأجيل المهام المهمة"),
@@ -56,6 +58,7 @@ def default_state() -> dict[str, Any]:
         "sessions": {},
         "requests": {},
         "current_request_id": None,
+        "youtube_snapshots": [],
         "updated_at": None,
     }
 
@@ -69,6 +72,10 @@ def load_state(path: Path) -> dict[str, Any]:
     for key, factory in (("ideas", list), ("sessions", dict), ("requests", dict)):
         if not isinstance(data.get(key), factory):
             raise RuntimeError(f"malformed state field: {key}")
+    if "youtube_snapshots" not in data:
+        data["youtube_snapshots"] = []
+    if not isinstance(data.get("youtube_snapshots"), list):
+        raise RuntimeError("malformed state field: youtube_snapshots")
     return data
 
 
@@ -154,6 +161,242 @@ def send_telegram(text: str, keyboard: list[list[dict[str, str]]] | None = None)
     except Exception as exc:
         print(f"Telegram reply failed: {type(exc).__name__}")
 
+
+
+def _parse_duration_seconds(value: str) -> int:
+    match = re.fullmatch(
+        r"P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?",
+        str(value or ""),
+    )
+    if not match:
+        return 0
+    parts = {key: int(raw or 0) for key, raw in match.groupdict().items()}
+    return (
+        parts["days"] * 86400
+        + parts["hours"] * 3600
+        + parts["minutes"] * 60
+        + parts["seconds"]
+    )
+
+
+def _youtube_api(resource: str, params: dict[str, str]) -> dict[str, Any]:
+    key = str(os.environ.get("YOUTUBE_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError("YOUTUBE_API_KEY is missing")
+    query = urllib.parse.urlencode({**params, "key": key})
+    return _json_request(f"https://www.googleapis.com/youtube/v3/{resource}?{query}")
+
+
+def fetch_channel_snapshot() -> dict[str, Any]:
+    channel_id = str(YOUTUBE_CHANNEL_ID or "").strip()
+    if not channel_id:
+        raise RuntimeError("YOUTUBE_CHANNEL_ID is missing")
+    channel_payload = _youtube_api(
+        "channels",
+        {
+            "part": "snippet,statistics,contentDetails",
+            "id": channel_id,
+            "maxResults": "1",
+        },
+    )
+    channels = channel_payload.get("items")
+    if not isinstance(channels, list) or not channels or not isinstance(channels[0], dict):
+        raise RuntimeError("YouTube channel not found")
+    channel = channels[0]
+    stats = channel.get("statistics") if isinstance(channel.get("statistics"), dict) else {}
+    content = channel.get("contentDetails") if isinstance(channel.get("contentDetails"), dict) else {}
+    related = content.get("relatedPlaylists") if isinstance(content.get("relatedPlaylists"), dict) else {}
+    uploads = str(related.get("uploads") or "").strip()
+    if not uploads:
+        raise RuntimeError("YouTube uploads playlist unavailable")
+
+    playlist_payload = _youtube_api(
+        "playlistItems",
+        {"part": "contentDetails", "playlistId": uploads, "maxResults": "25"},
+    )
+    ids = [
+        str((item.get("contentDetails") or {}).get("videoId") or "").strip()
+        for item in (playlist_payload.get("items") or [])
+        if isinstance(item, dict)
+    ]
+    ids = [item for item in ids if item]
+    videos: list[dict[str, Any]] = []
+    if ids:
+        videos_payload = _youtube_api(
+            "videos",
+            {
+                "part": "snippet,statistics,contentDetails",
+                "id": ",".join(ids),
+                "maxResults": "50",
+            },
+        )
+        for item in videos_payload.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            snippet = item.get("snippet") if isinstance(item.get("snippet"), dict) else {}
+            video_stats = item.get("statistics") if isinstance(item.get("statistics"), dict) else {}
+            details = item.get("contentDetails") if isinstance(item.get("contentDetails"), dict) else {}
+            videos.append(
+                {
+                    "video_id": str(item.get("id") or ""),
+                    "title": str(snippet.get("title") or "")[:180],
+                    "published_at": str(snippet.get("publishedAt") or ""),
+                    "duration_seconds": _parse_duration_seconds(str(details.get("duration") or "")),
+                    "views": int(video_stats.get("viewCount") or 0),
+                    "likes": int(video_stats.get("likeCount") or 0),
+                    "comments": int(video_stats.get("commentCount") or 0),
+                }
+            )
+    videos.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
+    last_short = next(
+        (item for item in videos if 0 < int(item.get("duration_seconds") or 0) <= 180),
+        None,
+    )
+    last_long = next(
+        (item for item in videos if int(item.get("duration_seconds") or 0) > 180),
+        None,
+    )
+    return {
+        "captured_at": utc_now(),
+        "channel_id": channel_id,
+        "subscribers": int(stats.get("subscriberCount") or 0),
+        "hidden_subscribers": bool(stats.get("hiddenSubscriberCount")),
+        "total_views": int(stats.get("viewCount") or 0),
+        "video_count": int(stats.get("videoCount") or 0),
+        "last_long": last_long,
+        "last_short": last_short,
+    }
+
+
+def _parse_utc(value: str) -> datetime:
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def append_youtube_snapshot(state: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    rows = state.setdefault("youtube_snapshots", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("malformed state field: youtube_snapshots")
+    rows.append(snapshot)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=45)
+    kept = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        try:
+            when = _parse_utc(str(item.get("captured_at") or ""))
+        except (TypeError, ValueError):
+            continue
+        if when >= cutoff:
+            kept.append(item)
+    kept.sort(key=lambda item: str(item.get("captured_at") or ""))
+    state["youtube_snapshots"] = kept[-120:]
+
+
+def _baseline_snapshot(
+    snapshots: list[dict[str, Any]],
+    cutoff: datetime,
+) -> dict[str, Any] | None:
+    eligible: list[tuple[datetime, dict[str, Any]]] = []
+    for item in snapshots:
+        if not isinstance(item, dict):
+            continue
+        try:
+            when = _parse_utc(str(item.get("captured_at") or ""))
+        except (TypeError, ValueError):
+            continue
+        if when <= cutoff:
+            eligible.append((when, item))
+    if not eligible:
+        return None
+    eligible.sort(key=lambda pair: pair[0], reverse=True)
+    return eligible[0][1]
+
+
+def channel_stats(state: dict[str, Any]) -> dict[str, Any]:
+    current = fetch_channel_snapshot()
+    existing = [
+        item
+        for item in state.get("youtube_snapshots", [])
+        if isinstance(item, dict)
+    ]
+    now_utc = _parse_utc(str(current["captured_at"]))
+    oman_now = now_utc + OMAN_OFFSET
+    oman_midnight = oman_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_cutoff = oman_midnight - OMAN_OFFSET
+    week_cutoff = now_utc - timedelta(days=7)
+    today_base = _baseline_snapshot(existing, today_cutoff)
+    week_base = _baseline_snapshot(existing, week_cutoff)
+
+    def delta(base: dict[str, Any] | None, key: str) -> int | None:
+        if base is None:
+            return None
+        return int(current.get(key) or 0) - int(base.get(key) or 0)
+
+    result = {
+        **current,
+        "views_today": delta(today_base, "total_views"),
+        "views_7d": delta(week_base, "total_views"),
+        "subscribers_today": delta(today_base, "subscribers"),
+        "subscribers_7d": delta(week_base, "subscribers"),
+        "today_baseline_at": None if today_base is None else today_base.get("captured_at"),
+        "week_baseline_at": None if week_base is None else week_base.get("captured_at"),
+    }
+    append_youtube_snapshot(state, current)
+    return result
+
+
+def _format_number(value: int | None) -> str:
+    if value is None:
+        return "—"
+    return f"{int(value):,}"
+
+
+def _video_stats_line(label: str, item: dict[str, Any] | None) -> list[str]:
+    if not isinstance(item, dict):
+        return [f"{label}: لا يوجد فيديو حديث مناسب"]
+    return [
+        f"{label}: {str(item.get('title') or 'بدون عنوان')}",
+        (
+            f"   👁️ {_format_number(int(item.get('views') or 0))} · "
+            f"👍 {_format_number(int(item.get('likes') or 0))} · "
+            f"💬 {_format_number(int(item.get('comments') or 0))}"
+        ),
+        f"   https://youtu.be/{str(item.get('video_id') or '')}",
+    ]
+
+
+def render_channel_stats(stats: dict[str, Any]) -> str:
+    subscribers = "مخفية" if stats.get("hidden_subscribers") else _format_number(int(stats.get("subscribers") or 0))
+    today_views = stats.get("views_today")
+    week_views = stats.get("views_7d")
+    lines = [
+        "📊 نداء اليقظة — Channel Intelligence",
+        "",
+        f"👥 المشتركون: {subscribers}",
+        f"👁️ إجمالي مشاهدات القناة: {_format_number(int(stats.get('total_views') or 0))}",
+        f"🎞️ إجمالي الفيديوهات: {_format_number(int(stats.get('video_count') or 0))}",
+        "",
+        f"📈 مشاهدات اليوم: {'+' + _format_number(today_views) if isinstance(today_views, int) else 'بانتظار baseline يومية'}",
+        f"📅 مشاهدات آخر 7 أيام: {'+' + _format_number(week_views) if isinstance(week_views, int) else 'بانتظار 7 أيام من snapshots'}",
+    ]
+    if not stats.get("hidden_subscribers"):
+        sub_today = stats.get("subscribers_today")
+        sub_week = stats.get("subscribers_7d")
+        lines.extend(
+            [
+                f"👤 تغير المشتركين اليوم: {'+' + _format_number(sub_today) if isinstance(sub_today, int) else '—'}",
+                f"👤 تغير المشتركين 7 أيام: {'+' + _format_number(sub_week) if isinstance(sub_week, int) else '—'}",
+            ]
+        )
+    lines.extend(["", *_video_stats_line("🎬 آخر Long", stats.get("last_long"))])
+    lines.extend(["", *_video_stats_line("⚡ آخر Short", stats.get("last_short"))])
+    lines.extend(
+        [
+            "",
+            "ℹ️ أرقام اليوم و7 أيام تُحسب من snapshots إجمالي القناة عبر YouTube Data API، وليست Retention/Analytics OAuth.",
+        ]
+    )
+    return "\n".join(lines)
 
 def fetch_trends() -> list[str]:
     try:
@@ -621,9 +864,18 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     text = str(message.get("text") or "").strip()
     if text in {"/start", "/menu", "/research", "بحث"}:
         send_telegram(
-            "🧭 Clean V2 Editorial Lite\n\nاختر ما تريد البحث له. البحث والاختيار لا يبدأان Production.",
+            "🧭 Clean V2 Editorial Lite\n\nاختر ما تريد البحث له. البحث والاختيار لا يبدأان Production.\n\n📊 استخدم /stats لإحصائيات القناة.",
             scope_keyboard(),
         )
+        return
+    if text in {"/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"}:
+        try:
+            stats = channel_stats(state)
+        except Exception as exc:
+            print(f"YouTube stats failed: {type(exc).__name__}")
+            send_telegram("⚠️ تعذر تحديث إحصائيات YouTube الآن. لم يتأثر البحث أو الإنتاج.")
+            return
+        send_telegram(render_channel_stats(stats))
         return
     if text == CONFIRM_TEXT:
         try:
@@ -653,7 +905,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             f"الموضوع: {request['approved_topic']}"
         )
         return
-    send_telegram("استخدم /research لطلب 3 أفكار جديدة، أو اختر فكرة ثم أرسل «تأكيد الإنتاج» حرفيًا.")
+    send_telegram("استخدم /research لطلب 3 أفكار جديدة، /stats لإحصائيات القناة، أو اختر فكرة ثم أرسل «تأكيد الإنتاج» حرفيًا.")
 
 
 def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: str, fmt: str, output: Path) -> dict[str, Any]:
@@ -711,6 +963,9 @@ def main() -> int:
     mark.add_argument("--state", type=Path, required=True)
     mark.add_argument("--request-id", required=True)
     mark.add_argument("--request-sha256", required=True)
+
+    snapshot = sub.add_parser("snapshot")
+    snapshot.add_argument("--state", type=Path, required=True)
 
     brief = sub.add_parser("materialize-brief")
     brief.add_argument("--state", type=Path, required=True)
