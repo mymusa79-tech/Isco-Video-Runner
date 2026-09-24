@@ -10,6 +10,8 @@ import socket
 import subprocess
 import tempfile
 import time
+import statistics
+from dataclasses import dataclass
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -2174,24 +2176,171 @@ def _section_slot_durations(
 
 
 # Same crossfade duration as the Engine's own M9 live-binding dissolve
-# (scripts/m9_live_binding.py::_DISSOLVE_SECONDS) - defined locally rather
-# than importing that module, which pulls in isco_video_agent.orchestrator
-# unconditionally at import time and would break render_video() wherever
-# Engine isn't checked out (this CI's own "test" job included).
+# (scripts/m9_live_binding.py::_DISSOLVE_SECONDS).
 COHESION_DISSOLVE_SECONDS = 0.36
+
+# Reference Color Match Lite: deterministic, zero-AI, zero-network color cohesion.
+# M8 has already normalized admitted media to BT.709/SDR. This layer only aligns
+# the creative appearance of stock clips to one representative clip per video.
+COLOR_SAMPLE_FPS = "1/4"
+COLOR_SAMPLE_WIDTH = 96
+COLOR_SAMPLE_MAX_FRAMES = 24
+COLOR_MATCH_STRENGTH = 0.55
+COLOR_MATCH_SCALE_MIN = 0.88
+COLOR_MATCH_SCALE_MAX = 1.12
+COLOR_MATCH_OFFSET_MAX = 18.0
+MASTER_LOOK_LUT_SIZE = 17
+MASTER_LOOK_CONTRAST = 1.025
+MASTER_LOOK_SATURATION = 0.94
+MASTER_LOOK_WARM_R = 0.006
+MASTER_LOOK_WARM_G = 0.002
+MASTER_LOOK_WARM_B = -0.006
+
+
+@dataclass(frozen=True)
+class _RgbStats:
+    mean_r: float
+    mean_g: float
+    mean_b: float
+    std_r: float
+    std_g: float
+    std_b: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "mean_r": round(self.mean_r, 4),
+            "mean_g": round(self.mean_g, 4),
+            "mean_b": round(self.mean_b, 4),
+            "std_r": round(self.std_r, 4),
+            "std_g": round(self.std_g, 4),
+            "std_b": round(self.std_b, 4),
+        }
+
+
+def _clamp_color(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _sample_rgb_stats(path: Path) -> _RgbStats:
+    """Measure bounded representative RGB mean/std from sparse downscaled frames.
+
+    This is intentionally clip-level, never per-frame auto grading. The resulting
+    transform is constant for the entire clip, which avoids flicker/pumping.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(path),
+                "-vf",
+                (
+                    f"fps={COLOR_SAMPLE_FPS},"
+                    f"scale={COLOR_SAMPLE_WIDTH}:-2:flags=area,format=rgb24"
+                ),
+                "-frames:v",
+                str(COLOR_SAMPLE_MAX_FRAMES),
+                "-an",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "pipe:1",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=90,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("required executable is missing: ffmpeg") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("color sampling timed out") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or b"")[-1000:].decode("utf-8", errors="replace").replace("\n", " ")
+        raise RuntimeError(f"ffmpeg color sampling failed: {detail}") from None
+
+    raw = proc.stdout or b""
+    if len(raw) < 300 or len(raw) % 3:
+        raise RuntimeError("color sampling returned insufficient rgb data")
+
+    channels = (raw[0::3], raw[1::3], raw[2::3])
+    values: list[tuple[float, float]] = []
+    for channel in channels:
+        count = len(channel)
+        mean = sum(channel) / count
+        variance = max(
+            0.0,
+            (sum(value * value for value in channel) / count) - (mean * mean),
+        )
+        values.append((mean, math.sqrt(variance)))
+    return _RgbStats(
+        mean_r=values[0][0],
+        mean_g=values[1][0],
+        mean_b=values[2][0],
+        std_r=values[0][1],
+        std_g=values[1][1],
+        std_b=values[2][1],
+    )
+
+
+def _representative_reference(
+    measured: Mapping[str, _RgbStats],
+) -> str:
+    """Choose the medoid-like real clip nearest the episode's median color stats."""
+    if not measured:
+        raise ValueError("reference selection requires measured clips")
+    rows = list(measured.items())
+    medians = (
+        statistics.median(item.mean_r for _, item in rows),
+        statistics.median(item.mean_g for _, item in rows),
+        statistics.median(item.mean_b for _, item in rows),
+        statistics.median(item.std_r for _, item in rows),
+        statistics.median(item.std_g for _, item in rows),
+        statistics.median(item.std_b for _, item in rows),
+    )
+
+    def distance(stats: _RgbStats) -> float:
+        means = (stats.mean_r, stats.mean_g, stats.mean_b)
+        stds = (stats.std_r, stats.std_g, stats.std_b)
+        mean_distance = sum((value - target) ** 2 for value, target in zip(means, medians[:3]))
+        std_distance = sum((value - target) ** 2 for value, target in zip(stds, medians[3:]))
+        return mean_distance + (0.25 * std_distance)
+
+    return min(rows, key=lambda row: distance(row[1]))[0]
+
+
+def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
+    """Build one bounded RGB mean/std transfer for the entire source clip."""
+    expressions: list[str] = []
+    for channel, source_mean, source_std, ref_mean, ref_std in (
+        ("r", source.mean_r, source.std_r, reference.mean_r, reference.std_r),
+        ("g", source.mean_g, source.std_g, reference.mean_g, reference.std_g),
+        ("b", source.mean_b, source.std_b, reference.mean_b, reference.std_b),
+    ):
+        raw_ratio = (ref_std / source_std) if source_std >= 2.0 else 1.0
+        scale = _clamp_color(
+            1.0 + ((raw_ratio - 1.0) * COLOR_MATCH_STRENGTH),
+            COLOR_MATCH_SCALE_MIN,
+            COLOR_MATCH_SCALE_MAX,
+        )
+        target_mean = source_mean + ((ref_mean - source_mean) * COLOR_MATCH_STRENGTH)
+        offset = _clamp_color(
+            target_mean - (source_mean * scale),
+            -COLOR_MATCH_OFFSET_MAX,
+            COLOR_MATCH_OFFSET_MAX,
+        )
+        expressions.append(
+            f"{channel}='clip(val*{scale:.6f}{offset:+.6f},0,255)'"
+        )
+    return "lutrgb=" + ":".join(expressions)
 
 
 def _grade_clip_filter(path: Path) -> str:
-    """Return the restored legacy color-grade ffmpeg filter fragment for one
-    clip, or "" if Engine's grading module isn't importable here.
-
-    Reuses isco_video_agent.media.color.build_color_filter unmodified (a
-    small, dependency-free per-clip luma/saturation normalization) so every
-    clip - regardless of which stock provider it came from - reads as the
-    same restrained warm-neutral look instead of a jump-cut of mismatched
-    source grades. Optional: Clean V2 keeps rendering ungraded rather than
-    failing closed on a missing/measurement-failed dependency.
-    """
+    """Legacy fallback grade used only when reference matching cannot be measured."""
     try:
         from isco_video_agent.media.color import build_color_filter
     except Exception:
@@ -2202,6 +2351,145 @@ def _grade_clip_filter(path: Path) -> str:
         return ""
 
 
+def _build_reference_color_plan(
+    paths: list[Path],
+    output_dir: Path,
+) -> dict[str, str]:
+    """Measure once, choose one real reference, and return a constant filter per clip."""
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for raw in paths:
+        path = Path(raw)
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            unique.append(path)
+
+    measured: dict[str, _RgbStats] = {}
+    failures: dict[str, str] = {}
+    for path in unique:
+        try:
+            measured[str(path)] = _sample_rgb_stats(path)
+        except Exception as exc:
+            failures[path.name] = f"{type(exc).__name__}:{str(exc)[:120]}"
+
+    filters: dict[str, str] = {}
+    report: dict[str, Any] = {
+        "schema_version": 1,
+        "source": "clean-v2-reference-color-match-lite",
+        "provider_calls_added": 0,
+        "ai_calls_added": 0,
+        "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
+        "method": "bounded_rgb_mean_std_reference_match_v1",
+        "match_strength": COLOR_MATCH_STRENGTH,
+        "master_look": "warm_neutral_cube_v1",
+        "measured_clip_count": len(measured),
+        "failures": failures,
+    }
+
+    if len(measured) >= 2:
+        reference_key = _representative_reference(measured)
+        reference = measured[reference_key]
+        report["status"] = "applied"
+        report["reference_file"] = Path(reference_key).name
+        report["reference_stats"] = reference.as_dict()
+        rows: list[dict[str, Any]] = []
+        for path in unique:
+            key = str(path)
+            stats = measured.get(key)
+            if stats is None:
+                fragment = _grade_clip_filter(path)
+                filters[key] = fragment
+                rows.append(
+                    {
+                        "file": path.name,
+                        "mode": "legacy_fallback",
+                        "filter_applied": bool(fragment),
+                    }
+                )
+                continue
+            fragment = "" if key == reference_key else _reference_match_filter(stats, reference)
+            filters[key] = fragment
+            rows.append(
+                {
+                    "file": path.name,
+                    "mode": "reference" if key == reference_key else "reference_match",
+                    "stats": stats.as_dict(),
+                    "filter_applied": bool(fragment),
+                }
+            )
+        report["clips"] = rows
+    else:
+        report["status"] = "legacy_fallback"
+        report["reference_file"] = None
+        report["clips"] = []
+        for path in unique:
+            fragment = _grade_clip_filter(path)
+            filters[str(path)] = fragment
+            report["clips"].append(
+                {
+                    "file": path.name,
+                    "mode": "legacy_fallback",
+                    "filter_applied": bool(fragment),
+                }
+            )
+
+    try:
+        (Path(output_dir) / "color-match.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return filters
+
+
+def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, float]:
+    """One restrained warm-neutral look shared by every final frame."""
+    luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+    r = luma + ((r - luma) * MASTER_LOOK_SATURATION)
+    g = luma + ((g - luma) * MASTER_LOOK_SATURATION)
+    b = luma + ((b - luma) * MASTER_LOOK_SATURATION)
+
+    def contrast(value: float) -> float:
+        return 0.5 + ((value - 0.5) * MASTER_LOOK_CONTRAST)
+
+    return (
+        _clamp_color(contrast(r) + MASTER_LOOK_WARM_R, 0.0, 1.0),
+        _clamp_color(contrast(g) + MASTER_LOOK_WARM_G, 0.0, 1.0),
+        _clamp_color(contrast(b) + MASTER_LOOK_WARM_B, 0.0, 1.0),
+    )
+
+
+def _write_master_look_lut(path: Path) -> Path:
+    """Write a tiny deterministic Iridas .cube LUT; blue outer, red inner for FFmpeg."""
+    size = MASTER_LOOK_LUT_SIZE
+    if size < 2:
+        raise ValueError("master look LUT size must be at least 2")
+    lines = [
+        'TITLE "Isco Warm Neutral Master v1"',
+        f"LUT_3D_SIZE {size}",
+        "DOMAIN_MIN 0.0 0.0 0.0",
+        "DOMAIN_MAX 1.0 1.0 1.0",
+    ]
+    denominator = float(size - 1)
+    for b_index in range(size):
+        b = b_index / denominator
+        for g_index in range(size):
+            g = g_index / denominator
+            for r_index in range(size):
+                r = r_index / denominator
+                out_r, out_g, out_b = _master_look_value(r, g, b)
+                lines.append(f"{out_r:.7f} {out_g:.7f} {out_b:.7f}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="ascii")
+    return path
+
+
+def _ffmpeg_filter_path(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
 def _trim_and_grade_clip(
     source: Path,
     destination: Path,
@@ -2210,8 +2498,9 @@ def _trim_and_grade_clip(
     height: int,
     seconds: float,
     motion_mode: str | None = None,
+    grade_filter: str | None = None,
 ) -> Path:
-    grade = _grade_clip_filter(source)
+    grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
     if motion_mode:
         vf = f"{vf}," + _short_motion_filter(
@@ -2254,14 +2543,7 @@ def _trim_and_grade_clip(
 def _dissolve_pair(
     left: Path, right: Path, destination: Path, *, dissolve_seconds: float = COHESION_DISSOLVE_SECONDS
 ) -> Path:
-    """Crossfade two already-trimmed clips into one continuous segment.
-
-    Ports the Engine's own proven M9 technique (tpad each side by half the
-    dissolve, then xfade) rather than a fresh invention: extend-then-overlap
-    keeps total duration exactly left+right, verified below, so a section's
-    already-computed time budget never drifts because it now holds a soft
-    transition instead of a hard cut.
-    """
+    """Crossfade two already-trimmed clips into one continuous segment."""
     left_seconds = probe_duration(left)
     right_seconds = probe_duration(right)
     if left_seconds <= dissolve_seconds or right_seconds <= dissolve_seconds:
@@ -2321,16 +2603,9 @@ def _build_section_body_segments(
     height: int,
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
     short_motion_lite: bool = False,
+    grade_filters: Mapping[str, str] | None = None,
 ) -> list[Path]:
-    """Grade and trim every body clip, then dissolve adjacent clips that
-    share a section (visual pacing's own extra same-query coverage) into one
-    continuous per-section segment instead of a hard cut between them.
-
-    A section with only its one usual clip still gets graded/trimmed the
-    same way, just with nothing to dissolve - this is the single place body
-    clips pass through before the final concat, so every clip in the video
-    gets the same treatment regardless of section length.
-    """
+    """Match/trim every body clip, then dissolve adjacent same-section clips."""
     work_dir.mkdir(parents=True, exist_ok=True)
     groups: list[list[int]] = []
     if section_ids is None:
@@ -2351,9 +2626,15 @@ def _build_section_body_segments(
     for group_index, group in enumerate(groups):
         trimmed: list[Path] = []
         for member_index, clip_index in enumerate(group):
+            source = paths[clip_index]
+            grade_filter = (
+                grade_filters.get(str(source), "")
+                if grade_filters is not None
+                else None
+            )
             trimmed.append(
                 _trim_and_grade_clip(
-                    paths[clip_index],
+                    source,
                     work_dir / f"trim-{group_index:02d}-{member_index:02d}.mp4",
                     width=width,
                     height=height,
@@ -2363,6 +2644,7 @@ def _build_section_body_segments(
                         if short_motion_lite
                         else None
                     ),
+                    grade_filter=grade_filter,
                 )
             )
         merged = trimmed[0]
@@ -2375,9 +2657,6 @@ def _build_section_body_segments(
                     dissolve_seconds=dissolve_seconds,
                 )
             except RuntimeError:
-                # A sub-clip too short for a timing-preserving crossfade
-                # keeps its hard cut rather than blocking the render over a
-                # pacing polish - concat filter below handles plain joins.
                 segments.append(merged)
                 merged = trimmed[member_index]
         segments.append(merged)
