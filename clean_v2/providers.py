@@ -26,8 +26,15 @@ MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 - The first spoken sentence (Hook) must be one complete natural Arabic sentence, preferably 8-16 words and NEVER more than 18.
 - Count words exactly like the validator: split the first sentence on whitespace; each non-empty item is one word, even when punctuation is attached.
 - Preserve grammar, approved factual meaning, and the information gap; do not shorten by deleting context needed for comprehension.
-- Preflight algorithm: isolate s1 first sentence -> split on spaces -> count -> if count > 18, rewrite it more densely without fragmenting the sentence -> count again -> only then return JSON.
-- Do not rely on downstream trimming to fix an overlong Hook.
+- Hook preflight: isolate s1 first sentence -> split on spaces -> count -> if count > 18, rewrite it more densely without fragmenting the sentence -> count again.
+
+MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
+- Isolate s3 and split it into complete sentences.
+- Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
+- Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
+- Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
+- Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero. If any count fails, rewrite s3 completely and repeat the checks before returning JSON.
+- Do not rely on downstream repair or trimming to fix Hook or s3.
 """.strip()
 
 
