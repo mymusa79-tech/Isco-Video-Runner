@@ -636,6 +636,14 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
 def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
     if scope not in SCOPES:
         raise RuntimeError("unsupported scope")
+    obsolete_at = utc_now()
+    for existing_session in state.get("sessions", {}).values():
+        if (
+            isinstance(existing_session, dict)
+            and not existing_session.get("closed_at")
+            and not existing_session.get("obsolete_at")
+        ):
+            existing_session["obsolete_at"] = obsolete_at
     historical = [
         str(item.get("title") or "")
         for item in state.get("ideas", [])

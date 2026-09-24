@@ -509,6 +509,27 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("شورت مستقل", instruction)
         self.assertNotEqual(instruction, control._scope_research_instruction("long"))
 
+    def test_new_research_obsoletes_previous_unselected_results(self):
+        state = control.default_state()
+        state["sessions"]["old"] = {
+            "session_id": "old",
+            "scope": "long",
+            "idea_ids": [],
+            "created_at": control.utc_now(),
+        }
+        rows = [{"title": "فكرة جديدة كليًا", "market_query": "فكرة جديدة", "reason": "سبب"}]
+        evidence = {
+            "sample_count": 1,
+            "distinct_channels": 1,
+            "top_samples": [{"video_id": "v1", "title": "مصدر", "channel": "قناة"}],
+        }
+        with mock.patch.object(control, "_candidate_pool", return_value=rows), mock.patch.object(
+            control, "market_evidence", return_value=(0.8, evidence)
+        ):
+            result = control.research(state, "short")
+        self.assertIn("obsolete_at", state["sessions"]["old"])
+        self.assertNotEqual(result["session_id"], "old")
+
 
 if __name__ == "__main__":
     unittest.main()
