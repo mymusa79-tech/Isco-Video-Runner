@@ -47,8 +47,8 @@ def inject_spoken_identity(
 ) -> None:
     """Keep the approved spoken order: hook -> prayer -> channel definition -> topic.
 
-    Intro is visual-only and is inserted later at exactly the hook boundary. The spoken
-    prayer/definition therefore remain part of the narration rather than an external card.
+    Visual identity is timed later from measured voice-unit boundaries inside Timeline First;
+    nothing is appended after the final render or allowed to extend narration duration.
     """
     if fmt not in {"short", "film"} or not sections:
         return
