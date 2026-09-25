@@ -2628,8 +2628,14 @@ def _validate_script_for_brief(
     value: Any,
     plan: Mapping[str, Any],
     brief: Mapping[str, Any],
+    *,
+    require_hook_visual_query: bool = False,
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
+    if require_hook_visual_query and not str(
+        script.get("hook_visual_query_en") or ""
+    ).strip():
+        raise ValueError("fresh script requires hook_visual_query_en")
     if str(brief.get("format") or "") == "short":
         # A 1-2 word hook overrun may be repaired locally only at a conservative natural
         # boundary. Unsafe continuous sentences remain hard contract failures so the
@@ -3512,7 +3518,10 @@ class CleanV2Pipeline:
                         ),
                         max_tokens=7500 if brief["format"] == "film" else 2500,
                         validator=lambda value: _validate_script_for_brief(
-                            value, plan, brief
+                            value,
+                            plan,
+                            brief,
+                            require_hook_visual_query=True,
                         ),
                     ),
                 )
