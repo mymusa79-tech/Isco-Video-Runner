@@ -110,7 +110,19 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 "end": 3.0,
                 "text": "لماذا يضيع وقتك دون أن تشعر كل يوم",
                 "role": "hook",
-            }
+            },
+            {
+                "start": 3.0,
+                "end": 5.0,
+                "text": "التشتت يسرق انتباهك بهدوء",
+                "role": "beat",
+            },
+            {
+                "start": 5.0,
+                "end": 7.0,
+                "text": "ابدأ بخطوة واحدة واضحة",
+                "role": "payoff",
+            },
         ]
         ass = text_module.build_rich_ass(events)
         self.assertIn(text_module.PRIMARY_ASS, ass)
