@@ -40,7 +40,7 @@ from clean_v2.media import (
     _expand_short_visual_sequence,
     VoiceInfrastructureError,
 )
-from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
+from clean_v2.providers import ProviderAdapter, ProviderRouter, _provider_prompt, _safe_validator_reason
 from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
@@ -170,6 +170,44 @@ _TEMPLATE_FIXTURES = {
         ],
     },
 }
+
+
+class ShortMistralS3PromptClarityTests(unittest.TestCase):
+    def test_mistral_script_prompt_teaches_one_validator_true_good_bad_pair(self) -> None:
+        base = "SHORT_FORMAT_CONTRACT:\nbase contract"
+        prompt = _provider_prompt(base, provider="mistral", stage="script")
+        self.assertIn(
+            'GOOD s3: "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن."',
+            prompt,
+        )
+        self.assertIn(
+            'BAD s3: "الكتابة البسيطة تقلل الاحتكاك. لذلك، اكتب مهمة واحدة تستطيع إنهاءها الآن."',
+            prompt,
+        )
+        self.assertIn('begins immediately with the single allowlisted imperative "اكتب"', prompt)
+        self.assertIn('begins with "لذلك" instead of beginning directly with the imperative', prompt)
+        self.assertEqual(_provider_prompt(base, provider="groq", stage="script"), base)
+
+        report = validate_short_script(
+            {
+                "sections": [
+                    {
+                        "id": "s1",
+                        "narration": "أحيانًا تعرف ما تريد فعله، لكنك تبقى مكانك لأن البداية تبدو أثقل من المهمة.",
+                    },
+                    {
+                        "id": "s2",
+                        "narration": "السبب ليس غياب الرغبة دائمًا، بل أن المهمة الكبيرة ترفع الاحتكاك قبل أول خطوة.",
+                    },
+                    {
+                        "id": "s3",
+                        "narration": "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن.",
+                    },
+                ]
+            }
+        )
+        self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
 
 
 class ShortTemplateSelectionTests(unittest.TestCase):
