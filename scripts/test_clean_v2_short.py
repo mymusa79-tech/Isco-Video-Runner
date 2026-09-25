@@ -813,7 +813,7 @@ class ShortContractTests(unittest.TestCase):
             "query": "quiet reflective person by window",
         }
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            source, "_pexels", return_value=pexels
+            source, "_pexels", side_effect=[pexels, None]
         ), mock.patch.object(
             source, "_pixabay", return_value=pixabay
         ), mock.patch(
