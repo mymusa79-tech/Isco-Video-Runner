@@ -2844,8 +2844,8 @@ outside the approved brief and its research_pack. Use {section_requirement} for 
 English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
 words: one observable action OR one simple setting, plus only the few composition/light cues that
 materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
-only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never
-cut mid-thought), and keep each visual query concise and at most 260 characters. Keep the whole video's
+only instead of relying on a negative "no faces" suffix. Keep every section purpose complete; never cut mid-thought,
+and keep each visual query concise and at most 260 characters. Keep the whole video's
 stock searches inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
 soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
 itself requires them. Prefer environments, hands, objects, routines, and wide shots without
