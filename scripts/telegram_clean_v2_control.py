@@ -18,11 +18,12 @@ from typing import Any
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
-SCOPES = {"long", "bundle", "short"}
+SCOPES = {"long", "bundle", "short", "podcast"}
 FORMATS_BY_SCOPE = {
     "long": ["film"],
     "bundle": ["film", "short"],
     "short": ["short"],
+    "podcast": ["podcast"],
 }
 MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
@@ -548,6 +549,12 @@ def _scope_research_instruction(scope: str) -> str:
             "كل فكرة يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح، "
             "وفي الوقت نفسه تسمح باشتقاق شورت مستقل وقوي منها دون إعادة صياغة الحلقة كاملة."
         )
+    if scope == "podcast":
+        return (
+            "اختر أفكار بودكاست غير سطحية: لكل فكرة سؤال مركزي حقيقي، زاوية غير مبتذلة، "
+            "وتطور فكري أو سردي واضح لا يمكن اختزاله في نصيحة قصيرة. تجنب العناوين العامة "
+            "والقوائم التحفيزية؛ يجب أن تستحق الفكرة الاستماع لحلقة كاملة وأن تعمل صوتيًا وحدها."
+        )
     return "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
 
 
@@ -837,6 +844,7 @@ def scope_keyboard() -> list[list[dict[str, str]]]:
         [{"text": "🎬 Long فقط", "callback_data": "scope:long"}],
         [{"text": "🎬➕⚡ Long + Short", "callback_data": "scope:bundle"}],
         [{"text": "⚡ Short فقط", "callback_data": "scope:short"}],
+        [{"text": "🎙️ Podcast", "callback_data": "scope:podcast"}],
     ]
 
 
@@ -872,7 +880,7 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
 
 
 def render_selection_confirmation(request: dict[str, Any]) -> str:
-    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط"}[str(request["scope"])]
+    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط", "podcast": "بودكاست"}[str(request["scope"])]
     pack = [item for item in request.get("research_pack", []) if isinstance(item, dict)]
     lines = [
         "✅ تم اختيار الفكرة وحفظ مصادر البحث",
@@ -928,6 +936,7 @@ def render_production_status(runtime: dict[str, Any]) -> str:
         "long": "🎬 فيديو طويل",
         "short": "⚡ شورت",
         "bundle": "🎬 طويل + ⚡ شورت",
+        "podcast": "🎙️ بودكاست",
     }.get(str(runtime.get("scope") or ""), "إنتاج")
     kind = str(runtime.get("kind") or "")
     if str(runtime.get("scope") or "") == "bundle" and kind:
@@ -996,7 +1005,11 @@ def latest_release_delivery() -> dict[str, str]:
                 break
         if not direct_url:
             continue
-        kind = "short" if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "short-") else "long"
+        kind = (
+            "short"
+            if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "short-")
+            else ("podcast" if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "podcast-") else "long")
+        )
         name = str(release.get("name") or "").strip()
         topic = name.split(" — ", 1)[1].strip() if " — " in name else ""
         return {
@@ -1012,7 +1025,7 @@ def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[s
     if not isinstance(delivery, dict) or not delivery:
         return "⚪ لا يوجد إنتاج ناجح محفوظ بعد.", None
     kind = str(delivery.get("kind") or "")
-    scope_label = "⚡ شورت" if kind == "short" else "🎬 فيديو طويل"
+    scope_label = "⚡ شورت" if kind == "short" else ("🎙️ بودكاست" if kind == "podcast" else "🎬 فيديو طويل")
     topic = str(delivery.get("topic") or "").strip()
     url = str(delivery.get("browser_download_url") or "").strip()
     lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
@@ -1166,7 +1179,10 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "language": "ar",
         "audience": "Arabic-speaking adults",
         "editorial_intent": (
-            "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، "
+            "بودكاست عربي فصيح طبيعي لراوية أنثوية محايدة، عميق وغير سطحي، "
+            "يتقدم فكريًا دون حشو أو تجارب شخصية مختلقة، ويظل مفهومًا صوتيًا دون الصورة."
+            if fmt == "podcast"
+            else "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، "
             "مع تجنب المبالغة والادعاءات غير المدعومة."
         ),
         "research_pack": list(request.get("research_pack") or []),
@@ -1174,6 +1190,11 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
             "No fabricated facts.",
             "Use research_pack only within each source claim_scope.",
             "One natural Arabic narrator only.",
+            *(
+                ["Podcast narration uses one neutral female narrator and must not invent first-person experiences."]
+                if fmt == "podcast"
+                else []
+            ),
             *(["Complete Short must not exceed 30 seconds."] if fmt == "short" else []),
         ],
     }
@@ -1211,7 +1232,7 @@ def main() -> int:
     brief.add_argument("--state", type=Path, required=True)
     brief.add_argument("--request-id", required=True)
     brief.add_argument("--request-sha256", required=True)
-    brief.add_argument("--format", choices=("film", "short"), required=True)
+    brief.add_argument("--format", choices=("film", "short", "podcast"), required=True)
     brief.add_argument("--output", type=Path, required=True)
 
     args = parser.parse_args()
