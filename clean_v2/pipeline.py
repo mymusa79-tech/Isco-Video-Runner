@@ -891,6 +891,52 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
     return (match.group(0) if match else narration).strip()[:600]
 
 
+def _hook_aligned_visual_plan(
+    plan: Mapping[str, Any],
+    visual_story: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind the first visual beat/query to the exact authored hook with no extra AI call."""
+    aligned_plan = copy.deepcopy(dict(plan))
+    aligned_story = copy.deepcopy(dict(visual_story))
+    hook_query = " ".join(
+        str(script.get("hook_visual_query_en") or "").split()
+    ).strip()
+    if not hook_query:
+        aligned_plan["visual_story"] = aligned_story
+        return aligned_plan, aligned_story
+
+    sections = aligned_plan.get("sections") or []
+    if not isinstance(sections, list) or not sections or not isinstance(sections[0], dict):
+        raise RuntimeError("hook visual alignment requires a first planned section")
+    first_section_id = str(sections[0].get("id") or "").strip()
+    if not first_section_id:
+        raise RuntimeError("hook visual alignment requires a first section id")
+
+    sections[0]["visual_query_en"] = hook_query
+    hook_text = _first_spoken_sentence(script)
+    beats = aligned_story.get("beats") or []
+    aligned = False
+    if isinstance(beats, list):
+        for beat in beats:
+            if (
+                isinstance(beat, dict)
+                and str(beat.get("section_id") or "").strip() == first_section_id
+            ):
+                beat["shot_intent"] = hook_query
+                if hook_text:
+                    beat["viewer_intent"] = (
+                        "Immediately understand the exact hook tension: " + hook_text
+                    )[:600]
+                aligned = True
+                break
+    if not aligned:
+        raise RuntimeError("hook visual alignment found no first-section visual beat")
+
+    aligned_plan["visual_story"] = aligned_story
+    return aligned_plan, aligned_story
+
+
 def _closing_payoff_for_tone_audit(
     script: Mapping[str, Any],
     *,
