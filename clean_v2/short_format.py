@@ -607,6 +607,102 @@ def _practical_action_marker_count(text: object) -> int:
     )
 
 
+_SAFE_S3_ACTION_PREFIX_KEYS = frozenset({
+    _semantic_key(item)
+    for item in (
+        "الآن",
+        "الان",
+        "ثم",
+        "لذلك",
+        "لذا",
+        "وهنا",
+        "هنا",
+    )
+})
+
+
+def apply_safe_short_s3_action_prefix_trim(script: dict[str, Any]) -> bool:
+    """Remove only a harmless discourse prefix before the one recognized action."""
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    original = sections[2].get("narration")
+    s3 = _clean(original)
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", s3)
+        if item.strip()
+    ]
+    counts = [_practical_action_marker_count(item) for item in sentences]
+    action_indexes = [index for index, count in enumerate(counts) if count]
+    if len(action_indexes) != 1 or counts[action_indexes[0]] != 1:
+        return False
+
+    index = action_indexes[0]
+    sentence = sentences[index]
+    if _sentence_begins_with_direct_action(sentence):
+        return False
+
+    spans: list[tuple[int, int]] = []
+    for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS):
+        spans.extend(
+            match.span()
+            for match in re.finditer(
+                _practical_action_pattern(marker), sentence, flags=re.I
+            )
+        )
+    spans = sorted(set(spans))
+    if len(spans) != 1:
+        return False
+
+    action_start = spans[0][0]
+    raw_prefix = sentence[:action_start].strip(" 	،,؛;:-")
+    prefix_words = [
+        _semantic_key(word)
+        for word in raw_prefix.split()
+        if _semantic_key(word)
+    ]
+    if not prefix_words or any(
+        word not in _SAFE_S3_ACTION_PREFIX_KEYS for word in prefix_words
+    ):
+        return False
+
+    repaired_sentence = sentence[action_start:].lstrip()
+    if not _sentence_begins_with_direct_action(repaired_sentence):
+        return False
+
+    repaired = list(sentences)
+    repaired[index] = repaired_sentence
+    candidate = " ".join(repaired).strip()
+    sections[2]["narration"] = candidate
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return True
+
+
+def normalize_short_script_candidate(script: dict[str, Any]) -> dict[str, bool]:
+    """Canonical deterministic Short normalization used at every script boundary."""
+    hook_trimmed = apply_safe_short_hook_trim(script)
+    action_prefix_trimmed = apply_safe_short_s3_action_prefix_trim(script)
+    s3_trimmed = apply_safe_short_s3_single_action_trim(script)
+    action_prefix_trimmed_after_s3 = apply_safe_short_s3_action_prefix_trim(script)
+    return {
+        "hook_trimmed": bool(hook_trimmed),
+        "s3_action_prefix_trimmed": bool(
+            action_prefix_trimmed or action_prefix_trimmed_after_s3
+        ),
+        "s3_trimmed": bool(s3_trimmed),
+    }
+
+
 def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
     """Remove one clearly separated extra s3 command; otherwise stay fail-closed."""
     sections = script.get("sections")
