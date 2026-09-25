@@ -351,6 +351,7 @@ def build_voice_owned_timeline(
         measured_units,
         voice_seconds=voice_seconds,
         require_identity=require_identity,
+        fmt=fmt,
     )
     identities = [
         {
