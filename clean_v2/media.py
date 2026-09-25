@@ -1043,6 +1043,77 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+_STOCK_RETRIEVAL_DROP_TERMS = {
+    "a", "an", "the", "by", "at", "in", "on", "with", "near", "and", "of",
+    "from", "into", "during", "sitting", "seated", "standing", "walking",
+    "looking", "watching", "thinking", "pensively", "reflecting", "resting",
+    "focused", "focus", "alone", "then", "before", "after", "while",
+    "eventually", "finally", "slowly", "suddenly", "starting", "starts",
+    "started", "start", "beginning", "begins", "began", "pick", "picks",
+    "picked", "picking", "up", "down", "smile", "smiles", "smiling",
+    "contemplative", "thoughtful", "expression", "gaze", "turning", "turns",
+    "moving", "moves", "cinematic", "shot", "portrait", "vertical",
+    "realistic", "grounded", "aesthetic", "subtle", "medium", "close",
+    "closeup", "lighting", "atmospheric", "documentary", "style", "minimalist",
+    "their", "his", "her", "person", "people", "man", "men", "woman", "women",
+    "boy", "boys", "girl", "girls", "male", "female", "couple", "adult",
+    "teenager", "worker", "student",
+}
+_STOCK_RETRIEVAL_SAFE_TERMS = {
+    "hand", "hands", "back", "backs", "behind", "silhouette", "silhouettes",
+    "shadow", "shadows", "faceless", "anonymous", "objects",
+}
+
+# Reuse one extra already-ranked provider candidate only when the first downloaded
+# clip is locally unusable (download/security/near-monochrome). Common successful
+# paths still stop after candidate one, so this adds no AI call and no routine work.
+PRIMARY_STOCK_CANDIDATES_PER_PROVIDER = 2
+
+
+def _english_stock_query_or_empty(value: object) -> str:
+    """Return a normalized English/ASCII stock phrase or an empty fallback signal."""
+    normalized = " ".join(str(value or "").split()).strip()
+    if (
+        not normalized
+        or not normalized.isascii()
+        or re.search(r"[A-Za-z]", normalized) is None
+    ):
+        return ""
+    return normalized
+
+
+def _compact_stock_retrieval_query(query: str) -> str:
+    """Run212-inspired search-only compaction with zero provider/AI cost.
+
+    Planning and Visual QA keep the full semantic intent. Only the provider search
+    phrase is shortened when it drifts into a sentence/shot-list shape. This removes
+    non-retrieval filler while keeping the first concrete semantic anchors and, when
+    present, one face-safe framing cue. Good concise queries pass through unchanged.
+    """
+    normalized = " ".join(str(query or "").split()).strip()
+    tokens = re.findall(r"[a-z0-9]+", normalized.casefold())
+    if len(tokens) <= 12:
+        return normalized
+
+    kept = [
+        token
+        for token in tokens
+        if token not in _STOCK_RETRIEVAL_DROP_TERMS
+    ]
+    compact = list(dict.fromkeys(kept))
+    if len(compact) < 2:
+        return normalized
+
+    selected = compact[:8]
+    safe = next(
+        (token for token in compact if token in _STOCK_RETRIEVAL_SAFE_TERMS),
+        None,
+    )
+    if safe and safe not in selected:
+        selected[-1] = safe
+    return " ".join(selected)
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -1347,23 +1418,47 @@ class StockVisualSource:
             else []
         )
         beats: list[dict[str, Any]] = []
+        section_beat_counts: dict[str, int] = {}
         for index, raw_beat in enumerate(raw_beats, start=1):
             if not isinstance(raw_beat, Mapping):
                 continue
             section_id = str(raw_beat.get("section_id") or "").strip()
             if section_id not in section_by_id:
                 continue
+            section = section_by_id[section_id]
             shot_intent = str(raw_beat.get("shot_intent") or "").strip()
             if not shot_intent:
-                shot_intent = str(
-                    section_by_id[section_id].get("visual_query_en") or ""
-                ).strip()
+                shot_intent = str(section.get("visual_query_en") or "").strip()
+            beat_ordinal = section_beat_counts.get(section_id, 0)
+            primary_query = str(section.get("visual_query_en") or "").strip()
+            alternate_query = str(section.get("visual_query_alt_en") or "").strip()
+            fallback_query = (
+                alternate_query
+                if beat_ordinal % 2 == 1 and alternate_query
+                else primary_query
+            )
+            section_beat_counts[section_id] = beat_ordinal + 1
+
+            # A visual beat owns the actual scene meaning. When its shot_intent is
+            # already an English stock-friendly phrase, retrieve against that exact
+            # beat instead of a looser section-level query. Localized/non-ASCII
+            # semantic intent falls back to the section's validated English query.
+            stock_query_en = (
+                _english_stock_query_or_empty(shot_intent)
+                or fallback_query
+            )
+            if not stock_query_en:
+                continue
             beats.append(
                 {
                     "id": str(raw_beat.get("id") or f"b{index}").strip(),
                     "section_id": section_id,
                     "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
+                    # shot_intent stays semantic story context. Stock retrieval uses
+                    # Planning's dedicated English query boundary below so a localized
+                    # story description can never leak into Security V1 search input.
                     "shot_intent": shot_intent,
+                    "stock_query_en": stock_query_en,
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
                     ).strip(),
@@ -1380,6 +1475,7 @@ class StockVisualSource:
                         "section_id": str(section.get("id") or ""),
                         "viewer_intent": str(section.get("purpose") or "").strip(),
                         "shot_intent": str(section.get("visual_query_en") or "").strip(),
+                        "stock_query_en": str(section.get("visual_query_en") or "").strip(),
                         "source_preference": "stock_motion",
                     }
                 )
@@ -1392,82 +1488,85 @@ class StockVisualSource:
             auxiliary: bool,
         ) -> bool:
             for finder in (self._pexels, self._pixabay):
-                candidate = finder(query, portrait=portrait)
-                if candidate is None:
-                    continue
-                destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
-                try:
-                    _download_media(str(candidate["download_url"]), destination)
-                except Exception as exc:
-                    self._event(
-                        str(candidate["provider"]),
-                        query,
-                        "download_failed",
-                        wire_attempted=True,
-                        reason=str(exc)[:80],
+                for _candidate_attempt in range(PRIMARY_STOCK_CANDIDATES_PER_PROVIDER):
+                    candidate = finder(query, portrait=portrait)
+                    if candidate is None:
+                        break
+                    destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+                    try:
+                        _download_media(str(candidate["download_url"]), destination)
+                    except Exception as exc:
+                        self._event(
+                            str(candidate["provider"]),
+                            query,
+                            "download_failed",
+                            wire_attempted=True,
+                            reason=str(exc)[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        continue
+                    if self.media_preflight is not None:
+                        blocked = self.media_preflight(destination)
+                        if blocked is not None:
+                            self._event(
+                                str(candidate["provider"]),
+                                query,
+                                "security_blocked",
+                                wire_attempted=False,
+                                reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                            )
+                            destination.unlink(missing_ok=True)
+                            continue
+                    if fmt == "short":
+                        color_ok, color_reason = _short_visual_color_compatible(destination)
+                        if not color_ok:
+                            self._event(
+                                str(candidate["provider"]),
+                                query,
+                                "color_rejected",
+                                wire_attempted=False,
+                                reason=color_reason,
+                            )
+                            destination.unlink(missing_ok=True)
+                            continue
+                    if self.media_transform is not None:
+                        destination = Path(self.media_transform(destination))
+                    candidate = {
+                        key: value
+                        for key, value in candidate.items()
+                        if key != "download_url"
+                    }
+                    candidate["local_file"] = destination.name
+                    candidate["section_id"] = section_id
+                    candidate["beat_id"] = str(beat.get("id") or "")
+                    candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
+                    candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                    # Marker only. Even ai_still preference still uses the current
+                    # stock-motion source in Phase B; no AI-image provider is activated.
+                    candidate["source_preference"] = str(
+                        beat.get("source_preference") or "stock_motion"
                     )
-                    continue
-                if self.media_preflight is not None:
-                    blocked = self.media_preflight(destination)
-                    if blocked is not None:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "security_blocked",
-                            wire_attempted=False,
-                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if fmt == "short":
-                    color_ok, color_reason = _short_visual_color_compatible(destination)
-                    if not color_ok:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "color_rejected",
-                            wire_attempted=False,
-                            reason=color_reason,
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if self.media_transform is not None:
-                    destination = Path(self.media_transform(destination))
-                candidate = {
-                    key: value
-                    for key, value in candidate.items()
-                    if key != "download_url"
-                }
-                candidate["local_file"] = destination.name
-                candidate["section_id"] = section_id
-                candidate["beat_id"] = str(beat.get("id") or "")
-                candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
-                candidate["shot_intent"] = str(beat.get("shot_intent") or query)
-                # Marker only. Even ai_still preference still uses the current
-                # stock-motion source in Phase B; no AI-image provider is activated.
-                candidate["source_preference"] = str(
-                    beat.get("source_preference") or "stock_motion"
-                )
-                candidate["source_actual"] = "stock_motion"
-                if auxiliary:
-                    # Keep this compatibility flag because existing render/opening
-                    # code uses it to distinguish the first section visual. Its cause
-                    # is now a real story beat, not timing-based pacing.
-                    candidate["pacing_auxiliary"] = True
-                    candidate["story_beat_auxiliary"] = True
-                clips.append(destination)
-                rights.append(candidate)
-                return True
+                    candidate["source_actual"] = "stock_motion"
+                    if auxiliary:
+                        # Keep this compatibility flag because existing render/opening
+                        # code uses it to distinguish the first section visual. Its cause
+                        # is now a real story beat, not timing-based pacing.
+                        candidate["pacing_auxiliary"] = True
+                        candidate["story_beat_auxiliary"] = True
+                    clips.append(destination)
+                    rights.append(candidate)
+                    return True
             return False
 
         seen_sections: set[str] = set()
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
-            query = str(beat.get("shot_intent") or "").strip()
+            query = str(beat.get("stock_query_en") or "").strip()
             if not query:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+            query = _compact_stock_retrieval_query(query)
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
