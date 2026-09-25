@@ -40,8 +40,7 @@ from .structural_ai import structural_ai_flags
 from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
-    apply_safe_short_hook_trim,
-    apply_safe_short_s3_single_action_trim,
+    normalize_short_script_candidate,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -969,16 +968,21 @@ def _run_legacy_tone_naturalness_audit(
 
     api_key = _read_secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
+    identity_path = output_dir / "narrative-identity.json"
+    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    audit_script = _script_without_trusted_identity(script, trusted_identity)
     production_plan = _build_production_plan_for_audit(
         brief=brief,
         plan=plan,
-        script=script,
+        script=audit_script,
     )
-    identity_path = output_dir / "narrative-identity.json"
-    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
-    production_plan.hook = _first_spoken_sentence(script)
+    production_plan.hook = _first_spoken_sentence(audit_script)
     production_plan.closing_payoff = (
-        _closing_payoff_for_tone_audit(script, identity=identity)
+        _closing_payoff_for_tone_audit(audit_script)
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -996,6 +1000,8 @@ def _run_legacy_tone_naturalness_audit(
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-tone-naturalness-audit",
+        "trusted_identity_excluded_from_model_judgment": True,
+        "trusted_identity": list(trusted_identity),
         **result,
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
@@ -2631,11 +2637,9 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     if str(brief.get("format") or "") == "short":
-        # A 1-2 word hook overrun may be repaired locally only at a conservative natural
-        # boundary. Unsafe continuous sentences remain hard contract failures so the
-        # bounded provider route can continue exactly as before.
-        apply_safe_short_hook_trim(script)
-        apply_safe_short_s3_single_action_trim(script)
+        # One deterministic owner repairs only certified local Short shapes, then
+        # the unchanged strict validators decide acceptance for every provider.
+        normalize_short_script_candidate(script)
         validate_short_hook_contract(script)
         validate_short_script(script)
     return script
@@ -3604,10 +3608,10 @@ class CleanV2Pipeline:
                 item["narration"] for item in script["sections"]
             )
             if str(brief["format"]) == "short":
-                # A bounded text repair can re-introduce a second explicit action.
-                # Reuse the same conservative local normalizer used at initial
-                # script acceptance, then keep the unchanged strict validator.
-                apply_safe_short_s3_single_action_trim(script)
+                # Any bounded repair re-enters the same canonical Short gate used
+                # for initial provider acceptance; no stage owns a private variant.
+                normalize_short_script_candidate(script)
+                validate_short_hook_contract(script)
                 validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
