@@ -60,6 +60,8 @@ from clean_v2.short_timed_text import (
     BODY_FONT_SIZE,
     CAPTION_MAX_WORDS,
     CAPTION_MIN_WORDS,
+    DEPTH_FAR_OFFSET_PX,
+    DEPTH_NEAR_OFFSET_PX,
     FOCUS_FONT,
     FOCUS_FONT_SIZE,
     MAX_DARK_SLATES,
@@ -1170,13 +1172,16 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
         self.assertGreaterEqual(BODY_FONT_SIZE, 110)
+        self.assertIn("Style: CaptionDepth", ass)
         self.assertIn("Style: Caption", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(r"{\c&H0000D4FF}", ass)
         self.assertIn(r"\fscx98\fscy98", ass)
+        self.assertIn(f"\\pos({540 + DEPTH_NEAR_OFFSET_PX},{1360 + DEPTH_NEAR_OFFSET_PX})", ass)
+        self.assertIn(f"\\pos({540 + DEPTH_FAR_OFFSET_PX},{1360 + DEPTH_FAR_OFFSET_PX})", ass)
         self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events))
+        self.assertGreaterEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertNotIn("drawbox", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
