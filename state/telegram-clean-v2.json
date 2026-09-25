@@ -581,7 +581,25 @@
         "likes": 3,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-09-25T23:16:30Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 62,
+      "hidden_subscribers": false,
+      "total_views": 39402,
+      "video_count": 141,
+      "last_long": null,
+      "last_short": {
+        "video_id": "occc21UTPec",
+        "title": "نسخة أضعف من نفسك",
+        "published_at": "2026-09-23T17:00:25Z",
+        "duration_seconds": 7,
+        "views": 135,
+        "likes": 3,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-09-25T17:29:08Z"
+  "updated_at": "2026-09-25T23:16:30Z"
 }
