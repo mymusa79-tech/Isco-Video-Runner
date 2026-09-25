@@ -194,6 +194,17 @@ class UnifiedVisualStoryContextTests(unittest.TestCase):
         self.assertLessEqual(len(intent), 300)
 
 
+class DeterministicNoFaceRecoveryQueryTests(unittest.TestCase):
+    def test_back_view_laptop_query_becomes_hands_only_retrieval_shape(self) -> None:
+        query = visual_qa_module._deterministic_no_face_recovery_query(
+            "back view cluttered desk laptop open fingers hovering"
+        )
+        self.assertEqual(query, "hands cluttered desk laptop keyboard open hovering")
+        self.assertNotIn("person", query)
+        self.assertNotIn("back", query)
+        self.assertLessEqual(len(query.split()), 8)
+
+
 class VisualSafetyRegressionTests(unittest.TestCase):
     def test_no_face_force_block_is_still_fail_closed(self) -> None:
         audit = {
