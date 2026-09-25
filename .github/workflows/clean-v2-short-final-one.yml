@@ -190,7 +190,48 @@ jobs:
               validator=lambda value: _validate_plan_for_brief(value, brief),
           )
           plan, story = _persist_planning_artifacts(root, planned)
-          acquisition_plan = {**plan, "visual_story": story}
+
+          # Preview experiment only: Pexels/Pixabay search quality falls sharply when
+          # a planner emits a 25-30 word shot list. Keep the full semantic plan intact
+          # for QA, but make the provider query a compact search phrase locally.
+          def compact_stock_query(value: str, max_words: int = 18) -> str:
+              text = " ".join(
+                  str(value or "")
+                  .replace(",", " ")
+                  .replace(";", " ")
+                  .split()
+              )
+              words = text.split()
+              if len(words) <= max_words:
+                  return text
+              head = words[:14]
+              tail = words[-4:]
+              seen = {word.casefold() for word in head}
+              suffix = [word for word in tail if word.casefold() not in seen]
+              return " ".join((head + suffix)[:max_words])
+
+          acquisition_sections = []
+          for section in plan["sections"]:
+              row = dict(section)
+              row["visual_query_en"] = compact_stock_query(row.get("visual_query_en", ""))
+              if row.get("visual_query_alt_en"):
+                  row["visual_query_alt_en"] = compact_stock_query(
+                      row.get("visual_query_alt_en", "")
+                  )
+              acquisition_sections.append(row)
+          acquisition_plan = {
+              **plan,
+              "sections": acquisition_sections,
+              "visual_story": story,
+          }
+          (root / "visual-preview-query-plan.json").write_text(
+              json.dumps(
+                  {"sections": acquisition_sections},
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
 
           # For a visual-only diagnostic, section purpose is sufficient narration
           # context for the cloud visual judge. No voice/script generation is needed.
@@ -321,6 +362,7 @@ jobs:
           test "$(jq -r .planned_section_count "$CLEAN_V2_OUTPUT/visual-preview-result.json")" = "3"
           test "$(jq -r .selected_clip_count "$CLEAN_V2_OUTPUT/visual-preview-result.json")" -ge 3
           test -s "$CLEAN_V2_OUTPUT/visual-story.json"
+          test -s "$CLEAN_V2_OUTPUT/visual-preview-query-plan.json"
           test -s "$CLEAN_V2_OUTPUT/rights-manifest.json"
           test -s "$CLEAN_V2_OUTPUT/visual-source-events.json"
 
