@@ -1043,6 +1043,60 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+_STOCK_RETRIEVAL_DROP_TERMS = {
+    "a", "an", "the", "by", "at", "in", "on", "with", "near", "and", "of",
+    "from", "into", "during", "sitting", "seated", "standing", "walking",
+    "looking", "watching", "thinking", "pensively", "reflecting", "resting",
+    "focused", "focus", "alone", "then", "before", "after", "while",
+    "eventually", "finally", "slowly", "suddenly", "starting", "starts",
+    "started", "start", "beginning", "begins", "began", "pick", "picks",
+    "picked", "picking", "up", "down", "smile", "smiles", "smiling",
+    "contemplative", "thoughtful", "expression", "gaze", "turning", "turns",
+    "moving", "moves", "cinematic", "shot", "portrait", "vertical",
+    "realistic", "grounded", "aesthetic", "subtle", "medium", "close",
+    "closeup", "lighting", "atmospheric", "documentary", "style", "minimalist",
+    "their", "his", "her", "person", "people", "man", "men", "woman", "women",
+    "boy", "boys", "girl", "girls", "male", "female", "couple", "adult",
+    "teenager", "worker", "student",
+}
+_STOCK_RETRIEVAL_SAFE_TERMS = {
+    "hand", "hands", "back", "backs", "behind", "silhouette", "silhouettes",
+    "shadow", "shadows", "faceless", "anonymous", "objects",
+}
+
+
+def _compact_stock_retrieval_query(query: str) -> str:
+    """Run212-inspired search-only compaction with zero provider/AI cost.
+
+    Planning and Visual QA keep the full semantic intent. Only the provider search
+    phrase is shortened when it drifts into a sentence/shot-list shape. This removes
+    non-retrieval filler while keeping the first concrete semantic anchors and, when
+    present, one face-safe framing cue. Good concise queries pass through unchanged.
+    """
+    normalized = " ".join(str(query or "").split()).strip()
+    tokens = re.findall(r"[a-z0-9]+", normalized.casefold())
+    if len(tokens) <= 12:
+        return normalized
+
+    kept = [
+        token
+        for token in tokens
+        if token not in _STOCK_RETRIEVAL_DROP_TERMS
+    ]
+    compact = list(dict.fromkeys(kept))
+    if len(compact) < 2:
+        return normalized
+
+    selected = compact[:8]
+    safe = next(
+        (token for token in compact if token in _STOCK_RETRIEVAL_SAFE_TERMS),
+        None,
+    )
+    if safe and safe not in selected:
+        selected[-1] = safe
+    return " ".join(selected)
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -1358,10 +1412,6 @@ class StockVisualSource:
             shot_intent = str(raw_beat.get("shot_intent") or "").strip()
             if not shot_intent:
                 shot_intent = str(section.get("visual_query_en") or "").strip()
-
-            # The story intent is semantic metadata and may legitimately be Arabic.
-            # Stock search remains bound to Planning's already-validated English
-            # query fields so Security V1 never has to weaken its ASCII contract.
             beat_ordinal = section_beat_counts.get(section_id, 0)
             primary_query = str(section.get("visual_query_en") or "").strip()
             alternate_query = str(section.get("visual_query_alt_en") or "").strip()
@@ -1373,12 +1423,14 @@ class StockVisualSource:
             section_beat_counts[section_id] = beat_ordinal + 1
             if not stock_query_en:
                 continue
-
             beats.append(
                 {
                     "id": str(raw_beat.get("id") or f"b{index}").strip(),
                     "section_id": section_id,
                     "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
+                    # shot_intent stays semantic story context. Stock retrieval uses
+                    # Planning's dedicated English query boundary below so a localized
+                    # story description can never leak into Security V1 search input.
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
                     "source_preference": str(
@@ -1486,6 +1538,7 @@ class StockVisualSource:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+            query = _compact_stock_retrieval_query(query)
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
