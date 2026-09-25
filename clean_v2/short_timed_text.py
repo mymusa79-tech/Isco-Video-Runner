@@ -39,6 +39,29 @@ CAPTION_SHADOW_Y = 11
 MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
+# Local composition is intentionally deterministic and provider-free. Planning
+# already asks Short stock shots to leave usable negative space; this layer turns
+# those hints into bounded layout decisions instead of pinning every phrase to
+# one fixed coordinate.
+COMPOSITION_SCHEMA_VERSION = 1
+COMPOSITION_MODE = "local_visual_intent_lite"
+SAFE_X_MIN = 300
+SAFE_X_MAX = 780
+SAFE_Y_MIN = 360
+SAFE_Y_MAX = 1380
+COMPOSITION_ZONES = {
+    "upper_left": (330, 600),
+    "upper_center": (540, 620),
+    "upper_right": (750, 600),
+    "center": (540, 940),
+    "lower_center": (540, 1260),
+}
+ROLE_BASE_FONT_SIZE = {
+    "hook": 128,
+    "beat": 110,
+    "payoff": 120,
+}
+
 _SECRET_ENV_NAMES = {
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
@@ -179,6 +202,7 @@ def _section_phrase_events(
                 "end": round(chunk_end, 3),
                 "text": chunk,
                 "role": role,
+                "section_id": f"s{section_index + 1}",
             }
         )
         cursor = chunk_end
@@ -470,12 +494,143 @@ def _plain_caption(text: str) -> str:
     return "\u202B" + _ass_escape(text) + "\u202C"
 
 
+def _font_size_for_event(item: TimedTextEvent) -> int:
+    words = len(_clean(item.text).split())
+    size = ROLE_BASE_FONT_SIZE[item.role]
+    if words <= 2:
+        size += 8
+    elif words >= 5:
+        size -= 8
+    if len(_clean(item.text)) >= 34:
+        size -= 4
+    return max(98, min(138, size))
+
+
+def _layout_zone_from_intent(intent: str, role: str) -> str:
+    compact = " ".join(str(intent or "").lower().replace("-", " ").split())
+    explicit_negative_space = (
+        ("negative space", "clean space", "empty space", "copy space")
+    )
+    if any(term in compact for term in explicit_negative_space):
+        if "upper right" in compact or "right side" in compact:
+            return "upper_right"
+        if "upper left" in compact or "left side" in compact:
+            return "upper_left"
+        if "upper" in compact or "top" in compact:
+            return "upper_center"
+        if "lower" in compact or "bottom" in compact:
+            return "lower_center"
+
+    left_subject = (
+        "subject on left",
+        "subject left",
+        "action on left",
+        "action left",
+        "person on left",
+        "hands on left",
+        "left third",
+        "left lower",
+        "lower left",
+    )
+    right_subject = (
+        "subject on right",
+        "subject right",
+        "action on right",
+        "action right",
+        "person on right",
+        "hands on right",
+        "right third",
+        "lower right",
+    )
+    upper_subject = (
+        "subject at top",
+        "subject upper",
+        "hands at top",
+        "action at top",
+    )
+    if any(term in compact for term in left_subject):
+        return "upper_right"
+    if any(term in compact for term in right_subject):
+        return "upper_left"
+    if any(term in compact for term in upper_subject):
+        return "lower_center"
+
+    # The Short planning contract already prefers the main action on the left
+    # or lower-left when possible, so upper-right is the safest no-metadata
+    # fallback. The payoff moves down only when no visual hint exists, giving
+    # the ending a deliberate visual landing without random movement.
+    if role == "payoff":
+        return "lower_center"
+    return "upper_right"
+
+
+def build_composition_hints(
+    events: Sequence[Mapping[str, object]],
+    *,
+    visual_story: Mapping[str, Any] | None = None,
+    plan: Mapping[str, Any] | None = None,
+) -> list[dict[str, object]]:
+    validated = validate_progressive_text(events)
+    story = visual_story if isinstance(visual_story, Mapping) else {}
+    planned = plan if isinstance(plan, Mapping) else {}
+
+    intent_by_section: dict[str, list[str]] = {}
+    for raw in story.get("beats") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        section_id = str(raw.get("section_id") or "").strip()
+        if not section_id:
+            continue
+        parts = [
+            _clean(raw.get("shot_intent")),
+            _clean(raw.get("viewer_intent")),
+        ]
+        intent_by_section.setdefault(section_id, []).extend(part for part in parts if part)
+
+    query_by_section: dict[str, str] = {}
+    for raw in planned.get("sections") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        section_id = str(raw.get("id") or "").strip()
+        if section_id:
+            query_by_section[section_id] = _clean(raw.get("visual_query_en"))
+
+    hints: list[dict[str, object]] = []
+    for index, (raw, item) in enumerate(zip(events, validated)):
+        section_id = str(raw.get("section_id") or "").strip() if isinstance(raw, Mapping) else ""
+        combined = " ".join(intent_by_section.get(section_id, []))
+        query = query_by_section.get(section_id, "")
+        if query:
+            combined = f"{combined} {query}".strip()
+        zone = _layout_zone_from_intent(combined, item.role)
+        x, y = COMPOSITION_ZONES[zone]
+        x = max(SAFE_X_MIN, min(SAFE_X_MAX, x))
+        y = max(SAFE_Y_MIN, min(SAFE_Y_MAX, y))
+        hints.append(
+            {
+                "event_index": index,
+                "section_id": section_id or None,
+                "role": item.role,
+                "zone": zone,
+                "x": x,
+                "y": y,
+                "font_size": _font_size_for_event(item),
+                "source": "visual_story_plan" if combined else "role_safe_fallback",
+            }
+        )
+    return hints
+
+
 def build_rich_ass(
     events: Sequence[Mapping[str, object]],
     *,
     slate_index: int | None = None,
+    layout_hints: Sequence[Mapping[str, object]] | None = None,
 ) -> str:
     validated = validate_progressive_text(events)
+    hints = list(layout_hints or build_composition_hints(events))
+    if len(hints) != len(validated):
+        raise ShortTimedTextError("short_timed_text_layout_hint_count_mismatch")
 
     lines = [
         "[Script Info]",
@@ -496,8 +651,12 @@ def build_rich_ass(
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
-    for item in validated:
+    for event_index, item in enumerate(validated):
         plain = _plain_caption(item.text)
+        hint = hints[event_index]
+        x = int(hint.get("x") or CAPTION_X)
+        y = int(hint.get("y") or CAPTION_Y)
+        font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
         for word_start, word_end, focus_index in _word_highlight_windows(item):
             start = _ass_time(word_start)
             end = _ass_time(word_end)
@@ -507,14 +666,16 @@ def build_rich_ass(
             else:
                 scale = r"\fscx100\fscy100"
             shadow_tag = (
-                rf"\an5\pos({CAPTION_X + CAPTION_SHADOW_X},{CAPTION_Y + CAPTION_SHADOW_Y})"
+                rf"\an5\pos({x + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
+                + rf"\fs{font_size}"
                 + scale
             )
             extrusion_tag = (
-                rf"\an5\pos({CAPTION_X + CAPTION_EXTRUDE_X},{CAPTION_Y + CAPTION_EXTRUDE_Y})"
+                rf"\an5\pos({x + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
+                + rf"\fs{font_size}"
                 + scale
             )
-            face_tag = rf"\an5\pos({CAPTION_X},{CAPTION_Y})" + scale
+            face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + scale
             lines.append(
                 f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
                 f"{{{shadow_tag}}}{plain}"
@@ -537,12 +698,22 @@ def render_progressive_text(
     events: Sequence[Mapping[str, object]],
     srt_path: Path,
     output: Path,
+    visual_story: Mapping[str, Any] | None = None,
+    plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     validated = validate_progressive_text(events)
     srt = write_progressive_srt(events, Path(srt_path))
     slate_index = None
+    layout_hints = build_composition_hints(
+        events,
+        visual_story=visual_story,
+        plan=plan,
+    )
     ass_path = Path(srt_path).with_suffix(".rich.ass")
-    ass_path.write_text(build_rich_ass(events, slate_index=None), encoding="utf-8")
+    ass_path.write_text(
+        build_rich_ass(events, slate_index=None, layout_hints=layout_hints),
+        encoding="utf-8",
+    )
 
     filters: list[str] = [f"subtitles='{_filter_escape_path(ass_path)}'"]
     vf = ",".join(filters)
@@ -605,6 +776,16 @@ def render_progressive_text(
         "caption_max_words": CAPTION_MAX_WORDS,
         "caption_y": CAPTION_Y,
         "caption_x": CAPTION_X,
+        "composition_schema_version": COMPOSITION_SCHEMA_VERSION,
+        "composition_mode": COMPOSITION_MODE,
+        "composition_provider_calls": 0,
+        "composition_safe_zone": {
+            "x_min": SAFE_X_MIN,
+            "x_max": SAFE_X_MAX,
+            "y_min": SAFE_Y_MIN,
+            "y_max": SAFE_Y_MAX,
+        },
+        "composition_layouts": layout_hints,
         "depth_layers": 3,
         "black_text_box": False,
         "extrusion_offset": [CAPTION_EXTRUDE_X, CAPTION_EXTRUDE_Y],
@@ -646,12 +827,31 @@ def apply_short_timed_text(
             audio_dir=Path(output_dir) / "audio",
             mastered_narration=Path(narration_path),
         )
+    visual_story: Mapping[str, Any] | None = None
+    plan: Mapping[str, Any] | None = None
+    for filename, target in (("visual-story.json", "story"), ("plan.json", "plan")):
+        path = Path(output_dir) / filename
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            value = None
+        if not isinstance(value, Mapping):
+            continue
+        if target == "story":
+            visual_story = value
+        else:
+            plan = value
+
     rendered = Path(output_dir) / ".final-short-timed-text.mp4"
     report = render_progressive_text(
         video=Path(final_path),
         events=events,
         srt_path=Path(output_dir) / "short-timed-text.srt",
         output=rendered,
+        visual_story=visual_story,
+        plan=plan,
     )
     os.replace(rendered, Path(final_path))
     return {
