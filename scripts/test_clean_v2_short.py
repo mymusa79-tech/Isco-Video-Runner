@@ -1230,7 +1230,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn(r"\bord5", ass)
         self.assertIn(r"\fscx98\fscy98", ass)
         self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
         self.assertIn(r"\pos(549,1411)", ass)
         self.assertIn(r"\fs", ass)
@@ -1416,7 +1416,15 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertGreaterEqual(len(events), 4)
+            self.assertEqual(len(events), 3)
+            self.assertEqual(
+                [str(event["text"]) for event in events],
+                [
+                    "قد يختفي الدافع فجأة.",
+                    "لكن البداية لا تحتاج انتظارًا طويلًا.",
+                    "ابدأ بخطوة صغيرة الآن.",
+                ],
+            )
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
