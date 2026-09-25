@@ -12,12 +12,12 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 4
-RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-lite-v4"
+RICH_RENDERER_VERSION = "clean-v2-short-cinematic-type-v5"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Tracked 3D Lite: preserve the existing voice-owned phrase/word timing, but
-# give the Arabic face a warm-gold focus, crisp edge, shallow extrusion and
-# separate soft shadow. No text box and no extra provider/model call.
+# Cinematic Type: keep one dependable Arabic family, but give the face a
+# warm-gold accent, crisp outline, real offset depth and a separate shadow
+# layer. No black rectangle is ever introduced behind the text.
 ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm channel gold
 PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
@@ -25,13 +25,15 @@ EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&H76000000"  # semi-transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 112
-FOCUS_FONT_SIZE = BODY_FONT_SIZE
+BODY_FONT_SIZE = 104
+FOCUS_FONT_SIZE = 136
 BODY_WRAP_WORDS = 5
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 5
-CAPTION_Y = 1360
-CAPTION_X = 540
+CAPTION_RIGHT_X = 980
+CAPTION_BODY_Y = 650
+CAPTION_FOCUS_Y = 800
+CAPTION_Y = CAPTION_BODY_Y  # compatibility/report alias
 CAPTION_EXTRUDE_X = 4
 CAPTION_EXTRUDE_Y = 5
 CAPTION_SHADOW_X = 9
@@ -373,11 +375,13 @@ def split_focus_phrase(text: str, role: str) -> tuple[str, str]:
                 return left.rstrip("،؛:- "), right.strip()
 
     words = text.split()
-    if len(words) <= 3:
+    if len(words) == 1:
         return "", text
-    focus_size = 2 if len(words) <= 8 else 3
-    if role == "hook":
-        return " ".join(words[focus_size:]), " ".join(words[:focus_size])
+    if len(words) == 2:
+        return words[0], words[1]
+    if len(words) == 3:
+        return words[0], " ".join(words[1:])
+    focus_size = 2 if len(words) == 4 else 3
     return " ".join(words[:-focus_size]), " ".join(words[-focus_size:])
 
 
@@ -406,67 +410,8 @@ def choose_dark_slate_index(
     return None
 
 
-_ARABIC_CAPTION_STOPWORDS = frozenset({
-    "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
-    "لكن", "هذا", "هذه", "ذلك", "التي", "الذي", "هو", "هي", "كان", "كنت",
-    "ما", "لا", "لم", "لن", "قد", "كل", "حتى", "فقط",
-})
-
-
-def _accent_word_index(text: str) -> int:
-    words = _clean(text).split()
-    if not words:
-        return 0
-    candidates: list[tuple[int, int]] = []
-    for index, word in enumerate(words):
-        bare = re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)
-        if bare and bare not in _ARABIC_CAPTION_STOPWORDS:
-            candidates.append((len(bare), index))
-    if candidates:
-        return max(candidates)[1]
-    return len(words) - 1
-
-
-def _accent_caption(text: str, focus_index: int) -> str:
-    """Render one stable RTL phrase with only the currently spoken word yellow."""
-    words = _clean(text).split()
-    if not words:
-        return ""
-    rendered: list[str] = []
-    for index, word in enumerate(words):
-        escaped = _ass_escape(word)
-        if index == focus_index:
-            rendered.append(
-                "{\\c" + ACCENT_ASS + "}" + escaped + "{\\c" + PRIMARY_ASS + "}"
-            )
-        else:
-            rendered.append(escaped)
-    # Explicit RTL embedding keeps libass from visually reordering Arabic runs
-    # when inline colour tags split shaping spans.
-    return "\u202B" + " ".join(rendered) + "\u202C"
-
-
-def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
-    words = _clean(item.text).split()
-    if not words:
-        return []
-    duration = item.end - item.start
-    weights = [
-        max(1, len(re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)))
-        for word in words
-    ]
-    total = max(1, sum(weights))
-    cursor = item.start
-    windows: list[tuple[float, float, int]] = []
-    for index, weight in enumerate(weights):
-        end = item.end if index == len(weights) - 1 else cursor + duration * (weight / total)
-        windows.append((cursor, end, index))
-        cursor = end
-    return windows
-
-
 def _plain_caption(text: str) -> str:
-    """One shaping-safe RTL copy for the depth layers."""
+    """One shaping-safe RTL copy used for body, depth and shadow layers."""
     return "\u202B" + _ass_escape(text) + "\u202C"
 
 
@@ -488,45 +433,66 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1",
-        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,70,70,0,1",
+        f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,6,60,60,0,1",
+        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,6,60,60,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,6,60,60,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
     for item in validated:
-        plain = _plain_caption(item.text)
-        for word_start, word_end, focus_index in _word_highlight_windows(item):
-            start = _ass_time(word_start)
-            end = _ass_time(word_end)
-            caption = _accent_caption(item.text, focus_index)
-            if focus_index == 0:
-                scale = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
-            else:
-                scale = r"\fscx100\fscy100"
+        start = _ass_time(item.start)
+        end = _ass_time(item.end)
+        body, focus = split_focus_phrase(item.text, item.role)
+        role_scale = 105 if item.role == "hook" else (102 if item.role == "payoff" else 100)
+
+        def add_tier(text: str, *, y: int, size: int, colour: str, layer_base: int) -> None:
+            if not text:
+                return
+            plain = _plain_caption(text)
+            face = (
+                "{\\c" + colour + f"\\fs{size}" + "}" + plain
+            )
             shadow_tag = (
-                rf"\an5\pos({CAPTION_X + CAPTION_SHADOW_X},{CAPTION_Y + CAPTION_SHADOW_Y})"
-                + scale
+                rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
+                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
             )
             extrusion_tag = (
-                rf"\an5\pos({CAPTION_X + CAPTION_EXTRUDE_X},{CAPTION_Y + CAPTION_EXTRUDE_Y})"
-                + scale
+                rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
+                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
             )
-            face_tag = rf"\an5\pos({CAPTION_X},{CAPTION_Y})" + scale
+            face_tag = (
+                rf"\an6\pos({CAPTION_RIGHT_X},{y})"
+                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
+            )
             lines.append(
-                f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
+                f"Dialogue: {layer_base},{start},{end},Shadow,,0,0,0,,"
                 f"{{{shadow_tag}}}{plain}"
             )
             lines.append(
-                f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
+                f"Dialogue: {layer_base + 1},{start},{end},Extrusion,,0,0,0,,"
                 f"{{{extrusion_tag}}}{plain}"
             )
             lines.append(
-                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
-                f"{{{face_tag}}}{caption}"
+                f"Dialogue: {layer_base + 2},{start},{end},Caption,,0,0,0,,"
+                f"{{{face_tag}}}{face}"
             )
+
+        add_tier(
+            body,
+            y=CAPTION_BODY_Y,
+            size=BODY_FONT_SIZE,
+            colour=PRIMARY_ASS,
+            layer_base=0,
+        )
+        add_tier(
+            focus,
+            y=CAPTION_FOCUS_Y,
+            size=FOCUS_FONT_SIZE,
+            colour=ACCENT_ASS,
+            layer_base=3,
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -582,7 +548,7 @@ def render_progressive_text(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_karaoke_3d_lite",
+        "renderer": "ffmpeg_libass_cinematic_type",
         "renderer_version": RICH_RENDERER_VERSION,
         "status": "pass",
         "srt": str(srt),
@@ -604,15 +570,18 @@ def render_progressive_text(
         "caption_min_words": CAPTION_MIN_WORDS,
         "caption_max_words": CAPTION_MAX_WORDS,
         "caption_y": CAPTION_Y,
-        "caption_x": CAPTION_X,
+        "caption_body_y": CAPTION_BODY_Y,
+        "caption_focus_y": CAPTION_FOCUS_Y,
+        "caption_right_x": CAPTION_RIGHT_X,
         "depth_layers": 3,
         "black_text_box": False,
         "extrusion_offset": [CAPTION_EXTRUDE_X, CAPTION_EXTRUDE_Y],
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "deterministic_phrase_weighted_approximation",
-        "word_highlight_count": sum(len(_word_highlight_windows(item)) for item in validated),
+        "word_highlight_timing": "disabled_for_static_two_tier_phrase",
+        "word_highlight_count": 0,
+        "two_tier_phrase_layout": True,
         "voice_owned_event_timing_preserved": True,
     }
 
