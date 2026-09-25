@@ -2308,24 +2308,24 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
-def render_podcast_derived_short(
+def render_derived_short(
     source_path: Path,
     output_path: Path,
     *,
     start_seconds: float,
     end_seconds: float,
 ) -> Path:
-    """Reframe one already-approved Podcast segment to 9:16 with no new media/provider call."""
+    """Reframe one already-approved long-form segment to 9:16 with no new media/provider call."""
     start = float(start_seconds)
     end = float(end_seconds)
     duration = end - start
     if start < 0 or duration < 7.0 or duration > 30.0:
         raise RuntimeError(
-            f"podcast derived short duration must be 7-30s: start={start:.3f} end={end:.3f}"
+            f"derived short duration must be 7-30s: start={start:.3f} end={end:.3f}"
         )
     source = Path(source_path)
     if not source.is_file() or source.stat().st_size <= 0:
-        raise RuntimeError("podcast derived short source is missing")
+        raise RuntimeError("derived short source is missing")
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     vf = (
@@ -2384,7 +2384,7 @@ def render_podcast_derived_short(
         timeout=600,
     )
     if not output.is_file() or output.stat().st_size <= 0:
-        raise RuntimeError("podcast derived short render is missing or empty")
+        raise RuntimeError("derived short render is missing or empty")
     return output
 
 

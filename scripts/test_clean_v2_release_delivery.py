@@ -112,6 +112,37 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertEqual(send.call_count, 2)
         self.assertEqual(send.call_args_list[1].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
 
+
+    def test_long_reuses_one_release_and_sends_optional_derived_short(self):
+        direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
+        runner = FakeRunner(direct)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            delivery, "send_message", return_value=True
+        ) as send:
+            root = self._output(Path(tmp))
+            (root / "long-short.mp4").write_bytes(b"short-video")
+            (root / "long-short-qc.json").write_text(
+                json.dumps({"status": "pass"}),
+                encoding="utf-8",
+            )
+            result = delivery.publish_one(
+                root=root,
+                kind="long",
+                topic="فيديو طويل",
+                delivery_key="telegram",
+                repository="example/repo",
+                target_sha="e" * 40,
+                run_id="654",
+                run_attempt="1",
+                run=runner,
+            )
+
+        uploads = [call for call in runner.calls if call[:3] == ["gh", "release", "upload"]]
+        self.assertEqual(len(uploads), 2)
+        self.assertIn("short_browser_download_url", result)
+        self.assertEqual(send.call_count, 2)
+        self.assertEqual(send.call_args_list[1].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
+
     def test_bundle_publishes_long_and_short_as_separate_direct_assets(self):
         runner = FakeRunner("https://github.com/example/repo/releases/download/tag/final.mp4")
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(

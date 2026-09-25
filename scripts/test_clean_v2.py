@@ -5370,5 +5370,97 @@ class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
         self.assertEqual(_factuality_target_section_ids(report, script), ("s2",))
 
 
+
+class FilmDerivedShortLiteTests(unittest.TestCase):
+    def test_film_selection_uses_existing_measured_topic_unit_only(self) -> None:
+        from clean_v2.pipeline import _select_film_derived_short_window
+
+        sections = [
+            {"id": "s1", "narration": "افتتاح الحلقة ثم تعريف القناة."},
+            {
+                "id": "s2",
+                "narration": (
+                    "نحن نعرف أحيانًا ما ينبغي فعله، لكن المشكلة أن المعرفة وحدها لا تغيّر السلوك "
+                    "حين تبقى البيئة اليومية كما هي وتعيد القرار القديم في كل مرة."
+                ),
+            },
+            {"id": "s3", "narration": "خاتمة الحلقة. نهاية القناة."},
+        ]
+        timeline = {
+            "audio_units": [
+                {
+                    "section_id": "s2",
+                    "chunk": 1,
+                    "role": "topic",
+                    "start": 18.0,
+                    "end": 36.0,
+                }
+            ]
+        }
+        promo = _select_film_derived_short_window(
+            sections,
+            timeline,
+            identity_closer="نهاية القناة.",
+        )
+        self.assertIsNotNone(promo)
+        assert promo is not None
+        self.assertEqual(promo["section_id"], "s2")
+        self.assertEqual(promo["start"], 18.0)
+        self.assertEqual(promo["end"], 36.0)
+
+    def test_film_derived_short_is_fail_soft_and_adds_no_provider_call(self) -> None:
+        from clean_v2.pipeline import _run_film_derived_short_lite
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"video-source")
+            script = {
+                "sections": [
+                    {"id": "s1", "narration": "افتتاح الحلقة."},
+                    {
+                        "id": "s2",
+                        "narration": (
+                            "لكن المشكلة أن القرار الجيد لا يعيش وحده، لأن البيئة القديمة تعيد "
+                            "السلوك نفسه عندما لا نغيّر ما يحيط به."
+                        ),
+                    },
+                    {"id": "s3", "narration": "خاتمة الحلقة. نهاية القناة."},
+                ]
+            }
+            (root / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "audio_units": [
+                            {
+                                "section_id": "s2",
+                                "chunk": 1,
+                                "role": "topic",
+                                "start": 10.0,
+                                "end": 24.0,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "clean_v2.pipeline.render_derived_short",
+                side_effect=RuntimeError("render failed"),
+            ):
+                report = _run_film_derived_short_lite(
+                    output_dir=root,
+                    final_path=final_path,
+                    script=script,
+                    identity_closer="",
+                    final_master_qc=lambda _root: {"status": "pass"},
+                )
+            self.assertEqual(report["status"], "skipped_failed")
+            self.assertEqual(report["provider_calls_added"], 0)
+            self.assertEqual(report["tts_calls_added"], 0)
+            self.assertTrue(final_path.is_file())
+            self.assertFalse((root / "long-short.mp4").exists())
+
 if __name__ == "__main__":
     unittest.main()

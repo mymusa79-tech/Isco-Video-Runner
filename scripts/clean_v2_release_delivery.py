@@ -245,9 +245,10 @@ def publish_one(
         "release_tag": tag,
         "browser_download_url": url,
     }
-    if kind == "podcast":
-        short_video = Path(root) / "podcast-short.mp4"
-        short_qc = _read_json(Path(root) / "podcast-short-qc.json")
+    if kind in {"podcast", "long"}:
+        short_prefix = "podcast-short" if kind == "podcast" else "long-short"
+        short_video = Path(root) / f"{short_prefix}.mp4"
+        short_qc = _read_json(Path(root) / f"{short_prefix}-qc.json")
         if (
             short_video.is_file()
             and short_video.stat().st_size > 0
@@ -259,12 +260,17 @@ def publish_one(
                 repository=repository,
                 run=run,
             )
+            short_text = (
+                "⚡ شورت «خارج النص» جاهز من نفس الحلقة"
+                if kind == "podcast"
+                else "⚡ شورت جاهز من أهم جزء في الفيديو الطويل"
+            )
             if not send_message(
-                "⚡ شورت «خارج النص» جاهز من نفس الحلقة",
+                short_text,
                 button_text="⚡ مشاهدة/تحميل الشورت",
                 button_url=short_url,
             ):
-                print("Telegram Podcast-short delivery warning: message was not delivered")
+                print(f"Telegram {short_prefix} delivery warning: message was not delivered")
             delivery["short_browser_download_url"] = short_url
     return delivery
 
