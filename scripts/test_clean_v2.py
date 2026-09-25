@@ -158,6 +158,17 @@ class ApprovedBriefContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "changed after approval"):
                 load_approved_brief(path, digest)
 
+    def test_public_clean_v2_contract_rejects_legacy_partial_formats(self) -> None:
+        for fmt in ("moment", "story"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "brief.json"
+                brief = _brief()
+                brief["format"] = fmt
+                path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+                digest = compute_brief_sha256(brief)
+                with self.assertRaisesRegex(ContractError, "unsupported approved format"):
+                    load_approved_brief(path, digest)
+
 
 class PlanningCardinalityTests(unittest.TestCase):
     def test_film_prompt_and_validator_require_exactly_five_sections(self) -> None:
