@@ -452,8 +452,8 @@ def _accent_caption(
     text: str,
     focus_index: int,
     *,
-    body_size: int,
-    focus_size: int,
+    body_size: int = BODY_FONT_SIZE,
+    focus_size: int = FOCUS_FONT_SIZE,
 ) -> str:
     """Render one dominant gold keyword with smaller white supporting copy."""
     words = _clean(text).split()

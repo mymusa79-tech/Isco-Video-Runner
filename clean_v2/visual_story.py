@@ -348,50 +348,48 @@ def contextual_intent(
     if current_index is None:
         return str(fallback_intent or "").strip()[:300]
 
-    # Canonical visual evidence intentionally caps intended_visual at 300 chars.
-    # Bound each neighbor independently so long shot intents can never crowd the
-    # following beat out of the story-context judgment.
+    # Keep the legacy continuity contract while adding exact-meaning evidence.
+    # Neighbor labels come first so the 300-char canonical evidence cap can never
+    # truncate the following beat or the hook-to-payoff continuity instruction.
     current = _context_fragment(
         beats[current_index].get("shot_intent") or fallback_intent,
         "current beat",
-        60,
+        32,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        48,
+        28,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        48,
+        28,
     )
     current_beat = beats[current_index]
-    role = _context_fragment(current_beat.get("role"), "body", 10)
-    intent = _context_fragment(current_beat.get("viewer_intent"), "new information", 30)
-    meaning = _context_fragment(current_beat.get("meaning_target"), "specific visible meaning", 52)
+    meaning = _context_fragment(
+        current_beat.get("meaning_target")
+        or current_beat.get("viewer_intent")
+        or current_beat.get("shot_intent"),
+        "specific visible meaning",
+        24,
+    )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
         "concrete evidence",
-        42,
+        20,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
-        "generic mood-only imagery",
-        38,
-    )
-    thread = visual_story.get("retention_thread")
-    motif = _context_fragment(
-        thread.get("visual_motif") if isinstance(thread, Mapping) else "",
-        "recurring motif",
-        22,
+        "generic mood",
+        17,
     )
     context = (
-        f"Judge specific meaning before mood. Role: {role}. "
+        f"Current: {current}. Previous: {previous}. Next: {following}. "
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        f"Intent: {intent}. Current: {current}. Previous: {previous}. "
-        f"Next: {following}. Motif: {motif}. Judge specific meaning before mood."
+        "Judge specific meaning before mood. "
+        "Same hook-to-payoff arc: judge continuity."
     )
     return context[:300].rstrip()

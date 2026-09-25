@@ -192,7 +192,7 @@ def _identity_events(
     *,
     voice_seconds: float,
     require_identity: bool,
-    fmt: str,
+    fmt: str = "short",
 ) -> list[dict[str, Any]]:
     hook = _one_role(units, "hook")
     prayer = _one_role(units, "prayer")
