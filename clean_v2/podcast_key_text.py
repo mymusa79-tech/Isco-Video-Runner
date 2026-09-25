@@ -32,13 +32,13 @@ TEXT_Y = 770
 EXTRUDE = (2, 3)
 SHADOW = (4, 5)
 DISPLAY_SECONDS = 4.2
-MAX_WORDS = 9
+MAX_WORDS = 10
 
 FILM_MAX_EVENTS = 5
 FILM_FONT_SIZE = min(108, BODY_FONT_SIZE)
 FILM_TEXT_Y = 760
 FILM_DISPLAY_SECONDS = 5.0
-FILM_MAX_WORDS = 7
+FILM_MAX_WORDS = 10
 FILM_MIN_GAP_SECONDS = 12.0
 TRANSITION_MARKERS = ("لكن", "المشكلة", "الحقيقة", "ربما", "وهنا", "لأن", "لهذا")
 
@@ -59,14 +59,12 @@ def _sentences(value: object) -> list[str]:
 
 
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
+    """Select only complete authored sentences; never manufacture display fragments."""
     candidates: list[str] = []
     for sentence in _sentences(value):
-        pieces = [sentence]
-        if "،" in sentence:
-            pieces = [part.strip() for part in sentence.split("،") if part.strip()]
-        for piece in pieces:
-            if 3 <= len(piece.split()) <= max_words:
-                candidates.append(piece)
+        words = len(sentence.split())
+        if 3 <= words <= max_words:
+            candidates.append(sentence)
     return candidates
 
 
@@ -353,6 +351,8 @@ def _apply_sparse_key_text(
         "motion": "fade_180_240ms_scale_99_to_100",
         "provider_calls_added": 0,
         "style_source": "shared_sparse_3d_key_text",
+        "text_source_policy": "complete_verbatim_final_script_sentence_only",
+        "rtl_policy": "full_phrase_static_no_directional_word_sweep",
     }
 
 
