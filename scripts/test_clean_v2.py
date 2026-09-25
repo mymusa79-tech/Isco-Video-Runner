@@ -35,6 +35,7 @@ from clean_v2.pipeline import (
     _audit_narrative_format_for_brief,
     _factuality_repair_prompt,
     _factuality_target_section_ids,
+    _hook_aligned_visual_plan,
     _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
@@ -277,6 +278,79 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn("forced shock/clickbait", normalized_prompt)
         self.assertIn("same core tension the script will develop", normalized_prompt.lower())
         self.assertIn("do not optimize for a fixed word count or duration", normalized_prompt.lower())
+        self.assertIn("hook_visual_query_en", normalized_prompt)
+        self.assertIn("first visible hook shot", normalized_prompt.lower())
+        self.assertIn("same tension", normalized_prompt.lower())
+
+    def test_script_contract_preserves_hook_visual_query(self) -> None:
+        value = _script()
+        value["hook_visual_query_en"] = (
+            "unfinished planner beside buzzing phone hand paused over notebook no face"
+        )
+        normalized = validate_script(value, _plan())
+        self.assertEqual(
+            normalized["hook_visual_query_en"],
+            value["hook_visual_query_en"],
+        )
+
+    def test_script_contract_rejects_non_ascii_hook_visual_query(self) -> None:
+        value = _script()
+        value["hook_visual_query_en"] = "دفتر مفتوح على المكتب"
+        with self.assertRaisesRegex(
+            ContractError, "hook_visual_query_en must be an English/ASCII stock query"
+        ):
+            validate_script(value, _plan())
+
+    def test_hook_visual_alignment_changes_only_first_section_and_first_beat(self) -> None:
+        plan = _plan()
+        story = {
+            "schema_version": 1,
+            "visual_world": "warm natural daylight",
+            "story_arc": {
+                "beginning": "friction",
+                "transformation": "shift",
+                "arrival": "action",
+            },
+            "beats": [
+                {
+                    "id": "b1",
+                    "section_id": "s1",
+                    "viewer_intent": "see the initial friction",
+                    "shot_intent": "generic quiet desk",
+                    "source_preference": "stock_motion",
+                },
+                {
+                    "id": "b2",
+                    "section_id": "s2",
+                    "viewer_intent": "see the shift",
+                    "shot_intent": "hand writing one task",
+                    "source_preference": "stock_motion",
+                },
+            ],
+        }
+        script = _script()
+        script["hook_visual_query_en"] = (
+            "unfinished planner interrupted by phone notification hand stops writing no face"
+        )
+        visual_plan, aligned_story = _hook_aligned_visual_plan(plan, story, script)
+
+        self.assertEqual(
+            visual_plan["sections"][0]["visual_query_en"],
+            script["hook_visual_query_en"],
+        )
+        self.assertEqual(
+            aligned_story["beats"][0]["shot_intent"],
+            script["hook_visual_query_en"],
+        )
+        self.assertEqual(
+            aligned_story["beats"][1]["shot_intent"],
+            story["beats"][1]["shot_intent"],
+        )
+        self.assertEqual(
+            plan["sections"][0]["visual_query_en"],
+            "quiet desk notebook wide shot",
+        )
+        self.assertEqual(story["beats"][0]["shot_intent"], "generic quiet desk")
 
     def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
         opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
