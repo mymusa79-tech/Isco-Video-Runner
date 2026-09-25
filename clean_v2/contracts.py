@@ -194,11 +194,8 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     hook_visual_query = " ".join(
         str(value.get("hook_visual_query_en") or "").split()
     ).strip()
-    if hook_visual_query:
-        if len(hook_visual_query) > 260:
-            raise ContractError("script hook_visual_query_en exceeds 260 characters")
-        if not hook_visual_query.isascii():
-            raise ContractError("script hook_visual_query_en must be an English/ASCII stock query")
+    if hook_visual_query and len(hook_visual_query) > 260:
+        raise ContractError("script hook_visual_query_en exceeds 260 characters")
     expected = [str(item["id"]) for item in plan["sections"]]
     normalized: list[dict[str, str]] = []
     for raw in raw_sections:
