@@ -39,6 +39,11 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
 - Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero.
 - If ANY payoff sentence contains a forbidden action-family term, rewrite that payoff sentence as a purely descriptive state/result with zero command/action-family stems, then rescan all of s3 from the beginning.
+- Concrete GOOD/BAD pair — copy the structure, not the wording:
+  GOOD s3: "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن."
+  GOOD because the payoff sentence is purely descriptive and contains zero forbidden action-family stems; the action sentence begins immediately with the single allowlisted imperative "اكتب".
+  BAD s3: "الكتابة البسيطة تقلل الاحتكاك. لذلك، اكتب مهمة واحدة تستطيع إنهاءها الآن."
+  BAD because "الكتابة" belongs to the forbidden كتب action family inside payoff prose, AND the action sentence begins with "لذلك" instead of beginning directly with the imperative. Rewrite both defects before returning JSON.
 - If any count or rescan fails, rewrite s3 completely and repeat the checks before returning JSON.
 - Do not rely on downstream repair or trimming to fix Hook or s3.
 """.strip()
