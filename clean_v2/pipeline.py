@@ -2846,7 +2846,13 @@ and keep each visual query concise and at most 260 characters. Keep the whole vi
 inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
 soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
 itself requires them. Prefer environments, hands, objects, routines, and wide shots without
-identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
+identifiable faces. When the scene permits it, make the search describe a lived-in cinematic
+environment with visible foreground/midground/background depth, practical light sources, contextual
+objects, and spatial separation around the subject; avoid empty walls, flat generic desks, or plain
+studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer the
+main subject/action on the left or lower-left with usable clean negative space in the upper-right for
+the Arabic on-screen text when that composition still fits the idea. Keep visuals modest and suitable
+for a broad Arab/Muslim audience.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by long and short formats. The visual world must stay coherent with the restrained lighting
