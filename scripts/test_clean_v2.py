@@ -328,6 +328,58 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
+class ProviderCapacityMemoryTests(unittest.TestCase):
+    def test_long_or_unspecified_429_is_skipped_for_remaining_run_stages(self) -> None:
+        calls = {"limited": 0, "fallback": 0}
+
+        def limited(_prompt, _tokens):
+            calls["limited"] += 1
+            raise ProviderWireFailure(
+                "http_429",
+                http_status=429,
+                retry_after_seconds=None,
+            )
+
+        def fallback(_prompt, _tokens):
+            calls["fallback"] += 1
+            return {"ok": True}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("limited", limited),
+                ProviderAdapter("fallback", fallback),
+            )
+        )
+        self.assertEqual(
+            router.route(
+                stage="planning",
+                prompt="planning",
+                max_tokens=100,
+                validator=lambda value: value,
+            ),
+            {"ok": True},
+        )
+        self.assertEqual(
+            router.route(
+                stage="script",
+                prompt="script",
+                max_tokens=100,
+                validator=lambda value: value,
+            ),
+            {"ok": True},
+        )
+
+        self.assertEqual(calls, {"limited": 1, "fallback": 2})
+        cached = [
+            event
+            for event in router.events
+            if event["provider"] == "limited"
+            and event["reason"] == "rate_limit_cached"
+        ]
+        self.assertEqual(len(cached), 1)
+        self.assertFalse(cached[0]["wire_attempted"])
+
+
 class GroqJsonModeContractTests(unittest.TestCase):
     def test_gptoss_json_mode_hides_reasoning(self) -> None:
         captured: dict[str, object] = {}
