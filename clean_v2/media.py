@@ -1347,23 +1347,40 @@ class StockVisualSource:
             else []
         )
         beats: list[dict[str, Any]] = []
+        section_beat_counts: dict[str, int] = {}
         for index, raw_beat in enumerate(raw_beats, start=1):
             if not isinstance(raw_beat, Mapping):
                 continue
             section_id = str(raw_beat.get("section_id") or "").strip()
             if section_id not in section_by_id:
                 continue
+            section = section_by_id[section_id]
             shot_intent = str(raw_beat.get("shot_intent") or "").strip()
             if not shot_intent:
-                shot_intent = str(
-                    section_by_id[section_id].get("visual_query_en") or ""
-                ).strip()
+                shot_intent = str(section.get("visual_query_en") or "").strip()
+
+            # The story intent is semantic metadata and may legitimately be Arabic.
+            # Stock search remains bound to Planning's already-validated English
+            # query fields so Security V1 never has to weaken its ASCII contract.
+            beat_ordinal = section_beat_counts.get(section_id, 0)
+            primary_query = str(section.get("visual_query_en") or "").strip()
+            alternate_query = str(section.get("visual_query_alt_en") or "").strip()
+            stock_query_en = (
+                alternate_query
+                if beat_ordinal % 2 == 1 and alternate_query
+                else primary_query
+            )
+            section_beat_counts[section_id] = beat_ordinal + 1
+            if not stock_query_en:
+                continue
+
             beats.append(
                 {
                     "id": str(raw_beat.get("id") or f"b{index}").strip(),
                     "section_id": section_id,
                     "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
                     "shot_intent": shot_intent,
+                    "stock_query_en": stock_query_en,
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
                     ).strip(),
@@ -1380,6 +1397,7 @@ class StockVisualSource:
                         "section_id": str(section.get("id") or ""),
                         "viewer_intent": str(section.get("purpose") or "").strip(),
                         "shot_intent": str(section.get("visual_query_en") or "").strip(),
+                        "stock_query_en": str(section.get("visual_query_en") or "").strip(),
                         "source_preference": "stock_motion",
                     }
                 )
@@ -1463,7 +1481,7 @@ class StockVisualSource:
         seen_sections: set[str] = set()
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
-            query = str(beat.get("shot_intent") or "").strip()
+            query = str(beat.get("stock_query_en") or "").strip()
             if not query:
                 continue
             if self.query_normalizer is not None:
