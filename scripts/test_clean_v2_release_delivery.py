@@ -143,14 +143,18 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertEqual(send.call_count, 2)
         self.assertEqual(send.call_args_list[1].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
 
-    def test_bundle_publishes_long_and_short_as_separate_direct_assets(self):
+    def test_bundle_is_one_long_delivery_with_optional_derived_short(self):
         runner = FakeRunner("https://github.com/example/repo/releases/download/tag/final.mp4")
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             delivery, "send_message", return_value=True
         ) as send:
             root = Path(tmp)
-            self._output(root, "film")
-            self._output(root, "short")
+            film = self._output(root, "film")
+            (film / "long-short.mp4").write_bytes(b"short-video")
+            (film / "long-short-qc.json").write_text(
+                json.dumps({"status": "pass"}),
+                encoding="utf-8",
+            )
             results = delivery.deliver(
                 output_root=root,
                 scope="bundle",
@@ -162,8 +166,9 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
                 run_attempt="1",
                 run=runner,
             )
-        self.assertEqual([item["kind"] for item in results], ["long", "short"])
+        self.assertEqual([item["kind"] for item in results], ["long"])
         self.assertEqual(send.call_count, 2)
+        self.assertIn("short_browser_download_url", results[0])
 
     def test_delivery_is_blocked_before_release_when_final_master_qc_is_not_pass(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
