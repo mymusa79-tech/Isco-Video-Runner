@@ -25,11 +25,12 @@ EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&H76000000"  # semi-transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 112
-FOCUS_FONT_SIZE = BODY_FONT_SIZE
-BODY_WRAP_WORDS = 5
+BODY_FONT_SIZE = 108
+FOCUS_FONT_SIZE = 154
+FOCUS_SCALE = 1.42
+BODY_WRAP_WORDS = 4
 CAPTION_MIN_WORDS = 2
-CAPTION_MAX_WORDS = 5
+CAPTION_MAX_WORDS = 4
 CAPTION_Y = 1360
 CAPTION_X = 540
 CAPTION_EXTRUDE_X = 4
@@ -445,8 +446,14 @@ def _accent_word_index(text: str) -> int:
     return len(words) - 1
 
 
-def _accent_caption(text: str, focus_index: int) -> str:
-    """Render one stable RTL phrase with only the currently spoken word yellow."""
+def _accent_caption(
+    text: str,
+    focus_index: int,
+    *,
+    body_size: int,
+    focus_size: int,
+) -> str:
+    """Render one dominant gold keyword with smaller white supporting copy."""
     words = _clean(text).split()
     if not words:
         return ""
@@ -455,12 +462,20 @@ def _accent_caption(text: str, focus_index: int) -> str:
         escaped = _ass_escape(word)
         if index == focus_index:
             rendered.append(
-                "{\\c" + ACCENT_ASS + "}" + escaped + "{\\c" + PRIMARY_ASS + "}"
+                "{\\fs"
+                + str(focus_size)
+                + "\\bord4\\shad0\\c"
+                + ACCENT_ASS
+                + "}"
+                + escaped
+                + "{\\fs"
+                + str(body_size)
+                + "\\bord5\\c"
+                + PRIMARY_ASS
+                + "}"
             )
         else:
             rendered.append(escaped)
-    # Explicit RTL embedding keeps libass from visually reordering Arabic runs
-    # when inline colour tags split shaping spans.
     return "\u202B" + " ".join(rendered) + "\u202C"
 
 
@@ -566,7 +581,16 @@ def build_rich_ass(
         for word_start, word_end, focus_index in _word_highlight_windows(item):
             start = _ass_time(word_start)
             end = _ass_time(word_end)
-            caption = _accent_caption(item.text, focus_index)
+            focus_size = max(
+                font_size + 28,
+                min(178, int(round(font_size * FOCUS_SCALE))),
+            )
+            caption = _accent_caption(
+                item.text,
+                focus_index,
+                body_size=font_size,
+                focus_size=focus_size,
+            )
             if focus_index == 0:
                 scale = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
             else:
