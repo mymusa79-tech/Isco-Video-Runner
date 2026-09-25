@@ -21,7 +21,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
                     "contract_id": "clean-v2-timeline-first-v1",
                     "status": "pass",
                     "format": fmt,
-                    "timeline_owner": "measured_charon_voice",
+                    "timeline_owner": "measured_voice",
                     "voice_seconds_measured": seconds,
                     "safety_maximum_seconds": 120.0 if fmt == "short" else 3600.0,
                 }
@@ -153,7 +153,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                     {
                         "status": "pass",
                         "contract_id": "clean-v2-timeline-first-v1",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_voice",
                         "identity_events": [
                             {"kind": "hook", "start": 0.0, "end": 3.0},
                             {"kind": "intro", "start": 3.0, "end": 8.0},
