@@ -85,7 +85,9 @@ from clean_v2.short_format import (
     ShortFormatError,
     TEMPLATE_VISUAL_QUERY_DIRECTIVES,
     apply_safe_short_s3_single_action_trim,
+    normalize_short_script_candidate,
     select_short_template,
+    short_action_imperative_allowlist_text,
     short_contract_report,
     short_prompt_context,
     validate_short_dimensions,
@@ -499,15 +501,40 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(only_forbidden_payoff)
 
-    def test_pipeline_reapplies_safe_s3_trim_after_text_repair(self) -> None:
+    def test_pipeline_reuses_canonical_short_normalizer_after_text_repair(self) -> None:
         source = inspect.getsource(CleanV2Pipeline.run)
         post_repair = source.split(
             "# A successful bounded repair mutates script.json in place.",
             1,
         )[1].split("identity_runtime =", 1)[0]
-        trim_index = post_repair.index("apply_safe_short_s3_single_action_trim(script)")
+        normalize_index = post_repair.index("normalize_short_script_candidate(script)")
         validate_index = post_repair.index("validate_short_script(script)")
-        self.assertLess(trim_index, validate_index)
+        self.assertLess(normalize_index, validate_index)
+
+    def test_canonical_short_normalizer_moves_safe_action_prefix_and_is_idempotent(self) -> None:
+        script = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {
+                    "id": "s3",
+                    "narration": "عندها تصبح الخطوة أوضح. الآن ابدأ بمهمة واحدة صغيرة.",
+                },
+            ],
+        }
+
+        report = normalize_short_script_candidate(script)
+        self.assertTrue(report["s3_action_prefix_normalized"])
+        self.assertEqual(
+            script["sections"][2]["narration"],
+            "عندها تصبح الخطوة أوضح. ابدأ بمهمة واحدة صغيرة الآن.",
+        )
+        validate_short_script(script)
+
+        second = normalize_short_script_candidate(script)
+        self.assertFalse(any(second.values()))
+        validate_short_script(script)
 
     def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -593,8 +620,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertIn("rewrite that payoff sentence as a purely descriptive state/result", seen["mistral"])
         self.assertIn("Exactly ONE s3 sentence", seen["mistral"])
         self.assertIn("validator-recognized imperative from this allowlist", seen["mistral"])
-        self.assertIn("ابدأ", seen["mistral"])
-        self.assertIn("اختر", seen["mistral"])
+        self.assertIn(short_action_imperative_allowlist_text(), seen["mistral"])
         self.assertIn("Do not substitute a synonym outside this list", seen["mistral"])
         self.assertIn("count action sentences", seen["mistral"])
         self.assertIn("require exactly 1", seen["mistral"])
