@@ -25,13 +25,16 @@ EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&H76000000"  # semi-transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 112
-FOCUS_FONT_SIZE = BODY_FONT_SIZE
-BODY_WRAP_WORDS = 5
+BODY_FONT_SIZE = 108
+FOCUS_FONT_SIZE = 154
+FOCUS_SCALE = 1.42
+BODY_WRAP_WORDS = 4
 CAPTION_MIN_WORDS = 2
-CAPTION_MAX_WORDS = 5
-CAPTION_Y = 1360
+CAPTION_MAX_WORDS = 4
+CAPTION_Y = 1400
 CAPTION_X = 540
+YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
+CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
 CAPTION_EXTRUDE_X = 4
 CAPTION_EXTRUDE_Y = 5
 CAPTION_SHADOW_X = 9
@@ -43,13 +46,13 @@ TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", 
 # left/lower-left subject action with clean upper-right negative space. Keep the
 # renderer deterministic instead of parsing model-authored intent a second time.
 COMPOSITION_SCHEMA_VERSION = 2
-COMPOSITION_MODE = "planning_composed_upper_right_v2"
-SAFE_X_MIN = 300
-SAFE_X_MAX = 780
-SAFE_Y_MIN = 360
-SAFE_Y_MAX = 1380
-COMPOSITION_X = 750
-COMPOSITION_Y = 600
+COMPOSITION_MODE = "planning_composed_lower_center_safe_v3"
+SAFE_X_MIN = 180
+SAFE_X_MAX = 900
+SAFE_Y_MIN = 1160
+SAFE_Y_MAX = 1520
+COMPOSITION_X = 540
+COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
     "hook": 128,
     "beat": 110,
@@ -445,8 +448,14 @@ def _accent_word_index(text: str) -> int:
     return len(words) - 1
 
 
-def _accent_caption(text: str, focus_index: int) -> str:
-    """Render one stable RTL phrase with only the currently spoken word yellow."""
+def _accent_caption(
+    text: str,
+    focus_index: int,
+    *,
+    body_size: int = BODY_FONT_SIZE,
+    focus_size: int = FOCUS_FONT_SIZE,
+) -> str:
+    """Render one dominant gold keyword with smaller white supporting copy."""
     words = _clean(text).split()
     if not words:
         return ""
@@ -455,12 +464,20 @@ def _accent_caption(text: str, focus_index: int) -> str:
         escaped = _ass_escape(word)
         if index == focus_index:
             rendered.append(
-                "{\\c" + ACCENT_ASS + "}" + escaped + "{\\c" + PRIMARY_ASS + "}"
+                "{\\fs"
+                + str(focus_size)
+                + "\\bord4\\shad0\\c"
+                + ACCENT_ASS
+                + "}"
+                + escaped
+                + "{\\fs"
+                + str(body_size)
+                + "\\bord5\\c"
+                + PRIMARY_ASS
+                + "}"
             )
         else:
             rendered.append(escaped)
-    # Explicit RTL embedding keeps libass from visually reordering Arabic runs
-    # when inline colour tags split shaping spans.
     return "\u202B" + " ".join(rendered) + "\u202C"
 
 
@@ -517,9 +534,9 @@ def build_composition_hints(
                 "event_index": index,
                 "section_id": section_id or None,
                 "role": item.role,
-                "zone": "upper_right",
+                "zone": "lower_center_youtube_safe",
                 "x": COMPOSITION_X,
-                "y": COMPOSITION_Y,
+                "y": min(COMPOSITION_Y, CAPTION_SAFE_BOTTOM_Y - 120),
                 "font_size": _font_size_for_event(item),
                 "source": "planning_composition_contract",
             }
@@ -566,7 +583,16 @@ def build_rich_ass(
         for word_start, word_end, focus_index in _word_highlight_windows(item):
             start = _ass_time(word_start)
             end = _ass_time(word_end)
-            caption = _accent_caption(item.text, focus_index)
+            focus_size = max(
+                font_size + 28,
+                min(178, int(round(font_size * FOCUS_SCALE))),
+            )
+            caption = _accent_caption(
+                item.text,
+                focus_index,
+                body_size=font_size,
+                focus_size=focus_size,
+            )
             if focus_index == 0:
                 scale = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
             else:

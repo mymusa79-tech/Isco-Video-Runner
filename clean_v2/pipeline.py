@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import time
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -17,6 +18,7 @@ from .identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
+    identity_timing_profile,
     assert_spoken_identity,
     inject_spoken_identity,
 )
@@ -98,6 +100,28 @@ STAGES = (
 
 
 VOICE_CHUNK_MAX_CHARS = 550
+IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
+
+
+def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
+    """Create exact-format PCM silence so Timeline First can measure it like voice."""
+    if seconds <= 0:
+        raise ValueError("silence duration must be positive")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(reference), "rb") as source:
+        channels = source.getnchannels()
+        sample_width = source.getsampwidth()
+        sample_rate = source.getframerate()
+        compression = source.getcomptype()
+        compression_name = source.getcompname()
+    frames = max(1, int(round(sample_rate * seconds)))
+    with wave.open(str(destination), "wb") as target:
+        target.setnchannels(channels)
+        target.setsampwidth(sample_width)
+        target.setframerate(sample_rate)
+        target.setcomptype(compression, compression_name)
+        target.writeframes(b"\x00" * frames * channels * sample_width)
+    return destination
 
 
 def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) -> list[str]:
@@ -337,7 +361,10 @@ def _synthesize_sectioned_voice(
         section_fallback = False
 
         for chunk_index, chunk_text in enumerate(chunks, start=1):
-            if len(chunks) == 1:
+            identity_silence = fmt in IDENTITY_TIMELINE_FORMATS and (
+                index == 1 or index == len(sections)
+            )
+            if len(chunks) == 1 and not identity_silence:
                 chunk_path = section_path
             else:
                 chunk_dir = audio_dir / f"{index:02d}-chunks"
@@ -468,16 +495,60 @@ def _synthesize_sectioned_voice(
                     }
                 )
 
+            role = roles[chunk_index - 1]
             chunk_paths.append(chunk_path)
             chunk_reports.append(
                 {
-                    "chunk": chunk_index,
+                    "chunk": len(chunk_reports) + 1,
                     "file": str(chunk_path.relative_to(narration_path.parent)),
                     "chars": len(chunk_text),
                     "provider": provider,
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
-                    "role": roles[chunk_index - 1],
+                    "role": role,
+                }
+            )
+
+            if fmt in IDENTITY_TIMELINE_FORMATS and index == 1 and role == "hook":
+                timing = identity_timing_profile(fmt)
+                silence_path = chunk_path.parent / "intro-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    silence_path,
+                    timing["intro_silence_seconds"],
+                )
+                chunk_paths.append(silence_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "intro_silence",
+                    }
+                )
+
+        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
+            timing = identity_timing_profile(fmt)
+            silence_reference = chunk_paths[-1]
+            final_silence = silence_reference.parent / "final-silence.wav"
+            _write_silence_like(
+                silence_reference,
+                final_silence,
+                timing["final_silence_seconds"],
+            )
+            chunk_paths.append(final_silence)
+            chunk_reports.append(
+                {
+                    "chunk": len(chunk_reports) + 1,
+                    "file": str(final_silence.relative_to(narration_path.parent)),
+                    "chars": 0,
+                    "provider": "deterministic_silence",
+                    "charon_attempts": 0,
+                    "fallback_used": False,
+                    "role": "final_silence",
                 }
             )
 
@@ -525,7 +596,7 @@ def _synthesize_sectioned_voice(
                 "provider": provider,
                 "charon_attempts": section_attempts,
                 "fallback_used": section_fallback,
-                "chunk_count": len(chunks),
+                "chunk_count": len(chunk_reports),
                 "chunks": chunk_reports,
             }
         )
@@ -2482,22 +2553,6 @@ def _run_legacy_cinematic_layer(
             short_timed_text_report,
         )
 
-        # New Short feature, deliberately after the restored timed-text layer.
-        # Narration has already been mastered; this optional/fail-safe mix only
-        # places a very quiet local ambient bed and gentle accents underneath it.
-        from clean_v2.short_audio_polish import apply_short_audio_polish
-
-        short_audio_polish_report = apply_short_audio_polish(
-            output_dir=output_dir,
-            final_path=final_path,
-            narration_path=narration_path,
-            timed_text_report=short_timed_text_report,
-        )
-        atomic_write_json(
-            output_dir / "short-audio-polish.json",
-            short_audio_polish_report,
-        )
-
     if fmt == "podcast":
         from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 
@@ -2521,9 +2576,31 @@ def _run_legacy_cinematic_layer(
             podcast_key_text_report,
         )
 
+    topic_audio_polish_report: dict[str, Any] | None = None
+    if fmt in IDENTITY_TIMELINE_FORMATS:
+        from clean_v2.short_audio_polish import apply_topic_audio_polish
+
+        topic_audio_polish_report = apply_topic_audio_polish(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            script=script,
+            fmt=fmt,
+        )
+        atomic_write_json(
+            output_dir / "topic-audio-polish.json",
+            topic_audio_polish_report,
+        )
+        if fmt == "short":
+            short_audio_polish_report = topic_audio_polish_report
+            atomic_write_json(
+                output_dir / "short-audio-polish.json",
+                short_audio_polish_report,
+            )
+
     # Final CTA surface is local and deterministic: only the user-approved icon
     # PNGs / original subscribe+bell clip / original click sound are allowed.
-    # It runs after any Short music bed so the click remains audible above music.
+    # It runs after the shared topic-only music bed so click SFX remains audible.
     from clean_v2.visual_cta import apply_visual_cta_assets
 
     visual_cta_report = apply_visual_cta_assets(
@@ -2544,6 +2621,7 @@ def _run_legacy_cinematic_layer(
         "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
+        "topic_audio_polish": topic_audio_polish_report,
         "podcast_key_text": podcast_key_text_report,
     }
 
@@ -2877,11 +2955,12 @@ def _run_audio_mastering_stage(
             "format": fmt,
             "sequence": [
                 "hook",
-                "intro",
-                "prayer_sentence_with_visual",
+                "intro_silence_with_fully_opaque_intro",
+                "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
-                "topic",
-                "outro",
+                "topic_music_window",
+                "outro_no_music_fully_opaque",
+                "final_silence_freeze",
             ],
             "timeline_owner": voice_timeline["timeline_owner"],
             "identity_events": voice_timeline["identity_events"],
@@ -3269,7 +3348,10 @@ wording.
 Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
 remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
 or shot-count target. Every planned section must have at least one beat and at most three. For each
-beat, viewer_intent states what the viewer should understand or feel. shot_intent is the richer
+beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
+specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
+lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
+misleading substitutes that would look related but fail the exact idea. shot_intent is the richer
 semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
 distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
@@ -3327,6 +3409,9 @@ Return one JSON object with exactly this useful shape:
         "id": "b1",
         "section_id": "s1",
         "viewer_intent": "what the viewer should understand or feel here",
+        "meaning_target": "the exact visible meaning this shot must communicate",
+        "semantic_must_have": ["one concrete visible cue", "second concrete cue if needed"],
+        "semantic_should_avoid": ["generic mood-only substitute"],
         "shot_intent": "rich semantic/cinematic image or motion intent",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",

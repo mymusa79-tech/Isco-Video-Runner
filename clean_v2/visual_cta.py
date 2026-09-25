@@ -12,6 +12,14 @@ from .media import probe_duration
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
 _COMBO = _ASSET_DIR / "subscribe_bell_reference.mp4"
+SFX_TARGET_REL_DB = -12.0
+SFX_MIN_REL_DB = -16.0
+SFX_MAX_REL_DB = -9.0
+SHORT_CTA_CENTER_X = 540
+SHORT_CTA_Y = 1080
+HORIZONTAL_CTA_CENTER_X = 960
+HORIZONTAL_CTA_Y = 500
+HORIZONTAL_KEY_TEXT_Y = 770
 _ICON_BY_MODE = {
     "like": _ASSET_DIR / "like_ORIGINAL.png",
     "comment": _ASSET_DIR / "comment_ORIGINAL.png",
@@ -56,6 +64,29 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, check=True, env=_env(), timeout=240)
 
 
+def _mean_db(path: Path) -> float:
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+            "-af", "volumedetect", "-f", "null", "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_env(),
+        timeout=240,
+    )
+    match = __import__("re").search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", proc.stderr or "")
+    if not match:
+        raise RuntimeError(f"CTA SFX level measurement missing: {path.name}")
+    return float(match.group(1))
+
+
+def _sfx_gain_db(*, source: Path, narration_mean_db: float) -> float:
+    source_mean = _mean_db(source)
+    return (narration_mean_db + SFX_TARGET_REL_DB) - source_mean
+
+
 def _authored_mode(output_dir: Path) -> str:
     path = Path(output_dir) / "cta-plan.json"
     if not path.is_file():
@@ -94,20 +125,23 @@ def _events(
             VisualCtaEvent(
                 mode=modes[index],
                 start_seconds=round(start, 3),
-                end_seconds=round(min(duration - 1.2, start + (3.5 if modes[index] == "subscribe_combo" else 1.35)), 3),
-                x=70,
-                y=560,
+                end_seconds=round(min(duration - 1.2, start + (2.6 if modes[index] == "subscribe_combo" else 1.35)), 3),
+                x=(160 if modes[index] == "subscribe_combo" else 465),
+                y=SHORT_CTA_Y,
                 asset="subscribe_bell_reference.mp4" if modes[index] == "subscribe_combo" else _ICON_BY_MODE[modes[index]].name,
             )
             for index, start in enumerate(starts)
             if start < duration - 2.0
         ][:2]
 
-    if fmt != "film":
+    if fmt not in {"film", "podcast"}:
         return []
 
-    # Long-form is intentionally sparse: the count grows only with real runtime.
-    if duration < 180:
+    # Horizontal long-form shares one sparse CTA policy. Podcast stays calmer
+    # than Film because narration and key text carry more of the experience.
+    if fmt == "podcast":
+        points = [0.56, 0.82] if duration >= 120 else [0.68]
+    elif duration < 180:
         points = [0.48, 0.80]
     elif duration < 420:
         points = [0.28, 0.56, 0.82]
@@ -116,7 +150,9 @@ def _events(
 
     primary = authored_mode if authored_mode in {"like", "comment", "share"} else "comment"
     palette = ["like", primary, "share", "subscribe_combo"]
-    if len(points) == 2:
+    if len(points) == 1:
+        palette = ["subscribe_combo"]
+    elif len(points) == 2:
         palette = [primary, "subscribe_combo"]
     elif len(points) == 3:
         palette = ["like" if primary != "like" else "comment", primary, "subscribe_combo"]
@@ -130,14 +166,13 @@ def _events(
         start = max(12.0, duration * ratio)
         if start > duration - 15.0:
             continue
-        left = index % 2 == 0
         events.append(
             VisualCtaEvent(
                 mode=mode,
                 start_seconds=round(start, 3),
                 end_seconds=round(start + (3.5 if mode == "subscribe_combo" else 1.45), 3),
-                x=85 if left else 1570,
-                y=330 if left else 520,
+                x=(610 if mode == "subscribe_combo" else 908),
+                y=HORIZONTAL_CTA_Y,
                 asset="subscribe_bell_reference.mp4" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
             )
         )
@@ -151,6 +186,7 @@ def _render(
     dest: Path,
     events: list[VisualCtaEvent],
     fmt: str,
+    narration_path: Path,
 ) -> None:
     if not events:
         return
@@ -182,6 +218,10 @@ def _render(
             click_specs.append((next_index, event))
             next_index += 1
 
+    narration_mean_db = _mean_db(Path(narration_path))
+    click_gain_db = _sfx_gain_db(source=_CLICK, narration_mean_db=narration_mean_db)
+    combo_gain_db = _sfx_gain_db(source=_COMBO, narration_mean_db=narration_mean_db)
+
     filters: list[str] = []
     current = "[0:v]"
     audio_labels = ["[0:a]"]
@@ -200,15 +240,22 @@ def _render(
             )
         else:
             combo_width = 760 if fmt == "short" else 700
+            combo_duration = max(0.8, event.end_seconds - event.start_seconds)
+            palette_filter = (
+                "hue=h=38:s=0.72,eq=contrast=1.04:brightness=-0.01"
+                if fmt == "short"
+                else "null"
+            )
             filters.append(
-                f"[{input_index}:v]trim=start=0.45:end=4.10,setpts=PTS-STARTPTS,"
+                f"[{input_index}:v]trim=start=0.45:duration={combo_duration:.3f},setpts=PTS-STARTPTS,"
                 "crop=1020:360:130:170,format=rgba,colorkey=0xFFFFFF:0.16:0.08,"
-                f"scale={combo_width}:-1,setpts=PTS+{event.start_seconds:.3f}/TB[{label}]"
+                f"{palette_filter},scale={combo_width}:-1,"
+                f"setpts=PTS+{event.start_seconds:.3f}/TB[{label}]"
             )
             delay = int(round(event.start_seconds * 1000))
             filters.append(
-                f"[{input_index}:a]atrim=start=0.45:end=4.10,asetpts=PTS-STARTPTS,"
-                f"adelay={delay}|{delay},volume=0.65[acombo{number}]"
+                f"[{input_index}:a]atrim=start=0.45:duration={combo_duration:.3f},asetpts=PTS-STARTPTS,"
+                f"adelay={delay}|{delay},volume={combo_gain_db:.3f}dB[acombo{number}]"
             )
             audio_labels.append(f"[acombo{number}]")
 
@@ -220,7 +267,7 @@ def _render(
     for number, (input_index, event) in enumerate(click_specs):
         delay = int(round((event.start_seconds + 0.55) * 1000))
         filters.append(
-            f"[{input_index}:a]adelay={delay}|{delay},volume=0.58[aclick{number}]"
+            f"[{input_index}:a]adelay={delay}|{delay},volume={click_gain_db:.3f}dB[aclick{number}]"
         )
         audio_labels.append(f"[aclick{number}]")
 
@@ -255,7 +302,7 @@ def apply_visual_cta_assets(
     output_dir = Path(output_dir)
     final_path = Path(final_path)
 
-    if fmt not in {"short", "film"}:
+    if fmt not in {"short", "film", "podcast"}:
         return {
             "schema_version": 1,
             "source": "clean-v2-approved-visual-cta-v1",
@@ -277,7 +324,7 @@ def apply_visual_cta_assets(
     temp.unlink(missing_ok=True)
     try:
         if events:
-            _render(video=final_path, dest=temp, events=events, fmt=fmt)
+            _render(video=final_path, dest=temp, events=events, fmt=fmt, narration_path=Path(narration_path))
             os.replace(temp, final_path)
             status = "applied"
         else:
@@ -293,11 +340,29 @@ def apply_visual_cta_assets(
         "events": [asdict(item) for item in events],
         "event_count": len(events),
         "short_max_two": fmt != "short" or len(events) <= 2,
+        "short_combo_max_seconds": 2.6 if fmt == "short" else None,
+        "short_combo_palette": "warm_gold_dark_harmonized" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": True,
         "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
         "click_asset": _CLICK.name,
-        "click_mix_policy": "below_voice_above_background_music",
+        "click_mix_policy": "measured_below_voice_above_background_music",
+        "sfx_target_relative_db": SFX_TARGET_REL_DB,
+        "sfx_allowed_relative_db": [SFX_MIN_REL_DB, SFX_MAX_REL_DB],
+        "short_cta_position": (
+            {"center_x": SHORT_CTA_CENTER_X, "y": SHORT_CTA_Y, "caption_y": 1400}
+            if fmt == "short"
+            else None
+        ),
+        "horizontal_cta_position": (
+            {
+                "center_x": HORIZONTAL_CTA_CENTER_X,
+                "y": HORIZONTAL_CTA_Y,
+                "podcast_key_text_y": HORIZONTAL_KEY_TEXT_Y if fmt == "podcast" else None,
+            }
+            if fmt in {"film", "podcast"}
+            else None
+        ),
         "provider_calls_added": 0,
     }
     (output_dir / "visual-cta.json").write_text(

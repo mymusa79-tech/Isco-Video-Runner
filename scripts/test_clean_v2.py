@@ -1690,18 +1690,33 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            # Timeline First intentionally synthesizes measured semantic voice
-            # units (hook/prayer/channel identity/topic/outro). Lock the test to the
-            # persisted unit manifest instead of the old one-extra-hook-chunk count.
+            # Timeline First now persists deterministic silence as measured audio
+            # units too. Those units must affect timing but must never consume TTS.
             voice_manifest = json.loads(
                 (first_output / "voice-sections.json").read_text(encoding="utf-8")
             )
-            expected_voice_calls = sum(
-                int(section.get("chunk_count") or 0)
+            chunks = [
+                chunk
                 for section in voice_manifest.get("sections", [])
+                for chunk in (section.get("chunks") or [])
+                if isinstance(chunk, dict)
+            ]
+            silence_chunks = [
+                chunk for chunk in chunks
+                if str(chunk.get("provider") or "") == "deterministic_silence"
+            ]
+            self.assertEqual(len(silence_chunks), 2)
+            self.assertEqual(
+                {str(chunk.get("role") or "") for chunk in silence_chunks},
+                {"intro_silence", "final_silence"},
             )
-            self.assertGreater(expected_voice_calls, len(_script()["sections"]))
-            self.assertEqual(first_voice.calls, expected_voice_calls)
+            self.assertTrue(
+                all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)
+            )
+            # Silence is materialized locally from the adjacent WAV format; it
+            # must affect measured timing without becoming an extra TTS call.
+            self.assertGreater(first_voice.calls, len(_script()["sections"]))
+            self.assertLess(first_voice.calls, len(chunks))
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:

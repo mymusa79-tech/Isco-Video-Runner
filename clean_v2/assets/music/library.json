@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "FreePD / 0lhi/FreePD",
+  "source_ref": "stream",
+  "license": "CC0-1.0 / public domain dedication",
+  "license_url": "https://github.com/0lhi/FreePD/blob/stream/LICENSE",
+  "cache_policy": "download once into clean_v2/assets/music/cache; verify Git blob SHA-1 before use",
+  "tracks": [
+    {
+      "id": "calm-sketch-piano",
+      "title": "Calm Sketch for Piano",
+      "filename": "calm-sketch-for-piano.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Calm%20Sketch%20for%20Piano.mp3",
+      "git_blob_sha1": "6da24f3b776ccdb8e406d628c516363bf7c09fd7",
+      "moods": ["focus", "planning", "productivity", "calm"]
+    },
+    {
+      "id": "peace-in-sunlight",
+      "title": "Peace in Sunlight",
+      "filename": "peace-in-sunlight.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Peace%20in%20Sunlight.mp3",
+      "git_blob_sha1": "d9589916a78acc9b2524eff6cdebd60e96a21e97",
+      "moods": ["hopeful", "uplifting", "recovery", "victory"]
+    },
+    {
+      "id": "a-little-faith",
+      "title": "A Little Faith",
+      "filename": "a-little-faith.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/A%20Little%20Faith.mp3",
+      "git_blob_sha1": "871188430403ad9f305c94501c94a8bd684fd616",
+      "moods": ["reflective", "calm", "general", "awareness"]
+    }
+  ]
+}
