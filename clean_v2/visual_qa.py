@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -96,6 +97,48 @@ a sentence or shot list. Do not use comparisons, multiple simultaneous actions, 
 storytelling details. Do not merely rearrange the same object keywords.
 Return ONLY JSON: {{"alternate_query": "..."}}.
 """.strip()
+
+
+_NO_FACE_QUERY_DROP_TERMS = {
+    "person", "people", "man", "men", "woman", "women", "boy", "boys",
+    "girl", "girls", "face", "faces", "head", "portrait", "back", "view",
+    "looking", "watching", "sitting", "seated", "standing",
+}
+
+
+def _deterministic_no_face_recovery_query(original_query: str) -> str:
+    """Build one cheap face-safe stock query from the failed query itself.
+
+    This path is used only after cloud QA proves that the selected clip violated the
+    no-face policy. It avoids paying another text-model call merely to say "hands only".
+    The original rich story intent remains the authority for the next cloud review.
+    """
+    raw_tokens = re.findall(r"[a-z0-9]+", str(original_query or "").casefold())
+    mapped: list[str] = []
+    for token in raw_tokens:
+        if token in _NO_FACE_QUERY_DROP_TERMS:
+            continue
+        if token in {"finger", "fingers"}:
+            token = "hands"
+        if token not in mapped:
+            mapped.append(token)
+
+    if "hands" in mapped:
+        mapped = ["hands", *[token for token in mapped if token != "hands"]]
+    else:
+        mapped.insert(0, "hands")
+    if "laptop" in mapped and "hovering" in mapped and "keyboard" not in mapped:
+        insert_at = min(len(mapped), mapped.index("laptop") + 1)
+        mapped.insert(insert_at, "keyboard")
+
+    compact = mapped[:7]
+    if len(compact) < 4:
+        for fallback in ("desk", "notebook", "task", "closeup"):
+            if fallback not in compact:
+                compact.append(fallback)
+            if len(compact) >= 4:
+                break
+    return " ".join(compact[:8])
 
 
 def _validate_alternate_query(value: Any, *, original_query: str) -> dict[str, str]:
@@ -674,7 +717,11 @@ def run_final_cut_visual_qa(
                     recovery_records.append(recovery_record)
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
 
-                    if router is None or visual_source is None:
+                    no_face_block = (
+                        primary_audit.get("no_face_policy") == "block"
+                        or bool(primary_audit.get("identifiable_person"))
+                    )
+                    if visual_source is None or (router is None and not no_face_block):
                         recovery_record.update(
                             {
                                 "status": "unavailable",
@@ -689,43 +736,49 @@ def run_final_cut_visual_qa(
                             f"status={primary_audit.get('status')} floor={primary_floor:.6f}"
                         )
 
-                    prompt = _alternate_visual_query_prompt(
-                        original_query=intended_visual,
-                        narration_context=narration_context,
-                    )
-                    router_event_start = len(getattr(router, "events", []))
-                    try:
-                        alternate = router.route(
-                            stage="visual_query_recovery",
-                            prompt=prompt,
-                            max_tokens=80,
-                            validator=lambda value: _validate_alternate_query(
-                                value,
-                                original_query=intended_visual,
-                            ),
-                        )["alternate_query"]
-                    except Exception as exc:
-                        recovery_record.update(
-                            {
-                                "status": "query_generation_failed",
-                                "reason": type(exc).__name__,
-                                "router_events": list(
-                                    getattr(router, "events", [])[router_event_start:]
-                                ),
-                            }
+                    if no_face_block:
+                        alternate = _deterministic_no_face_recovery_query(intended_visual)
+                        recovery_record["query_source"] = "deterministic_no_face"
+                        recovery_record["router_events"] = []
+                    else:
+                        prompt = _alternate_visual_query_prompt(
+                            original_query=intended_visual,
+                            narration_context=narration_context,
                         )
-                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                        raise CleanV2VisualQAInfrastructure(
-                            f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
-                            f"position={clip_position} "
-                            f"reason=semantic_recovery_query_unavailable "
-                            f"error_type={type(exc).__name__}"
-                        ) from exc
+                        router_event_start = len(getattr(router, "events", []))
+                        try:
+                            alternate = router.route(
+                                stage="visual_query_recovery",
+                                prompt=prompt,
+                                max_tokens=80,
+                                validator=lambda value: _validate_alternate_query(
+                                    value,
+                                    original_query=intended_visual,
+                                ),
+                            )["alternate_query"]
+                        except Exception as exc:
+                            recovery_record.update(
+                                {
+                                    "status": "query_generation_failed",
+                                    "reason": type(exc).__name__,
+                                    "router_events": list(
+                                        getattr(router, "events", [])[router_event_start:]
+                                    ),
+                                }
+                            )
+                            _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                            raise CleanV2VisualQAInfrastructure(
+                                f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
+                                f"position={clip_position} "
+                                f"reason=semantic_recovery_query_unavailable "
+                                f"error_type={type(exc).__name__}"
+                            ) from exc
+                        recovery_record["query_source"] = "provider_generated"
+                        recovery_record["router_events"] = list(
+                            getattr(router, "events", [])[router_event_start:]
+                        )
 
                     recovery_record["alternate_query"] = alternate
-                    recovery_record["router_events"] = list(
-                        getattr(router, "events", [])[router_event_start:]
-                    )
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
 
                     excluded_assets = [
