@@ -3269,7 +3269,10 @@ wording.
 Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
 remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
 or shot-count target. Every planned section must have at least one beat and at most three. For each
-beat, viewer_intent states what the viewer should understand or feel. shot_intent is the richer
+beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
+specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
+lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
+misleading substitutes that would look related but fail the exact idea. shot_intent is the richer
 semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
 distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
@@ -3327,6 +3330,9 @@ Return one JSON object with exactly this useful shape:
         "id": "b1",
         "section_id": "s1",
         "viewer_intent": "what the viewer should understand or feel here",
+        "meaning_target": "the exact visible meaning this shot must communicate",
+        "semantic_must_have": ["one concrete visible cue", "second concrete cue if needed"],
+        "semantic_should_avoid": ["generic mood-only substitute"],
         "shot_intent": "rich semantic/cinematic image or motion intent",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",

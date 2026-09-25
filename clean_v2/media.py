@@ -1126,6 +1126,9 @@ def _ai_still_prompt(
     visual_world = str(visual_story.get("visual_world") or "").strip()[:320]
     motif = str(thread.get("visual_motif") or "").strip()[:180]
     viewer_intent = str(beat.get("viewer_intent") or "").strip()[:240]
+    meaning_target = str(beat.get("meaning_target") or viewer_intent).strip()[:240]
+    must_have = ", ".join(str(item) for item in (beat.get("semantic_must_have") or []))[:240]
+    should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
     scene = str(beat.get("shot_intent") or "").strip()[:260]
     reference_rule = (
         "Use input image 0 as the exact environment/style anchor; preserve its location, "
@@ -1139,7 +1142,8 @@ def _ai_still_prompt(
         f"Recurring motif: {motif}. "
         f"Beat role: {str(beat.get('role') or '').strip()}. "
         f"Viewer intent: {viewer_intent}. "
-        f"Scene: {scene}. "
+        f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
+        f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
         "Lived-in foreground, midground and background depth, soft warm-neutral practical light, "
         "one clear focal action, clean negative space for Arabic overlay. No identifiable faces; "
@@ -1580,6 +1584,9 @@ class StockVisualSource:
                     "id": str(raw_beat.get("id") or f"b{index}").strip(),
                     "section_id": section_id,
                     "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
+                    "meaning_target": str(raw_beat.get("meaning_target") or raw_beat.get("viewer_intent") or "").strip(),
+                    "semantic_must_have": list(raw_beat.get("semantic_must_have") or []),
+                    "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
                     "role": str(raw_beat.get("role") or "").strip(),
@@ -1786,6 +1793,9 @@ class StockVisualSource:
                 candidate["section_id"] = section_id
                 candidate["beat_id"] = str(beat.get("id") or "")
                 candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
+                candidate["meaning_target"] = str(beat.get("meaning_target") or beat.get("viewer_intent") or "")
+                candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
+                candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
                 candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(

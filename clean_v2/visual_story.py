@@ -67,6 +67,9 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "id": f"b{index}",
                 "section_id": str(section.get("id") or f"s{index}"),
                 "viewer_intent": f"{purpose}؛ المرحلة {index}".strip("؛ "),
+                "meaning_target": purpose or str(section.get("visual_query_en") or "").strip(),
+                "semantic_must_have": [str(section.get("visual_query_en") or "").strip()],
+                "semantic_should_avoid": ["generic mood-only productivity imagery"],
                 "shot_intent": str(section.get("visual_query_en") or "").strip(),
                 "role": _beat_role(index - 1, len(sections)),
                 "stock_query_en": str(section.get("visual_query_en") or "").strip(),
@@ -90,6 +93,9 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "id": "b2",
                 "section_id": str(section.get("id") or "s1"),
                 "viewer_intent": (purpose + "؛ تظهر النتيجة المكتسبة").strip("؛ "),
+                "meaning_target": (purpose + "؛ observable completed state").strip("؛ "),
+                "semantic_must_have": [payoff_query],
+                "semantic_should_avoid": ["generic mood-only productivity imagery"],
                 "shot_intent": (purpose[:220].rstrip() + "؛ حالة النتيجة المرئية").strip(),
                 "role": "payoff",
                 "stock_query_en": payoff_query,
@@ -170,6 +176,19 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         beat_id = str(raw.get("id") or f"b{index}").strip()[:40]
         section_id = str(raw.get("section_id") or "").strip()
         viewer_intent = " ".join(str(raw.get("viewer_intent") or "").split()).strip()
+        meaning_target = " ".join(
+            str(raw.get("meaning_target") or viewer_intent or raw.get("shot_intent") or "").split()
+        ).strip()
+        semantic_must_have = [
+            " ".join(str(item).split()).strip()[:120]
+            for item in (raw.get("semantic_must_have") or [])
+            if " ".join(str(item).split()).strip()
+        ][:4]
+        semantic_should_avoid = [
+            " ".join(str(item).split()).strip()[:120]
+            for item in (raw.get("semantic_should_avoid") or [])
+            if " ".join(str(item).split()).strip()
+        ][:4]
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
         role = (
             _beat_role(index - 1, len(raw_beats))
@@ -198,10 +217,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(f"visual_story beat {beat_id} references an unknown section")
         if section_order[section_id] < prior_section_index:
             raise ValueError("visual_story beats must follow planned section order")
-        if not viewer_intent or not shot_intent or not stock_query_en:
+        if not viewer_intent or not meaning_target or not shot_intent or not stock_query_en:
             raise ValueError(
-                f"visual_story beat {beat_id} requires viewer_intent, shot_intent, "
-                "and stock_query_en"
+                f"visual_story beat {beat_id} requires viewer_intent, meaning_target, "
+                "shot_intent, and stock_query_en"
             )
         if len(viewer_intent) > 600 or len(shot_intent) > 260:
             raise ValueError(f"visual_story beat {beat_id} is too verbose")
@@ -257,6 +276,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 "id": beat_id,
                 "section_id": section_id,
                 "viewer_intent": viewer_intent,
+                "meaning_target": meaning_target[:320],
+                "semantic_must_have": semantic_must_have,
+                "semantic_should_avoid": semantic_should_avoid,
                 "shot_intent": shot_intent,
                 "role": role,
                 "stock_query_en": stock_query_en,
@@ -348,7 +370,18 @@ def contextual_intent(
     )
     current_beat = beats[current_index]
     role = _context_fragment(current_beat.get("role"), "body", 10)
-    intent = _context_fragment(current_beat.get("viewer_intent"), "new information", 36)
+    intent = _context_fragment(current_beat.get("viewer_intent"), "new information", 30)
+    meaning = _context_fragment(current_beat.get("meaning_target"), "specific visible meaning", 52)
+    must_have = _context_fragment(
+        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
+        "concrete evidence",
+        42,
+    )
+    should_avoid = _context_fragment(
+        ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
+        "generic mood-only imagery",
+        38,
+    )
     thread = visual_story.get("retention_thread")
     motif = _context_fragment(
         thread.get("visual_motif") if isinstance(thread, Mapping) else "",
@@ -356,8 +389,8 @@ def contextual_intent(
         22,
     )
     context = (
-        f"Role: {role}. Intent: {intent}. Current: {current}. "
-        f"Previous: {previous}. Next: {following}. Motif: {motif}. "
-        "Same hook-to-payoff arc: judge continuity."
+        f"Role: {role}. Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        f"Intent: {intent}. Current: {current}. Previous: {previous}. "
+        f"Next: {following}. Motif: {motif}. Judge specific meaning before mood."
     )
     return context[:300].rstrip()
