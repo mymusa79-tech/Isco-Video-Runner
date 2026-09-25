@@ -21,7 +21,7 @@ CONFIRM_TEXT = "تأكيد الإنتاج"
 SCOPES = {"long", "bundle", "short", "podcast"}
 FORMATS_BY_SCOPE = {
     "long": ["film"],
-    "bundle": ["film", "short"],
+    "bundle": ["film"],
     "short": ["short"],
     "podcast": ["podcast"],
 }
@@ -29,7 +29,7 @@ MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
-SHORT_MAX_SECONDS = 30
+CLEAN_V2_SHORT_SAFETY_MAX_SECONDS = 120
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 CLEAN_V2_DELIVERY_TAG_PREFIX = "clean-v2-final-"
@@ -204,7 +204,7 @@ def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, 
         (
             item
             for item in videos
-            if 0 < int(item.get("duration_seconds") or 0) <= SHORT_MAX_SECONDS
+            if 0 < int(item.get("duration_seconds") or 0) <= CLEAN_V2_SHORT_SAFETY_MAX_SECONDS
         ),
         None,
     )
@@ -212,7 +212,7 @@ def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, 
         (
             item
             for item in videos
-            if int(item.get("duration_seconds") or 0) > SHORT_MAX_SECONDS
+            if int(item.get("duration_seconds") or 0) > CLEAN_V2_SHORT_SAFETY_MAX_SECONDS
         ),
         None,
     )
@@ -564,7 +564,7 @@ def _scope_research_instruction(scope: str) -> str:
     if scope == "bundle":
         return (
             "كل فكرة يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح، "
-            "وفي الوقت نفسه تسمح باشتقاق شورت مستقل وقوي منها دون إعادة صياغة الحلقة كاملة."
+            "وفي الوقت نفسه تسمح باشتقاق شورت قوي من نفس الحلقة دون إنتاج مستقل أو إعادة كتابة الحلقة كاملة."
         )
     if scope == "podcast":
         return (
@@ -1506,7 +1506,6 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
                 if fmt == "podcast"
                 else []
             ),
-            *(["Complete Short must not exceed 30 seconds."] if fmt == "short" else []),
         ],
     }
     if fmt == "podcast":

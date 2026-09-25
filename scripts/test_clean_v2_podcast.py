@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from clean_v2.identity_sequence import (
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
 from clean_v2.pipeline import (
+    CleanV2Pipeline,
     _isolate_podcast_promo_unit,
     _planning_prompt,
     _run_podcast_derived_short_lite,
@@ -298,6 +300,10 @@ class PodcastVisualIdentityTests(unittest.TestCase):
 
 
 class PodcastDerivedShortLiteTests(unittest.TestCase):
+    def test_pipeline_wires_selected_podcast_promo_into_voice_timeline(self) -> None:
+        source = inspect.getsource(CleanV2Pipeline.run)
+        self.assertIn("podcast_promo=podcast_promo", source)
+
     def test_local_promo_selection_avoids_opening_and_preserves_text(self) -> None:
         sections = [
             {

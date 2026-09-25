@@ -4162,6 +4162,7 @@ class CleanV2Pipeline:
                             str(identity_runtime.get("opener") or ""),
                         ),
                         identity_closer=str(identity_runtime.get("closer") or ""),
+                        podcast_promo=podcast_promo,
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
