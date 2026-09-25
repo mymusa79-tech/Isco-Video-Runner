@@ -2378,6 +2378,7 @@ def _run_legacy_cinematic_layer(
 
     short_timed_text_report: dict[str, Any] | None = None
     short_audio_polish_report: dict[str, Any] | None = None
+    podcast_key_text_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
 
@@ -2408,6 +2409,19 @@ def _run_legacy_cinematic_layer(
             short_audio_polish_report,
         )
 
+    if fmt == "podcast":
+        from clean_v2.podcast_key_text import apply_podcast_key_text
+
+        podcast_key_text_report = apply_podcast_key_text(
+            output_dir=output_dir,
+            final_path=final_path,
+            script=script,
+        )
+        atomic_write_json(
+            output_dir / "podcast-key-text.json",
+            podcast_key_text_report,
+        )
+
     # Final CTA surface is local and deterministic: only the user-approved icon
     # PNGs / original subscribe+bell clip / original click sound are allowed.
     # It runs after any Short music bed so the click remains audible above music.
@@ -2431,6 +2445,7 @@ def _run_legacy_cinematic_layer(
         "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
+        "podcast_key_text": podcast_key_text_report,
     }
 
 
@@ -2840,12 +2855,17 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only: turn the approved topic into a genuinely worthwhile central question and a
-specific, non-obvious angle. Reject generic self-help treatment and superficial list-style planning.
-The episode must have intellectual/narrative movement: each section must add a new cause, example,
-tension, distinction, implication, or resolution instead of restating the previous section. Do not
+For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
+worthwhile central question and a specific, non-obvious angle. Reject generic self-help treatment,
+superficial list-style planning, and topics that merely sound deep. The listener's understanding must
+meaningfully change between the beginning and the end. Each section must add a new cause, example,
+tension, distinction, implication, or resolution instead of restating the previous section. The
+structure is internal production scaffolding only: it must be invisible to the listener. Do not
 manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
 make complete sense with the screen closed.
+
+The episode title must be specific to THIS episode and carry its real tension or promise; append
+" | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
 
 Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
 remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
@@ -2890,8 +2910,16 @@ environment with visible foreground/midground/background depth, practical light 
 objects, and spatial separation around the subject; avoid empty walls, flat generic desks, or plain
 studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer the
 main subject/action on the left or lower-left with usable clean negative space in the upper-right for
-the Arabic on-screen text when that composition still fits the idea. Keep visuals modest and suitable
-for a broad Arab/Muslim audience.
+the Arabic on-screen text when that composition still fits the idea.
+
+CULTURAL VISUAL BOUNDARY: keep every stock query suitable for a broad Arab/Muslim audience and prefer
+respectful everyday Arab-region or culturally neutral environments when equally relevant. Do not
+force mosques, religious clothing, Gulf stereotypes, calligraphy, or other religious/Arab symbols
+when the topic does not call for them. Avoid queries likely to return revealing clothing or swimwear,
+sexualized fitness/body framing, kissing or romantic physical intimacy, bars/nightclubs, alcohol,
+drugs, gambling, provocative party/dance scenes, or disrespectful/decorative use of religious
+symbols. Prefer homes, workspaces, streets, calm cafes, books, hands, objects, routines, nature, and
+modestly dressed people seen without identifiable faces.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by long and short formats. The visual world must stay coherent with the restrained lighting
@@ -2966,14 +2994,20 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "podcast":
         length = (
-            "For podcast, write natural spoken Modern Standard Arabic for one neutral female narrator "
-            "(local Nabra af_msa). Never invent first-person memories, experiences, credentials, or a male "
-            "speaker identity for her. Do not write toward a word-count or duration target: continue only "
-            "while each paragraph adds meaning, and stop when the central question has been answered fully. "
-            "The episode must work as audio alone. Preserve momentum through real progression of the idea, "
-            "examples, distinctions, and earned resolution—not forced cliffhangers, repeated rhetorical "
-            "questions, or generic motivational filler. Vary sentence length naturally and use punctuation "
-            "to give the listener room to process ideas."
+            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female "
+            "narrator (local Nabra af_msa). The idea may be carefully planned, but the prose must NOT sound "
+            "like an article, lecture, news script, motivational speech, or over-rehearsed monologue. Write "
+            "as if one thoughtful person understood the subject deeply and is now speaking simply to one "
+            "listener. Use simple vocabulary with deep meaning, natural sentence-length variation, and "
+            "occasional plain transitions only when they are genuinely needed. Never use numbered-list "
+            "delivery such as أولا/ثانيا/ثالثا, repeated section signposting, a rhetorical question every "
+            "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
+            "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
+            "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
+            "write toward a word-count or duration target: continue only while each paragraph adds a new "
+            "meaning, example, distinction, tension, or resolution, and stop when the central question has "
+            "been answered fully. The episode must work as audio alone. Let punctuation create breathing "
+            "room so Nabra sounds conversational rather than rushed."
         )
     elif fmt == "short":
         length = (
