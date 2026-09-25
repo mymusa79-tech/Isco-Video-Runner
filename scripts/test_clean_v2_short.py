@@ -1118,6 +1118,13 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(report["section_count"], 3)
         self.assertEqual(report["frame"], {"width": 1080, "height": 1920})
         self.assertEqual(report["social_cta"], "forbidden")
+        self.assertEqual(report["duration"]["timeline_owner"], "measured_voice")
+        self.assertEqual(report["voice"]["primary_voice"], "Charon")
+        self.assertEqual(report["voice"]["approved_fallback_voice"], "nabra:af_msa")
+        self.assertEqual(
+            report["voice"]["approved_providers"],
+            ["gemini:Charon", "nabra:af_msa"],
+        )
         self.assertEqual(report["narrative_identity"], "not_applicable")
         self.assertEqual(report["opening_director"], "not_applicable")
 
