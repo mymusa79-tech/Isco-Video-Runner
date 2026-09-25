@@ -40,7 +40,7 @@ class PodcastFormatTests(unittest.TestCase):
         return {
             "title": "عنوان",
             "promise": "وعد واضح",
-            "cta": "شارك الحلقة مع من يحتاجها.",
+            "cta": "شاركها مع من يحتاجها.",
             "sections": [
                 {
                     "id": f"s{index}",
