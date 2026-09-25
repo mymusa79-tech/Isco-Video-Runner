@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   issue_comment:
     types: [created]
+  pull_request:
 
 permissions:
   contents: read
@@ -17,6 +18,7 @@ jobs:
     permissions:
       contents: write
     if: >-
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       (github.actor == github.repository_owner &&
        github.event.comment.body == '/clean-v2-short-final-one')
@@ -242,7 +244,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Deliver final video through unified GitHub Release
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -254,7 +256,7 @@ jobs:
             --delivery-key "short-final-one"
 
       - name: Notify Telegram terminal result
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
