@@ -148,7 +148,7 @@ jobs:
               m8_normalize_media,
               security_media_preflight,
           )
-          from clean_v2.media import StockVisualSource
+          from clean_v2.media import StockVisualSource, _compact_stock_retrieval_query
           from clean_v2.pipeline import (
               _persist_planning_artifacts,
               _planning_prompt,
@@ -191,42 +191,33 @@ jobs:
           )
           plan, story = _persist_planning_artifacts(root, planned)
 
-          # Preview experiment only: Pexels/Pixabay search quality falls sharply when
-          # a planner emits a 25-30 word shot list. Keep the full semantic plan intact
-          # for QA, but make the provider query a compact search phrase locally.
-          def compact_stock_query(value: str, max_words: int = 18) -> str:
-              text = " ".join(
-                  str(value or "")
-                  .replace(",", " ")
-                  .replace(";", " ")
-                  .split()
-              )
-              words = text.split()
-              if len(words) <= max_words:
-                  return text
-              head = words[:14]
-              tail = words[-4:]
-              seen = {word.casefold() for word in head}
-              suffix = [word for word in tail if word.casefold() not in seen]
-              return " ".join((head + suffix)[:max_words])
-
-          acquisition_sections = []
+          acquisition_plan = {**plan, "visual_story": story}
+          query_evidence = []
           for section in plan["sections"]:
-              row = dict(section)
-              row["visual_query_en"] = compact_stock_query(row.get("visual_query_en", ""))
-              if row.get("visual_query_alt_en"):
-                  row["visual_query_alt_en"] = compact_stock_query(
-                      row.get("visual_query_alt_en", "")
-                  )
-              acquisition_sections.append(row)
-          acquisition_plan = {
-              **plan,
-              "sections": acquisition_sections,
-              "visual_story": story,
-          }
+              primary_original = str(section.get("visual_query_en") or "")
+              alternate_original = str(section.get("visual_query_alt_en") or "")
+              primary_safe = normalize_clean_v2_stock_query(primary_original)
+              alternate_safe = (
+                  normalize_clean_v2_stock_query(alternate_original)
+                  if alternate_original
+                  else ""
+              )
+              query_evidence.append(
+                  {
+                      "id": section["id"],
+                      "primary_original": primary_original,
+                      "primary_provider_query": _compact_stock_retrieval_query(primary_safe),
+                      "alternate_original": alternate_original,
+                      "alternate_provider_query": (
+                          _compact_stock_retrieval_query(alternate_safe)
+                          if alternate_safe
+                          else ""
+                      ),
+                  }
+              )
           (root / "visual-preview-query-plan.json").write_text(
               json.dumps(
-                  {"sections": acquisition_sections},
+                  {"sections": query_evidence},
                   ensure_ascii=False,
                   indent=2,
               ) + "\n",
