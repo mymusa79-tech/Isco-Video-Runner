@@ -50,7 +50,7 @@ def inject_spoken_identity(
     Visual identity is timed later from measured voice-unit boundaries inside Timeline First;
     nothing is appended after the final render or allowed to extend narration duration.
     """
-    if fmt not in {"short", "film"} or not sections:
+    if fmt not in {"short", "film", "podcast"} or not sections:
         return
 
     definition = channel_definition(fmt, opener)
@@ -71,7 +71,7 @@ def inject_spoken_identity(
     remainder = first[len(hook):].lstrip()
     sections[0]["narration"] = f"{hook} {identity_block} {remainder}".strip()
 
-    if fmt == "film" and closer:
+    if fmt in {"film", "podcast"} and closer:
         sections[-1]["narration"] = (
             f"{str(sections[-1].get('narration') or '').rstrip()} {closer}"
         ).strip()
@@ -84,7 +84,7 @@ def assert_spoken_identity(
     opener: str = "",
     closer: str = "",
 ) -> None:
-    if fmt not in {"short", "film"} or not sections:
+    if fmt not in {"short", "film", "podcast"} or not sections:
         return
 
     definition = channel_definition(fmt, opener)
@@ -98,7 +98,7 @@ def assert_spoken_identity(
         legacy_closer = " ".join(str(closer or "").split()).strip()
         if legacy_opener and joined.count(legacy_opener) != 1:
             raise RuntimeError("legacy identity requires exactly one opener")
-        if fmt == "film" and legacy_closer and joined.count(legacy_closer) != 1:
+        if fmt in {"film", "podcast"} and legacy_closer and joined.count(legacy_closer) != 1:
             raise RuntimeError("legacy identity requires exactly one closer")
         return
 
@@ -114,7 +114,7 @@ def assert_spoken_identity(
     if not hook or prayer_pos < len(hook) or definition_pos <= prayer_pos:
         raise RuntimeError("identity sequence order must be hook -> prayer -> channel definition")
 
-    if fmt == "film":
+    if fmt in {"film", "podcast"}:
         closer = " ".join(str(closer or "").split()).strip()
         if closer and joined.count(closer) != 1:
             raise RuntimeError("identity sequence requires exactly one long-form closer")
@@ -123,6 +123,6 @@ def assert_spoken_identity(
 def _asset_pair(fmt: str) -> tuple[Path, Path, int, int]:
     if fmt == "short":
         return _SHORT_INTRO, _SHORT_OUTRO, 1080, 1920
-    if fmt == "film":
+    if fmt in {"film", "podcast"}:
         return _LONG_INTRO, _LONG_OUTRO, 1920, 1080
     raise RuntimeError(f"identity media unsupported format: {fmt}")
