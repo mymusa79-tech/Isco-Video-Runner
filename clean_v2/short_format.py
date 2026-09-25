@@ -600,6 +600,29 @@ def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
         for index in action_indexes
     ):
         repaired.pop(action_indexes[0])
+    elif len(action_indexes) == 2 and all(counts[index] == 1 for index in action_indexes):
+        direct_action_indexes = [
+            index
+            for index in action_indexes
+            if _sentence_begins_with_direct_action(sentences[index])
+        ]
+        extra_action_indexes = [
+            index
+            for index in action_indexes
+            if index not in direct_action_indexes
+        ]
+        safe_payoff_indexes = [
+            index
+            for index, count in enumerate(counts)
+            if count == 0 and not _contains_forbidden_action_family(sentences[index])
+        ]
+        if (
+            len(direct_action_indexes) != 1
+            or len(extra_action_indexes) != 1
+            or not safe_payoff_indexes
+        ):
+            return False
+        repaired.pop(extra_action_indexes[0])
     elif (
         len(action_indexes) == 1
         and counts[action_indexes[0]] == 1
