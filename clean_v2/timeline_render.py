@@ -26,7 +26,7 @@ def render_identity_composition(
     timeline: Mapping[str, Any],
 ) -> None:
     """Composite visual identity without changing the narration-owned duration."""
-    assets = identity_asset_paths(fmt)
+    assets = identity_asset_paths(fmt, runtime_dir=destination.parent / ".identity-assets")
     for name, asset in assets.items():
         if not asset.is_file() or asset.stat().st_size <= 1024:
             raise RuntimeError(f"identity asset missing: {name}")
@@ -50,55 +50,27 @@ def render_identity_composition(
     prayer_start, prayer_end = bounds("prayer")
     outro_start, outro_end = bounds("outro")
 
-    if fmt == "short":
-        final_silence_start, final_silence_end = bounds("final_silence")
-        outro_duration = max(0.001, outro_end - outro_start)
-        freeze_duration = max(0.0, final_silence_end - final_silence_start)
-        filters = (
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-            f"trim=duration={intro_end - intro_start:.3f},"
-            f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-            f"[2:v]scale={card_width}:-1,format=rgba,"
-            f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
-            f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-            f"trim=duration={outro_duration:.3f},"
-            f"tpad=stop_mode=clone:stop_duration={freeze_duration:.3f},"
-            f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
-            f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
-            f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
-            f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
-            f"[v2][outro]overlay=0:0:"
-            f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"
-        )
-    else:
-        identity_alpha = 0.88
-        intro_fade = min(0.18, (intro_end - intro_start) / 3.0)
-        outro_fade = min(0.18, (outro_end - outro_start) / 3.0)
-        intro_fade_out = max(0.0, intro_end - intro_start - intro_fade)
-        outro_fade_out = max(0.0, outro_end - outro_start - outro_fade)
-
-        filters = (
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-            f"colorchannelmixer=aa={identity_alpha:.2f},"
-            f"fade=t=in:st=0:d={intro_fade:.3f}:alpha=1,"
-            f"fade=t=out:st={intro_fade_out:.3f}:d={intro_fade:.3f}:alpha=1,"
-            f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-            f"[2:v]scale={card_width}:-1,format=rgba,"
-            f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
-            f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-            f"colorchannelmixer=aa={identity_alpha:.2f},"
-            f"fade=t=in:st=0:d={outro_fade:.3f}:alpha=1,"
-            f"fade=t=out:st={outro_fade_out:.3f}:d={outro_fade:.3f}:alpha=1,"
-            f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
-            f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
-            f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
-            f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
-            f"[v2][outro]overlay=0:0:enable='between(t,{outro_start:.3f},{outro_end:.3f})'[vout]"
-        )
+    final_silence_start, final_silence_end = bounds("final_silence")
+    outro_duration = max(0.001, outro_end - outro_start)
+    freeze_duration = max(0.0, final_silence_end - final_silence_start)
+    filters = (
+        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+        f"trim=duration={intro_end - intro_start:.3f},"
+        f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
+        f"[2:v]scale={card_width}:-1,format=rgba,"
+        f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
+        f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+        f"trim=duration={outro_duration:.3f},"
+        f"tpad=stop_mode=clone:stop_duration={freeze_duration:.3f},"
+        f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
+        f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
+        f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
+        f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
+        f"[v2][outro]overlay=0:0:"
+        f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"
+    )
 
     subprocess.run(
         [

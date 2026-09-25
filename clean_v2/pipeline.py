@@ -18,6 +18,7 @@ from .identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
+    identity_timing_profile,
     assert_spoken_identity,
     inject_spoken_identity,
 )
@@ -99,8 +100,7 @@ STAGES = (
 
 
 VOICE_CHUNK_MAX_CHARS = 550
-SHORT_IDENTITY_INTRO_SILENCE_SECONDS = 1.0
-SHORT_IDENTITY_FINAL_SILENCE_SECONDS = 0.75
+IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -361,10 +361,10 @@ def _synthesize_sectioned_voice(
         section_fallback = False
 
         for chunk_index, chunk_text in enumerate(chunks, start=1):
-            short_identity_silence = fmt == "short" and (
+            identity_silence = fmt in IDENTITY_TIMELINE_FORMATS and (
                 index == 1 or index == len(sections)
             )
-            if len(chunks) == 1 and not short_identity_silence:
+            if len(chunks) == 1 and not identity_silence:
                 chunk_path = section_path
             else:
                 chunk_dir = audio_dir / f"{index:02d}-chunks"
@@ -509,12 +509,13 @@ def _synthesize_sectioned_voice(
                 }
             )
 
-            if fmt == "short" and index == 1 and role == "hook":
+            if fmt in IDENTITY_TIMELINE_FORMATS and index == 1 and role == "hook":
+                timing = identity_timing_profile(fmt)
                 silence_path = chunk_path.parent / "intro-silence.wav"
                 _write_silence_like(
                     chunk_path,
                     silence_path,
-                    SHORT_IDENTITY_INTRO_SILENCE_SECONDS,
+                    timing["intro_silence_seconds"],
                 )
                 chunk_paths.append(silence_path)
                 chunk_reports.append(
@@ -529,13 +530,14 @@ def _synthesize_sectioned_voice(
                     }
                 )
 
-        if fmt == "short" and index == len(sections):
+        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
+            timing = identity_timing_profile(fmt)
             silence_reference = chunk_paths[-1]
             final_silence = silence_reference.parent / "final-silence.wav"
             _write_silence_like(
                 silence_reference,
                 final_silence,
-                SHORT_IDENTITY_FINAL_SILENCE_SECONDS,
+                timing["final_silence_seconds"],
             )
             chunk_paths.append(final_silence)
             chunk_reports.append(
@@ -2551,23 +2553,6 @@ def _run_legacy_cinematic_layer(
             short_timed_text_report,
         )
 
-        # New Short feature, deliberately after the restored timed-text layer.
-        # Narration has already been mastered; this optional/fail-safe mix only
-        # places a very quiet local ambient bed and gentle accents underneath it.
-        from clean_v2.short_audio_polish import apply_short_audio_polish
-
-        short_audio_polish_report = apply_short_audio_polish(
-            output_dir=output_dir,
-            final_path=final_path,
-            narration_path=narration_path,
-            timed_text_report=short_timed_text_report,
-            script=script,
-        )
-        atomic_write_json(
-            output_dir / "short-audio-polish.json",
-            short_audio_polish_report,
-        )
-
     if fmt == "podcast":
         from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 
@@ -2591,9 +2576,31 @@ def _run_legacy_cinematic_layer(
             podcast_key_text_report,
         )
 
+    topic_audio_polish_report: dict[str, Any] | None = None
+    if fmt in IDENTITY_TIMELINE_FORMATS:
+        from clean_v2.short_audio_polish import apply_topic_audio_polish
+
+        topic_audio_polish_report = apply_topic_audio_polish(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            script=script,
+            fmt=fmt,
+        )
+        atomic_write_json(
+            output_dir / "topic-audio-polish.json",
+            topic_audio_polish_report,
+        )
+        if fmt == "short":
+            short_audio_polish_report = topic_audio_polish_report
+            atomic_write_json(
+                output_dir / "short-audio-polish.json",
+                short_audio_polish_report,
+            )
+
     # Final CTA surface is local and deterministic: only the user-approved icon
     # PNGs / original subscribe+bell clip / original click sound are allowed.
-    # It runs after any Short music bed so the click remains audible above music.
+    # It runs after the shared topic-only music bed so click SFX remains audible.
     from clean_v2.visual_cta import apply_visual_cta_assets
 
     visual_cta_report = apply_visual_cta_assets(
@@ -2614,6 +2621,7 @@ def _run_legacy_cinematic_layer(
         "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
+        "topic_audio_polish": topic_audio_polish_report,
         "podcast_key_text": podcast_key_text_report,
     }
 

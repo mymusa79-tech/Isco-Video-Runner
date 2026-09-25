@@ -108,14 +108,14 @@ def _topic_window(output_dir: Path) -> tuple[float, float]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("short_music_timeline_missing") from exc
+        raise RuntimeError("topic_music_timeline_missing") from exc
     for row in payload.get("identity_events") or []:
         if isinstance(row, Mapping) and str(row.get("kind") or "") == "topic":
             start = float(row.get("start") or 0.0)
             end = float(row.get("end") or 0.0)
             if start >= 0 and end > start:
                 return start, end
-    raise RuntimeError("short_music_topic_window_missing")
+    raise RuntimeError("topic_music_window_missing")
 
 
 def _prepare_local_music_bed(src: Path, dest: Path, duration: float) -> Path:
@@ -131,7 +131,7 @@ def _prepare_local_music_bed(src: Path, dest: Path, duration: float) -> Path:
         "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(dest),
     ])
     if not dest.is_file() or dest.stat().st_size <= 0:
-        raise RuntimeError("short_music_preparation_failed")
+        raise RuntimeError("topic_music_preparation_failed")
     return dest
 
 
@@ -157,33 +157,34 @@ def _mix_music_into_video(
         str(output_path),
     ])
     if not output_path.is_file() or output_path.stat().st_size <= 0:
-        raise RuntimeError("short_audio_mix_output_missing_or_empty")
+        raise RuntimeError("topic_audio_mix_output_missing_or_empty")
 
 
-def apply_short_audio_polish(
+def apply_topic_audio_polish(
     *,
     output_dir: Path,
     final_path: Path,
     narration_path: Path,
-    timed_text_report: Mapping[str, Any] | None = None,
     script: Mapping[str, Any] | None = None,
+    fmt: str,
 ) -> dict[str, Any]:
-    """Mix one verified CC0 music bed only inside the measured topic window."""
-    del timed_text_report
+    """Mix one verified CC0 music bed only inside the shared measured topic window."""
+    if fmt not in {"short", "film", "podcast"}:
+        raise ValueError(f"topic audio polish unsupported format: {fmt}")
     output_dir = Path(output_dir)
     final_path = Path(final_path)
     narration_path = Path(narration_path)
-    temp_dir = output_dir / ".short-audio-polish"
+    temp_dir = output_dir / ".topic-audio-polish"
     temp_dir.mkdir(parents=True, exist_ok=True)
     narration_mean_db = _measure_mean_db(narration_path)
 
     diagnosis = {
-        "status": "confirmed",
-        "root_cause": "post_master_procedural_noise_layer",
-        "prior_music_source": "ffmpeg pink+brown anoisesrc",
-        "prior_hook_sfx_source": "ffmpeg pink anoisesrc branch at 523.25Hz",
+        "status": "confirmed" if fmt == "short" else "not_applicable_prior_short_only",
+        "root_cause": "post_master_procedural_noise_layer" if fmt == "short" else None,
+        "prior_music_source": "ffmpeg pink+brown anoisesrc" if fmt == "short" else None,
+        "prior_hook_sfx_source": "ffmpeg pink anoisesrc branch at 523.25Hz" if fmt == "short" else None,
         "mastering_fault": False,
-        "fix": "disable procedural noise/sfx; verified local CC0 music only",
+        "fix": "verified local CC0 topic-only music; generated noise/sfx disabled",
     }
     library_report: dict[str, Any] = {}
     component: dict[str, Any] = {}
@@ -236,8 +237,9 @@ def apply_short_audio_polish(
             pass
 
     return {
-        "schema_version": 3,
-        "source": "clean-v2-short-audio-polish-v3",
+        "schema_version": 4,
+        "source": "clean-v2-topic-audio-polish-v1",
+        "format": fmt,
         "status": status,
         "reason": reason,
         "asset_origin": "verified_cc0_freepd_local_cache",
@@ -262,3 +264,23 @@ def apply_short_audio_polish(
         "provider_calls_added": 0,
         "fail_safe": True,
     }
+
+
+
+def apply_short_audio_polish(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    narration_path: Path,
+    timed_text_report: Mapping[str, Any] | None = None,
+    script: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible Short wrapper over the shared topic-only mixer."""
+    del timed_text_report
+    return apply_topic_audio_polish(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        script=script,
+        fmt="short",
+    )

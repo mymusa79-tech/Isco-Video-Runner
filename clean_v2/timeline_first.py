@@ -201,7 +201,7 @@ def _identity_events(
     intro_silence = _one_role(units, "intro_silence")
     final_silence = _one_role(units, "final_silence")
 
-    short_missing_silence = fmt == "short" and (
+    identity_missing_silence = fmt in {"short", "film", "podcast"} and (
         intro_silence is None or final_silence is None
     )
     if require_identity and (
@@ -209,7 +209,7 @@ def _identity_events(
         or prayer is None
         or identity is None
         or outro is None
-        or short_missing_silence
+        or identity_missing_silence
     ):
         raise TimelineFirstError(
             "TIMELINE_FIRST_IDENTITY_AUDIO_BOUNDS_MISSING "
@@ -220,12 +220,8 @@ def _identity_events(
     if prayer is None or identity is None:
         return []
 
-    if fmt == "short":
-        intro_start = float(intro_silence["start"])
-        intro_end = float(intro_silence["end"])
-    else:
-        intro_start = float(prayer["start"])
-        intro_end = float(identity["end"])
+    intro_start = float(intro_silence["start"])
+    intro_end = float(intro_silence["end"])
     topic_start = float(identity["end"])
     topic_end = float(outro["start"]) if outro is not None else voice_seconds
     events: list[dict[str, Any]] = []
@@ -242,11 +238,7 @@ def _identity_events(
         [
             {
                 "kind": "intro",
-                "source": (
-                    "measured_intro_silence"
-                    if fmt == "short"
-                    else "measured_prayer_plus_identity_audio_window"
-                ),
+                "source": "measured_intro_silence",
                 "start": intro_start,
                 "end": intro_end,
             },
@@ -282,7 +274,7 @@ def _identity_events(
                 "end": float(outro["end"]),
             }
         )
-    if fmt == "short" and final_silence is not None:
+    if fmt in {"short", "film", "podcast"} and final_silence is not None:
         events.append(
             {
                 "kind": "final_silence",
@@ -301,7 +293,7 @@ def build_voice_owned_timeline(
     fmt: str,
     require_identity: bool = True,
 ) -> dict[str, Any]:
-    """Build one shared long/short timeline whose only duration owner is measured audio."""
+    """Build one shared Short/Film/Podcast timeline owned only by measured audio."""
     root = Path(output_dir)
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
     maximum = safety_max_seconds(fmt)
