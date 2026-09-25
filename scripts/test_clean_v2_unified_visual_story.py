@@ -133,6 +133,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
             self.assertIn("DO NOT assume AI imagery is active", prompt)
+            self.assertIn("6-14 useful search words", prompt)
+            self.assertIn("hands only, back view, or objects only", prompt)
 
     def test_mistral_planning_schema_requires_the_unified_story(self) -> None:
         schema = providers_module._mistral_planning_response_schema(
