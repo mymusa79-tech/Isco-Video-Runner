@@ -3547,6 +3547,10 @@ class CleanV2Pipeline:
                 item["narration"] for item in script["sections"]
             )
             if str(brief["format"]) == "short":
+                # A bounded text repair can re-introduce a second explicit action.
+                # Reuse the same conservative local normalizer used at initial
+                # script acceptance, then keep the unchanged strict validator.
+                apply_safe_short_s3_single_action_trim(script)
                 validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
