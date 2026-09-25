@@ -103,6 +103,23 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn(r"\fad(150,200)", ass)
         self.assertIn(r"\fscx99\fscy99", ass)
 
+    def test_rule_3b_arabic_caption_uses_static_white_gold_line_hierarchy(self) -> None:
+        events = [
+            {
+                "start": 0.0,
+                "end": 3.0,
+                "text": "لماذا يضيع وقتك دون أن تشعر كل يوم",
+                "role": "hook",
+            }
+        ]
+        ass = text_module.build_rich_ass(events)
+        self.assertIn(text_module.PRIMARY_ASS, ass)
+        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertIn(r"\N", ass)
+        self.assertIn(r"\h\h", ass)
+        self.assertIn(r"\fad(150,200)", ass)
+        self.assertNotIn(r"\bord5", ass)
+
     def test_rule_4_context_requires_specific_meaning_before_general_mood(self) -> None:
         plan = {
             "sections": [{"id": "s1", "purpose": "ضغط قائمة المهام", "visual_query_en": "overwhelming task list desk"}]
