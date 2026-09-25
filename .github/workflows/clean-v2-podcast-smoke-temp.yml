@@ -1,0 +1,110 @@
+name: Temp Clean V2 Podcast Smoke
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/clean-v2-podcast-smoke-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  podcast-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GROQ_CONTENT_MODEL: openai/gpt-oss-20b
+      OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
+      CLEAN_V2_AI_STILL_FREE_ONLY: "true"
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+
+    steps:
+      - name: Checkout exact test head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install production dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core tesseract-ocr tesseract-ocr-ara espeak-ng libsndfile1
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e engine
+          python -m pip install --disable-pip-version-check --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install --disable-pip-version-check soundfile huggingface_hub 'misaki[en]>=0.9.4' 'phonemizer-fork>=3.3.2' camel-tools
+          python -m pip install --disable-pip-version-check 'kokoro @ git+https://github.com/Oddadmix/kokoro.git@df50e07df746aec0bd7a6f237752d7109ace0b3d'
+          camel_data -i disambig-mle-calima-msa-r13
+          curl -fsSL 'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' -o scripts/arabic_g2p.py
+          test -s scripts/arabic_g2p.py
+
+      - name: Build one approved Podcast smoke brief
+        run: |
+          cat > "$RUNNER_TEMP/podcast-smoke-brief.json" <<'JSON'
+          {
+            "approved_by_user": true,
+            "approved_topic": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+            "format": "podcast",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "series_name": "خارج النص",
+            "editorial_intent": "بودكاست عربي فصيح مباشر مع مستمع واحد، بسيط وعميق، بلا حشو أو تجارب شخصية مختلقة، ويتقدم كسؤال مركزي واضح حتى يصل إلى فهم عملي.",
+            "hard_constraints": [
+              "Podcast narration uses one neutral female narrator and must not invent first-person experiences.",
+              "Outside Text narration must sound conversational and simple-deep, never like an article, lecture, or numbered list.",
+              "Selected visuals must remain modest and respectful for a broad Arab/Muslim audience."
+            ]
+          }
+          JSON
+
+      - name: Run one cold Podcast E2E attempt
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          brief="$RUNNER_TEMP/podcast-smoke-brief.json"
+          sha="$(BRIEF="$brief" python -c 'import json,os; from pathlib import Path; from clean_v2.contracts import compute_brief_sha256; p=Path(os.environ["BRIEF"]); print(compute_brief_sha256(json.loads(p.read_text(encoding="utf-8"))))')"
+          rm -rf output/podcast-smoke
+          python -m clean_v2 --brief "$brief" --approved-sha "$sha" --engine-sha "$ISCO_ENGINE_SHA" --runner-sha "${{ github.event.pull_request.base.sha }}" --output output/podcast-smoke
+          test -s output/podcast-smoke/final.mp4
+          test "$(jq -r .status output/podcast-smoke/run-manifest.json)" = "pass"
+
+      - name: Upload Podcast smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-clean-v2-podcast-smoke-${{ github.run_id }}
+          path: output/podcast-smoke
+          if-no-files-found: warn
+          retention-days: 7
