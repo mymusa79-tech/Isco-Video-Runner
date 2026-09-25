@@ -1153,7 +1153,7 @@ class ShortContractTests(unittest.TestCase):
 
 
 class ShortTimedTextTests(unittest.TestCase):
-    def test_caption_lite_uses_one_large_arabic_font_one_yellow_word_and_no_slate(self) -> None:
+    def test_cinematic_3d_type_tracks_gold_focus_without_black_box(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "مرّ اليوم ولم أبدأ", "role": "hook"},
             {"start": 2.0, "end": 4.2, "text": "القائمة بدت أكبر مني", "role": "beat"},
@@ -1165,19 +1165,24 @@ class ShortTimedTextTests(unittest.TestCase):
 
         self.assertIsNone(slate_index)
         self.assertEqual(MAX_DARK_SLATES, 0)
-        self.assertEqual(ACCENT_ASS, "&H0000D4FF")
+        self.assertEqual(ACCENT_ASS, "&H005BA8D7")
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
-        self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(BODY_FONT_SIZE, 110)
+        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertGreaterEqual(BODY_FONT_SIZE, 100)
         self.assertIn("Style: Caption", ass)
+        self.assertIn("Style: Extrusion", ass)
+        self.assertIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
-        self.assertIn(r"{\c&H0000D4FF}", ass)
-        self.assertIn(r"\fscx98\fscy98", ass)
+        self.assertIn(r"{\c&H005BA8D7", ass)
+        self.assertIn(r"\fs136", ass)
         self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events))
+        # Three depth layers for the stable phrase plus three for each advancing
+        # gold focus word: tracking increases events without any model call.
+        self.assertGreater(ass.count("Dialogue:"), len(events) * 6)
         self.assertNotIn("drawbox", ass)
+
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
