@@ -2993,6 +2993,13 @@ fit dozens of unrelated videos. The hook must open the SAME core tension the scr
 the later payoff must meaningfully resolve that tension; do not write a strong hook that the body
 abandons. Do not optimize for a fixed word count or duration.
 
+In the SAME script response, author hook_visual_query_en for that exact final hook. This is not a new
+scene plan: it is one concise concrete English stock-footage search phrase for the FIRST visible hook
+shot. Show the observable situation/action/consequence that makes the hook tension instantly legible,
+not an abstract mood or generic motivational B-roll. Keep it consistent with the locked visual world,
+prefer no identifiable face, and keep it at most 260 characters. The spoken hook and this first-shot
+intent must describe the same tension.
+
 Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
 runtime inserts exactly one approved prayer sentence and one channel-definition sentence immediately
 after the hook. Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/
@@ -3012,6 +3019,7 @@ Return one JSON object. The sections array must contain every locked plan id exa
 same order:
 {{
   "title": "same Arabic title",
+  "hook_visual_query_en": "concise concrete English stock-footage query matching the exact first spoken hook",
   "sections": [
     {{"id": "s1", "narration": "final Arabic spoken narration"}}
   ]
