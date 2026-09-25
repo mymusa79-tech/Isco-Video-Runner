@@ -447,6 +447,19 @@ _PRACTICAL_ACTION_OBJECT_SUFFIXES = (
 )
 
 
+def short_action_imperative_allowlist_text() -> str:
+    """Return the exact validator-recognized imperative list for provider prompts."""
+    return "، ".join(dict.fromkeys(_PRACTICAL_ACTION_MARKERS))
+
+
+_SAFE_S3_ACTION_PREFIXES = frozenset({
+    "الآن",
+    "اليوم",
+    "فقط",
+    "هنا",
+})
+
+
 def _practical_action_pattern(marker: str) -> str:
     suffix = ""
     if marker in _PRACTICAL_ACTION_OBJECT_SUFFIX_MARKERS:
@@ -722,6 +735,85 @@ def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
     return True
 
 
+def apply_safe_short_s3_action_prefix_normalization(
+    script: dict[str, Any],
+) -> bool:
+    """Move one harmless leading adverb after the one accepted s3 imperative.
+
+    This preserves the strict contract that the action sentence itself begins with
+    the imperative while accepting common natural Arabic drafts such as
+    "الآن ابدأ..." without adding or deleting the action.
+    """
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    original = sections[2].get("narration")
+    s3 = _clean(original)
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", s3)
+        if item.strip()
+    ]
+    counts = [_practical_action_marker_count(item) for item in sentences]
+    action_indexes = [index for index, count in enumerate(counts) if count]
+    if len(action_indexes) != 1:
+        return False
+
+    index = action_indexes[0]
+    sentence = sentences[index]
+    if counts[index] != 1 or _sentence_begins_with_direct_action(sentence):
+        return False
+
+    spans: list[tuple[int, int]] = []
+    for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS):
+        spans.extend(
+            match.span()
+            for match in re.finditer(
+                _practical_action_pattern(marker),
+                sentence,
+                flags=re.I,
+            )
+        )
+    spans = sorted(set(spans))
+    if len(spans) != 1:
+        return False
+
+    action_start = spans[0][0]
+    prefix = sentence[:action_start].strip(" ،,؛;:")
+    if _semantic_key(prefix) not in {
+        _semantic_key(item) for item in _SAFE_S3_ACTION_PREFIXES
+    }:
+        return False
+
+    action = sentence[action_start:].strip()
+    action = re.sub(r"[.!؟!]+$", "", action).strip()
+    repaired_sentence = f"{action} {prefix}.".strip()
+    if (
+        not _sentence_begins_with_direct_action(repaired_sentence)
+        or _practical_action_marker_count(repaired_sentence) != 1
+    ):
+        return False
+
+    repaired = list(sentences)
+    repaired[index] = repaired_sentence
+    sections[2]["narration"] = " ".join(repaired).strip()
+    return True
+
+
+def normalize_short_script_candidate(script: dict[str, Any]) -> dict[str, bool]:
+    """Apply the complete certified local Short normalization chain exactly once."""
+    return {
+        "hook_trimmed": apply_safe_short_hook_trim(script),
+        "s3_action_prefix_normalized": apply_safe_short_s3_action_prefix_normalization(script),
+        "s3_single_action_trimmed": apply_safe_short_s3_single_action_trim(script),
+    }
+
+
 def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     """Validate the provider-owned first spoken sentence before script acceptance."""
     sections = script.get("sections")
@@ -962,7 +1054,7 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "section_count": SHORT_SECTION_COUNT,
         "frame": {"width": SHORT_WIDTH, "height": SHORT_HEIGHT},
         "duration": {
-            "timeline_owner": "measured_charon_voice",
+            "timeline_owner": "measured_voice",
             "editorial_target_seconds": None,
             "minimum_editorial_seconds": None,
             "maximum_editorial_seconds": None,
