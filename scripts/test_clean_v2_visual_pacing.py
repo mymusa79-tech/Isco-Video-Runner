@@ -60,6 +60,37 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
+class StockRetrievalCompactionTests(unittest.TestCase):
+    def test_good_concise_query_is_unchanged(self) -> None:
+        query = "hands writing first line notebook warm sunlight"
+        self.assertEqual(
+            media_module._compact_stock_retrieval_query(query),
+            query,
+        )
+
+    def test_long_shot_list_compacts_to_retrieval_anchors(self) -> None:
+        query = (
+            "hand pausing mid-writing on a half-filled notebook with a pen "
+            "warm natural light from focus hands only"
+        )
+        self.assertEqual(
+            media_module._compact_stock_retrieval_query(query),
+            "hand pausing mid writing half filled notebook pen",
+        )
+
+    def test_compaction_preserves_face_safe_cue_when_it_would_fall_outside_first_eight(self) -> None:
+        query = (
+            "cozy office desk notebook calendar coffee mug window morning "
+            "books plant practical lamp back view anonymous"
+        )
+        compact = media_module._compact_stock_retrieval_query(query)
+        self.assertLessEqual(len(compact.split()), 8)
+        self.assertTrue(
+            {"back", "anonymous"} & set(compact.split()),
+            compact,
+        )
+
+
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     @staticmethod
     def _story(*beats: dict) -> dict:
