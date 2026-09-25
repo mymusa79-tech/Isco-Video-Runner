@@ -280,7 +280,7 @@ def build_voice_owned_timeline(
         "contract_id": CONTRACT_ID,
         "source": CONTRACT_ID,
         "format": fmt,
-        "timeline_owner": "measured_charon_voice",
+        "timeline_owner": "measured_nabra_voice" if fmt == "podcast" else "measured_charon_voice",
         "voice_seconds_measured": round(voice_seconds, 3),
         "safety_maximum_seconds": maximum,
         "editorial_target_seconds": None,
