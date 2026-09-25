@@ -27,9 +27,11 @@ MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 - Count words exactly like the validator: split the first sentence on whitespace; each non-empty item is one word, even when punctuation is attached.
 - Preserve grammar, approved factual meaning, and the information gap; do not shorten by deleting context needed for comprehension.
 - Hook preflight: isolate s1 first sentence -> split on spaces -> count -> if count > 18, rewrite it more densely without fragmenting the sentence -> count again.
+- If a complete hook still lands at 19-20 words, DO NOT return it and do not delete meaning. End the first sentence at a complete grammatical boundary between words 16-18 and move the remaining detail into the next sentence, then recount the first sentence.
 
 MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Isolate s3 and split it into complete sentences.
+- s3 MUST contain at least one descriptive payoff/explanation sentence BEFORE the final action sentence; the payoff must still make sense if the action sentence is removed.
 - Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
 - Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
 - Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
