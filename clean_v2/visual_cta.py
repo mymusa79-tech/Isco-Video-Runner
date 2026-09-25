@@ -27,6 +27,28 @@ _ICON_BY_MODE = {
     "bell": _ASSET_DIR / "bell_ORIGINAL.png",
 }
 
+_CTA_SEMANTIC_FAMILIES = {
+    "comment": (
+        "اكتب", "كتابة", "يكتب", "تكتب", "قلم", "دفتر", "ملاحظة", "ملاحظات",
+        "رسالة", "تعليق", "write", "writing", "written", "pen", "notebook",
+        "journal", "note", "notes", "typing", "keyboard", "message", "comment",
+    ),
+    "share": (
+        "شارك", "مشاركة", "أرسل", "ارسل", "نشر", "share", "sharing", "send",
+        "forward", "pass along",
+    ),
+    "like": (
+        "إعجاب", "اعجاب", "أعجب", "اعجب", "قلب", "يحب", "like", "liked",
+        "heart", "approve", "approval",
+    ),
+    "subscribe_combo": (
+        "اشترك", "اشتراك", "تابع", "متابعة", "انضم", "subscribe", "subscription",
+        "follow", "join",
+    ),
+}
+
+_CTA_FALLBACK_ORDER = ("like", "share", "subscribe_combo", "comment")
+
 _SECRET_NAMES = {
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
@@ -104,6 +126,114 @@ def _short_first_mode(script: Mapping[str, Any]) -> str:
     if any(token in title for token in ("؟", "لماذا", "كيف", "ماذا", "هل ")):
         return "comment"
     return "like"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _semantic_context_at(
+    *,
+    output_dir: Path,
+    script: Mapping[str, Any],
+    start_seconds: float,
+) -> str:
+    timeline = _read_json(Path(output_dir) / "timeline-first.json")
+    section_id = ""
+    for item in timeline.get("section_events") or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            start = float(item.get("start"))
+            end = float(item.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start <= start_seconds < end:
+            section_id = str(item.get("section_id") or "")
+            break
+
+    fragments: list[str] = []
+    for section in script.get("sections") or []:
+        if isinstance(section, Mapping) and str(section.get("id") or "") == section_id:
+            fragments.append(str(section.get("narration") or ""))
+            break
+
+    story = _read_json(Path(output_dir) / "visual-story.json")
+    for beat in story.get("beats") or []:
+        if not isinstance(beat, Mapping) or str(beat.get("section_id") or "") != section_id:
+            continue
+        for key in ("viewer_intent", "meaning_target", "shot_intent"):
+            fragments.append(str(beat.get(key) or ""))
+        for key in ("semantic_must_have", "semantic_should_avoid"):
+            value = beat.get(key)
+            if isinstance(value, list):
+                fragments.extend(str(item) for item in value)
+            elif value:
+                fragments.append(str(value))
+    return " ".join(" ".join(fragments).lower().split())
+
+
+def _cta_conflicts_with_context(mode: str, context: str) -> bool:
+    normalized = " ".join(str(context or "").lower().split())
+    return any(token in normalized for token in _CTA_SEMANTIC_FAMILIES.get(mode, ()))
+
+
+def _event_with_mode(event: VisualCtaEvent, *, mode: str, fmt: str) -> VisualCtaEvent:
+    if fmt == "short":
+        x = 160 if mode == "subscribe_combo" else 465
+    else:
+        x = 610 if mode == "subscribe_combo" else 908
+    return VisualCtaEvent(
+        mode=mode,
+        start_seconds=event.start_seconds,
+        end_seconds=event.end_seconds,
+        x=x,
+        y=event.y,
+        asset="subscribe_bell_reference.mp4" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
+    )
+
+
+def _enforce_semantic_separation(
+    *,
+    events: list[VisualCtaEvent],
+    output_dir: Path,
+    script: Mapping[str, Any],
+    fmt: str,
+) -> tuple[list[VisualCtaEvent], list[dict[str, Any]]]:
+    revised: list[VisualCtaEvent] = []
+    decisions: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for event in events:
+        context = _semantic_context_at(
+            output_dir=output_dir,
+            script=script,
+            start_seconds=event.start_seconds,
+        )
+        preferred = event.mode
+        candidates = [preferred, *_CTA_FALLBACK_ORDER]
+        chosen = preferred
+        for candidate in dict.fromkeys(candidates):
+            if candidate in used and candidate != "subscribe_combo":
+                continue
+            if not _cta_conflicts_with_context(candidate, context):
+                chosen = candidate
+                break
+        revised_event = _event_with_mode(event, mode=chosen, fmt=fmt)
+        revised.append(revised_event)
+        used.add(chosen)
+        decisions.append(
+            {
+                "start_seconds": event.start_seconds,
+                "preferred_mode": preferred,
+                "selected_mode": chosen,
+                "semantic_conflict_avoided": chosen != preferred,
+            }
+        )
+    return revised, decisions
 
 
 def _events(
@@ -319,6 +449,12 @@ def apply_visual_cta_assets(
     total = float(probe_duration(Path(narration_path)))
     authored = _authored_mode(output_dir)
     events = _events(fmt=fmt, duration=total, script=script, authored_mode=authored)
+    events, semantic_decisions = _enforce_semantic_separation(
+        events=events,
+        output_dir=output_dir,
+        script=script,
+        fmt=fmt,
+    )
 
     temp = output_dir / ".approved-visual-cta.mp4"
     temp.unlink(missing_ok=True)
@@ -344,6 +480,9 @@ def apply_visual_cta_assets(
         "short_combo_palette": "warm_gold_dark_harmonized" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": True,
+        "semantic_separation": True,
+        "semantic_separation_policy": "CTA action must differ from current narration/scene action family",
+        "semantic_decisions": semantic_decisions,
         "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
         "click_asset": _CLICK.name,
         "click_mix_policy": "measured_below_voice_above_background_music",
