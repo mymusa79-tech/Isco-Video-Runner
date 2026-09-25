@@ -12,6 +12,11 @@ from .media import probe_duration
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
 _COMBO = _ASSET_DIR / "subscribe_bell_reference.mp4"
+SFX_TARGET_REL_DB = -12.0
+SFX_MIN_REL_DB = -16.0
+SFX_MAX_REL_DB = -9.0
+SHORT_CTA_CENTER_X = 540
+SHORT_CTA_Y = 1080
 _ICON_BY_MODE = {
     "like": _ASSET_DIR / "like_ORIGINAL.png",
     "comment": _ASSET_DIR / "comment_ORIGINAL.png",
@@ -56,6 +61,29 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, check=True, env=_env(), timeout=240)
 
 
+def _mean_db(path: Path) -> float:
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+            "-af", "volumedetect", "-f", "null", "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_env(),
+        timeout=240,
+    )
+    match = __import__("re").search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", proc.stderr or "")
+    if not match:
+        raise RuntimeError(f"CTA SFX level measurement missing: {path.name}")
+    return float(match.group(1))
+
+
+def _sfx_gain_db(*, source: Path, narration_mean_db: float) -> float:
+    source_mean = _mean_db(source)
+    return (narration_mean_db + SFX_TARGET_REL_DB) - source_mean
+
+
 def _authored_mode(output_dir: Path) -> str:
     path = Path(output_dir) / "cta-plan.json"
     if not path.is_file():
@@ -95,8 +123,8 @@ def _events(
                 mode=modes[index],
                 start_seconds=round(start, 3),
                 end_seconds=round(min(duration - 1.2, start + (2.6 if modes[index] == "subscribe_combo" else 1.35)), 3),
-                x=70,
-                y=560,
+                x=(160 if modes[index] == "subscribe_combo" else 465),
+                y=SHORT_CTA_Y,
                 asset="subscribe_bell_reference.mp4" if modes[index] == "subscribe_combo" else _ICON_BY_MODE[modes[index]].name,
             )
             for index, start in enumerate(starts)
@@ -151,6 +179,7 @@ def _render(
     dest: Path,
     events: list[VisualCtaEvent],
     fmt: str,
+    narration_path: Path,
 ) -> None:
     if not events:
         return
@@ -181,6 +210,10 @@ def _render(
             command.extend(["-i", str(_CLICK)])
             click_specs.append((next_index, event))
             next_index += 1
+
+    narration_mean_db = _mean_db(Path(narration_path))
+    click_gain_db = _sfx_gain_db(source=_CLICK, narration_mean_db=narration_mean_db)
+    combo_gain_db = _sfx_gain_db(source=_COMBO, narration_mean_db=narration_mean_db)
 
     filters: list[str] = []
     current = "[0:v]"
@@ -215,7 +248,7 @@ def _render(
             delay = int(round(event.start_seconds * 1000))
             filters.append(
                 f"[{input_index}:a]atrim=start=0.45:duration={combo_duration:.3f},asetpts=PTS-STARTPTS,"
-                f"adelay={delay}|{delay},volume=0.55[acombo{number}]"
+                f"adelay={delay}|{delay},volume={combo_gain_db:.3f}dB[acombo{number}]"
             )
             audio_labels.append(f"[acombo{number}]")
 
@@ -227,7 +260,7 @@ def _render(
     for number, (input_index, event) in enumerate(click_specs):
         delay = int(round((event.start_seconds + 0.55) * 1000))
         filters.append(
-            f"[{input_index}:a]adelay={delay}|{delay},volume=0.58[aclick{number}]"
+            f"[{input_index}:a]adelay={delay}|{delay},volume={click_gain_db:.3f}dB[aclick{number}]"
         )
         audio_labels.append(f"[aclick{number}]")
 
@@ -284,7 +317,7 @@ def apply_visual_cta_assets(
     temp.unlink(missing_ok=True)
     try:
         if events:
-            _render(video=final_path, dest=temp, events=events, fmt=fmt)
+            _render(video=final_path, dest=temp, events=events, fmt=fmt, narration_path=Path(narration_path))
             os.replace(temp, final_path)
             status = "applied"
         else:
@@ -306,7 +339,14 @@ def apply_visual_cta_assets(
         "combo_is_single_approved_reference_asset": True,
         "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
         "click_asset": _CLICK.name,
-        "click_mix_policy": "below_voice_above_background_music",
+        "click_mix_policy": "measured_below_voice_above_background_music",
+        "sfx_target_relative_db": SFX_TARGET_REL_DB,
+        "sfx_allowed_relative_db": [SFX_MIN_REL_DB, SFX_MAX_REL_DB],
+        "short_cta_position": (
+            {"center_x": SHORT_CTA_CENTER_X, "y": SHORT_CTA_Y, "caption_y": 1400}
+            if fmt == "short"
+            else None
+        ),
         "provider_calls_added": 0,
     }
     (output_dir / "visual-cta.json").write_text(
