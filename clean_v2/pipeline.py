@@ -2410,13 +2410,23 @@ def _run_legacy_cinematic_layer(
         )
 
     if fmt == "podcast":
-        from clean_v2.podcast_key_text import apply_podcast_key_text
+        from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 
-        podcast_key_text_report = apply_podcast_key_text(
-            output_dir=output_dir,
-            final_path=final_path,
-            script=script,
-        )
+        try:
+            podcast_key_text_report = apply_podcast_key_text(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
+            )
+        except PodcastKeyTextError as exc:
+            # Decorative local enhancement only: keep the finished video if this
+            # extra FFmpeg/libass pass fails. Normal successful output is unchanged.
+            podcast_key_text_report = {
+                "status": "skipped",
+                "mode": "fail_soft",
+                "reason": str(exc),
+                "provider_calls_added": 0,
+            }
         atomic_write_json(
             output_dir / "podcast-key-text.json",
             podcast_key_text_report,
