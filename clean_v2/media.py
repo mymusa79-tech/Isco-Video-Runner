@@ -1125,55 +1125,6 @@ def _stock_local_rank_score(
     )
 
 
-_STOCK_SEMANTIC_NOISE_TERMS = _STOCK_RETRIEVAL_DROP_TERMS | {
-    "soft", "warm", "natural", "light", "daylight", "sunlight", "morning",
-    "afternoon", "evening", "depth", "field", "wide", "blurred", "clean",
-    "single", "small", "background", "setting", "room",
-}
-
-
-def _stock_semantic_tokens(value: object) -> set[str]:
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]+", str(value or "").casefold())
-        if len(token) > 1 and token not in _STOCK_SEMANTIC_NOISE_TERMS
-    }
-
-
-def _stock_candidate_rank_score(
-    *,
-    query: str,
-    semantic_text: str,
-    index: int,
-    count: int,
-    width: int,
-    height: int,
-    duration: float,
-    portrait: bool,
-) -> float:
-    """Zero-AI local rerank using provider metadata plus the existing rank prior.
-
-    The old stack's useful idea was to use metadata already returned by Pexels/Pixabay
-    before paying for Vision. Clean V2 keeps only that cheap part: URL slug/tags overlap
-    can move a semantically stronger candidate upward, while provider order, orientation,
-    resolution and duration remain the majority of the score.
-    """
-    base = _stock_local_rank_score(
-        index=index,
-        count=count,
-        width=width,
-        height=height,
-        duration=duration,
-        portrait=portrait,
-    )
-    query_tokens = _stock_semantic_tokens(query)
-    candidate_tokens = _stock_semantic_tokens(semantic_text)
-    if not query_tokens or not candidate_tokens:
-        return base
-    overlap = len(query_tokens & candidate_tokens) / max(1, len(query_tokens))
-    return base * 0.65 + overlap * 0.35
-
-
 def _short_shot_distribution(total_seconds: float) -> tuple[int, int, int]:
     seconds = max(0.0, float(total_seconds))
     if seconds > SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS:
@@ -1306,9 +1257,7 @@ class StockVisualSource:
                 height = int(selected.get("height") or 0)
                 duration = float(video.get("duration") or 0.0)
                 ranked.append((
-                    _stock_candidate_rank_score(
-                        query=query,
-                        semantic_text=str(video.get("url") or ""),
+                    _stock_local_rank_score(
                         index=index,
                         count=count,
                         width=width,
@@ -1389,14 +1338,7 @@ class StockVisualSource:
                     ),
                 )
                 ranked.append((
-                    _stock_candidate_rank_score(
-                        query=query,
-                        semantic_text=" ".join(
-                            part for part in (
-                                str(hit.get("tags") or ""),
-                                str(hit.get("pageURL") or ""),
-                            ) if part
-                        ),
+                    _stock_local_rank_score(
                         index=index,
                         count=count,
                         width=int(selected.get("width") or 0),
@@ -1668,37 +1610,13 @@ class StockVisualSource:
                 f"https://api.pexels.com/v1/videos/search?{params}",
                 headers={"Authorization": key},
             )
-            videos = [
-                item for item in (body.get("videos") or [])
-                if isinstance(item, dict)
-            ]
-            ranked: list[
-                tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]
-            ] = []
-            count = max(1, len(videos))
-            for index, video in enumerate(videos):
+            for video in body.get("videos") or []:
+                if not isinstance(video, dict):
+                    continue
                 identity = ("pexels", str(video.get("id") or ""))
                 selected = _pexels_file(video, portrait=portrait)
                 if identity in self._used or selected is None:
                     continue
-                ranked.append((
-                    _stock_candidate_rank_score(
-                        query=query,
-                        semantic_text=str(video.get("url") or ""),
-                        index=index,
-                        count=count,
-                        width=int(selected.get("width") or 0),
-                        height=int(selected.get("height") or 0),
-                        duration=float(video.get("duration") or 0.0),
-                        portrait=portrait,
-                    ),
-                    video,
-                    selected,
-                    identity,
-                ))
-            for _score, video, selected, identity in sorted(
-                ranked, key=lambda item: item[0], reverse=True
-            )[: max(1, int(limit))]:
                 user = video.get("user") or {}
                 candidates.append(
                     {
@@ -1711,6 +1629,8 @@ class StockVisualSource:
                         "query": query,
                     }
                 )
+                if len(candidates) >= max(1, int(limit)):
+                    break
             self._event(
                 "pexels",
                 query,
@@ -1757,15 +1677,9 @@ class StockVisualSource:
         candidates: list[dict[str, Any]] = []
         try:
             body = _get_json(f"https://pixabay.com/api/videos/?{params}")
-            hits = [
-                item for item in (body.get("hits") or [])
-                if isinstance(item, dict)
-            ]
-            ranked: list[
-                tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]
-            ] = []
-            count = max(1, len(hits))
-            for index, hit in enumerate(hits):
+            for hit in body.get("hits") or []:
+                if not isinstance(hit, dict):
+                    continue
                 identity = ("pixabay", str(hit.get("id") or ""))
                 if identity in self._used:
                     continue
@@ -1796,29 +1710,6 @@ class StockVisualSource:
                     )
                 ]
                 selected = (oriented or variants_list)[0]
-                ranked.append((
-                    _stock_candidate_rank_score(
-                        query=query,
-                        semantic_text=" ".join(
-                            part for part in (
-                                str(hit.get("tags") or ""),
-                                str(hit.get("pageURL") or ""),
-                            ) if part
-                        ),
-                        index=index,
-                        count=count,
-                        width=int(selected.get("width") or 0),
-                        height=int(selected.get("height") or 0),
-                        duration=float(hit.get("duration") or 0.0),
-                        portrait=portrait,
-                    ),
-                    hit,
-                    selected,
-                    identity,
-                ))
-            for _score, hit, selected, identity in sorted(
-                ranked, key=lambda item: item[0], reverse=True
-            )[: max(1, int(limit))]:
                 candidates.append(
                     {
                         "provider": "pixabay",
@@ -1830,6 +1721,8 @@ class StockVisualSource:
                         "query": query,
                     }
                 )
+                if len(candidates) >= max(1, int(limit)):
+                    break
             self._event(
                 "pixabay",
                 query,
