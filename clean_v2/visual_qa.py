@@ -123,7 +123,9 @@ def _deterministic_no_face_recovery_query(original_query: str) -> str:
         if token not in mapped:
             mapped.append(token)
 
-    if "hands" not in mapped:
+    if "hands" in mapped:
+        mapped = ["hands", *[token for token in mapped if token != "hands"]]
+    else:
         mapped.insert(0, "hands")
     if "laptop" in mapped and "hovering" in mapped and "keyboard" not in mapped:
         insert_at = min(len(mapped), mapped.index("laptop") + 1)
