@@ -46,7 +46,7 @@ TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", 
 # left/lower-left subject action with clean upper-right negative space. Keep the
 # renderer deterministic instead of parsing model-authored intent a second time.
 COMPOSITION_SCHEMA_VERSION = 2
-COMPOSITION_MODE = "planning_composed_upper_right_v2"
+COMPOSITION_MODE = "planning_composed_lower_center_safe_v3"
 SAFE_X_MIN = 180
 SAFE_X_MAX = 900
 SAFE_Y_MIN = 1160

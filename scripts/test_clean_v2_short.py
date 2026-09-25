@@ -1180,8 +1180,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(ACCENT_ASS, "&H005BA8D7")
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
-        self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(BODY_FONT_SIZE, 110)
+        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
@@ -1191,8 +1191,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"\fscx98\fscy98", ass)
         self.assertIn("\u202B", ass)
         self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
-        self.assertIn(r"\pos(754,605)", ass)
-        self.assertIn(r"\pos(759,611)", ass)
+        self.assertIn(r"\pos(540,1400)", ass)
+        self.assertIn(r"\pos(549,1411)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
@@ -1232,8 +1232,8 @@ class ShortTimedTextTests(unittest.TestCase):
             {"start": 4.0, "end": 6.0, "text": "ابدأ بخطوة واحدة", "role": "payoff", "section_id": "s3"},
         ]
         hints = build_composition_hints(events)
-        self.assertEqual(COMPOSITION_MODE, "planning_composed_upper_right_v2")
-        self.assertEqual({hint["zone"] for hint in hints}, {"upper_right"})
+        self.assertEqual(COMPOSITION_MODE, "planning_composed_lower_center_safe_v3")
+        self.assertEqual({hint["zone"] for hint in hints}, {"lower_center_youtube_safe"})
         self.assertEqual({hint["source"] for hint in hints}, {"planning_composition_contract"})
         self.assertEqual(len({(hint["x"], hint["y"]) for hint in hints}), 1)
         for hint in hints:
@@ -1365,39 +1365,27 @@ class ShortAudioPolishTests(unittest.TestCase):
         self.assertNotIn("atempo", CHARON_CORRECTIVE_FILTER)
         self.assertNotIn("rubberband", CHARON_CORRECTIVE_FILTER)
 
-    def test_actual_db_levels_keep_music_and_sfx_below_mastered_narration(self) -> None:
+    def test_music_is_minus_25_to_minus_20_db_and_generated_noise_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             narration = root / "narration-mastered.wav"
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "sine=frequency=220:sample_rate=48000:duration=2.2",
-                    "-af",
-                    "volume=-10dB",
-                    "-c:a",
-                    "pcm_s16le",
-                    str(narration),
-                ],
-                check=True,
-            )
-            narration_mean = _measure_mean_db(narration)
-            self.assertGreater(SFX_TARGET_REL_DB, -24.0)
-            self.assertLessEqual(SFX_TARGET_REL_DB, SFX_MAX_REL_DB)
-
-            raw_music = root / "music-raw.wav"
+            raw_music = root / "music-source.wav"
             music = root / "music.wav"
-            _generate_raw_music(raw_music, 2.2)
-            music_source = inspect.getsource(_generate_raw_music)
-            self.assertIn("anoisesrc", music_source)
-            self.assertNotIn("sine=frequency", music_source)
+            for path, frequency, volume in (
+                (narration, 220, -10),
+                (raw_music, 330, -12),
+            ):
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-f", "lavfi", "-i",
+                        f"sine=frequency={frequency}:sample_rate=48000:duration=2.2",
+                        "-af", f"volume={volume}dB",
+                        "-c:a", "pcm_s16le", str(path),
+                    ],
+                    check=True,
+                )
+            narration_mean = _measure_mean_db(narration)
             music_report = _normalize_relative(
                 src=raw_music,
                 dest=music,
@@ -1406,30 +1394,15 @@ class ShortAudioPolishTests(unittest.TestCase):
                 minimum_relative_db=MUSIC_MIN_REL_DB,
                 maximum_relative_db=MUSIC_MAX_REL_DB,
             )
-            self.assertGreaterEqual(
-                music_report["relative_to_narration_db"], MUSIC_MIN_REL_DB
-            )
-            self.assertLessEqual(
-                music_report["relative_to_narration_db"], MUSIC_MAX_REL_DB
-            )
-
-            raw_sfx = root / "sfx-raw.wav"
-            sfx = root / "sfx.wav"
-            _generate_raw_sfx(raw_sfx, frequency=523.25)
-            sfx_report = _normalize_relative(
-                src=raw_sfx,
-                dest=sfx,
-                narration_mean_db=narration_mean,
-                target_relative_db=SFX_TARGET_REL_DB,
-                minimum_relative_db=SFX_MIN_REL_DB,
-                maximum_relative_db=SFX_MAX_REL_DB,
-            )
-            self.assertGreaterEqual(
-                sfx_report["relative_to_narration_db"], SFX_MIN_REL_DB
-            )
-            self.assertLessEqual(
-                sfx_report["relative_to_narration_db"], SFX_MAX_REL_DB
-            )
+            self.assertEqual((MUSIC_MIN_REL_DB, MUSIC_TARGET_REL_DB, MUSIC_MAX_REL_DB), (-25.0, -22.0, -20.0))
+            self.assertGreaterEqual(music_report["relative_to_narration_db"], MUSIC_MIN_REL_DB)
+            self.assertLessEqual(music_report["relative_to_narration_db"], MUSIC_MAX_REL_DB)
+            with self.assertRaisesRegex(RuntimeError, "procedural_noise_music_disabled"):
+                _generate_raw_music(root / "forbidden.wav", 2.0)
+            with self.assertRaisesRegex(RuntimeError, "generated_sfx_disabled"):
+                _generate_raw_sfx(root / "forbidden-sfx.wav", frequency=523.25)
+            self.assertNotIn("anoisesrc", inspect.getsource(_generate_raw_music))
+            self.assertNotIn("anoisesrc", inspect.getsource(_generate_raw_sfx))
 
     def test_generation_failure_is_fail_safe_not_production_block(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1441,24 +1414,16 @@ class ShortAudioPolishTests(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "clean_v2.short_audio_polish.probe_duration",
-                    create=True,
-                ),
-                mock.patch(
-                    "clean_v2.media.probe_duration",
-                    return_value=12.0,
-                ),
-                mock.patch(
                     "clean_v2.short_audio_polish._measure_mean_db",
                     return_value=-18.0,
                 ),
                 mock.patch(
-                    "clean_v2.short_audio_polish._generate_raw_music",
-                    side_effect=RuntimeError("music unavailable"),
+                    "clean_v2.short_audio_polish._topic_window",
+                    return_value=(5.0, 10.0),
                 ),
                 mock.patch(
-                    "clean_v2.short_audio_polish._generate_raw_sfx",
-                    side_effect=RuntimeError("sfx unavailable"),
+                    "clean_v2.short_audio_polish.select_music_track",
+                    return_value=(None, {"allow_download": False}),
                 ),
             ):
                 report = apply_short_audio_polish(
