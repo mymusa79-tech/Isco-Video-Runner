@@ -14,6 +14,7 @@ from clean_v2.identity_sequence import (
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
 from clean_v2.pipeline import _planning_prompt, _script_prompt
+from clean_v2.visual_qa import _apply_cultural_islamic_policy
 from scripts import clean_v2_release_delivery as delivery
 from scripts.telegram_clean_v2_control import (
     _request_hash,
@@ -75,6 +76,10 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("generic self-help", planning)
         self.assertIn("ONE visual beat per section", planning)
         self.assertIn("audio must", planning)
+        self.assertIn("خارج النص", planning)
+        self.assertIn('append\n" | خارج النص"', planning)
+        self.assertIn("one thoughtful person is speaking calmly to one listener", script)
+        self.assertIn("do not announce sections", script)
         self.assertIn("neutral female narrator", script)
         self.assertIn("local Nabra af_msa", script)
         self.assertIn("Never invent first-person", script)
@@ -123,7 +128,10 @@ class PodcastTelegramTests(unittest.TestCase):
             for button in row
         ]
         self.assertIn("scope:podcast", callbacks)
+        labels = [button["text"] for row in scope_keyboard() for button in row]
+        self.assertIn("🎙️ خارج النص", labels)
         self.assertIn("سؤال مركزي حقيقي", _scope_research_instruction("podcast"))
+        self.assertIn("خارج النص", _scope_research_instruction("podcast"))
 
     def test_materialized_podcast_brief_keeps_choice_simple_and_marks_female_narration(self) -> None:
         request = {
@@ -152,6 +160,7 @@ class PodcastTelegramTests(unittest.TestCase):
             )
         self.assertEqual(brief["format"], "podcast")
         self.assertIn("راوية أنثوية محايدة", brief["editorial_intent"])
+        self.assertIn("خارج النص", brief["editorial_intent"])
         self.assertTrue(any("female narrator" in item for item in brief["hard_constraints"]))
 
     def test_podcast_delivery_and_status_keep_the_same_shared_paths(self) -> None:
@@ -165,7 +174,31 @@ class PodcastTelegramTests(unittest.TestCase):
                 kind="podcast",
             )
         )
-        self.assertIn("🎙️ البودكاست", messages["planning"])
+        self.assertIn("🎙️ خارج النص", messages["planning"])
+
+
+class PodcastCulturalVisualPolicyTests(unittest.TestCase):
+    def test_existing_visual_audit_fields_block_cultural_risk_without_new_provider_call(self) -> None:
+        safe = _apply_cultural_islamic_policy(
+            {
+                "status": "pass",
+                "cultural_conflict": False,
+                "cultural_islamic_suitability_risk": False,
+            }
+        )
+        risky = _apply_cultural_islamic_policy(
+            {
+                "status": "pass",
+                "cultural_conflict": False,
+                "cultural_islamic_suitability_risk": True,
+                "reason": "revealing clothing",
+            }
+        )
+        missing = _apply_cultural_islamic_policy({"status": "pass"})
+        self.assertEqual(safe["cultural_islamic_policy"], "pass")
+        self.assertEqual(risky["status"], "block")
+        self.assertEqual(risky["cultural_islamic_policy"], "block")
+        self.assertEqual(missing["status"], "block")
 
 
 if __name__ == "__main__":
