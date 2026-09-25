@@ -21,6 +21,7 @@ from clean_v2.pipeline import (
     _run_podcast_derived_short_lite,
     _script_prompt,
     _select_podcast_promo_excerpt,
+    _tone_repair_prompt,
 )
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
@@ -102,7 +103,46 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("article, lecture, news script", script)
         self.assertIn("speaking simply to one listener", script)
         self.assertIn("numbered-list", script)
+        self.assertIn("s2 must add a mechanism, cause, or distinction", script)
+        self.assertIn("s3, when present, must derive a new implication or resolution from s2", script)
+        self.assertIn("generic advice and synonymous restatement are not progression", script)
         self.assertNotIn("HARD maximum of 18 Arabic words", script)
+
+    def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
+        podcast_brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        plan = self._plan(3)
+        script = {
+            "title": "عنوان",
+            "sections": [
+                {"id": "s1", "narration": "لماذا نعود إلى ما نعرف أنه يضرنا؟"},
+                {"id": "s2", "narration": "نعود لأن الفكرة ما زالت كما هي."},
+                {"id": "s3", "narration": "وهذا يعيدنا إلى الفكرة نفسها."},
+            ],
+        }
+        kwargs = {
+            "plan": plan,
+            "script": script,
+            "identity": {"opener": "", "closer": ""},
+            "cta_plan": {"spoken_text": "", "anchor_section_id": ""},
+            "revision_note": "s2 and s3 repeat the same idea instead of advancing the central question",
+        }
+        podcast_prompt = _tone_repair_prompt(brief=podcast_brief, **kwargs)
+        self.assertIn("fix progression semantically, not cosmetically", podcast_prompt)
+        self.assertIn("s2 must add a mechanism, cause, or distinction", podcast_prompt)
+        self.assertIn("s3, when present, must derive a new implication or resolution from s2", podcast_prompt)
+        self.assertIn("generic advice or paraphrase is not a payoff", podcast_prompt)
+
+        film_prompt = _tone_repair_prompt(
+            brief={**podcast_brief, "format": "film"},
+            **kwargs,
+        )
+        self.assertNotIn("fix progression semantically, not cosmetically", film_prompt)
 
     def test_podcast_reuses_long_identity_without_a_new_identity_system(self) -> None:
         sections = [
