@@ -2802,6 +2802,8 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         *,
         recovery_relevance: float | None = None,
         recovery_relevances: list[float] | None = None,
+        primary_relevance: float = 0.40,
+        primary_status: str = "block",
     ):
         scores = list(
             recovery_relevances
@@ -2856,9 +2858,9 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             evidence = kwargs["canonical_evidence"]
             if audit_counter["n"] == 1:
                 return self._audit(
-                    relevance=0.40,
+                    relevance=primary_relevance,
                     quality=0.95,
-                    status="block",
+                    status=primary_status,
                     evidence=evidence,
                 )
             score_index = min(audit_counter["n"] - 2, len(scores) - 1)
@@ -3044,6 +3046,36 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertIn("primary_floor=0.400000", outcome["error"])
         self.assertIn("recovery_floor=0.700000", outcome["error"])
         self.assertEqual(outcome["recovery"][0]["status"], "rejected")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
+        self.assertEqual(outcome["final_bytes"], b"O" * 4096)
+
+
+    def test_safe_primary_is_retained_when_every_recovery_candidate_is_worse(self) -> None:
+        outcome = self._run_case(
+            primary_relevance=0.70,
+            primary_status="pass",
+            recovery_relevances=[0.35, 0.20, 0.35],
+        )
+
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(outcome["commit_calls"], 0)
+        self.assertEqual(outcome["audit_calls"], 4)
+        self.assertEqual(outcome["result"]["status"], "pass")
+        self.assertEqual(outcome["result"]["semantic_recovery_count"], 0)
+        self.assertEqual(outcome["result"]["best_available_primary_count"], 1)
+        self.assertEqual(
+            outcome["result"]["best_available_primary_semantic_floor"],
+            0.70,
+        )
+        self.assertEqual(outcome["recovery"][0]["status"], "retained_primary")
+        self.assertEqual(outcome["recovery"][0]["retained_primary_floor"], 0.70)
+        self.assertEqual(outcome["recovery"][0]["recovery_floor"], 0.35)
+        self.assertTrue(outcome["audits"][0]["is_selected"])
+        self.assertTrue(outcome["audits"][0]["best_available_primary"])
+        self.assertEqual(
+            outcome["audits"][0]["final_cut_readiness"],
+            "best_available_primary",
+        )
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 
