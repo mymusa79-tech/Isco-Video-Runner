@@ -231,8 +231,8 @@ def apply_podcast_key_text(
 
     ass_path = Path(output_dir) / "podcast-key-text.ass"
     rendered = Path(output_dir) / ".final-podcast-key-text.mp4"
-    ass_path.write_text(build_ass(events), encoding="utf-8")
     try:
+        ass_path.write_text(build_ass(events), encoding="utf-8")
         subprocess.run(
             [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -245,12 +245,19 @@ def apply_podcast_key_text(
             timeout=1800,
             env=_secret_free_subprocess_env(),
         )
+        if not rendered.is_file() or rendered.stat().st_size <= 0:
+            raise PodcastKeyTextError("podcast_key_text_render_missing_or_empty")
+        os.replace(rendered, Path(final_path))
+    except PodcastKeyTextError:
+        rendered.unlink(missing_ok=True)
+        raise
+    except (OSError, subprocess.SubprocessError) as exc:
+        rendered.unlink(missing_ok=True)
+        raise PodcastKeyTextError(
+            f"podcast_key_text_local_render_failed:{type(exc).__name__}"
+        ) from exc
     finally:
         ass_path.unlink(missing_ok=True)
-
-    if not rendered.is_file() or rendered.stat().st_size <= 0:
-        raise PodcastKeyTextError("podcast_key_text_render_missing_or_empty")
-    os.replace(rendered, Path(final_path))
     return {
         "schema_version": SCHEMA_VERSION,
         "renderer": "ffmpeg_libass_podcast_3d_lite",
