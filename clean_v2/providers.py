@@ -496,6 +496,8 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     fmt = str(brief.get("format") or "").strip().lower()
     if fmt == "film":
         min_sections = max_sections = 5
+    elif fmt == "podcast":
+        min_sections, max_sections = 2, 5
     elif fmt == "short":
         min_sections = max_sections = 3
     elif fmt in {"moment", "story"}:
