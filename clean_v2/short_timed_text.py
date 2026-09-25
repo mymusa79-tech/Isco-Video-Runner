@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 3
-RICH_RENDERER_VERSION = "clean-v2-short-karaoke-lite-v3"
+RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-lite-v4"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Caption Lite: one Arabic font, one large caption block, white text with one
@@ -21,6 +21,9 @@ ALLOWED_ROLES = {"hook", "beat", "payoff"}
 ACCENT_ASS = "&H0000D4FF"  # RGB #FFD400 reference-like bright yellow
 PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
+DEPTH_ASS = "&H00303030"  # neutral dark hard extrusion
+DEPTH_NEAR_OFFSET_PX = 4
+DEPTH_FAR_OFFSET_PX = 8
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 112
@@ -476,7 +479,8 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,6,1,5,70,70,0,1",
+        f"Style: CaptionDepth,{BODY_FONT},{BODY_FONT_SIZE},{DEPTH_ASS},{DEPTH_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,6,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -487,13 +491,31 @@ def build_rich_ass(
             start = _ass_time(word_start)
             end = _ass_time(word_end)
             caption = _accent_caption(item.text, focus_index)
+            depth_caption = "\u202B" + _ass_escape(item.text) + "\u202C"
             if focus_index == 0:
-                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
+                scale_tag = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
             else:
-                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx100\fscy100"
+                scale_tag = r"\fscx100\fscy100"
+            far_tag = (
+                rf"\an5\pos({540 + DEPTH_FAR_OFFSET_PX},{CAPTION_Y + DEPTH_FAR_OFFSET_PX})"
+                + scale_tag
+            )
+            near_tag = (
+                rf"\an5\pos({540 + DEPTH_NEAR_OFFSET_PX},{CAPTION_Y + DEPTH_NEAR_OFFSET_PX})"
+                + scale_tag
+            )
+            main_tag = rf"\an5\pos(540,{CAPTION_Y})" + scale_tag
             lines.append(
-                f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-                f"{{{tag}}}{caption}"
+                f"Dialogue: 0,{start},{end},CaptionDepth,,0,0,0,,"
+                f"{{{far_tag}}}{depth_caption}"
+            )
+            lines.append(
+                f"Dialogue: 1,{start},{end},CaptionDepth,,0,0,0,,"
+                f"{{{near_tag}}}{depth_caption}"
+            )
+            lines.append(
+                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
+                f"{{{main_tag}}}{caption}"
             )
     lines.append("")
     return "\n".join(lines)
@@ -572,6 +594,10 @@ def render_progressive_text(
         "caption_min_words": CAPTION_MIN_WORDS,
         "caption_max_words": CAPTION_MAX_WORDS,
         "caption_y": CAPTION_Y,
+        "depth_style": "hard_extrusion_shadow",
+        "depth_layers": 2,
+        "depth_near_offset_px": DEPTH_NEAR_OFFSET_PX,
+        "depth_far_offset_px": DEPTH_FAR_OFFSET_PX,
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
         "word_highlight_timing": "deterministic_phrase_weighted_approximation",
