@@ -1,0 +1,139 @@
+name: Preview 3D Arabic Type
+
+on:
+  pull_request:
+    paths:
+      - "clean_v2/short_timed_text.py"
+      - ".github/workflows/preview-3d-type.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    if: github.event.pull_request.head.ref == 'phase-b-3d-tracked-sync-20260925'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      OUT: ${{ github.workspace }}/output/type-preview
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout exact Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal render dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core
+
+      - name: Render actual environment type preview over real stock
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from clean_v2.media import StockVisualSource, _download_media
+          from clean_v2.short_timed_text import render_progressive_text
+
+          root = Path(os.environ["OUT"])
+          source = StockVisualSource()
+          candidate = source._pexels("hands writing notebook desk", portrait=True)
+          if candidate is None:
+              raise RuntimeError("no_real_stock_candidate_for_type_preview")
+
+          raw = root / "stock-source.mp4"
+          _download_media(str(candidate["download_url"]), raw)
+
+          base = root / "stock-portrait-6s.mp4"
+          subprocess.run(
+              [
+                  "ffmpeg","-y","-hide_banner","-loglevel","error",
+                  "-i",str(raw),"-t","6.0",
+                  "-vf","scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30",
+                  "-an","-c:v","libx264","-preset","veryfast","-crf","21","-pix_fmt","yuv420p",
+                  str(base),
+              ],
+              check=True,
+          )
+
+          events = [
+              {"start":0.0,"end":2.0,"text":"لا تنتظر الدافع","role":"hook"},
+              {"start":2.0,"end":4.0,"text":"ابدأ بخطوة صغيرة","role":"beat"},
+              {"start":4.0,"end":6.0,"text":"ثم دع الحركة تقودك","role":"payoff"},
+          ]
+          report = render_progressive_text(
+              video=base,
+              events=events,
+              srt_path=root / "type-preview.srt",
+              output=root / "type-preview.mp4",
+          )
+          evidence = {
+              "status":"pass",
+              "source_url":candidate.get("source_url"),
+              "provider":candidate.get("provider"),
+              "renderer":report.get("renderer"),
+              "renderer_version":report.get("renderer_version"),
+              "caption_font":report.get("caption_font"),
+              "body_font_size":report.get("body_font_size"),
+              "focus_font_size":report.get("focus_font_size"),
+              "depth_layers":report.get("depth_layers"),
+              "black_text_box":report.get("black_text_box"),
+              "accent_rgb":report.get("accent_rgb"),
+              "voice_owned_event_timing_preserved":report.get("voice_owned_event_timing_preserved"),
+              "word_level_alignment_claimed":report.get("word_level_alignment_claimed"),
+              "word_highlight_timing":report.get("word_highlight_timing"),
+              "word_highlight_count":report.get("word_highlight_count"),
+              "tracked_focus_tier":report.get("tracked_focus_tier"),
+          }
+          (root / "type-preview-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          for second in ("0.5","1.5","3.0","5.0"):
+              name = second.replace(".","_")
+              subprocess.run(
+                  ["ffmpeg","-y","-hide_banner","-loglevel","error","-ss",second,
+                   "-i",str(root / "type-preview.mp4"),"-frames:v","1",
+                   str(root / f"frame-{name}.jpg")],
+                  check=True,
+              )
+          print(json.dumps(evidence, ensure_ascii=False))
+          PY
+
+      - name: Verify preview
+        run: |
+          set -euo pipefail
+          test -s "$OUT/type-preview.mp4"
+          test -s "$OUT/frame-0_5.jpg"
+          test -s "$OUT/frame-1_5.jpg"
+          test -s "$OUT/frame-3_0.jpg"
+          test -s "$OUT/frame-5_0.jpg"
+          test "$(jq -r .renderer "$OUT/type-preview-evidence.json")" = "ffmpeg_libass_cinematic_type"
+          test "$(jq -r .depth_layers "$OUT/type-preview-evidence.json")" = "3"
+          test "$(jq -r .black_text_box "$OUT/type-preview-evidence.json")" = "false"
+          test "$(jq -r .tracked_focus_tier "$OUT/type-preview-evidence.json")" = "true"
+          test "$(jq -r .word_highlight_count "$OUT/type-preview-evidence.json")" -gt 0
+
+      - name: Upload environment-rendered type preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cloud-3d-type-preview-${{ github.run_number }}
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 7
