@@ -2769,7 +2769,7 @@ def _run_audio_mastering_stage(
                 "topic",
                 "outro",
             ],
-            "timeline_owner": "measured_charon_voice",
+            "timeline_owner": voice_timeline["timeline_owner"],
             "identity_events": voice_timeline["identity_events"],
             "voice_seconds": voice_timeline["voice_seconds_measured"],
             "post_render_identity_splice": False,
