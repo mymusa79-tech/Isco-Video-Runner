@@ -16,6 +16,8 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from clean_v2.short_format import SHORT_DURATION_SAFETY_MAX_SECONDS
+
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
 SCOPES = {"long", "bundle", "short", "podcast"}
@@ -29,7 +31,7 @@ MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
-SHORT_MAX_SECONDS = 30
+SHORT_STATS_MAX_SECONDS = int(SHORT_DURATION_SAFETY_MAX_SECONDS)
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 CLEAN_V2_DELIVERY_TAG_PREFIX = "clean-v2-final-"
@@ -204,7 +206,7 @@ def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, 
         (
             item
             for item in videos
-            if 0 < int(item.get("duration_seconds") or 0) <= SHORT_MAX_SECONDS
+            if 0 < int(item.get("duration_seconds") or 0) <= SHORT_STATS_MAX_SECONDS
         ),
         None,
     )
@@ -212,7 +214,7 @@ def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, 
         (
             item
             for item in videos
-            if int(item.get("duration_seconds") or 0) > SHORT_MAX_SECONDS
+            if int(item.get("duration_seconds") or 0) > SHORT_STATS_MAX_SECONDS
         ),
         None,
     )
@@ -1506,7 +1508,11 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
                 if fmt == "podcast"
                 else []
             ),
-            *(["Complete Short must not exceed 30 seconds."] if fmt == "short" else []),
+            *(
+                ["Complete Short follows the natural mastered voice duration; no editorial duration target."]
+                if fmt == "short"
+                else []
+            ),
         ],
     }
     if fmt == "podcast":
