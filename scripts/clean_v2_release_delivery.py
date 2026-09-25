@@ -97,7 +97,7 @@ def _release_tag(*, kind: str, delivery_key: str, run_id: str, run_attempt: str)
 
 
 def _release_title(kind: str, topic: str) -> str:
-    label = "Podcast" if kind == "podcast" else ("Short" if kind == "short" else "Long")
+    label = "Outside Text" if kind == "podcast" else ("Short" if kind == "short" else "Long")
     base = f"Clean V2 {label}"
     return f"{base} — {topic}" if topic else base
 
