@@ -54,6 +54,7 @@ function scopeKeyboard() {
       [{ text: "🎬 طويل فقط", callback_data: "scope:long" }],
       [{ text: "🎬 طويل + ⚡ شورت", callback_data: "scope:bundle" }],
       [{ text: "⚡ شورت فقط", callback_data: "scope:short" }],
+      [{ text: "🎙️ بودكاست", callback_data: "scope:podcast" }],
     ],
   };
 }
