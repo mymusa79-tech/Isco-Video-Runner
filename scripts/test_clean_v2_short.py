@@ -744,20 +744,17 @@ class ShortContractTests(unittest.TestCase):
             "creator_url": "https://pexels.com",
             "query": "quiet reflective person by window",
         }
-        pixabay = {
-            "provider": "pixabay",
-            "asset_id": "color",
-            "download_url": "https://cdn.pixabay.com/color.mp4",
-            "source_url": "https://pixabay.com/color",
-            "creator": "fixture",
-            "creator_url": "",
-            "query": "quiet reflective person by window",
+        pexels_color = {
+            **pexels,
+            "asset_id": "color-pexels",
+            "download_url": "https://videos.pexels.com/color.mp4",
+            "source_url": "https://pexels.com/color",
         }
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            source, "_pexels", return_value=pexels
-        ), mock.patch.object(
-            source, "_pixabay", return_value=pixabay
-        ), mock.patch(
+            source, "_pexels", side_effect=[pexels, pexels_color]
+        ) as pexels_mock, mock.patch.object(
+            source, "_pixabay", return_value=None
+        ) as pixabay_mock, mock.patch(
             "clean_v2.media._download_media",
             side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
         ), mock.patch(
@@ -776,7 +773,10 @@ class ShortContractTests(unittest.TestCase):
             )
 
         self.assertEqual(len(clips), 1)
-        self.assertEqual(rights[0]["provider"], "pixabay")
+        self.assertEqual(rights[0]["provider"], "pexels")
+        self.assertEqual(rights[0]["asset_id"], "color-pexels")
+        self.assertEqual(pexels_mock.call_count, 2)
+        pixabay_mock.assert_not_called()
         rejected = [
             event for event in source.events
             if event.get("result") == "color_rejected"
