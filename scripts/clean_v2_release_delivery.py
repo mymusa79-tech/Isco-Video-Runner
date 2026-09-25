@@ -31,7 +31,7 @@ def _slug(value: str, *, fallback: str) -> str:
 def _target_dirs(output_root: Path, scope: str) -> list[tuple[str, Path]]:
     root = Path(output_root)
     if scope == "bundle":
-        return [("long", root / "film"), ("short", root / "short")]
+        return [("long", root / "film")]
     kind = "short" if scope == "short" else ("podcast" if scope == "podcast" else "long")
     if (root / "final.mp4").is_file() or (root / "final-master-qc.json").is_file():
         return [(kind, root)]
