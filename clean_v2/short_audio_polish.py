@@ -194,7 +194,10 @@ def apply_topic_audio_polish(
     try:
         topic_start, topic_end = _topic_window(output_dir)
         topic_duration = topic_end - topic_start
-        track_path, library_report = select_music_track(script)
+        track_path, library_report = select_music_track(
+            script,
+            allow_download=True,
+        )
         if track_path is None:
             raise RuntimeError("verified_music_track_unavailable")
 
