@@ -240,8 +240,11 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertEqual(risky["cultural_islamic_policy"], "block")
 
         missing = _apply_cultural_islamic_policy({"status": "pass", "reason": "unknown"})
-        self.assertEqual(missing["status"], "block")
-        self.assertIn("evidence_missing", missing["reason"])
+        self.assertEqual(missing["status"], "pass")
+        self.assertEqual(
+            missing["cultural_islamic_policy"],
+            "advisory_missing_evidence",
+        )
 
 
 if __name__ == "__main__":
