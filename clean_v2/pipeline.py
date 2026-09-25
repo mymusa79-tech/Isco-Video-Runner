@@ -3612,6 +3612,34 @@ class CleanV2Pipeline:
                 (output_dir / "narration.txt").write_text(
                     transcript + "\n", encoding="utf-8"
                 )
+
+            # Planning can only anticipate the opening. Once the exact hook exists,
+            # locally bind its same-call visual intent to the first beat before the
+            # script checkpoint is sealed. Older resumed scripts without the field
+            # keep their validated Planning story unchanged.
+            visual_plan, visual_story = _hook_aligned_visual_plan(
+                plan, visual_story, script
+            )
+            atomic_write_json(output_dir / "visual-story.json", visual_story)
+            atomic_write_json(
+                output_dir / "hook-visual-alignment.json",
+                {
+                    "schema_version": 1,
+                    "status": (
+                        "applied"
+                        if str(script.get("hook_visual_query_en") or "").strip()
+                        else "planning_fallback"
+                    ),
+                    "hook": _first_spoken_sentence(script),
+                    "hook_visual_query_en": str(
+                        script.get("hook_visual_query_en") or ""
+                    ).strip(),
+                    "first_beat_id": str(
+                        ((visual_story.get("beats") or [{}])[0]).get("id") or ""
+                    ),
+                    "provider_calls_added": 0,
+                },
+            )
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="script",
@@ -3672,6 +3700,32 @@ class CleanV2Pipeline:
                 # script acceptance, then keep the unchanged strict validator.
                 apply_safe_short_s3_single_action_trim(script)
                 validate_short_script(script)
+            # A hook-quality repair may have replaced the exact first sentence.
+            # Rebind the first visual intent from the same repair response before
+            # Voice/Visuals so text and first shot can never drift apart.
+            visual_plan, visual_story = _hook_aligned_visual_plan(
+                plan, visual_story, script
+            )
+            atomic_write_json(output_dir / "visual-story.json", visual_story)
+            atomic_write_json(
+                output_dir / "hook-visual-alignment.json",
+                {
+                    "schema_version": 1,
+                    "status": (
+                        "applied"
+                        if str(script.get("hook_visual_query_en") or "").strip()
+                        else "planning_fallback"
+                    ),
+                    "hook": _first_spoken_sentence(script),
+                    "hook_visual_query_en": str(
+                        script.get("hook_visual_query_en") or ""
+                    ).strip(),
+                    "first_beat_id": str(
+                        ((visual_story.get("beats") or [{}])[0]).get("id") or ""
+                    ),
+                    "provider_calls_added": 0,
+                },
+            )
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
                     output_dir,
@@ -3822,8 +3876,6 @@ class CleanV2Pipeline:
                         probe_duration(narration_path),
                     )
                 try:
-                    visual_plan = dict(plan)
-                    visual_plan["visual_story"] = visual_story
                     clips, rights = journal.run(
                         "visuals",
                         lambda: self.visual_source.acquire(
@@ -3895,7 +3947,7 @@ class CleanV2Pipeline:
                     VISUAL_QA_STAGE,
                     lambda: self.visual_qa(
                         output_dir=output_dir,
-                        plan=plan,
+                        plan=visual_plan,
                         script=script,
                         # visual_qa.py now accepts one-or-more assets per
                         # section (only the primary, index 0, is actually
@@ -3952,7 +4004,7 @@ class CleanV2Pipeline:
                     OPENING_STAGE,
                     lambda: self.opening_director(
                         output_dir=output_dir,
-                        plan=plan,
+                        plan=visual_plan,
                         script=script,
                         rights=primary_rights,
                         fmt=str(brief["format"]),
@@ -4019,7 +4071,7 @@ class CleanV2Pipeline:
                     output_dir=output_dir,
                     final_path=final_path,
                     narration_path=narration_path,
-                    plan=plan,
+                    plan=visual_plan,
                     script=script,
                     rights=primary_rights,
                     fmt=str(brief["format"]),
