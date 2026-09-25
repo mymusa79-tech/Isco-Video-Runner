@@ -356,7 +356,7 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
                 return output
 
             with mock.patch(
-                "clean_v2.pipeline.render_podcast_derived_short",
+                "clean_v2.pipeline.render_derived_short",
                 side_effect=fake_render,
             ):
                 report = _run_podcast_derived_short_lite(
@@ -394,7 +394,7 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
                 return output
 
             with mock.patch(
-                "clean_v2.pipeline.render_podcast_derived_short",
+                "clean_v2.pipeline.render_derived_short",
                 side_effect=fake_render,
             ):
                 report = _run_podcast_derived_short_lite(

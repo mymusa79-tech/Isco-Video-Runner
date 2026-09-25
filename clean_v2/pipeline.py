@@ -34,7 +34,7 @@ from .media import (
     concat_wav_parts,
     inspect_final,
     probe_duration,
-    render_podcast_derived_short,
+    render_derived_short,
     render_video,
 )
 from .structural_ai import structural_ai_flags
@@ -2896,6 +2896,153 @@ def _run_audio_mastering_stage(
     }
 
 
+def _select_film_derived_short_window(
+    sections: list[dict[str, Any]],
+    timeline: Mapping[str, Any],
+    *,
+    identity_closer: str = "",
+) -> dict[str, Any] | None:
+    """Select one already-synthesized Film topic unit without changing TTS chunking."""
+    if len(sections) < 2:
+        return None
+    raw_units = timeline.get("audio_units")
+    if not isinstance(raw_units, list):
+        return None
+    topic_units = {
+        (str(item.get("section_id") or ""), int(item.get("chunk") or 0)): item
+        for item in raw_units
+        if isinstance(item, Mapping) and str(item.get("role") or "") == "topic"
+    }
+    closer = " ".join(str(identity_closer or "").split()).strip()
+    total_sections = len(sections)
+    best: tuple[tuple[int, int, int, int], dict[str, Any]] | None = None
+    for section_index, raw in enumerate(sections[1:], start=1):
+        section_id = str(raw.get("id") or f"s{section_index + 1}").strip()
+        text = " ".join(str(raw.get("narration") or "").split()).strip()
+        if section_index == total_sections - 1:
+            if closer and text.endswith(closer):
+                text = text[: -len(closer)].strip()
+            else:
+                sentences = [
+                    item.strip()
+                    for item in re.split(r"(?<=[.!؟!])\s+", text)
+                    if item.strip()
+                ]
+                text = " ".join(sentences[:-1]).strip() if len(sentences) >= 2 else ""
+        chunks = _bounded_voice_chunks(text) if text else []
+        for chunk_index, chunk_text in enumerate(chunks, start=1):
+            unit = topic_units.get((section_id, chunk_index))
+            if not isinstance(unit, Mapping):
+                continue
+            start = float(unit.get("start") or 0.0)
+            end = float(unit.get("end") or 0.0)
+            duration = end - start
+            if not 7.0 <= duration <= 30.0:
+                continue
+            words = len(chunk_text.split())
+            marker_hits = sum(1 for marker in _PODCAST_PROMO_MARKERS if marker in chunk_text)
+            length_score = 4 if 20 <= words <= 48 else 2
+            section_score = 2 if section_index < total_sections - 1 else 1
+            statement_score = 1 if not chunk_text.endswith("؟") else 0
+            score = (
+                marker_hits * 4 + length_score + section_score + statement_score,
+                -abs(words - 34),
+                -section_index,
+                -chunk_index,
+            )
+            candidate = {
+                "section_id": section_id,
+                "chunk": chunk_index,
+                "text": chunk_text,
+                "start": start,
+                "end": end,
+                "duration_seconds": duration,
+            }
+            if best is None or score > best[0]:
+                best = (score, candidate)
+    return None if best is None else best[1]
+
+
+def _run_film_derived_short_lite(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    script: Mapping[str, Any],
+    identity_closer: str,
+    final_master_qc: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    """Derive one optional Film promo from an existing measured voice unit, fail-soft."""
+    report_path = output_dir / "long-short.json"
+    delivered = output_dir / "long-short.mp4"
+    qc_copy = output_dir / "long-short-qc.json"
+    delivered.unlink(missing_ok=True)
+    qc_copy.unlink(missing_ok=True)
+    base = {
+        "schema_version": 1,
+        "source": "clean-v2-film-derived-short-lite",
+        "provider_calls_added": 0,
+        "tts_calls_added": 0,
+    }
+    try:
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        sections = script.get("sections")
+        if not isinstance(sections, list):
+            raise RuntimeError("film derived short requires script sections")
+        promo = _select_film_derived_short_window(
+            sections,
+            timeline,
+            identity_closer=identity_closer,
+        )
+        if promo is None:
+            report = {**base, "status": "skipped_no_existing_7_30_topic_unit"}
+            atomic_write_json(report_path, report)
+            return report
+
+        short_dir = output_dir / "long-short"
+        shutil.rmtree(short_dir, ignore_errors=True)
+        short_dir.mkdir(parents=True, exist_ok=True)
+        short_final = render_derived_short(
+            final_path,
+            short_dir / "final.mp4",
+            start_seconds=float(promo["start"]),
+            end_seconds=float(promo["end"]),
+        )
+        atomic_write_json(short_dir / "plan.json", {"format": "moment"})
+        atomic_write_json(short_dir / "quality-final.json", {"format": "moment"})
+        atomic_write_json(
+            short_dir / "visual-timeline.json",
+            {"duration_seconds": round(float(promo["duration_seconds"]), 3)},
+        )
+        qc = final_master_qc(short_dir)
+        shutil.copy2(short_final, delivered)
+        atomic_write_json(qc_copy, qc)
+        stream = qc.get("stream_contract") if isinstance(qc, Mapping) else {}
+        report = {
+            **base,
+            "status": "pass",
+            "section_id": promo["section_id"],
+            "chunk": promo["chunk"],
+            "duration_seconds": qc.get(
+                "final_duration_seconds",
+                round(float(promo["duration_seconds"]), 3),
+            ),
+            "width": (stream or {}).get("width"),
+            "height": (stream or {}).get("height"),
+            "final_master_qc_status": "pass",
+            "file": delivered.name,
+        }
+        atomic_write_json(report_path, report)
+        return report
+    except Exception as exc:
+        report = {
+            **base,
+            "status": "skipped_failed",
+            "reason": f"{type(exc).__name__}:{str(exc)[:200]}",
+        }
+        atomic_write_json(report_path, report)
+        return report
+
+
 def _run_podcast_derived_short_lite(
     *,
     output_dir: Path,
@@ -2937,7 +3084,7 @@ def _run_podcast_derived_short_lite(
         short_dir = output_dir / "podcast-short"
         shutil.rmtree(short_dir, ignore_errors=True)
         short_dir.mkdir(parents=True, exist_ok=True)
-        short_final = render_podcast_derived_short(
+        short_final = render_derived_short(
             final_path,
             short_dir / "final.mp4",
             start_seconds=start,
@@ -4405,6 +4552,17 @@ class CleanV2Pipeline:
                 if str(brief["format"]) == "podcast"
                 else {"status": "not_applicable"}
             )
+            long_short_report = (
+                _run_film_derived_short_lite(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    script=script,
+                    identity_closer=str(identity_runtime.get("closer") or ""),
+                    final_master_qc=self.final_master_qc,
+                )
+                if str(brief["format"]) == "film"
+                else {"status": "not_applicable"}
+            )
 
             journal.complete(
                 final_file=final_path.name,
@@ -4419,6 +4577,7 @@ class CleanV2Pipeline:
                 identity_media_status=identity_media_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 podcast_short_status=podcast_short_report.get("status"),
+                long_short_status=long_short_report.get("status"),
                 provider_wire_attempts=sum(
                     1
                     for item in getattr(self.router, "events", [])
@@ -4438,6 +4597,7 @@ class CleanV2Pipeline:
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
                 "podcast_short_status": podcast_short_report.get("status"),
+                "long_short_status": long_short_report.get("status"),
             }
         except Exception:
             self._write_runtime_events(output_dir)

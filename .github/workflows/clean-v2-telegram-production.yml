@@ -226,16 +226,9 @@ jobs:
               run_one podcast podcast
               ;;
             bundle)
-              if ! run_one film long; then
-                python scripts/telegram_clean_v2_notify.py bundle-blocked \
-                  --topic "$TELEGRAM_REQUEST_TOPIC" \
-                  --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
-                exit 1
-              fi
-              run_one short short
-              python scripts/telegram_clean_v2_notify.py bundle-summary \
-                --topic "$TELEGRAM_REQUEST_TOPIC" \
-                --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+              # Bundle is intentionally one Long production. Its optional derived
+              # Short is cut locally from the certified Long final and is fail-soft.
+              run_one film long
               ;;
           esac
 
