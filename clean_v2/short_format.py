@@ -407,6 +407,70 @@ _PRACTICAL_ACTION_MARKERS = (
     "قم",
 )
 
+_PRACTICAL_ACTION_OBJECT_SUFFIX_MARKERS = frozenset({
+    "اختر",
+    "افعل",
+    "اكتب",
+    "حدد",
+    "حدّد",
+    "ضع",
+    "اربط",
+    "جرّب",
+    "جرب",
+    "خذ",
+    "اترك",
+    "اجعل",
+    "خصص",
+    "خصّص",
+    "افتح",
+    "اغلق",
+    "أغلق",
+    "نفذ",
+    "نفّذ",
+    "راقب",
+    "اقرأ",
+    "اقرا",
+})
+_PRACTICAL_ACTION_OBJECT_SUFFIXES = (
+    "هما",
+    "كما",
+    "هم",
+    "هن",
+    "كم",
+    "كن",
+    "ها",
+    "نا",
+    "ني",
+    "ه",
+    "ك",
+    "ي",
+)
+
+
+def _practical_action_pattern(marker: str) -> str:
+    suffix = ""
+    if marker in _PRACTICAL_ACTION_OBJECT_SUFFIX_MARKERS:
+        suffix = "(?:" + "|".join(
+            re.escape(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES
+        ) + ")?"
+    return rf"(?<!\w){re.escape(marker)}{suffix}(?!\w)"
+
+
+def _practical_action_base(word: str) -> str | None:
+    normalized = _semantic_key(word)
+    allowed = {_semantic_key(marker): marker for marker in _PRACTICAL_ACTION_MARKERS}
+    if normalized in allowed:
+        return allowed[normalized]
+    for marker in _PRACTICAL_ACTION_OBJECT_SUFFIX_MARKERS:
+        marker_key = _semantic_key(marker)
+        if not normalized.startswith(marker_key):
+            continue
+        suffix = normalized[len(marker_key):]
+        if suffix in {_semantic_key(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES}:
+            return marker
+    return None
+
+
 # Strict local safeguard for s3 payoff prose. These stems cover the configured
 # imperative families across common Arabic inflections/derivatives without adding
 # another model call or a heavyweight morphology dependency.
@@ -445,8 +509,7 @@ def _contains_forbidden_action_family(text: object) -> bool:
 def _sentence_begins_with_direct_action(sentence: object) -> bool:
     normalized = _semantic_key(sentence)
     first = normalized.split()[0] if normalized else ""
-    allowed = {_semantic_key(marker) for marker in _PRACTICAL_ACTION_MARKERS}
-    return first in allowed
+    return _practical_action_base(first) is not None
 
 
 def _first_sentence(text: object) -> str:
@@ -539,7 +602,7 @@ def _practical_action_marker_count(text: object) -> int:
         return 0
     unique_markers = dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
     return sum(
-        len(re.findall(rf"(?<!\w){re.escape(marker)}(?!\w)", compact, flags=re.I))
+        len(re.findall(_practical_action_pattern(marker), compact, flags=re.I))
         for marker in unique_markers
     )
 
@@ -575,7 +638,7 @@ def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
             spans.extend(
                 match.span()
                 for match in re.finditer(
-                    rf"(?<!\w){re.escape(marker)}(?!\w)", sentence, flags=re.I
+                    _practical_action_pattern(marker), sentence, flags=re.I
                 )
             )
         spans = sorted(set(spans))

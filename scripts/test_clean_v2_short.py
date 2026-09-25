@@ -363,6 +363,14 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(report["practical_action_sentences"], 1)
         self.assertEqual(report["practical_action_markers"], 1)
 
+        attached_object_action = json.loads(json.dumps(no_action, ensure_ascii=False))
+        attached_object_action["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. اكتبها."
+        )
+        report = validate_short_script(attached_object_action)
+        self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
+
         prefixed_action = json.loads(json.dumps(no_action, ensure_ascii=False))
         prefixed_action["sections"][2]["narration"] = "الآن ابدأ بخطوة صغيرة."
         with self.assertRaisesRegex(
@@ -407,6 +415,17 @@ class ShortContractTests(unittest.TestCase):
             "عندها يصبح الطريق أوضح. اكتب كلمة واحدة على ورقة.",
         )
         self.assertEqual(validate_short_script(base)["practical_action_markers"], 1)
+
+        attached_object = json.loads(json.dumps(base, ensure_ascii=False))
+        attached_object["sections"][2]["narration"] = (
+            "لا تحتاج إلى كل القائمة. يكفي كلمة واحدة فقط، الآن. اكتبها."
+        )
+        original = attached_object["sections"][2]["narration"]
+        self.assertFalse(apply_safe_short_s3_single_action_trim(attached_object))
+        self.assertEqual(attached_object["sections"][2]["narration"], original)
+        report = validate_short_script(attached_object)
+        self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
 
         two_sentences = json.loads(json.dumps(base, ensure_ascii=False))
         two_sentences["sections"][2]["narration"] = (
