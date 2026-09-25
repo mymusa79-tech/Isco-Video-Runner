@@ -60,6 +60,37 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
+class StockRetrievalCompactionTests(unittest.TestCase):
+    def test_good_concise_query_is_unchanged(self) -> None:
+        query = "hands writing first line notebook warm sunlight"
+        self.assertEqual(
+            media_module._compact_stock_retrieval_query(query),
+            query,
+        )
+
+    def test_long_shot_list_compacts_to_retrieval_anchors(self) -> None:
+        query = (
+            "hand pausing mid-writing on a half-filled notebook with a pen "
+            "warm natural light from focus hands only"
+        )
+        self.assertEqual(
+            media_module._compact_stock_retrieval_query(query),
+            "hand pausing mid writing half filled notebook pen",
+        )
+
+    def test_compaction_preserves_face_safe_cue_when_it_would_fall_outside_first_eight(self) -> None:
+        query = (
+            "cozy office desk notebook calendar coffee mug window morning "
+            "books plant practical lamp back view anonymous"
+        )
+        compact = media_module._compact_stock_retrieval_query(query)
+        self.assertLessEqual(len(compact.split()), 8)
+        self.assertTrue(
+            {"back", "anonymous"} & set(compact.split()),
+            compact,
+        )
+
+
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     @staticmethod
     def _story(*beats: dict) -> dict:
@@ -157,6 +188,50 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 2)
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
+    def test_short_local_color_reject_tries_one_next_candidate_same_provider(self) -> None:
+        source = media_module.StockVisualSource()
+        candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
+        pexels_calls = {"n": 0}
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            pexels_calls["n"] += 1
+            return candidates.pop(0) if candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        color_results = iter([
+            (False, "short_near_monochrome saturation_avg=4.0"),
+            (True, None),
+        ])
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "hands writing one line notebook")
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible",
+            side_effect=lambda _path: next(color_results),
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(pexels_calls["n"], 2)
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["asset_id"], "p2")
+
     def test_ai_still_preference_is_marker_only_and_does_not_activate_ai_source(self) -> None:
         beat = self._beat("b1", "s1", "warm desk by window no face")
         beat["source_preference"] = "ai_still"
@@ -165,6 +240,133 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(rights[0]["source_preference"], "ai_still")
         self.assertEqual(rights[0]["source_actual"], "stock_motion")
         self.assertEqual(rights[0]["provider"], "pexels")
+
+
+    def test_successive_non_english_story_beats_fall_back_to_primary_then_alternate_query(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return candidates.pop(0) if candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["sections"][0]["visual_query_alt_en"] = "hand circles one task on paper"
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "لقطة دلالية أولى"),
+            self._beat("b2", "s1", "لقطة دلالية ثانية"),
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, "ok")
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 2)
+        self.assertEqual(
+            seen_queries,
+            ["quiet desk notebook wide shot", "hand circles one task on paper"],
+        )
+        self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
+
+    def test_english_story_beat_intent_owns_stock_retrieval(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat(
+                "b1",
+                "s1",
+                "scattered papers half empty coffee cup desk",
+            )
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(
+            seen_queries,
+            ["scattered papers half empty coffee cup desk"],
+        )
+        self.assertEqual(
+            rights[0]["shot_intent"],
+            "scattered papers half empty coffee cup desk",
+        )
+
+    def test_non_ascii_story_intent_falls_back_to_section_english_query(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "يد متوقفة فوق دفتر في ضوء صباحي دافئ")
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(seen_queries, ["quiet desk notebook wide shot"])
+        self.assertEqual(
+            rights[0]["shot_intent"],
+            "يد متوقفة فوق دفتر في ضوء صباحي دافئ",
+        )
 
 
 class SectionDurationEstimationTests(unittest.TestCase):
