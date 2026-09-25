@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 4
-RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-lite-v4"
+SCHEMA_VERSION = 5
+RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-composition-lite-v5"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
