@@ -390,7 +390,7 @@ def bundle_summary_text(*, topic: str, run_url: str) -> str:
 
 
 def workflow_watchdog_text(*, scope: str, run_url: str) -> str:
-    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت", "podcast": "البودكاست"}.get(scope, "الإنتاج")
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت", "podcast": "خارج النص"}.get(scope, "الإنتاج")
     lines = [
         f"❌ تعذر إكمال {label}",
         "",
