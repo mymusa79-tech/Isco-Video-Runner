@@ -11,6 +11,7 @@ from clean_v2 import media as media_module
 from clean_v2 import short_audio_polish as audio_module
 from clean_v2 import short_timed_text as text_module
 from clean_v2 import visual_cta as cta_module
+from clean_v2.identity_sequence import _asset_pair, identity_timing_profile
 from clean_v2.music_library import load_catalog, select_music_track
 from clean_v2.timeline_render import render_identity_composition
 from clean_v2.visual_story import contextual_intent, validate_visual_story
@@ -29,40 +30,61 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertLessEqual(durations[0], 5.0)
         self.assertAlmostEqual(sum(durations), 20.0)
 
-    def test_rule_2_and_7_short_identity_assets_are_fully_opaque_and_final_frame_freezes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            assets = {}
-            for name in ("intro", "prayer", "outro"):
-                path = root / f"{name}.asset"
-                path.write_bytes(b"A" * 2048)
-                assets[name] = path
-            timeline = {
-                "voice_seconds_measured": 12.0,
-                "identity_events": [
-                    {"kind": "intro", "start": 2.0, "end": 3.0},
-                    {"kind": "prayer", "start": 3.0, "end": 4.5},
-                    {"kind": "outro", "start": 10.0, "end": 11.25},
-                    {"kind": "final_silence", "start": 11.25, "end": 12.0},
-                ],
-            }
-            with mock.patch(
-                "clean_v2.timeline_render.identity_asset_paths", return_value=assets
-            ), mock.patch("clean_v2.timeline_render.subprocess.run") as run:
-                render_identity_composition(
-                    root / "source.mp4",
-                    root / "destination.mp4",
-                    fmt="short",
-                    timeline=timeline,
-                )
-        command = run.call_args.args[0]
-        filters = command[command.index("-filter_complex") + 1]
-        self.assertNotIn("colorchannelmixer=aa=", filters)
-        self.assertNotIn("alpha=1", filters)
-        self.assertIn("tpad=stop_mode=clone", filters)
-        self.assertIn("between(t,2.000,3.000)", filters)
-        self.assertIn("between(t,3.000,4.500)", filters)
-        self.assertIn("between(t,10.000,12.000)", filters)
+    def test_rule_2_and_7_all_formats_are_fully_opaque_and_final_frame_freezes(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                assets = {}
+                for name in ("intro", "prayer", "outro"):
+                    path = root / f"{name}.asset"
+                    path.write_bytes(b"A" * 2048)
+                    assets[name] = path
+                timeline = {
+                    "voice_seconds_measured": 12.0,
+                    "identity_events": [
+                        {"kind": "intro", "start": 2.0, "end": 3.0},
+                        {"kind": "prayer", "start": 3.0, "end": 4.5},
+                        {"kind": "outro", "start": 10.0, "end": 11.25},
+                        {"kind": "final_silence", "start": 11.25, "end": 12.0},
+                    ],
+                }
+                with mock.patch(
+                    "clean_v2.timeline_render.identity_asset_paths", return_value=assets
+                ), mock.patch("clean_v2.timeline_render.subprocess.run") as run:
+                    render_identity_composition(
+                        root / "source.mp4",
+                        root / "destination.mp4",
+                        fmt=fmt,
+                        timeline=timeline,
+                    )
+                command = run.call_args.args[0]
+                filters = command[command.index("-filter_complex") + 1]
+                self.assertNotIn("colorchannelmixer=aa=", filters)
+                self.assertNotIn("alpha=1", filters)
+                self.assertIn("tpad=stop_mode=clone", filters)
+                self.assertIn("between(t,2.000,3.000)", filters)
+                self.assertIn("between(t,3.000,4.500)", filters)
+                self.assertIn("between(t,10.000,12.000)", filters)
+
+    def test_rule_7_format_asset_groups_are_distinct_and_timing_contract_is_shared(self) -> None:
+        short_intro, short_outro, sw, sh = _asset_pair("short")
+        film_intro, film_outro, fw, fh = _asset_pair("film")
+        podcast_intro, podcast_outro, pw, ph = _asset_pair("podcast")
+        self.assertEqual((sw, sh), (1080, 1920))
+        self.assertEqual((fw, fh), (1920, 1080))
+        self.assertEqual((pw, ph), (1920, 1080))
+        self.assertEqual(short_intro.name, "short_intro.mp4")
+        self.assertEqual(short_outro.name, "short_outro.mp4")
+        self.assertEqual(film_intro.name, "long_intro.mp4")
+        self.assertEqual(film_outro.name, "long_outro.mp4")
+        self.assertEqual(podcast_intro.name, "podcast_intro.mp4")
+        self.assertEqual(podcast_outro.name, "podcast_outro.mp4")
+        self.assertEqual(len({short_intro.name, film_intro.name, podcast_intro.name}), 3)
+        self.assertEqual(len({short_outro.name, film_outro.name, podcast_outro.name}), 3)
+        for fmt in ("short", "film", "podcast"):
+            profile = identity_timing_profile(fmt)
+            self.assertGreater(profile["intro_silence_seconds"], 0)
+            self.assertGreater(profile["final_silence_seconds"], 0)
 
     def test_rule_3_gold_keyword_is_materially_larger_than_white_body(self) -> None:
         events = [
@@ -184,7 +206,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertEqual(audio_module._topic_window(root), (10.0, 28.0))
+            for fmt in ("short", "film", "podcast"):
+                with self.subTest(fmt=fmt):
+                    self.assertEqual(audio_module._topic_window(root), (10.0, 28.0))
 
     def test_rule_9_noise_root_cause_is_removed_not_masked_by_mastering(self) -> None:
         source = inspect.getsource(audio_module)
@@ -192,6 +216,8 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertNotIn("anoisesrc=color=brown", source)
         self.assertIn("post_master_procedural_noise_layer", source)
         self.assertIn("narration_mastering_untouched", source)
+        self.assertIn("apply_topic_audio_polish", source)
+        self.assertIn('fmt not in {"short", "film", "podcast"}', source)
 
 
 if __name__ == "__main__":
