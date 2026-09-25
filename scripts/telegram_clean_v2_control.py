@@ -49,6 +49,17 @@ FALLBACK_IDEAS = [
     ("لماذا ننتظر الشعور المناسب قبل أن نتحرك؟", "انتظار الدافع قبل العمل"),
 ]
 
+PODCAST_FALLBACK_IDEAS = [
+    ("لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟", "العودة للعادات بعد قرار التوقف"),
+    ("لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟", "تطوير الذات والشعور بعدم الكفاية"),
+    ("ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟", "انتظار الدافع وتأثيره على السلوك"),
+    ("لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟", "إدمان البدايات وترك المشاريع"),
+    ("كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟", "المقارنة الاجتماعية وتقييم الذات"),
+    ("لماذا لا تحل إدارة الوقت مشكلة يوم لا نعرف فيه ما يستحق وقتنا أصلًا؟", "إدارة الوقت وتحديد الأولويات"),
+    ("متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟", "الراحة وتجنب المسؤوليات"),
+    ("لماذا نعرف النصيحة الصحيحة ولا يتغير سلوكنا رغم ذلك؟", "الفجوة بين المعرفة والسلوك"),
+]
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -607,7 +618,8 @@ def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
 
 def _candidate_pool(scope: str) -> list[dict[str, str]]:
     rows = _gemini_candidates(fetch_trends(), scope)
-    for title, query in FALLBACK_IDEAS:
+    fallback_ideas = PODCAST_FALLBACK_IDEAS if scope == "podcast" else FALLBACK_IDEAS
+    for title, query in fallback_ideas:
         if not any(same_topic(title, item.get("title", "")) for item in rows):
             rows.append(
                 {
