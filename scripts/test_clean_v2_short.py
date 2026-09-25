@@ -1226,6 +1226,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
+        self.assertIn(r"\\fad(150,200)", ass)
+        self.assertNotIn(r"\\bord5", ass)
         self.assertIn(r"\fscx98\fscy98", ass)
         self.assertIn("\u202B", ass)
         self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
