@@ -122,16 +122,18 @@ def build_events(
     ):
         raise PodcastKeyTextError("podcast_key_text_timeline_invalid")
 
-    selected = [(0, "hook"), (len(sections) // 2, "turn"), (len(sections) - 1, "payoff")]
-    deduped: list[tuple[int, str]] = []
-    seen: set[int] = set()
-    for index, role in selected:
-        if index not in seen:
-            seen.add(index)
-            deduped.append((index, role))
+    if len(sections) == 2:
+        selected = [(0, "hook"), (1, "payoff")]
+    else:
+        selected = [(0, "hook"), (len(sections) // 2, "turn"), (len(sections) - 1, "payoff")]
+
+    identity_events = timeline.get("identity_events")
+    typed_identity = [item for item in identity_events if isinstance(item, Mapping)] if isinstance(identity_events, list) else []
+    hook_window = next((item for item in typed_identity if str(item.get("kind") or "") == "hook"), None)
+    outro_window = next((item for item in typed_identity if str(item.get("kind") or "") == "outro"), None)
 
     events: list[dict[str, object]] = []
-    for index, role in deduped[:MAX_EVENTS]:
+    for index, role in selected[:MAX_EVENTS]:
         section = sections[index]
         timing = section_events[index]
         if not isinstance(section, Mapping) or not isinstance(timing, Mapping):
@@ -154,13 +156,21 @@ def build_events(
             raise PodcastKeyTextError("podcast_key_text_duration_invalid")
 
         if role == "hook":
-            start = section_start + min(0.15, max(0.0, (section_end - section_start) * 0.05))
-            end = min(section_end, start + DISPLAY_SECONDS)
+            if isinstance(hook_window, Mapping):
+                start = _seconds(hook_window.get("start"), "hook_start")
+                hook_end = _seconds(hook_window.get("end"), "hook_end")
+                end = min(hook_end, start + DISPLAY_SECONDS)
+            else:
+                start = section_start + min(0.15, max(0.0, (section_end - section_start) * 0.05))
+                end = min(section_end, start + DISPLAY_SECONDS)
         elif role == "turn":
             start = section_start + min(0.8, max(0.0, (section_end - section_start) * 0.18))
             end = min(section_end, start + DISPLAY_SECONDS)
         else:
-            end = max(section_start, section_end - FINAL_QUIET_SECONDS)
+            payoff_limit = section_end
+            if isinstance(outro_window, Mapping):
+                payoff_limit = min(payoff_limit, _seconds(outro_window.get("start"), "outro_start"))
+            end = max(section_start, payoff_limit - 0.35)
             start = max(section_start, end - DISPLAY_SECONDS)
 
         if end - start < 1.5:
