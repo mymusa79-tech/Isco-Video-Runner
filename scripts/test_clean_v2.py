@@ -36,6 +36,7 @@ from clean_v2.pipeline import (
     _factuality_repair_prompt,
     _factuality_target_section_ids,
     _repair_target_section_ids,
+    _run_legacy_tone_naturalness_audit,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _script_text_haystack,
@@ -325,6 +326,58 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         for provider in ("gemini", "groq", "openrouter", "mistral"):
             self.assertEqual(captured[provider], prompt)
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
+
+
+class ProviderCapacityMemoryTests(unittest.TestCase):
+    def test_long_or_unspecified_429_is_skipped_for_remaining_run_stages(self) -> None:
+        calls = {"limited": 0, "fallback": 0}
+
+        def limited(_prompt, _tokens):
+            calls["limited"] += 1
+            raise ProviderWireFailure(
+                "http_429",
+                http_status=429,
+                retry_after_seconds=None,
+            )
+
+        def fallback(_prompt, _tokens):
+            calls["fallback"] += 1
+            return {"ok": True}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("limited", limited),
+                ProviderAdapter("fallback", fallback),
+            )
+        )
+        self.assertEqual(
+            router.route(
+                stage="planning",
+                prompt="planning",
+                max_tokens=100,
+                validator=lambda value: value,
+            ),
+            {"ok": True},
+        )
+        self.assertEqual(
+            router.route(
+                stage="script",
+                prompt="script",
+                max_tokens=100,
+                validator=lambda value: value,
+            ),
+            {"ok": True},
+        )
+
+        self.assertEqual(calls, {"limited": 1, "fallback": 2})
+        cached = [
+            event
+            for event in router.events
+            if event["provider"] == "limited"
+            and event["reason"] == "rate_limit_cached"
+        ]
+        self.assertEqual(len(cached), 1)
+        self.assertFalse(cached[0]["wire_attempted"])
 
 
 class GroqJsonModeContractTests(unittest.TestCase):
@@ -5129,6 +5182,90 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
             revision_note="- [tone] s2: word choice noted",
         )
         self.assertIn("الصعوبة", repaired["sections"][1]["narration"])
+
+
+    def test_tone_audit_judges_content_without_host_owned_prayer_or_identity(self) -> None:
+        script = self._original()
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        captured: dict[str, object] = {}
+
+        def fake_build(*, brief, plan, script):
+            del brief, plan
+            built = SimpleNamespace(
+                sections=[
+                    SimpleNamespace(narration=str(item.get("narration") or ""))
+                    for item in script["sections"]
+                ],
+                hook="",
+                closing_payoff="",
+                identity_opener="",
+                identity_closer="",
+                identity_transitions=[],
+            )
+            captured["audit_script"] = json.loads(
+                json.dumps(script, ensure_ascii=False)
+            )
+            return built
+
+        def fake_tone(_api_key, production_plan, _model):
+            captured["plan"] = production_plan
+            return {
+                "status": "pass",
+                "validation": "valid",
+                "attempts": [{"provider": "fixture", "outcome": "success"}],
+                "preachiness_flags": [],
+                "naturalness_flags": [],
+                "narrative_format_flags": [],
+                "unverified_religious_quote_flags": [],
+                "hook_specificity": True,
+                "hook_honesty": True,
+                "hook_curiosity": True,
+                "hook_genericness": False,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "narrative-identity.json").write_text(
+                json.dumps(self.IDENTITY, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch(
+                    "clean_v2.pipeline._build_production_plan_for_audit",
+                    side_effect=fake_build,
+                ),
+                mock.patch(
+                    "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                    side_effect=fake_tone,
+                ),
+            ):
+                report = _run_legacy_tone_naturalness_audit(
+                    output_dir=root,
+                    brief=brief,
+                    plan=self.PLAN,
+                    script=script,
+                )
+
+        audited = captured["plan"]
+        joined = "\n".join(section.narration for section in audited.sections)
+        self.assertNotIn(self.PRAYER, joined)
+        self.assertNotIn(self.DEFINITION, joined)
+        self.assertEqual(audited.hook, self.HOOK)
+        self.assertEqual(audited.identity_opener, self.DEFINITION)
+        self.assertTrue(report["trusted_identity_excluded_from_model_judgment"])
+        self.assertEqual(
+            set(report["trusted_identity"]),
+            {self.PRAYER, self.DEFINITION},
+        )
 
 
 class MixedValidityPatchBatchTests(unittest.TestCase):

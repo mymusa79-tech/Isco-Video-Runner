@@ -55,26 +55,6 @@ def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     return prompt
 
 
-def _normalize_mistral_short_candidate(
-    candidate: dict[str, Any],
-    *,
-    prompt: str,
-    stage: str,
-) -> dict[str, Any]:
-    """Apply only already-certified deterministic Short repairs before validation."""
-    if stage != "script" or "SHORT_FORMAT_CONTRACT:" not in prompt:
-        return candidate
-
-    from .short_format import (
-        apply_safe_short_hook_trim,
-        apply_safe_short_s3_single_action_trim,
-    )
-
-    apply_safe_short_hook_trim(candidate)
-    apply_safe_short_s3_single_action_trim(candidate)
-    return candidate
-
-
 MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -854,6 +834,10 @@ class ProviderRouter:
         if not self.adapters:
             raise ValueError("at least one provider adapter is required")
         self.events: list[dict[str, Any]] = []
+        # Per-run only. A 429 with no short Retry-After (or a long one) is
+        # treated as unavailable for the remaining stages of this pipeline run.
+        # This avoids burning the same exhausted free-tier provider repeatedly.
+        self._rate_limited_for_run: set[str] = set()
 
     def _event(
         self,
@@ -908,6 +892,19 @@ class ProviderRouter:
             if adapter.stages is None or stage in adapter.stages
         )
         for adapter_index, adapter in enumerate(eligible_adapters):
+            if adapter.name in self._rate_limited_for_run:
+                failures.append(f"{adapter.name}:rate_limit_cached")
+                self._event(
+                    stage=stage,
+                    provider=adapter.name,
+                    result="unavailable",
+                    wire_attempted=False,
+                    reason="rate_limit_cached",
+                    provider_attempt=None,
+                    stage_wire_attempt=None,
+                )
+                continue
+
             candidate: dict[str, Any] | None = None
             provider_attempt = 0
             provider_failed = False
@@ -965,14 +962,16 @@ class ProviderRouter:
                         stage_wire_attempt=wire_count,
                     )
                     retry_after = getattr(exc, "retry_after_seconds", None)
-                    if (
-                        stage in SHORT_RETRY_AFTER_STAGES
-                        and getattr(exc, "http_status", None) == 429
-                        and adapter_index + 1 < len(eligible_adapters)
-                        and isinstance(retry_after, (int, float))
-                        and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
-                    ):
-                        time.sleep(float(retry_after))
+                    if getattr(exc, "http_status", None) == 429:
+                        short_retry = (
+                            stage in SHORT_RETRY_AFTER_STAGES
+                            and isinstance(retry_after, (int, float))
+                            and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
+                        )
+                        if short_retry and adapter_index + 1 < len(eligible_adapters):
+                            time.sleep(float(retry_after))
+                        elif not short_retry:
+                            self._rate_limited_for_run.add(adapter.name)
                     provider_failed = True
                     break
                 else:
@@ -983,12 +982,6 @@ class ProviderRouter:
                 continue
 
             try:
-                if adapter.name == "mistral":
-                    candidate = _normalize_mistral_short_candidate(
-                        candidate,
-                        prompt=prompt,
-                        stage=stage,
-                    )
                 normalized = validator(candidate)
             except Exception as exc:
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
