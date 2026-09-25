@@ -520,6 +520,50 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         "required": section_required,
         "additionalProperties": False,
     }
+    visual_story_schema = {
+        "type": "object",
+        "properties": {
+            "visual_world": dict(non_blank_string),
+            "story_arc": {
+                "type": "object",
+                "properties": {
+                    "beginning": dict(non_blank_string),
+                    "transformation": dict(non_blank_string),
+                    "arrival": dict(non_blank_string),
+                },
+                "required": ["beginning", "transformation", "arrival"],
+                "additionalProperties": False,
+            },
+            "beats": {
+                "type": "array",
+                "minItems": min_sections,
+                "maxItems": max_sections * 3,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": dict(non_blank_string),
+                        "section_id": dict(non_blank_string),
+                        "viewer_intent": dict(non_blank_string),
+                        "shot_intent": dict(non_blank_string),
+                        "source_preference": {
+                            "type": "string",
+                            "enum": ["stock_motion", "ai_still"],
+                        },
+                    },
+                    "required": [
+                        "id",
+                        "section_id",
+                        "viewer_intent",
+                        "shot_intent",
+                        "source_preference",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["visual_world", "story_arc", "beats"],
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
         "properties": {
@@ -532,8 +576,9 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                 "minItems": min_sections,
                 "maxItems": max_sections,
             },
+            "visual_story": visual_story_schema,
         },
-        "required": ["title", "promise", "cta", "sections"],
+        "required": ["title", "promise", "cta", "sections", "visual_story"],
         "additionalProperties": False,
     }
 

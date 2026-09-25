@@ -52,6 +52,8 @@ from .short_format import (
 )
 
 
+from .visual_story import fallback_visual_story, validate_visual_story
+
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
 OPENING_STAGE = "opening_director"
@@ -72,7 +74,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 3
+RESUME_CONTRACT_VERSION = 4
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -2456,7 +2458,7 @@ def _safe_resume_relative_path(raw: str) -> Path:
 
 def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[Path]:
     rank = _RESUME_STAGE_INDEX[completed_stage]
-    paths = [Path("brief.json"), Path("plan.json")]
+    paths = [Path("brief.json"), Path("plan.json"), Path("visual-story.json")]
     if rank >= _RESUME_STAGE_INDEX["script"]:
         paths.extend(
             [
@@ -2600,9 +2602,26 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
 
 
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
-    # Keep stock-query semantics prompt-directed only. Acquisition, Canonical Evidence,
-    # and Visual QA remain the unchanged authorities after Planning.
-    return validate_plan(value, brief)
+    # Planning owns one unified visual story for both long and short formats.
+    # Timeline First owns time; visual beats own scene changes.
+    plan = validate_plan(value, brief)
+    raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
+    plan["visual_story"] = validate_visual_story(raw_story, plan)
+    return plan
+
+
+def _persist_planning_artifacts(
+    output_dir: Path,
+    planned: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    normalized = dict(planned)
+    raw_story = normalized.pop("visual_story", None)
+    if not isinstance(raw_story, Mapping):
+        raise RuntimeError("validated Planning output is missing visual_story")
+    visual_story = dict(raw_story)
+    atomic_write_json(output_dir / "plan.json", normalized)
+    atomic_write_json(output_dir / "visual-story.json", visual_story)
+    return normalized, visual_story
 
 
 def _validate_script_for_brief(
@@ -2834,6 +2853,16 @@ studio-like backgrounds unless the idea genuinely calls for them. For short-form
 main subject/action on the left or lower-left with usable clean negative space in the upper-right for
 the Arabic on-screen text when that composition still fits the idea. Keep visuals modest and suitable
 for a broad Arab/Muslim audience.
+
+Build ONE unified visual story for the whole video in this same Planning response. This contract is
+shared by long and short formats. The visual world must stay coherent with the restrained lighting
+world above. The story arc is only beginning -> transformation -> arrival. Create a new beat ONLY
+when the idea, feeling, or observable action genuinely changes. A beat may remain on one scene for
+as long as that idea continues; NEVER invent extra beats to hit a duration or shot-count target.
+Every planned section must have at least one beat and at most three. For each beat, viewer_intent
+states what the viewer should understand or feel, and shot_intent is one concise concrete English
+image/motion intent suitable for stock retrieval. source_preference is only a future-facing marker:
+use stock_motion or ai_still, but DO NOT assume AI imagery is active.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -2862,9 +2891,27 @@ Return one JSON object with exactly this useful shape:
       "purpose": "Arabic description of what this section must accomplish",
       "visual_query_en": "concrete English stock footage query"{short_visual_query_shape}
     }}
-  ]
+  ],
+  "visual_story": {{
+    "visual_world": "brief unified visual-world description",
+    "story_arc": {{
+      "beginning": "very brief beginning",
+      "transformation": "very brief transformation",
+      "arrival": "very brief arrival"
+    }},
+    "beats": [
+      {{
+        "id": "b1",
+        "section_id": "s1",
+        "viewer_intent": "what the viewer should understand or feel here",
+        "shot_intent": "concise concrete English image or motion intent",
+        "source_preference": "stock_motion"
+      }}
+    ]
+  }}
 }}
 """.strip()))
+
 
 
 def _script_prompt(
@@ -3378,13 +3425,23 @@ class CleanV2Pipeline:
 
             if resume is not None and _resume_includes(resume[1], "planning"):
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
-                plan = _validate_plan_for_brief(
+                plan = validate_plan(
                     _read_json_object(output_dir / "plan.json"),
                     brief,
                 )
+                resume_story_path = resume[0] / "visual-story.json"
+                if resume_story_path.is_file():
+                    _copy_resume_artifact(resume[0], output_dir, "visual-story.json")
+                    visual_story = validate_visual_story(
+                        _read_json_object(output_dir / "visual-story.json"),
+                        plan,
+                    )
+                else:
+                    visual_story = fallback_visual_story(plan)
+                    atomic_write_json(output_dir / "visual-story.json", visual_story)
                 journal.reuse("planning")
             else:
-                plan = journal.run(
+                planned = journal.run(
                     "planning",
                     lambda: self.router.route(
                         stage="planning",
@@ -3393,7 +3450,7 @@ class CleanV2Pipeline:
                         validator=lambda value: _validate_plan_for_brief(value, brief),
                     ),
                 )
-                atomic_write_json(output_dir / "plan.json", plan)
+                plan, visual_story = _persist_planning_artifacts(output_dir, planned)
                 self._write_runtime_events(output_dir)
             _write_resume_checkpoint(
                 output_dir,
@@ -3702,10 +3759,12 @@ class CleanV2Pipeline:
                         probe_duration(narration_path),
                     )
                 try:
+                    visual_plan = dict(plan)
+                    visual_plan["visual_story"] = visual_story
                     clips, rights = journal.run(
                         "visuals",
                         lambda: self.visual_source.acquire(
-                            plan,
+                            visual_plan,
                             visuals_dir,
                             str(brief["format"]),
                             max_visuals,
@@ -3733,9 +3792,9 @@ class CleanV2Pipeline:
                         "assets": rights,
                         "estimated_section_seconds": section_estimated_seconds,
                         "note": (
-                            "Provider metadata captured at acquisition. Film and Short section timing comes from the same "
-                            "measured voice-owned Timeline First contract; no character-ratio timing is used for identity. "
-                            "No visual quality audit executed in Clean V2 bootstrap."
+                            "Provider metadata captured at acquisition. Film and Short timing comes from the measured "
+                            "voice-owned Timeline First contract, while scene changes come only from Planning visual beats. "
+                            "Timing values allocate beat duration but never create extra scenes."
                         ),
                     },
                 )
