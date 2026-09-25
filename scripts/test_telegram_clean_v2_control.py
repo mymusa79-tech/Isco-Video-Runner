@@ -159,6 +159,12 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
                 output,
             )
             self.assertEqual(brief["format"], "short")
+            constraints = list(brief.get("hard_constraints") or [])
+            self.assertIn(
+                "Complete Short follows the natural mastered voice duration; no editorial duration target.",
+                constraints,
+            )
+            self.assertFalse(any("30 seconds" in item for item in constraints))
             self.assertTrue(output.is_file())
             with self.assertRaises(RuntimeError):
                 control.materialize_brief(
@@ -343,11 +349,13 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
     def test_stats_format_split_uses_clean_v2_short_contract(self):
         videos = [
             {"title": "فيديو 2:50", "duration_seconds": 170, "published_at": "2026-09-24T10:00:00Z"},
+            {"title": "شورت مرن 57 ثانية", "duration_seconds": 57, "published_at": "2026-09-24T09:30:00Z"},
             {"title": "شورت 25 ثانية", "duration_seconds": 25, "published_at": "2026-09-24T09:00:00Z"},
         ]
         short, long = control._latest_by_clean_v2_format(videos)
-        self.assertEqual(short["title"], "شورت 25 ثانية")
+        self.assertEqual(short["title"], "شورت مرن 57 ثانية")
         self.assertEqual(long["title"], "فيديو 2:50")
+        self.assertEqual(control.SHORT_STATS_MAX_SECONDS, 120)
 
     def test_research_session_closes_after_first_selection(self):
         state = control.default_state()
