@@ -14,6 +14,7 @@ from clean_v2.identity_sequence import (
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
 from clean_v2.pipeline import _planning_prompt, _script_prompt
+from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
 from clean_v2.podcast_key_text import build_events as build_podcast_key_text_events
 from clean_v2.visual_qa import _apply_cultural_islamic_policy
@@ -215,6 +216,44 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("&H005BA8D7", ass)
         self.assertNotIn("drawbox", ass)
+
+    def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "هذه بداية الفكرة."},
+                {"id": "s2", "narration": "وهنا تتغير الزاوية."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 8.0},
+                {"section_id": "s2", "start": 8.0, "end": 16.0},
+            ],
+            "identity_events": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "timeline-first.json").write_text(
+                __import__("json").dumps(timeline, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"video")
+            with mock.patch(
+                "clean_v2.podcast_key_text.subprocess.run",
+                side_effect=__import__("subprocess").CalledProcessError(1, ["ffmpeg"]),
+            ):
+                with self.assertRaisesRegex(
+                    PodcastKeyTextError,
+                    "podcast_key_text_local_render_failed",
+                ):
+                    apply_podcast_key_text(
+                        output_dir=root,
+                        final_path=final_path,
+                        script=script,
+                    )
+            self.assertEqual(final_path.read_bytes(), b"video")
 
     def test_cultural_islamic_visual_risk_is_a_local_fail_closed_gate(self) -> None:
         safe = _apply_cultural_islamic_policy(
