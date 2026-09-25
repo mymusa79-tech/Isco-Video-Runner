@@ -692,6 +692,107 @@ class ShortContractTests(unittest.TestCase):
             [("mistral", "success")],
         )
 
+    def test_mistral_gets_one_bounded_hook_only_repair_for_21_word_hook(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        original = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "حين تفقد الدافع تمامًا قد تظن أن المشكلة فيك بينما أنت في الحقيقة تنتظر شعورًا لن يأتي قبل الحركة الأولى اليوم. "
+                        "هذه الجملة يجب أن تبقى كما هي."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": "انتظار الشعور المناسب يطيل التوقف، بينما الحركة الصغيرة تعطيك إشارة جديدة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "الخطوة الصغيرة تقلل الاحتكاك وتعيد لك إحساس الحركة. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        repair_response = {
+            "title": "عنوان لا يجب استخدامه",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "حين يختفي الدافع، قد تكون المشكلة أنك تنتظر الشعور قبل الحركة. نص آخر لا يجب استخدامه.",
+                },
+                {"id": "s2", "narration": "نص متغير لا يجب استخدامه."},
+                {"id": "s3", "narration": "نص متغير لا يجب استخدامه."},
+            ],
+        }
+        calls: list[str] = []
+
+        def mistral(prompt, _tokens):
+            calls.append(prompt)
+            return original if len(calls) == 1 else repair_response
+
+        router = ProviderRouter((ProviderAdapter("mistral", mistral),))
+        accepted = router.route(
+            stage="script",
+            prompt=_script_prompt(brief, plan),
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        self.assertEqual(len(calls), 2)
+        self.assertIn("MISTRAL_SHORT_HOOK_BOUNDED_REPAIR", calls[1])
+        self.assertEqual(accepted["title"], original["title"])
+        self.assertEqual(accepted["sections"][1:], original["sections"][1:])
+        self.assertEqual(
+            accepted["sections"][0]["narration"],
+            (
+                "حين يختفي الدافع، قد تكون المشكلة أنك تنتظر الشعور قبل الحركة. "
+                "هذه الجملة يجب أن تبقى كما هي."
+            ),
+        )
+        validate_short_script(accepted)
+        self.assertEqual(
+            [(event["provider"], event["result"]) for event in router.events],
+            [("mistral", "retrying"), ("mistral", "success")],
+        )
+
+    def test_mistral_bounded_hook_repair_refuses_22_word_hook(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        overlong = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "حين تفقد الدافع تمامًا قد تظن أن المشكلة فيك بينما أنت في الحقيقة تنتظر شعورًا لن يأتي قبل الحركة الأولى اليوم فقط.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "انتظار الشعور المناسب يطيل التوقف، بينما الحركة الصغيرة تعطيك إشارة جديدة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "الخطوة الصغيرة تقلل الاحتكاك وتعيد لك إحساس الحركة. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        calls: list[str] = []
+
+        def mistral(prompt, _tokens):
+            calls.append(prompt)
+            return overlong
+
+        router = ProviderRouter((ProviderAdapter("mistral", mistral),))
+        with self.assertRaisesRegex(RuntimeError, "script exhausted bounded provider route"):
+            router.route(
+                stage="script",
+                prompt=_script_prompt(brief, plan),
+                max_tokens=400,
+                validator=lambda value: _validate_script_for_brief(value, plan, brief),
+            )
+        self.assertEqual(len(calls), 1)
+
     def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
