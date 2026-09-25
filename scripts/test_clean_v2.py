@@ -2964,7 +2964,12 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
                 clear=False,
             ):
-                if any(score >= 0.85 for score in scores):
+                safe_primary_wins = (
+                    primary_status == "pass"
+                    and primary_relevance >= 0.70
+                    and max(scores, default=0.0) < primary_relevance
+                )
+                if any(score >= 0.85 for score in scores) or safe_primary_wins:
                     result = visual_qa_module.run_final_cut_visual_qa(
                         output_dir=output,
                         plan=plan,
