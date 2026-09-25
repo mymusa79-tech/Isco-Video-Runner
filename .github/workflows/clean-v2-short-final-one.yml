@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   issue_comment:
     types: [created]
+  pull_request:
 
 permissions:
   contents: read
@@ -17,6 +18,7 @@ jobs:
     permissions:
       contents: write
     if: >-
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       (github.actor == github.repository_owner &&
        github.event.comment.body == '/clean-v2-short-final-one')
@@ -137,14 +139,6 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$CLEAN_V2_OUTPUT"
-          python scripts/telegram_clean_v2_notify.py watch --output "$CLEAN_V2_OUTPUT" --kind short --poll-seconds 4 &
-          notify_pid=$!
-          cleanup_notify() {
-            kill "$notify_pid" 2>/dev/null || true
-            wait "$notify_pid" 2>/dev/null || true
-          }
-          trap cleanup_notify EXIT
-          set +e
           python -m clean_v2 \
             --brief "$CLEAN_V2_SHORT_BRIEF" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
@@ -152,11 +146,6 @@ jobs:
             --runner-sha "$GITHUB_SHA" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
-          production_status=$?
-          set -e
-          cleanup_notify
-          trap - EXIT
-          exit "$production_status"
 
       - name: Verify final Short contract and polish evidence
         run: |
@@ -242,7 +231,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Deliver final video through unified GitHub Release
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -254,7 +243,7 @@ jobs:
             --delivery-key "short-final-one"
 
       - name: Notify Telegram terminal result
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
