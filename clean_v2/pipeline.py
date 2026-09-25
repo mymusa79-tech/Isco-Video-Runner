@@ -1458,6 +1458,14 @@ def _validate_and_apply_script_patches(
     hook_word_fix_used = False
     hook_quality_fix_used = False
     hook_quality_repair_allowed = _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold()
+    repaired_hook_visual_query = " ".join(
+        str(value.get("hook_visual_query_en") or "").split()
+    ).strip()
+    if repaired_hook_visual_query and (
+        len(repaired_hook_visual_query) > 260
+        or not repaired_hook_visual_query.isascii()
+    ):
+        raise ValueError("invalid hook_visual_query_en in bounded repair")
     opener = str(identity.get("opener") or "").strip()
     closer = str(identity.get("closer") or "").strip()
     spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
@@ -1589,6 +1597,13 @@ def _validate_and_apply_script_patches(
             "script patch response had no valid patches to apply: "
             + "; ".join(failure_reasons)
         )
+
+    if hook_quality_fix_used:
+        if not repaired_hook_visual_query:
+            raise ValueError(
+                "hook-quality repair requires matching hook_visual_query_en"
+            )
+        repaired["hook_visual_query_en"] = repaired_hook_visual_query
 
     normalized = validate_script(repaired, plan)
     if (
@@ -1792,7 +1807,9 @@ def _tone_repair_prompt(
         hook_lock_rule = (
             "- The hook itself is the audited defect. Replace the complete first spoken hook sentence "
             "exactly once with a more specific, honest, naturally curious hook about the SAME approved "
-            "topic. Calm is acceptable; forced shock/clickbait is not. Do not alter the sentence after it."
+            "topic. Calm is acceptable; forced shock/clickbait is not. Do not alter the sentence after it. "
+            "Also return hook_visual_query_en as one concise concrete English stock-footage query that "
+            "depicts the repaired hook's exact observable tension; it must match the NEW hook, not the old one."
         )
     else:
         hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
@@ -1860,7 +1877,8 @@ Return exactly one JSON object in this shape:
       "find": "exact original text copied from the current narration",
       "replace": "minimal repaired replacement"
     }}
-  ]
+  ],
+  "hook_visual_query_en": "include only when replacing a hook_quality-flagged hook; concise English stock query matching the repaired hook"
 }}
 """.strip()))
 
