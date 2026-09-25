@@ -137,7 +137,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
     def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
         prompt = " ".join(_planning_prompt(_brief("podcast")).split())
         self.assertIn("credible contemporary Arab/Middle-Eastern environment", prompt)
-        self.assertIn("Avoid alcohol, gambling, nightclub/party", prompt)
+        self.assertIn("Reject scenes centered on alcohol, gambling, nightclub/party", prompt)
         self.assertIn("Do NOT force mosques, prayer rugs", prompt)
         recovery = " ".join(
             visual_qa_module._alternate_visual_query_prompt(
