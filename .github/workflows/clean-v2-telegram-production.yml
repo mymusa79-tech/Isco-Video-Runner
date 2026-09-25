@@ -33,6 +33,7 @@ jobs:
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
       CLEAN_V2_AI_STILL_FREE_ONLY: "true"
+      CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       STATE_BRANCH: clean-v2-telegram-state
       STATE_FILE: state/telegram-clean-v2.json
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -46,6 +47,12 @@ jobs:
           ref: main
           persist-credentials: true
           fetch-depth: 1
+
+      - name: Restore verified CC0 music cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: clean_v2/assets/music/cache
+          key: clean-v2-cc0-music-v1-${{ hashFiles('clean_v2/assets/music/library.json') }}
 
       - name: Checkout frozen private Engine source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

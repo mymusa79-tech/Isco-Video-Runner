@@ -2561,6 +2561,7 @@ def _run_legacy_cinematic_layer(
             final_path=final_path,
             narration_path=narration_path,
             timed_text_report=short_timed_text_report,
+            script=script,
         )
         atomic_write_json(
             output_dir / "short-audio-polish.json",
