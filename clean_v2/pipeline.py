@@ -2890,8 +2890,16 @@ environment with visible foreground/midground/background depth, practical light 
 objects, and spatial separation around the subject; avoid empty walls, flat generic desks, or plain
 studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer the
 main subject/action on the left or lower-left with usable clean negative space in the upper-right for
-the Arabic on-screen text when that composition still fits the idea. Keep visuals modest and suitable
-for a broad Arab/Muslim audience.
+the Arabic on-screen text when that composition still fits the idea.
+
+CULTURAL COHERENCE is part of the same visual intent, not a separate layer. When a scene contains
+people, homes, work, streets, clothing, food, family life, or everyday social context, prefer a
+credible contemporary Arab/Middle-Eastern environment and modest presentation that feels natural
+for a broad Arab/Muslim audience. Reject scenes centered on alcohol, gambling, nightclub/party
+culture, sexualized or revealing presentation, or unrelated ritual/religious imagery that conflicts
+with the intended context. Do NOT force mosques, prayer rugs, Arabic calligraphy, traditional dress,
+or religious symbols into ordinary scenes unless the topic genuinely requires them. The goal is a
+natural respectful world, not decorative stereotyping.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by long and short formats. The visual world must stay coherent with the restrained lighting

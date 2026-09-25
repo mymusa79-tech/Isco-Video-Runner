@@ -11,16 +11,18 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 3
-RICH_RENDERER_VERSION = "clean-v2-short-karaoke-lite-v3"
+SCHEMA_VERSION = 4
+RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-lite-v4"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Caption Lite: one Arabic font, one large caption block, white text with one
-# bright-yellow focus word. Keeping the same font across both colors avoids the
-# missing-glyph squares seen when Focus used a second Arabic font.
-ACCENT_ASS = "&H0000D4FF"  # RGB #FFD400 reference-like bright yellow
+# Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
+# while giving the Arabic face a warm-gold focus, crisp edge, shallow extrusion
+# and a separate soft shadow. No text box and no extra provider/model call.
+ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm channel gold
 PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
+EXTRUSION_ASS = "&H00231A12"  # dark warm side face
+SHADOW_ASS = "&H76000000"  # semi-transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 112
@@ -29,6 +31,11 @@ BODY_WRAP_WORDS = 5
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 5
 CAPTION_Y = 1360
+CAPTION_X = 540
+CAPTION_EXTRUDE_X = 4
+CAPTION_EXTRUDE_Y = 5
+CAPTION_SHADOW_X = 9
+CAPTION_SHADOW_Y = 11
 MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
@@ -458,6 +465,11 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
     return windows
 
 
+def _plain_caption(text: str) -> str:
+    """One shaping-safe RTL copy for the depth layers."""
+    return "\u202B" + _ass_escape(text) + "\u202C"
+
+
 def build_rich_ass(
     events: Sequence[Mapping[str, object]],
     *,
@@ -476,24 +488,44 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,6,1,5,70,70,0,1",
+        f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1",
+        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
     for item in validated:
+        plain = _plain_caption(item.text)
         for word_start, word_end, focus_index in _word_highlight_windows(item):
             start = _ass_time(word_start)
             end = _ass_time(word_end)
             caption = _accent_caption(item.text, focus_index)
             if focus_index == 0:
-                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
+                scale = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
             else:
-                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx100\fscy100"
+                scale = r"\fscx100\fscy100"
+            shadow_tag = (
+                rf"\an5\pos({CAPTION_X + CAPTION_SHADOW_X},{CAPTION_Y + CAPTION_SHADOW_Y})"
+                + scale
+            )
+            extrusion_tag = (
+                rf"\an5\pos({CAPTION_X + CAPTION_EXTRUDE_X},{CAPTION_Y + CAPTION_EXTRUDE_Y})"
+                + scale
+            )
+            face_tag = rf"\an5\pos({CAPTION_X},{CAPTION_Y})" + scale
             lines.append(
-                f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-                f"{{{tag}}}{caption}"
+                f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
+                f"{{{shadow_tag}}}{plain}"
+            )
+            lines.append(
+                f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
+                f"{{{extrusion_tag}}}{plain}"
+            )
+            lines.append(
+                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
+                f"{{{face_tag}}}{caption}"
             )
     lines.append("")
     return "\n".join(lines)
@@ -550,7 +582,7 @@ def render_progressive_text(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_karaoke_lite",
+        "renderer": "ffmpeg_libass_karaoke_3d_lite",
         "renderer_version": RICH_RENDERER_VERSION,
         "status": "pass",
         "srt": str(srt),
@@ -561,7 +593,7 @@ def render_progressive_text(
         "dark_slate_index": None,
         "dark_slate_hook_forbidden": True,
         "max_dark_slates": MAX_DARK_SLATES,
-        "accent_rgb": "#FFD400",
+        "accent_rgb": "#D7A85B",
         "body_rgb": "#FFFFFF",
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
@@ -572,6 +604,11 @@ def render_progressive_text(
         "caption_min_words": CAPTION_MIN_WORDS,
         "caption_max_words": CAPTION_MAX_WORDS,
         "caption_y": CAPTION_Y,
+        "caption_x": CAPTION_X,
+        "depth_layers": 3,
+        "black_text_box": False,
+        "extrusion_offset": [CAPTION_EXTRUDE_X, CAPTION_EXTRUDE_Y],
+        "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
         "word_highlight_timing": "deterministic_phrase_weighted_approximation",

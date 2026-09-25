@@ -128,11 +128,26 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 )
 
     def test_planning_prompt_forbids_duration_driven_extra_beats(self) -> None:
-        for fmt in ("short", "film"):
+        for fmt in ("short", "film", "podcast"):
             prompt = " ".join(_planning_prompt(_brief(fmt)).split())
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
             self.assertIn("DO NOT assume AI imagery is active", prompt)
+
+    def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
+        prompt = " ".join(_planning_prompt(_brief("podcast")).split())
+        self.assertIn("credible contemporary Arab/Middle-Eastern environment", prompt)
+        self.assertIn("Reject scenes centered on alcohol, gambling, nightclub/party", prompt)
+        self.assertIn("Do NOT force mosques, prayer rugs", prompt)
+        recovery = " ".join(
+            visual_qa_module._alternate_visual_query_prompt(
+                original_query="hands writing in notebook no face",
+                narration_context="فكرة عملية عن بداية هادئة",
+            ).split()
+        )
+        self.assertIn("culturally suitable for a broad Arab/Muslim audience", recovery)
+        self.assertIn("avoid alcohol, gambling, nightclub/party imagery", recovery)
+        self.assertIn("Do not force religious symbols", recovery)
 
     def test_mistral_planning_schema_requires_the_unified_story(self) -> None:
         schema = providers_module._mistral_planning_response_schema(
