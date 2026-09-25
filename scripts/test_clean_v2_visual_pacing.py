@@ -166,6 +166,85 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(rights[0]["source_actual"], "stock_motion")
         self.assertEqual(rights[0]["provider"], "pexels")
 
+    def test_non_ascii_story_intent_uses_section_english_stock_query(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "يد تكتب مهمة واحدة في دفتر")
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(seen_queries, ["quiet desk notebook wide shot"])
+        self.assertEqual(rights[0]["shot_intent"], "يد تكتب مهمة واحدة في دفتر")
+
+    def test_short_non_ascii_successive_beats_use_primary_then_alternate_query(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return candidates.pop(0) if candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["sections"][0]["visual_query_alt_en"] = "hand circles one task on paper"
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "لقطة دلالية أولى"),
+            self._beat("b2", "s1", "لقطة دلالية ثانية"),
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, "ok")
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 2)
+        self.assertEqual(
+            seen_queries,
+            ["quiet desk notebook wide shot", "hand circles one task on paper"],
+        )
+        self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
+
 
 class SectionDurationEstimationTests(unittest.TestCase):
     """Test Requirement A: a section's estimated duration comes from its own
