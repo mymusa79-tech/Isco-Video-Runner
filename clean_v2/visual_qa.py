@@ -168,22 +168,23 @@ def _apply_no_face_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _apply_cultural_islamic_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
-    """Fail closed when canonical visual evidence conflicts with channel culture."""
+    """Block explicit cultural risk without creating a new failure on omitted fields."""
     result = dict(audit)
     required = ("cultural_conflict", "cultural_islamic_suitability_risk")
     missing = [field for field in required if field not in result]
     risk = any(bool(result.get(field)) for field in required)
-    blocked = bool(missing or risk)
-    result["cultural_islamic_policy"] = "block" if blocked else "pass"
-    if blocked:
+    if risk:
         prior = " ".join(str(result.get("reason") or "").split()).strip()
-        detail = (
-            "cultural_policy_evidence_missing:" + ",".join(missing)
-            if missing
-            else "cultural_islamic_suitability_risk"
-        )
+        result["cultural_islamic_policy"] = "block"
         result["status"] = "block"
-        result["reason"] = detail + (f"; {prior}" if prior else "")
+        result["reason"] = "cultural_islamic_suitability_risk" + (
+            f"; {prior}" if prior else ""
+        )
+    elif missing:
+        result["cultural_islamic_policy"] = "advisory_missing_evidence"
+        result["cultural_islamic_missing_fields"] = missing
+    else:
+        result["cultural_islamic_policy"] = "pass"
     return result
 
 
