@@ -30,7 +30,7 @@ FOCUS_FONT_SIZE = 154
 FOCUS_SCALE = 1.22
 BODY_WRAP_WORDS = 4
 CAPTION_MIN_WORDS = 2
-CAPTION_MAX_WORDS = 4
+CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
 CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
@@ -124,42 +124,29 @@ def _sentences(text: object) -> list[str]:
 
 
 def _phrase_chunks(text: object) -> list[str]:
-    """Split authored narration into balanced 2-5 word caption phrases."""
+    """Preserve authored Arabic grammar: split only at real punctuation boundaries."""
     chunks: list[str] = []
     for sentence in _sentences(text):
-        words = sentence.split()
-        if not words:
-            continue
-        if len(words) <= CAPTION_MAX_WORDS:
-            chunks.append(" ".join(words))
-            continue
-        chunk_count = math.ceil(len(words) / CAPTION_MAX_WORDS)
-        base, extra = divmod(len(words), chunk_count)
-        cursor = 0
-        for index in range(chunk_count):
-            size = base + (1 if index < extra else 0)
-            piece = words[cursor : cursor + size]
-            cursor += size
-            if piece:
-                chunks.append(" ".join(piece))
+        clauses = [
+            item.strip()
+            for item in re.split(r"(?<=[،؛:])\s+", sentence)
+            if item.strip()
+        ] or [sentence.strip()]
+        chunks.extend(clauses)
 
-    # Avoid one-word flashes when punctuation created a tiny standalone
-    # sentence. Merge locally when a neighbor still stays within five words.
+    # A one-word clause is usually punctuation residue. Merge it with its nearest
+    # neighbor without rewriting or reordering any authored words.
     index = 0
     while len(chunks) > 1 and index < len(chunks):
         if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
             index += 1
             continue
-        if index > 0 and len(chunks[index - 1].split()) < CAPTION_MAX_WORDS:
+        if index > 0:
             chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
             chunks.pop(index)
             continue
-        if index + 1 < len(chunks) and len(chunks[index + 1].split()) < CAPTION_MAX_WORDS:
-            chunks[index] = f"{chunks[index]} {chunks[index + 1]}"
-            chunks.pop(index + 1)
-            index += 1
-            continue
-        index += 1
+        chunks[1] = f"{chunks[0]} {chunks[1]}"
+        chunks.pop(0)
     return chunks
 
 
@@ -372,11 +359,11 @@ def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
     words = _clean(text).split()
     if not words:
         return ""
-    lines = [
-        " ".join(words[index : index + maximum_words])
-        for index in range(0, len(words), maximum_words)
-    ]
-    return r"\N".join(_ass_escape(line) for line in lines)
+    lines = []
+    for index in range(0, len(words), maximum_words):
+        escaped = [_ass_escape(word) for word in words[index : index + maximum_words]]
+        lines.append(r"\h".join(escaped))
+    return r"\N".join(lines)
 
 
 def _filter_escape_path(path: Path) -> str:
@@ -478,7 +465,11 @@ def _accent_caption(
             )
         else:
             rendered.append(escaped)
-    return "\u202B" + " ".join(rendered) + "\u202C"
+    lines = [
+        r"\h".join(rendered[index : index + BODY_WRAP_WORDS])
+        for index in range(0, len(rendered), BODY_WRAP_WORDS)
+    ]
+    return "\u202B" + r"\N".join(lines) + "\u202C"
 
 
 def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
@@ -501,8 +492,8 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
 
 
 def _plain_caption(text: str) -> str:
-    """One shaping-safe RTL copy for the depth layers."""
-    return "\u202B" + _ass_escape(text) + "\u202C"
+    """One shaping-safe RTL copy with deterministic breathing between Arabic words."""
+    return "\u202B" + _ass_wrap_words(text) + "\u202C"
 
 
 def _font_size_for_event(item: TimedTextEvent) -> int:
@@ -510,11 +501,15 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
     size = ROLE_BASE_FONT_SIZE[item.role]
     if words <= 2:
         size += 8
+    elif words >= 9:
+        size -= 16
     elif words >= 5:
         size -= 8
-    if len(_clean(item.text)) >= 34:
+    if len(_clean(item.text)) >= 46:
+        size -= 6
+    elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(98, min(138, size))
+    return max(92, min(138, size))
 
 
 def build_composition_hints(
@@ -717,6 +712,8 @@ def render_progressive_text(
         "word_level_alignment_claimed": False,
         "word_highlight_timing": "single_semantic_focus_phrase_static",
         "word_highlight_count": len(validated),
+        "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
+        "rtl_policy": "explicit_rtl_embedding_with_hard_word_spacing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "phrase_fade_150_200ms_scale_99_to_100",
         "shadow_policy": "soft_offset_4x5_no_black_box",
