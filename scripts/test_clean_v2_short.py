@@ -1226,8 +1226,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\\fad(150,200)", ass)
-        self.assertNotIn(r"\\bord5", ass)
+        self.assertIn(r"\fad(150,200)", ass)
+        self.assertNotIn(r"\bord5", ass)
         self.assertIn(r"\fscx98\fscy98", ass)
         self.assertIn("\u202B", ass)
         self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
@@ -1253,17 +1253,41 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreater(len(events), 3)
+        self.assertGreaterEqual(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
         self.assertEqual(events[-1]["role"], "payoff")
         self.assertEqual(events[0]["section_id"], "s1")
         self.assertEqual(events[-1]["section_id"], "s3")
+        authored = " ".join(section["narration"] for section in script["sections"])
         for event in events:
-            words = len(str(event["text"]).split())
-            self.assertLessEqual(words, CAPTION_MAX_WORDS)
-            self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
+            self.assertIn(str(event["text"]), authored)
+            self.assertGreaterEqual(len(str(event["text"]).split()), CAPTION_MIN_WORDS)
+
+    def test_caption_preserves_complete_arabic_clause_and_static_rtl_focus(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "ابدأ بالمهمة الأصغر، ثم دع الزخم يكمل الطريق."},
+                {"id": "s2", "narration": "الوضوح يقلل التردد."},
+                {"id": "s3", "narration": "خطوة واحدة جيدة تكفي."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 5.0},
+                {"section_id": "s2", "start": 5.0, "end": 10.0},
+                {"section_id": "s3", "start": 10.0, "end": 15.0},
+            ],
+        }
+        events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
+        self.assertIn("ابدأ بالمهمة الأصغر،", [item["text"] for item in events])
+        self.assertIn("ثم دع الزخم يكمل الطريق.", [item["text"] for item in events])
+        ass = build_rich_ass(events)
+        self.assertIn(r"\h", ass)
+        self.assertIn("\u202B", ass)
+        self.assertNotIn("deterministic_phrase_weighted_approximation", ass)
 
     def test_local_composition_uses_one_planning_owned_safe_zone_without_provider_calls(self) -> None:
         events = [
