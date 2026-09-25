@@ -419,6 +419,25 @@ class ShortContractTests(unittest.TestCase):
         )
         validate_short_script(two_sentences)
 
+        prefixed_extra_action = json.loads(json.dumps(base, ensure_ascii=False))
+        prefixed_extra_action["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. اختر مهمة واحدة الآن. ثم ابدأ بها فورًا."
+        )
+        self.assertTrue(apply_safe_short_s3_single_action_trim(prefixed_extra_action))
+        self.assertEqual(
+            prefixed_extra_action["sections"][2]["narration"],
+            "عندها يصبح الطريق أوضح. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(prefixed_extra_action)
+
+        no_safe_payoff = json.loads(json.dumps(base, ensure_ascii=False))
+        no_safe_payoff["sections"][2]["narration"] = (
+            "اختر مهمة واحدة الآن. ثم ابدأ بها فورًا."
+        )
+        original = no_safe_payoff["sections"][2]["narration"]
+        self.assertFalse(apply_safe_short_s3_single_action_trim(no_safe_payoff))
+        self.assertEqual(no_safe_payoff["sections"][2]["narration"], original)
+
         unsafe = json.loads(json.dumps(base, ensure_ascii=False))
         unsafe["sections"][2]["narration"] = (
             "عندها يصبح الطريق أوضح. اكتب كلمة واحدة اخرج للمشي."
