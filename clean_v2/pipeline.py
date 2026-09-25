@@ -970,11 +970,17 @@ def _run_legacy_tone_naturalness_audit(
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
     identity_path = output_dir / "narrative-identity.json"
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
-    trusted_identity = _trusted_identity_for_factuality(
-        output_dir=output_dir,
-        brief=brief,
-    )
-    audit_script = _script_without_trusted_identity(script, trusted_identity)
+    short_identity_scope = str(brief.get("format") or "") == "short"
+    if short_identity_scope:
+        trusted_identity = _trusted_identity_for_factuality(
+            output_dir=output_dir,
+            brief=brief,
+        )
+        audit_script = _script_without_trusted_identity(script, trusted_identity)
+    else:
+        trusted_identity = ()
+        audit_script = script
+
     production_plan = _build_production_plan_for_audit(
         brief=brief,
         plan=plan,
@@ -982,7 +988,11 @@ def _run_legacy_tone_naturalness_audit(
     )
     production_plan.hook = _first_spoken_sentence(audit_script)
     production_plan.closing_payoff = (
-        _closing_payoff_for_tone_audit(audit_script)
+        (
+            _closing_payoff_for_tone_audit(audit_script)
+            if short_identity_scope
+            else _closing_payoff_for_tone_audit(script, identity=identity)
+        )
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -1000,8 +1010,14 @@ def _run_legacy_tone_naturalness_audit(
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-tone-naturalness-audit",
-        "trusted_identity_excluded_from_model_judgment": True,
-        "trusted_identity": list(trusted_identity),
+        **(
+            {
+                "trusted_identity_excluded_from_model_judgment": True,
+                "trusted_identity": list(trusted_identity),
+            }
+            if short_identity_scope
+            else {}
+        ),
         **result,
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
