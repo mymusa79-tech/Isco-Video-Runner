@@ -632,8 +632,11 @@ class _FakeRouter:
 
 
 class _LongFakeVoice:
-    """Produces narration.wav with a controlled, exact duration so the test
-    can assert the flat-slot value pipeline.py computes for acquire()."""
+    """Produces deterministic synthetic voice with a controlled exact duration.
+
+    The test verifies timeline/section-share wiring, not long-render performance,
+    so keep the fixture short to avoid wasting CI minutes.
+    """
 
     def __init__(self, seconds: float) -> None:
         self.seconds = seconds
@@ -818,11 +821,9 @@ class PipelineWiringTests(unittest.TestCase):
 
             visuals = _RecordingVisuals()
             visual_qa = _RecordingVisualQA()
-            # Timeline First synthesizes multiple measured semantic voice units
-            # (hook/prayer/channel identity/topic/outro). This fixture returns a fixed
-            # 26s per synth call; the test must follow the measured voice-owned timeline,
-            # not a historical hard-coded synth-call count.
-            long_voice = _LongFakeVoice(26.0)
+            # Four seconds per synthetic unit is enough to prove measured ownership
+            # and unequal section shares without forcing a multi-minute 1080p render.
+            long_voice = _LongFakeVoice(4.0)
             pipeline = CleanV2Pipeline(
                 router=_FakeRouter(),
                 voice_synthesizer=long_voice,
@@ -867,9 +868,8 @@ class PipelineWiringTests(unittest.TestCase):
                 float(timeline["voice_seconds_measured"]),
                 places=3,
             )
-            # Not a flat 26.0s-each split: sections have different narration
-            # lengths, so their shares differ.
-            self.assertGreater(max(received.values()) - min(received.values()), 1.0)
+            # Not a flat split: sections still receive different measured shares.
+            self.assertGreater(max(received.values()) - min(received.values()), 0.1)
 
             manifest = json.loads(
                 (output / "rights-manifest.json").read_text(encoding="utf-8")
@@ -1016,6 +1016,20 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
             4 + (media_module.MASTER_LOOK_LUT_SIZE ** 3),
         )
 
+    def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
+        fragment = media_module.CINEMATIC_FINISH_FILTER
+        self.assertEqual(
+            media_module.CINEMATIC_FINISH_VERSION,
+            "clean-v2-cinematic-finish-v1",
+        )
+        self.assertIn("eq=contrast=", fragment)
+        self.assertIn("unsharp=", fragment)
+        self.assertIn("vignette=", fragment)
+        self.assertNotIn("drawtext", fragment)
+        self.assertNotIn("movie=", fragment)
+        self.assertNotIn("http", fragment)
+
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class MasterLutFfmpegTests(unittest.TestCase):
@@ -1044,6 +1058,36 @@ class MasterLutFfmpegTests(unittest.TestCase):
             )
             self.assertTrue(dest.is_file())
             self.assertGreater(dest.stat().st_size, 1000)
+
+    def test_generated_cube_plus_cinematic_finish_is_accepted_by_ffmpeg(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            source = root_path / "source.mp4"
+            finished = root_path / "finished.mp4"
+            lut = media_module._write_master_look_lut(root_path / "look.cube")
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "lavfi", "-i", "color=c=#6d4c41:s=160x90:r=10:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(source),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(source),
+                    "-vf",
+                    (
+                        f"lut3d=file='{media_module._ffmpeg_filter_path(lut)}':interp=tetrahedral,"
+                        f"{media_module.CINEMATIC_FINISH_FILTER}"
+                    ),
+                    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(finished),
+                ],
+                check=True,
+            )
+            self.assertTrue(finished.is_file())
+            self.assertGreater(finished.stat().st_size, 1000)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
