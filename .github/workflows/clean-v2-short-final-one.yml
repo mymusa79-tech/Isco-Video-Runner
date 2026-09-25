@@ -345,10 +345,46 @@ jobs:
             -f concat -safe 0 -i "$CLEAN_V2_OUTPUT/montage-list.txt" \
             -c copy -movflags +faststart "$CLEAN_V2_OUTPUT/phase-b-visual-preview.mp4"
 
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from clean_v2.media import probe_duration
+          from clean_v2.short_timed_text import render_progressive_text
+
+          root = Path("$CLEAN_V2_OUTPUT")
+          source = root / "phase-b-visual-preview.mp4"
+          total = probe_duration(source)
+          third = total / 3.0
+          events = [
+              {"start": 0.0, "end": round(third, 3), "text": "لا تنتظر الدافع ليبدأ كل شيء", "role": "hook"},
+              {"start": round(third, 3), "end": round(third * 2, 3), "text": "خطوة صغيرة تغيّر اتجاهك", "role": "beat"},
+              {"start": round(third * 2, 3), "end": round(total, 3), "text": "وهنا يبدأ التغيير الحقيقي", "role": "payoff"},
+          ]
+          report = render_progressive_text(
+              video=source,
+              events=events,
+              srt_path=root / "phase-b-3d-text-preview.srt",
+              output=root / "phase-b-3d-text-preview.mp4",
+          )
+          (root / "phase-b-3d-text-preview.json").write_text(
+              json.dumps({**report, "events": events}, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i "$CLEAN_V2_OUTPUT/phase-b-3d-text-preview.mp4" \
+            -vf "fps=1/4,scale=360:-1,tile=3x1" -frames:v 1 \
+            "$CLEAN_V2_OUTPUT/phase-b-3d-text-contact.jpg"
+
       - name: Verify actual visual preview evidence
         run: |
           set -euo pipefail
           test -s "$CLEAN_V2_OUTPUT/phase-b-visual-preview.mp4"
+          test -s "$CLEAN_V2_OUTPUT/phase-b-3d-text-preview.mp4"
+          test -s "$CLEAN_V2_OUTPUT/phase-b-3d-text-contact.jpg"
+          test "$(jq -r .depth_layers "$CLEAN_V2_OUTPUT/phase-b-3d-text-preview.json")" = "3"
+          test "$(jq -r .black_text_box "$CLEAN_V2_OUTPUT/phase-b-3d-text-preview.json")" = "false"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/visual-preview-result.json")" = "preview_complete"
           test "$(jq -r .planned_section_count "$CLEAN_V2_OUTPUT/visual-preview-result.json")" = "3"
           test "$(jq -r .selected_clip_count "$CLEAN_V2_OUTPUT/visual-preview-result.json")" -ge 3
