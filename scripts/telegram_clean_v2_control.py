@@ -1191,7 +1191,6 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "format": fmt,
         "language": "ar",
         "audience": "Arabic-speaking adults",
-        "series_name": "خارج النص" if fmt == "podcast" else None,
         "editorial_intent": (
             "برنامج خارج النص: حديث عربي فصيح طبيعي لراوية أنثوية محايدة، بسيط في لغته وعميق في فكرته، "
             "يبدو كحديث مباشر مع مستمع واحد لا كمقال أو محاضرة، ويتقدم دون حشو أو تجارب شخصية مختلقة، "
@@ -1217,6 +1216,8 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
             *(["Complete Short must not exceed 30 seconds."] if fmt == "short" else []),
         ],
     }
+    if fmt == "podcast":
+        brief["series_name"] = "خارج النص"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return brief
