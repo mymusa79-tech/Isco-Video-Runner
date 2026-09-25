@@ -34,6 +34,7 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Isolate s3 and split it into complete sentences.
 - s3 MUST contain at least one descriptive payoff/explanation sentence BEFORE the final action sentence; the payoff must still make sense if the action sentence is removed.
 - Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
+- For that one action sentence, begin with EXACTLY ONE validator-recognized imperative from this allowlist: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. Do not substitute a synonym outside this list.
 - Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
 - Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
 - Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero.
