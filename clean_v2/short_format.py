@@ -1068,6 +1068,8 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "voice": {
             "single_narrator": True,
             "primary_voice": "Charon",
+            "approved_fallback_voice": "nabra:af_msa",
+            "approved_providers": ["gemini:Charon", "nabra:af_msa"],
             "dialogue_labels_forbidden": True,
             "orus_two_voice_support": "deferred_short_v2",
         },
