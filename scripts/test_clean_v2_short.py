@@ -576,6 +576,42 @@ class ShortContractTests(unittest.TestCase):
         self.assertIn("require exactly 1", seen["mistral"])
         self.assertIn("scan every payoff sentence", seen["mistral"])
 
+    def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {
+                    "id": "s3",
+                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        router = ProviderRouter(
+            (
+                ProviderAdapter("mistral", lambda _prompt, _tokens: candidate),
+            )
+        )
+        accepted = router.route(
+            stage="script",
+            prompt=_script_prompt(brief, plan),
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        self.assertEqual(
+            accepted["sections"][2]["narration"],
+            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(accepted)
+        self.assertEqual(
+            [(event["provider"], event["result"]) for event in router.events],
+            [("mistral", "success")],
+        )
+
     def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
