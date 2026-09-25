@@ -524,7 +524,7 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
-_SAFE_HOOK_TRIM_MAX_OVERRUN = 2
+_SAFE_HOOK_TRIM_MAX_OVERRUN = 3
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
 _SAFE_HOOK_INCOMPLETE_ENDINGS = {
