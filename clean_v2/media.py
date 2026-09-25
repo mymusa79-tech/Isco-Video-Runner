@@ -75,6 +75,8 @@ SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS = 36.0
 SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS = 41.0
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_MOTION_ZOOM = 0.045
+SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
+SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
 SHORT_MASTER_LOOK_FILTER = (
     "eq=contrast=1.04:saturation=0.90,"
     "colorbalance=rs=0.015:gs=0.003:bs=-0.012"
@@ -1243,6 +1245,56 @@ def _expand_short_visual_sequence(
             # motion mode, so this adds a cut without another provider/QA call.
             expanded.append(assets[0])
     return expanded
+
+
+def _timeline_hook_end_seconds(output_dir: Path) -> float:
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0.0
+    rows = payload.get("identity_events") if isinstance(payload, Mapping) else None
+    for row in rows or []:
+        if isinstance(row, Mapping) and str(row.get("kind") or "") == "hook":
+            try:
+                return max(0.0, float(row.get("end") or 0.0))
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _enforce_short_hook_shot_cap(
+    paths: list[Path],
+    durations: list[float],
+    section_ids: list[str] | None,
+    *,
+    hook_seconds: float,
+) -> tuple[list[Path], list[float]]:
+    """Force one visible change inside a long Short hook without new media calls."""
+    if (
+        hook_seconds <= SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS
+        or section_ids is None
+        or len(paths) != len(durations)
+        or len(paths) != len(section_ids)
+        or len(paths) < 2
+    ):
+        return list(paths), list(durations)
+
+    first_section = section_ids[0]
+    if section_ids[1] != first_section:
+        return list(paths), list(durations)
+
+    result_paths = list(paths)
+    result_durations = list(durations)
+    first_budget = min(
+        SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS,
+        max(PACING_MIN_SHOT_SECONDS, hook_seconds * 0.55),
+    )
+    if result_durations[0] > first_budget:
+        moved = result_durations[0] - first_budget
+        result_durations[0] = first_budget
+        result_durations[1] += moved
+    return result_paths, result_durations
 
 
 def _short_motion_filter(
@@ -3084,6 +3136,15 @@ def render_video(
         # Timeline First owns only timing, so duration never fabricates/repeats shots.
         paths = [Path(item) for item in visual_paths]
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
+
+    if fmt == "short":
+        short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
+        paths, durations = _enforce_short_hook_shot_cap(
+            paths,
+            durations,
+            short_section_ids,
+            hook_seconds=_timeline_hook_end_seconds(Path(output_path).parent),
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
