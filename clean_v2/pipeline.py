@@ -3914,7 +3914,7 @@ class CleanV2Pipeline:
                         fmt=(
                             "story"
                             if str(brief["format"]) == "short"
-                            else str(brief["format"])
+                            else ("film" if str(brief["format"]) == "podcast" else str(brief["format"]))
                         ),
                         router=self.router,
                         visual_source=self.visual_source,
