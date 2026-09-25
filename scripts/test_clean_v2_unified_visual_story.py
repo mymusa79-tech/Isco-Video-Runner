@@ -133,6 +133,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
             self.assertIn("DO NOT assume AI imagery is active", prompt)
+            self.assertIn("6-14 useful search words", prompt)
+            self.assertIn("hands only, back view, or objects only", prompt)
 
     def test_mistral_planning_schema_requires_the_unified_story(self) -> None:
         schema = providers_module._mistral_planning_response_schema(
@@ -190,6 +192,17 @@ class UnifiedVisualStoryContextTests(unittest.TestCase):
         self.assertIn("Same story arc:", intent)
         self.assertTrue(intent.endswith("between its neighbors."))
         self.assertLessEqual(len(intent), 300)
+
+
+class DeterministicNoFaceRecoveryQueryTests(unittest.TestCase):
+    def test_back_view_laptop_query_becomes_hands_only_retrieval_shape(self) -> None:
+        query = visual_qa_module._deterministic_no_face_recovery_query(
+            "back view cluttered desk laptop open fingers hovering"
+        )
+        self.assertEqual(query, "hands cluttered desk laptop keyboard open hovering")
+        self.assertNotIn("person", query)
+        self.assertNotIn("back", query)
+        self.assertLessEqual(len(query.split()), 8)
 
 
 class VisualSafetyRegressionTests(unittest.TestCase):
