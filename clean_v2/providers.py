@@ -73,23 +73,16 @@ def _normalize_mistral_short_candidate(
 
 
 def _mistral_short_hook_repair_eligible(exc: Exception) -> bool:
-    match = re.search(
-        r"short_hook_too_long words=(\d+) maximum=18",
-        str(exc),
-    )
+    match = re.search(r"short_hook_too_long words=(\d+) maximum=18", str(exc))
     return bool(match and int(match.group(1)) in (19, 20))
 
 
 def _mistral_short_hook_repair_prompt(candidate: dict[str, Any]) -> str:
     return (
-        "MISTRAL_SHORT_HOOK_BOUNDED_REPAIR — return one JSON object only.\n"
-        "The supplied Short script failed ONLY because the first spoken sentence is 19-20 words.\n"
-        "Rewrite ONLY the first sentence of s1 into one complete, natural Modern Standard Arabic "
-        "sentence of 10-16 whitespace-delimited words. Preserve its exact core tension and meaning.\n"
-        "Keep the title, every section id, the remainder of s1 after its first sentence, and all of "
-        "s2/s3 unchanged. Do not add or remove facts, commands, advice, greeting, prayer, CTA, or "
-        "channel identity. Do not fragment the sentence. Recount before returning JSON.\n"
-        "CANDIDATE_JSON:\n"
+        "MISTRAL_SHORT_HOOK_BOUNDED_REPAIR — change only s1 first sentence. "
+        "Return the same JSON shape; write one complete natural Arabic hook of 10-16 "
+        "whitespace-delimited words, preserve the same tension/meaning, and change nothing else. "
+        "No new facts, commands, greeting, prayer, CTA, or channel identity. CANDIDATE_JSON:\n"
         + json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     )
 
@@ -98,40 +91,21 @@ def _splice_mistral_repaired_hook_only(
     original: dict[str, Any],
     repaired: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Use only Mistral's repaired first sentence; preserve every other byte of content."""
     from .short_format import _first_sentence, _word_count
 
-    original_sections = original.get("sections")
-    repaired_sections = repaired.get("sections")
-    if (
-        not isinstance(original_sections, list)
-        or not isinstance(repaired_sections, list)
-        or not original_sections
-        or not repaired_sections
-        or not isinstance(original_sections[0], dict)
-        or not isinstance(repaired_sections[0], dict)
-    ):
+    try:
+        original_s1 = str(original["sections"][0]["narration"]).strip()
+        repaired_hook = _first_sentence(repaired["sections"][0]["narration"])
+    except (KeyError, IndexError, TypeError):
         return None
-
-    original_s1 = str(original_sections[0].get("narration") or "").strip()
-    repaired_s1 = str(repaired_sections[0].get("narration") or "").strip()
     original_hook = _first_sentence(original_s1)
-    repaired_hook = _first_sentence(repaired_s1)
-    if (
-        not original_hook
-        or not repaired_hook
-        or _word_count(repaired_hook) > 18
-        or _word_count(repaired_hook) < 1
-    ):
+    if not original_hook or not repaired_hook or not 1 <= _word_count(repaired_hook) <= 18:
         return None
-
-    remainder = original_s1[len(original_hook):].lstrip()
-    candidate = copy.deepcopy(original)
-    candidate_sections = candidate.get("sections")
-    if not isinstance(candidate_sections, list) or not isinstance(candidate_sections[0], dict):
-        return None
-    candidate_sections[0]["narration"] = f"{repaired_hook} {remainder}".strip()
-    return candidate
+    result = copy.deepcopy(original)
+    result["sections"][0]["narration"] = (
+        f"{repaired_hook} {original_s1[len(original_hook):].lstrip()}".strip()
+    )
+    return result
 
 
 MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
@@ -1070,52 +1044,29 @@ class ProviderRouter:
                             min(int(max_tokens), 800),
                             stage,
                         )
-                    except Exception as repair_exc:
-                        wire_count += 1
-                        print(
-                            "Mistral bounded Short hook repair failed: "
-                            + json.dumps(
-                                {"reason": str(getattr(repair_exc, "reason_code", type(repair_exc).__name__))},
-                                ensure_ascii=True,
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            )
-                        )
-                    else:
                         wire_count += 1
                         repaired_candidate = _splice_mistral_repaired_hook_only(
-                            candidate,
-                            repair_raw,
+                            candidate, repair_raw
                         )
-                        if repaired_candidate is not None:
-                            try:
-                                repaired_candidate = _normalize_mistral_short_candidate(
-                                    repaired_candidate,
-                                    prompt=prompt,
-                                    stage=stage,
-                                )
-                                repaired_normalized = validator(repaired_candidate)
-                            except Exception as repair_validation_exc:
-                                print(
-                                    "Mistral bounded Short hook repair rejected: "
-                                    + json.dumps(
-                                        {"reason": _safe_validator_reason(repair_validation_exc)},
-                                        ensure_ascii=True,
-                                        sort_keys=True,
-                                        separators=(",", ":"),
-                                    )
-                                )
-                            else:
-                                self._event(
-                                    stage=stage,
-                                    provider=adapter.name,
-                                    result="success",
-                                    wire_attempted=True,
-                                    reason="mistral_short_hook_bounded_repair",
-                                    provider_attempt=provider_attempt + 1,
-                                    stage_wire_attempt=wire_count,
-                                )
-                                return repaired_normalized
+                        if repaired_candidate is None:
+                            raise ValueError("mistral_short_hook_repair_invalid")
+                        repaired_candidate = _normalize_mistral_short_candidate(
+                            repaired_candidate, prompt=prompt, stage=stage
+                        )
+                        repaired_normalized = validator(repaired_candidate)
+                    except Exception:
+                        pass
+                    else:
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="success",
+                            wire_attempted=True,
+                            reason="mistral_short_hook_bounded_repair",
+                            provider_attempt=provider_attempt + 1,
+                            stage_wire_attempt=wire_count,
+                        )
+                        return repaired_normalized
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
                     print(
