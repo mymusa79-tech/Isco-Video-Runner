@@ -347,11 +347,12 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
           from clean_v2.media import probe_duration
           from clean_v2.short_timed_text import render_progressive_text
 
-          root = Path("$CLEAN_V2_OUTPUT")
+          root = Path(os.environ["CLEAN_V2_OUTPUT"])
           source = root / "phase-b-visual-preview.mp4"
           total = probe_duration(source)
           third = total / 3.0
