@@ -40,8 +40,7 @@ from .structural_ai import structural_ai_flags
 from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
-    apply_safe_short_hook_trim,
-    apply_safe_short_s3_single_action_trim,
+    normalize_short_script_candidate,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -2634,9 +2633,7 @@ def _validate_script_for_brief(
         # A 1-2 word hook overrun may be repaired locally only at a conservative natural
         # boundary. Unsafe continuous sentences remain hard contract failures so the
         # bounded provider route can continue exactly as before.
-        apply_safe_short_hook_trim(script)
-        apply_safe_short_s3_single_action_trim(script)
-        validate_short_hook_contract(script)
+        normalize_short_script_candidate(script)
         validate_short_script(script)
     return script
 
@@ -2675,7 +2672,7 @@ def _run_short_duration_gate(
         "status": "pass" if passed else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
-        "timeline_owner": "measured_charon_voice",
+        "timeline_owner": "measured_voice",
         "editorial_target_seconds": None,
         "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
         "provider_calls_added": 0,
@@ -3604,10 +3601,9 @@ class CleanV2Pipeline:
                 item["narration"] for item in script["sections"]
             )
             if str(brief["format"]) == "short":
-                # A bounded text repair can re-introduce a second explicit action.
-                # Reuse the same conservative local normalizer used at initial
-                # script acceptance, then keep the unchanged strict validator.
-                apply_safe_short_s3_single_action_trim(script)
+                # Any bounded text repair must pass the exact same canonical
+                # Short normalization + strict validator used at initial acceptance.
+                normalize_short_script_candidate(script)
                 validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
