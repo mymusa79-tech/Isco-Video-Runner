@@ -2196,6 +2196,16 @@ MASTER_LOOK_WARM_R = 0.006
 MASTER_LOOK_WARM_G = 0.002
 MASTER_LOOK_WARM_B = -0.006
 
+# One restrained local finishing pass after the existing warm-neutral LUT.
+# It uses only FFmpeg on the already-selected pixels: no provider/model/network
+# call, no timing change, and no second visual authority.
+CINEMATIC_FINISH_VERSION = "clean-v2-cinematic-finish-v1"
+CINEMATIC_FINISH_FILTER = (
+    "eq=contrast=1.050:brightness=-0.008:saturation=1.030:gamma=0.990,"
+    "unsharp=5:5:0.45:5:5:0.0,"
+    "vignette=PI/12"
+)
+
 
 @dataclass(frozen=True)
 class _RgbStats:
@@ -2817,6 +2827,8 @@ def render_video(
         master_look = (
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
         )
+        if any(str(value or "").strip() for value in grade_filters.values()):
+            master_look = f"{master_look},{CINEMATIC_FINISH_FILTER}"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"

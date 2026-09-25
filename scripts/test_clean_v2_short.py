@@ -1219,24 +1219,17 @@ class ShortTimedTextTests(unittest.TestCase):
             self.assertLessEqual(words, CAPTION_MAX_WORDS)
             self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
 
-    def test_local_composition_uses_visual_negative_space_without_provider_calls(self) -> None:
+    def test_local_composition_uses_one_planning_owned_safe_zone_without_provider_calls(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "لا تنتظر الدافع", "role": "hook", "section_id": "s1"},
             {"start": 2.0, "end": 4.0, "text": "المشكلة أصغر مما تبدو", "role": "beat", "section_id": "s2"},
             {"start": 4.0, "end": 6.0, "text": "ابدأ بخطوة واحدة", "role": "payoff", "section_id": "s3"},
         ]
-        visual_story = {
-            "beats": [
-                {"section_id": "s1", "shot_intent": "person on left with negative space upper right"},
-                {"section_id": "s2", "shot_intent": "hands on right side of desk"},
-                {"section_id": "s3", "shot_intent": "centered notebook close shot"},
-            ]
-        }
-        hints = build_composition_hints(events, visual_story=visual_story, plan={})
-        self.assertEqual(COMPOSITION_MODE, "local_visual_intent_lite")
-        self.assertEqual(hints[0]["zone"], "upper_right")
-        self.assertEqual(hints[1]["zone"], "upper_left")
-        self.assertEqual(hints[2]["zone"], "lower_center")
+        hints = build_composition_hints(events)
+        self.assertEqual(COMPOSITION_MODE, "planning_composed_upper_right_v2")
+        self.assertEqual({hint["zone"] for hint in hints}, {"upper_right"})
+        self.assertEqual({hint["source"] for hint in hints}, {"planning_composition_contract"})
+        self.assertEqual(len({(hint["x"], hint["y"]) for hint in hints}), 1)
         for hint in hints:
             self.assertGreaterEqual(hint["x"], SAFE_X_MIN)
             self.assertLessEqual(hint["x"], SAFE_X_MAX)
