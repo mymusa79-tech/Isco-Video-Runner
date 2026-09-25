@@ -178,7 +178,11 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                         "find": "غيّر حياتك اليوم.",
                         "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟",
                     }
-                ]
+                ],
+                "hook_visual_query_en": (
+                    "unfinished daily planner interrupted by phone notification "
+                    "hand stopping over notebook no face"
+                ),
             },
             plan=plan,
             original_script=script,
@@ -192,6 +196,48 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             )
         )
         self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
+        self.assertIn(
+            "unfinished daily planner interrupted by phone notification",
+            repaired["hook_visual_query_en"],
+        )
+
+    def test_hook_quality_repair_requires_matching_visual_query(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 6)
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح مرتبطة بالموضوع."},
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s3", "narration": "هذه فقرة ثالثة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s4", "narration": "هذه فقرة رابعة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s5", "narration": "هذه فقرة أخيرة تحتوي خاتمة كافية للاختبار."},
+            ],
+        }
+        with self.assertRaisesRegex(
+            ValueError, "hook-quality repair requires matching hook_visual_query_en"
+        ):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s1",
+                            "find": "غيّر حياتك اليوم.",
+                            "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note="- [tone] hook_quality: failed hook_specificity",
+            )
 
     def test_hook_quality_repair_prompt_opens_only_flagged_hook(self):
         plan = {
@@ -212,6 +258,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         )
         self.assertIn("Replace the complete first spoken hook sentence exactly once", prompt)
         self.assertIn("Calm is acceptable; forced shock/clickbait is not", prompt)
+        self.assertIn("hook_visual_query_en", prompt)
+        self.assertIn("match the NEW hook, not the old one", prompt)
 
     def test_first_spoken_sentence_is_runtime_hook(self):
         script = {
