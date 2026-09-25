@@ -22,6 +22,7 @@ on:
       - "scripts/test_clean_v2_legacy_cinematic.py"
       - "scripts/test_clean_v2_visual_pacing.py"
       - "scripts/test_clean_v2_unified_visual_story.py"
+      - "scripts/test_clean_v2_podcast.py"
       - "scripts/telegram_clean_v2_notify.py"
       - "scripts/test_telegram_clean_v2_notify.py"
       - "scripts/telegram_clean_v2_control.py"
@@ -85,6 +86,7 @@ jobs:
             scripts.test_clean_v2_final_master_qc \
             scripts.test_clean_v2_visual_pacing \
             scripts.test_clean_v2_unified_visual_story \
+            scripts.test_clean_v2_podcast \
             scripts.test_telegram_clean_v2_notify \
             scripts.test_telegram_clean_v2_control \
             scripts.test_clean_v2_release_delivery \

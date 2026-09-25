@@ -722,7 +722,7 @@ class GeminiPrimaryPiperFallbackSynthesizer:
 
 
 class GeminiPrimaryNabraFallbackSynthesizer:
-    """Production voice route: Charon first, then one local Nabra fallback."""
+    """Production voice route with Charon-first default and an explicit local-Nabra primary lock."""
 
     EXPECTED_PRIMARY_VOICE = "Charon"
     EXPECTED_QUESTIONER_VOICE = "Orus"
@@ -748,6 +748,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         # Never mix narrator identities inside one production run. The first
         # successful chunk locks all following chunks to that same route.
         self._route_lock: str | None = None
+        self._nabra_primary = False
 
     def _use_nabra(self, transcript: str, output_path: Path) -> Path:
         if _spoken_voice_roles(transcript).get("mode") == "dialogue_qa":
@@ -763,24 +764,38 @@ class GeminiPrimaryNabraFallbackSynthesizer:
             output_path.unlink(missing_ok=True)
             raise VoiceInfrastructureError(
                 charon_attempts=self.charon_attempts,
-                charon_reason="charon_unavailable",
+                charon_reason=(
+                    "not_attempted_nabra_primary" if self._nabra_primary else "charon_unavailable"
+                ),
                 secondary_reason=f"nabra_{_tts_failure_reason(exc, missing='unavailable')}"[:120],
                 piper_fallback_allowed=False,
             ) from None
         self._route_lock = "nabra"
         self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
-        self.voice_approval_status = "human_approved_fallback"
+        self.fallback_used = not self._nabra_primary
+        self.voice_approval_status = (
+            "user_selected_primary" if self._nabra_primary else "human_approved_fallback"
+        )
         self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
         print("Clean V2 voice provider selected: nabra:af_msa")
         return result
 
     def activate_full_run_nabra_fallback(self) -> None:
         """Lock the next full narration pass to Nabra after a mid-run Charon outage."""
+        self._nabra_primary = False
         self._route_lock = "nabra"
         self.last_provider = None
         self.fallback_used = True
         self.voice_approval_status = "human_approved_fallback"
+        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+
+    def activate_full_run_nabra_primary(self) -> None:
+        """Lock the whole run to local Nabra without attempting any cloud voice."""
+        self._nabra_primary = True
+        self._route_lock = "nabra"
+        self.last_provider = None
+        self.fallback_used = False
+        self.voice_approval_status = "user_selected_primary"
         self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
 
     def synthesize(
@@ -2636,7 +2651,7 @@ def render_video(
 
     timeline: dict[str, Any] = {}
     timeline_path = output_dir / "timeline-first.json"
-    if fmt in {"short", "film"} and timeline_path.is_file():
+    if fmt in {"short", "film", "podcast"} and timeline_path.is_file():
         try:
             parsed_timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
             timeline = parsed_timeline if isinstance(parsed_timeline, dict) else {}

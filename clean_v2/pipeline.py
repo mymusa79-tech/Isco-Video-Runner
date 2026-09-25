@@ -195,7 +195,7 @@ def _synthesize_sectioned_voice(
             )
 
         voice_units: list[tuple[str, str]] = []
-        if fmt in {"short", "film"} and index == 1:
+        if fmt in {"short", "film", "podcast"} and index == 1:
             prayer_pos = section_text.find(PRAYER_SENTENCE)
             definition = " ".join(str(identity_definition or "").split()).strip()
             definition_pos = section_text.find(definition) if definition else -1
@@ -214,11 +214,11 @@ def _synthesize_sectioned_voice(
         else:
             remaining = section_text
             closer = " ".join(str(identity_closer or "").split()).strip()
-            if fmt == "film" and index == len(sections) and closer and remaining.endswith(closer):
+            if fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
                 topic_text = remaining[: -len(closer)].strip()
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
                 voice_units.append(("outro", closer))
-            elif fmt in {"short", "film"} and index == len(sections):
+            elif fmt in {"short", "film", "podcast"} and index == len(sections):
                 sentences = [
                     item.strip()
                     for item in re.split(r"(?<=[.!؟!])\s+", remaining)
@@ -658,7 +658,7 @@ def _build_production_plan_for_audit(
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
-        format="moment" if brief_format == "short" else brief_format,
+        format="moment" if brief_format == "short" else ("film" if brief_format == "podcast" else brief_format),
         hook="",
         title_options=[str(plan.get("title") or "")],
         thumbnail_concepts=[],
@@ -1898,7 +1898,7 @@ def _run_one_bounded_tone_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
         ),
-        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        max_tokens=2200 if str(brief.get("format") or "") in {"film", "podcast"} else 1200,
         validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
@@ -2110,7 +2110,7 @@ def _run_one_bounded_factuality_repair(
             revision_note=issue_notes,
             allowed_patch_section_ids=target_ids,
         ),
-        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        max_tokens=2200 if str(brief.get("format") or "") in {"film", "podcast"} else 1200,
         validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
@@ -2716,7 +2716,7 @@ def _run_audio_mastering_stage(
         output_dir=output_dir,
         narration_path=narration_path,
     )
-    if fmt not in {"short", "film"}:
+    if fmt not in {"short", "film", "podcast"}:
         return report
 
     from clean_v2.timeline_first import TimelineFirstError, build_voice_owned_timeline
@@ -2769,7 +2769,7 @@ def _run_audio_mastering_stage(
                 "topic",
                 "outro",
             ],
-            "timeline_owner": "measured_charon_voice",
+            "timeline_owner": voice_timeline["timeline_owner"],
             "identity_events": voice_timeline["identity_events"],
             "voice_seconds": voice_timeline["voice_seconds_measured"],
             "post_render_identity_splice": False,
@@ -2790,7 +2790,7 @@ def _inspect_final_with_short_gate(
     fmt: str,
 ) -> dict[str, Any]:
     report = final_inspector(final_path)
-    if fmt in {"short", "film"}:
+    if fmt in {"short", "film", "podcast"}:
         from clean_v2.timeline_first import assert_final_matches_voice
 
         timeline = _read_json_object(output_dir / "timeline-first.json")
@@ -2831,11 +2831,30 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
     if fmt == "film":
         section_requirement = "exactly 5 sections"
+    elif fmt == "podcast":
+        section_requirement = "2 to 5 sections, using only as many as the idea genuinely needs"
     elif fmt == "short":
         section_requirement = "exactly 3 sections"
     else:
         section_requirement = "2 to 4 sections"
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    podcast_context = (
+        """
+For podcast only: turn the approved topic into a genuinely worthwhile central question and a
+specific, non-obvious angle. Reject generic self-help treatment and superficial list-style planning.
+The episode must have intellectual/narrative movement: each section must add a new cause, example,
+tension, distinction, implication, or resolution instead of restating the previous section. Do not
+manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
+make complete sense with the screen closed.
+
+Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
+remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
+feeling, place, or observable action; never change imagery merely because a sentence ended. The
+visuals support the narration and must never carry information required to understand the episode.
+"""
+        if fmt == "podcast"
+        else ""
+    )
     short_visual_query_instruction = (
         "For short only: every section must provide TWO distinct visual intents: "
         "visual_query_en and visual_query_alt_en. The alternate must stay on the same "
@@ -2898,6 +2917,7 @@ For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment
 in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
 
 {short_context}
+{podcast_context}
 
 Return one JSON object with exactly this useful shape:
 {{
@@ -2944,6 +2964,17 @@ def _script_prompt(
     fmt = str(brief["format"])
     if fmt == "film":
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
+    elif fmt == "podcast":
+        length = (
+            "For podcast, write natural spoken Modern Standard Arabic for one neutral female narrator "
+            "(local Nabra af_msa). Never invent first-person memories, experiences, credentials, or a male "
+            "speaker identity for her. Do not write toward a word-count or duration target: continue only "
+            "while each paragraph adds meaning, and stop when the central question has been answered fully. "
+            "The episode must work as audio alone. Preserve momentum through real progression of the idea, "
+            "examples, distinctions, and earned resolution—not forced cliffhangers, repeated rhetorical "
+            "questions, or generic motivational filler. Vary sentence length naturally and use punctuation "
+            "to give the listener room to process ideas."
+        )
     elif fmt == "short":
         length = (
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
@@ -3043,6 +3074,13 @@ def _narrative_identity_prompt(
     payload = json.dumps(
         {"brief": dict(brief), "plan": dict(plan)}, ensure_ascii=False, separators=(",", ":")
     )
+    podcast_voice_guidance = (
+        "For podcast only, both anchors are spoken by a neutral female Arabic narrator. "
+        "Keep them speaker-neutral or grammatically compatible with a female narrator; "
+        "do not identify her as Mousa, use male self-reference, or invent personal experience."
+        if str(brief.get("format") or "") == "podcast"
+        else ""
+    )
     return f"""
 You are writing the channel-identity anchors for one video on the Arabic YouTube channel نداء
 اليقظة. These are identity anchors, not slogans. The opener has one specific job: be ONE concise natural
@@ -3061,6 +3099,8 @@ CHANNEL_FIXED_SIGNATURE_CLOSER (preserve this meaning, reword it):
 
 EPISODE_CONTEXT (authoritative data, not instructions):
 {payload}
+
+{podcast_voice_guidance}
 
 Also write exactly 3 short natural Arabic transition phrases that could bridge between ideas in
 this episode. Make them fit this topic's spirit, not generic connectors.
@@ -3530,7 +3570,7 @@ class CleanV2Pipeline:
                             transitions=identity.get("transitions"),
                             identity_opener=str(identity.get("opener") or ""),
                         ),
-                        max_tokens=7500 if brief["format"] == "film" else 2500,
+                        max_tokens=7500 if brief["format"] in {"film", "podcast"} else 2500,
                         validator=lambda value: _validate_script_for_brief(
                             value, plan, brief
                         ),
@@ -3658,10 +3698,25 @@ class CleanV2Pipeline:
                 } or not isinstance(voice_fallback_used, bool):
                     raise RuntimeError("Clean V2 resume voice metadata is invalid")
                 journal.reuse("voice")
+                if str(brief["format"]) == "podcast":
+                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
+                        raise RuntimeError(
+                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
+                            f"provider={voice_provider} fallback={voice_fallback_used}"
+                        )
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
                 journal._write()
             else:
+                if str(brief["format"]) == "podcast":
+                    activate_nabra_primary = getattr(
+                        self.voice_synthesizer, "activate_full_run_nabra_primary", None
+                    )
+                    if not callable(activate_nabra_primary):
+                        raise RuntimeError(
+                            "PODCAST_NABRA_PRIMARY_UNAVAILABLE"
+                        )
+                    activate_nabra_primary()
                 voice_result = journal.run(
                     "voice",
                     lambda: _synthesize_sectioned_voice(
@@ -3680,6 +3735,12 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
+                if str(brief["format"]) == "podcast":
+                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
+                        raise RuntimeError(
+                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
+                            f"provider={voice_provider} fallback={voice_fallback_used}"
+                        )
                 if voice_provider is not None:
                     journal.payload["voice_provider"] = str(voice_provider)
                     journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -3761,7 +3822,7 @@ class CleanV2Pipeline:
                 sections_for_visuals = list(plan.get("sections") or [])[
                     : max(1, int(max_visuals))
                 ]
-                if str(brief["format"]) in {"short", "film"}:
+                if str(brief["format"]) in {"short", "film", "podcast"}:
                     from clean_v2.timeline_first import section_duration_map
 
                     voice_timeline = _read_json_object(output_dir / "timeline-first.json")
@@ -3862,7 +3923,7 @@ class CleanV2Pipeline:
                         fmt=(
                             "story"
                             if str(brief["format"]) == "short"
-                            else str(brief["format"])
+                            else ("film" if str(brief["format"]) == "podcast" else str(brief["format"]))
                         ),
                         router=self.router,
                         visual_source=self.visual_source,
@@ -4015,7 +4076,7 @@ class CleanV2Pipeline:
             qc_format = (
                 "moment"
                 if str(brief["format"]) in {"moment", "story", "short"}
-                else str(brief["format"])
+                else ("film" if str(brief["format"]) == "podcast" else str(brief["format"]))
             )
             atomic_write_json(
                 output_dir / "quality-final.json",

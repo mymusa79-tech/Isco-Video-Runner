@@ -32,10 +32,10 @@ def _target_dirs(output_root: Path, scope: str) -> list[tuple[str, Path]]:
     root = Path(output_root)
     if scope == "bundle":
         return [("long", root / "film"), ("short", root / "short")]
-    kind = "short" if scope == "short" else "long"
+    kind = "short" if scope == "short" else ("podcast" if scope == "podcast" else "long")
     if (root / "final.mp4").is_file() or (root / "final-master-qc.json").is_file():
         return [(kind, root)]
-    child = root / ("short" if kind == "short" else "film")
+    child = root / ("short" if kind == "short" else ("podcast" if kind == "podcast" else "film"))
     return [(kind, child)]
 
 
@@ -97,7 +97,7 @@ def _release_tag(*, kind: str, delivery_key: str, run_id: str, run_attempt: str)
 
 
 def _release_title(kind: str, topic: str) -> str:
-    label = "Short" if kind == "short" else "Long"
+    label = "Podcast" if kind == "podcast" else ("Short" if kind == "short" else "Long")
     base = f"Clean V2 {label}"
     return f"{base} — {topic}" if topic else base
 
@@ -280,7 +280,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Unified Clean V2 final-video Release delivery")
     parser.add_argument("command", choices=("deliver",))
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    parser.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), required=True)
     parser.add_argument("--topic", default="")
     parser.add_argument("--delivery-key", required=True)
     args = parser.parse_args()

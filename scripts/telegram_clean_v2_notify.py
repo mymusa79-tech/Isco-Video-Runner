@@ -205,7 +205,7 @@ def milestone_messages(
     kind: str,
 ) -> list[tuple[str, str]]:
     passed = passed_stages(manifest)
-    prefix = "🎬 الطويل" if kind == "long" else "⚡ الشورت"
+    prefix = "🎙️ البودكاست" if kind == "podcast" else ("🎬 الطويل" if kind == "long" else "⚡ الشورت")
     result: list[tuple[str, str]] = []
     total = len(MILESTONES)
     for index, (stage, label) in enumerate(MILESTONES, 1):
@@ -279,7 +279,7 @@ def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
 
 
 def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_url: str) -> str:
-    label = "Short" if kind == "short" else "Long"
+    label = "Podcast" if kind == "podcast" else ("Short" if kind == "short" else "Long")
     manifest_status = str(manifest.get("status") or "")
     stage = current_stage(manifest)
     topic = str(manifest.get("topic") or "").strip()
@@ -342,7 +342,7 @@ def terminal(output: Path, *, job_status: str, kind: str, run_url: str) -> int:
 
 
 def started_text(*, scope: str, topic: str, run_url: str) -> str:
-    label = {"long": "🎬 فيديو طويل", "short": "⚡ شورت", "bundle": "🎬 طويل + ⚡ شورت"}.get(scope, "الإنتاج")
+    label = {"long": "🎬 فيديو طويل", "short": "⚡ شورت", "bundle": "🎬 طويل + ⚡ شورت", "podcast": "🎙️ بودكاست"}.get(scope, "الإنتاج")
     lines = [
         f"🚀 بدأ الإنتاج فعليًا — {label}",
         f"الموضوع: {topic}" if topic else "الموضوع: غير محدد",
@@ -354,7 +354,7 @@ def started_text(*, scope: str, topic: str, run_url: str) -> str:
 
 
 def artifact_delivery_text(*, scope: str, topic: str) -> str:
-    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الحزمة"}.get(scope, "الإنتاج")
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الحزمة", "podcast": "البودكاست"}.get(scope, "الإنتاج")
     lines = [f"🎥 {label} جاهز للتسليم"]
     if topic:
         lines.append(f"الموضوع: {topic}")
@@ -390,7 +390,7 @@ def bundle_summary_text(*, topic: str, run_url: str) -> str:
 
 
 def workflow_watchdog_text(*, scope: str, run_url: str) -> str:
-    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت"}.get(scope, "الإنتاج")
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت", "podcast": "البودكاست"}.get(scope, "الإنتاج")
     lines = [
         f"❌ تعذر إكمال {label}",
         "",
@@ -416,25 +416,25 @@ def main() -> int:
 
     watch_p = sub.add_parser("watch")
     watch_p.add_argument("--output", type=Path, required=True)
-    watch_p.add_argument("--kind", choices=("long", "short"), required=True)
+    watch_p.add_argument("--kind", choices=("long", "short", "podcast"), required=True)
     watch_p.add_argument("--poll-seconds", type=float, default=4.0)
-    watch_p.add_argument("--scope", choices=("long", "short", "bundle"), default="")
+    watch_p.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), default="")
     watch_p.add_argument("--topic", default="")
     watch_p.add_argument("--run-url", default="")
 
     final_p = sub.add_parser("terminal")
     final_p.add_argument("--output", type=Path, required=True)
-    final_p.add_argument("--kind", choices=("long", "short"), required=True)
+    final_p.add_argument("--kind", choices=("long", "short", "podcast"), required=True)
     final_p.add_argument("--job-status", required=True)
     final_p.add_argument("--run-url", default="")
 
     started_p = sub.add_parser("started")
-    started_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    started_p.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), required=True)
     started_p.add_argument("--topic", default="")
     started_p.add_argument("--run-url", default="")
 
     artifact_p = sub.add_parser("artifact")
-    artifact_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    artifact_p.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), required=True)
     artifact_p.add_argument("--topic", default="")
     artifact_p.add_argument("--url", required=True)
 
@@ -448,7 +448,7 @@ def main() -> int:
 
     watchdog_p = sub.add_parser("watchdog")
     watchdog_p.add_argument("--output-root", type=Path, required=True)
-    watchdog_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    watchdog_p.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), required=True)
     watchdog_p.add_argument("--job-status", required=True)
     watchdog_p.add_argument("--topic", default="")
     watchdog_p.add_argument("--run-url", default="")
