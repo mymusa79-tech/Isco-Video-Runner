@@ -249,7 +249,13 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
         plain = _plain_caption(text)
-        face = _accent_caption(text, _accent_word_index(text))
+        focus_size = min(150, max(font_size + 16, int(round(font_size * 1.18))))
+        face = _accent_caption(
+            text,
+            _accent_word_index(text),
+            body_size=font_size,
+            focus_size=focus_size,
+        )
         lines.extend(
             [
                 f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,{{{common}\\pos({TEXT_X + SHADOW[0]},{text_y + SHADOW[1]})}}{plain}",
