@@ -658,7 +658,7 @@ def _build_production_plan_for_audit(
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
-        format="moment" if brief_format == "short" else brief_format,
+        format="moment" if brief_format == "short" else ("film" if brief_format == "podcast" else brief_format),
         hook="",
         title_options=[str(plan.get("title") or "")],
         thumbnail_concepts=[],
