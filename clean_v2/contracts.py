@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-SUPPORTED_FORMATS = frozenset({"film", "moment", "story", "short", "podcast"})
+SUPPORTED_FORMATS = frozenset({"film", "short", "podcast"})
 _HASH_METADATA_KEYS = frozenset({"approved_hash", "brief_sha256"})
 
 
