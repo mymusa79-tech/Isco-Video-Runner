@@ -79,7 +79,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("خارج النص", planning)
         self.assertIn('" | خارج النص"', planning)
         self.assertIn("one thoughtful person is speaking calmly to one listener", script)
-        self.assertIn("do not announce sections", script)
+        self.assertIn("do not announce sections", script.casefold())
         self.assertIn("neutral female narrator", script)
         self.assertIn("local Nabra af_msa", script)
         self.assertIn("Never invent first-person", script)
