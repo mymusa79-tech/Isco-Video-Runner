@@ -65,7 +65,11 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("between(t,10.000,12.000)", filters)
 
     def test_rule_3_gold_keyword_is_materially_larger_than_white_body(self) -> None:
-        events = [{"start": 0.0, "end": 2.0, "text": "القائمة أكبر مما تتوقع", "role": "hook"}]
+        events = [
+            {"start": 0.0, "end": 2.0, "text": "القائمة أكبر مما تتوقع", "role": "hook"},
+            {"start": 2.0, "end": 4.0, "text": "التردد يستهلك البداية", "role": "beat"},
+            {"start": 4.0, "end": 6.0, "text": "مهمة واحدة تكفي", "role": "payoff"},
+        ]
         ass = text_module.build_rich_ass(events)
         self.assertGreater(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
         self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.35)
@@ -130,7 +134,11 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("hue=h=38", source)
 
     def test_rule_6_captions_are_lower_center_above_bottom_15_percent(self) -> None:
-        events = [{"start": 0.0, "end": 2.0, "text": "مهمة واحدة تكفي", "role": "hook", "section_id": "s1"}]
+        events = [
+            {"start": 0.0, "end": 2.0, "text": "مهمة واحدة تكفي", "role": "hook", "section_id": "s1"},
+            {"start": 2.0, "end": 4.0, "text": "خفف القائمة الآن", "role": "beat", "section_id": "s2"},
+            {"start": 4.0, "end": 6.0, "text": "ابدأ بما أمامك", "role": "payoff", "section_id": "s3"},
+        ]
         hint = text_module.build_composition_hints(events)[0]
         self.assertEqual(hint["zone"], "lower_center_youtube_safe")
         self.assertEqual(hint["x"], 540)

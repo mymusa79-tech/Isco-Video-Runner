@@ -389,7 +389,8 @@ def contextual_intent(
         22,
     )
     context = (
-        f"Role: {role}. Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        f"Judge specific meaning before mood. Role: {role}. "
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         f"Intent: {intent}. Current: {current}. Previous: {previous}. "
         f"Next: {following}. Motif: {motif}. Judge specific meaning before mood."
     )
