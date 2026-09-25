@@ -1690,15 +1690,25 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            # Timeline First intentionally synthesizes measured semantic voice
-            # units (hook/prayer/channel identity/topic/outro). Lock the test to the
-            # persisted unit manifest instead of the old one-extra-hook-chunk count.
+            # Timeline First now persists deterministic silence as measured audio
+            # units too. Those units must affect timing but must never consume TTS.
             voice_manifest = json.loads(
                 (first_output / "voice-sections.json").read_text(encoding="utf-8")
             )
-            expected_voice_calls = sum(
-                int(section.get("chunk_count") or 0)
+            chunks = [
+                chunk
                 for section in voice_manifest.get("sections", [])
+                for chunk in (section.get("chunks") or [])
+                if isinstance(chunk, dict)
+            ]
+            silence_chunks = [
+                chunk for chunk in chunks
+                if str(chunk.get("provider") or "") == "deterministic_silence"
+            ]
+            expected_voice_calls = len(chunks) - len(silence_chunks)
+            self.assertEqual(
+                {str(chunk.get("role") or "") for chunk in silence_chunks},
+                {"intro_silence", "final_silence"},
             )
             self.assertGreater(expected_voice_calls, len(_script()["sections"]))
             self.assertEqual(first_voice.calls, expected_voice_calls)
