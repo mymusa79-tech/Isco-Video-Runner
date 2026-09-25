@@ -242,7 +242,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(rights[0]["provider"], "pexels")
 
 
-    def test_successive_story_beats_use_primary_then_alternate_english_query(self) -> None:
+    def test_successive_non_english_story_beats_fall_back_to_primary_then_alternate_query(self) -> None:
         seen_queries: list[str] = []
         source = media_module.StockVisualSource(
             query_normalizer=lambda query: seen_queries.append(query) or query
@@ -287,7 +287,51 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         )
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
-    def test_stock_search_uses_section_english_query_not_semantic_shot_intent(self) -> None:
+    def test_english_story_beat_intent_owns_stock_retrieval(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat(
+                "b1",
+                "s1",
+                "scattered papers half empty coffee cup desk",
+            )
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(
+            seen_queries,
+            ["scattered papers half empty coffee cup desk"],
+        )
+        self.assertEqual(
+            rights[0]["shot_intent"],
+            "scattered papers half empty coffee cup desk",
+        )
+
+    def test_non_ascii_story_intent_falls_back_to_section_english_query(self) -> None:
         seen_queries: list[str] = []
         source = media_module.StockVisualSource(
             query_normalizer=lambda query: seen_queries.append(query) or query
