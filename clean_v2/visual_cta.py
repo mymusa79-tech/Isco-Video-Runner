@@ -17,6 +17,9 @@ SFX_MIN_REL_DB = -16.0
 SFX_MAX_REL_DB = -9.0
 SHORT_CTA_CENTER_X = 540
 SHORT_CTA_Y = 1080
+HORIZONTAL_CTA_CENTER_X = 960
+HORIZONTAL_CTA_Y = 500
+HORIZONTAL_KEY_TEXT_Y = 770
 _ICON_BY_MODE = {
     "like": _ASSET_DIR / "like_ORIGINAL.png",
     "comment": _ASSET_DIR / "comment_ORIGINAL.png",
@@ -131,11 +134,14 @@ def _events(
             if start < duration - 2.0
         ][:2]
 
-    if fmt != "film":
+    if fmt not in {"film", "podcast"}:
         return []
 
-    # Long-form is intentionally sparse: the count grows only with real runtime.
-    if duration < 180:
+    # Horizontal long-form shares one sparse CTA policy. Podcast stays calmer
+    # than Film because narration and key text carry more of the experience.
+    if fmt == "podcast":
+        points = [0.56, 0.82] if duration >= 120 else [0.68]
+    elif duration < 180:
         points = [0.48, 0.80]
     elif duration < 420:
         points = [0.28, 0.56, 0.82]
@@ -144,7 +150,9 @@ def _events(
 
     primary = authored_mode if authored_mode in {"like", "comment", "share"} else "comment"
     palette = ["like", primary, "share", "subscribe_combo"]
-    if len(points) == 2:
+    if len(points) == 1:
+        palette = ["subscribe_combo"]
+    elif len(points) == 2:
         palette = [primary, "subscribe_combo"]
     elif len(points) == 3:
         palette = ["like" if primary != "like" else "comment", primary, "subscribe_combo"]
@@ -158,14 +166,13 @@ def _events(
         start = max(12.0, duration * ratio)
         if start > duration - 15.0:
             continue
-        left = index % 2 == 0
         events.append(
             VisualCtaEvent(
                 mode=mode,
                 start_seconds=round(start, 3),
                 end_seconds=round(start + (3.5 if mode == "subscribe_combo" else 1.45), 3),
-                x=85 if left else 1570,
-                y=330 if left else 520,
+                x=(610 if mode == "subscribe_combo" else 908),
+                y=HORIZONTAL_CTA_Y,
                 asset="subscribe_bell_reference.mp4" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
             )
         )
@@ -295,7 +302,7 @@ def apply_visual_cta_assets(
     output_dir = Path(output_dir)
     final_path = Path(final_path)
 
-    if fmt not in {"short", "film"}:
+    if fmt not in {"short", "film", "podcast"}:
         return {
             "schema_version": 1,
             "source": "clean-v2-approved-visual-cta-v1",
@@ -345,6 +352,15 @@ def apply_visual_cta_assets(
         "short_cta_position": (
             {"center_x": SHORT_CTA_CENTER_X, "y": SHORT_CTA_Y, "caption_y": 1400}
             if fmt == "short"
+            else None
+        ),
+        "horizontal_cta_position": (
+            {
+                "center_x": HORIZONTAL_CTA_CENTER_X,
+                "y": HORIZONTAL_CTA_Y,
+                "podcast_key_text_y": HORIZONTAL_KEY_TEXT_Y if fmt == "podcast" else None,
+            }
+            if fmt in {"film", "podcast"}
             else None
         ),
         "provider_calls_added": 0,
