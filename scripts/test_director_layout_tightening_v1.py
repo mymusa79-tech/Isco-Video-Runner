@@ -170,6 +170,32 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertGreaterEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MIN_REL_DB)
         self.assertLessEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MAX_REL_DB)
 
+    def test_rule_5c_film_and_podcast_use_horizontal_cta_above_key_text(self) -> None:
+        film = cta_module._events(
+            fmt="film",
+            duration=240.0,
+            script={"title": "موضوع طويل"},
+            authored_mode="comment",
+        )
+        podcast = cta_module._events(
+            fmt="podcast",
+            duration=240.0,
+            script={"title": "حلقة خارج النص"},
+            authored_mode="comment",
+        )
+        self.assertTrue(film)
+        self.assertTrue(podcast)
+        self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in film))
+        self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in podcast))
+        self.assertLess(cta_module.HORIZONTAL_CTA_Y, cta_module.HORIZONTAL_KEY_TEXT_Y)
+        self.assertLessEqual(len(podcast), 2)
+        self.assertLessEqual(len(podcast), len(film))
+        for item in podcast:
+            if item.mode == "subscribe_combo":
+                self.assertEqual(item.x, 610)
+            else:
+                self.assertEqual(item.x, 908)
+
     def test_rule_6_captions_are_lower_center_above_bottom_15_percent(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "مهمة واحدة تكفي", "role": "hook", "section_id": "s1"},
