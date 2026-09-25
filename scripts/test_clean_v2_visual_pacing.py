@@ -937,6 +937,14 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
             4 + (media_module.MASTER_LOOK_LUT_SIZE ** 3),
         )
 
+    def test_cinematic_finish_is_deterministic_zero_provider_filter(self) -> None:
+        fragment = media_module.CINEMATIC_FINISH_FILTER
+        self.assertIn("eq=contrast=", fragment)
+        self.assertIn("unsharp=", fragment)
+        self.assertIn("vignette=", fragment)
+        self.assertNotIn("drawtext", fragment)
+        self.assertNotIn("movie=", fragment)
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class MasterLutFfmpegTests(unittest.TestCase):
@@ -965,6 +973,23 @@ class MasterLutFfmpegTests(unittest.TestCase):
             )
             self.assertTrue(dest.is_file())
             self.assertGreater(dest.stat().st_size, 1000)
+
+            finished = root_path / "finished.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(source),
+                    "-vf",
+                    (
+                        f"lut3d=file='{media_module._ffmpeg_filter_path(lut)}':interp=tetrahedral,"
+                        f"{media_module.CINEMATIC_FINISH_FILTER}"
+                    ),
+                    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(finished),
+                ],
+                check=True,
+            )
+            self.assertTrue(finished.is_file())
+            self.assertGreater(finished.stat().st_size, 1000)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
