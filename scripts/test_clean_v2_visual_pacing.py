@@ -60,6 +60,53 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
+class StockLocalSemanticRerankTests(unittest.TestCase):
+    def test_matching_provider_metadata_can_outrank_unrelated_first_result(self) -> None:
+        query = "hands writing notebook desk"
+        unrelated = media_module._stock_candidate_rank_score(
+            query=query,
+            semantic_text="person drinking coffee kitchen",
+            index=0,
+            count=12,
+            width=1080,
+            height=1920,
+            duration=8.0,
+            portrait=True,
+        )
+        matching = media_module._stock_candidate_rank_score(
+            query=query,
+            semantic_text="hands writing notes notebook desk",
+            index=2,
+            count=12,
+            width=1080,
+            height=1920,
+            duration=8.0,
+            portrait=True,
+        )
+        self.assertGreater(matching, unrelated)
+
+    def test_missing_metadata_preserves_existing_local_rank(self) -> None:
+        expected = media_module._stock_local_rank_score(
+            index=1,
+            count=12,
+            width=1080,
+            height=1920,
+            duration=8.0,
+            portrait=True,
+        )
+        actual = media_module._stock_candidate_rank_score(
+            query="hands writing notebook",
+            semantic_text="",
+            index=1,
+            count=12,
+            width=1080,
+            height=1920,
+            duration=8.0,
+            portrait=True,
+        )
+        self.assertEqual(actual, expected)
+
+
 class StockRetrievalCompactionTests(unittest.TestCase):
     def test_good_concise_query_is_unchanged(self) -> None:
         query = "hands writing first line notebook warm sunlight"
