@@ -130,7 +130,17 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
-          pip-audit --no-deps -r requirements-lock.txt
+          audit_requirements="$RUNNER_TEMP/requirements-audit.txt"
+          sed -E 's/^(torch|torchaudio)==([0-9.]+)\+cpu$/\1==\2/' requirements-lock.txt > "$audit_requirements"
+          for attempt in 1 2 3; do
+            if pip-audit --no-deps -r "$audit_requirements"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
 
       - name: Focused Run126 dynamic capacity and immutable snapshot regression
         env:

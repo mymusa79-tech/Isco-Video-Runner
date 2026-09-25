@@ -16,7 +16,9 @@ PRODUCTION = WORKFLOWS / "produce-resilient-v4.yml"
 
 ENGINE_FULL = "python -m unittest discover -s tests -q"
 RUNNER_DISCOVERY = "find scripts -maxdepth 1 -type f -name 'test_*.py'"
-DEPENDENCY_AUDIT = "pip-audit --no-deps -r requirements-lock.txt"
+DEPENDENCY_AUDIT = 'pip-audit --no-deps -r "$audit_requirements"'
+DEPENDENCY_AUDIT_NORMALIZATION = "sed -E 's/^(torch|torchaudio)==([0-9.]+)\\+cpu$/\\1==\\2/' requirements-lock.txt"
+DEPENDENCY_AUDIT_RETRY = "for attempt in 1 2 3; do"
 DEPENDENCY_AUDIT_PACKAGE = "pip-audit==2.10.1"
 DEPENDENCY_AUDIT_ARGS = "--no-deps -r requirements-lock.txt"
 
@@ -28,7 +30,9 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
         owner = CANONICAL_OWNER.read_text(encoding="utf-8")
         self.assertIn(ENGINE_FULL, owner)
         self.assertIn(RUNNER_DISCOVERY, owner)
+        self.assertIn(DEPENDENCY_AUDIT_NORMALIZATION, owner)
         self.assertIn(DEPENDENCY_AUDIT, owner)
+        self.assertIn(DEPENDENCY_AUDIT_RETRY, owner)
 
         for path in SPECIALIZED:
             with self.subTest(workflow=path.name):
