@@ -1064,6 +1064,11 @@ _STOCK_RETRIEVAL_SAFE_TERMS = {
     "shadow", "shadows", "faceless", "anonymous", "objects",
 }
 
+# Reuse one extra already-ranked provider candidate only when the first downloaded
+# clip is locally unusable (download/security/near-monochrome). Common successful
+# paths still stop after candidate one, so this adds no AI call and no routine work.
+PRIMARY_STOCK_CANDIDATES_PER_PROVIDER = 2
+
 
 def _compact_stock_retrieval_query(query: str) -> str:
     """Run212-inspired search-only compaction with zero provider/AI cost.
@@ -1462,72 +1467,74 @@ class StockVisualSource:
             auxiliary: bool,
         ) -> bool:
             for finder in (self._pexels, self._pixabay):
-                candidate = finder(query, portrait=portrait)
-                if candidate is None:
-                    continue
-                destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
-                try:
-                    _download_media(str(candidate["download_url"]), destination)
-                except Exception as exc:
-                    self._event(
-                        str(candidate["provider"]),
-                        query,
-                        "download_failed",
-                        wire_attempted=True,
-                        reason=str(exc)[:80],
+                for _candidate_attempt in range(PRIMARY_STOCK_CANDIDATES_PER_PROVIDER):
+                    candidate = finder(query, portrait=portrait)
+                    if candidate is None:
+                        break
+                    destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+                    try:
+                        _download_media(str(candidate["download_url"]), destination)
+                    except Exception as exc:
+                        self._event(
+                            str(candidate["provider"]),
+                            query,
+                            "download_failed",
+                            wire_attempted=True,
+                            reason=str(exc)[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        continue
+                    if self.media_preflight is not None:
+                        blocked = self.media_preflight(destination)
+                        if blocked is not None:
+                            self._event(
+                                str(candidate["provider"]),
+                                query,
+                                "security_blocked",
+                                wire_attempted=False,
+                                reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                            )
+                            destination.unlink(missing_ok=True)
+                            continue
+                    if fmt == "short":
+                        color_ok, color_reason = _short_visual_color_compatible(destination)
+                        if not color_ok:
+                            self._event(
+                                str(candidate["provider"]),
+                                query,
+                                "color_rejected",
+                                wire_attempted=False,
+                                reason=color_reason,
+                            )
+                            destination.unlink(missing_ok=True)
+                            continue
+                    if self.media_transform is not None:
+                        destination = Path(self.media_transform(destination))
+                    candidate = {
+                        key: value
+                        for key, value in candidate.items()
+                        if key != "download_url"
+                    }
+                    candidate["local_file"] = destination.name
+                    candidate["section_id"] = section_id
+                    candidate["beat_id"] = str(beat.get("id") or "")
+                    candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
+                    candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                    # Marker only. Even ai_still preference still uses the current
+                    # stock-motion source in Phase B; no AI-image provider is activated.
+                    candidate["source_preference"] = str(
+                        beat.get("source_preference") or "stock_motion"
                     )
-                    continue
-                if self.media_preflight is not None:
-                    blocked = self.media_preflight(destination)
-                    if blocked is not None:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "security_blocked",
-                            wire_attempted=False,
-                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if fmt == "short":
-                    color_ok, color_reason = _short_visual_color_compatible(destination)
-                    if not color_ok:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "color_rejected",
-                            wire_attempted=False,
-                            reason=color_reason,
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if self.media_transform is not None:
-                    destination = Path(self.media_transform(destination))
-                candidate = {
-                    key: value
-                    for key, value in candidate.items()
-                    if key != "download_url"
-                }
-                candidate["local_file"] = destination.name
-                candidate["section_id"] = section_id
-                candidate["beat_id"] = str(beat.get("id") or "")
-                candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
-                candidate["shot_intent"] = str(beat.get("shot_intent") or query)
-                # Marker only. Even ai_still preference still uses the current
-                # stock-motion source in Phase B; no AI-image provider is activated.
-                candidate["source_preference"] = str(
-                    beat.get("source_preference") or "stock_motion"
-                )
-                candidate["source_actual"] = "stock_motion"
-                if auxiliary:
-                    # Keep this compatibility flag because existing render/opening
-                    # code uses it to distinguish the first section visual. Its cause
-                    # is now a real story beat, not timing-based pacing.
-                    candidate["pacing_auxiliary"] = True
-                    candidate["story_beat_auxiliary"] = True
-                clips.append(destination)
-                rights.append(candidate)
-                return True
+                    candidate["source_actual"] = "stock_motion"
+                    if auxiliary:
+                        # Keep this compatibility flag because existing render/opening
+                        # code uses it to distinguish the first section visual. Its cause
+                        # is now a real story beat, not timing-based pacing.
+                        candidate["pacing_auxiliary"] = True
+                        candidate["story_beat_auxiliary"] = True
+                    clips.append(destination)
+                    rights.append(candidate)
+                    return True
             return False
 
         seen_sections: set[str] = set()
