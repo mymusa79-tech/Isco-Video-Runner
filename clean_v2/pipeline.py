@@ -34,6 +34,7 @@ from .media import (
     concat_wav_parts,
     inspect_final,
     probe_duration,
+    render_podcast_derived_short,
     render_video,
 )
 from .structural_ai import structural_ai_flags
@@ -154,6 +155,82 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
     return chunks
 
 
+_PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
+
+
+def _select_podcast_promo_excerpt(
+    sections: list[dict[str, Any]],
+    *,
+    identity_closer: str = "",
+) -> dict[str, str] | None:
+    """Pick one compact, self-contained passage locally from the final Podcast script.
+
+    No model call is added. Selection deliberately starts from section 2 so the
+    hook/prayer/channel-identity opening is never repurposed as a promo.
+    """
+    if len(sections) < 2:
+        return None
+    closer = " ".join(str(identity_closer or "").split()).strip()
+    best: tuple[tuple[int, int, int, int], dict[str, str]] | None = None
+    total_sections = len(sections)
+    for section_index, raw in enumerate(sections[1:], start=1):
+        section_id = str(raw.get("id") or f"s{section_index + 1}").strip()
+        text = " ".join(str(raw.get("narration") or "").split()).strip()
+        if section_index == total_sections - 1 and closer and text.endswith(closer):
+            text = text[: -len(closer)].strip()
+        sentences = [
+            item.strip()
+            for item in re.split(r"(?<=[.!؟!])\s+", text)
+            if item.strip()
+        ]
+        for start in range(len(sentences)):
+            for count in (1, 2, 3):
+                window = sentences[start : start + count]
+                if len(window) != count:
+                    continue
+                excerpt = " ".join(window).strip()
+                words = len(excerpt.split())
+                chars = len(excerpt)
+                if words < 18 or words > 55 or chars > 360:
+                    continue
+                marker_hits = sum(1 for marker in _PODCAST_PROMO_MARKERS if marker in excerpt)
+                length_score = 4 if 28 <= words <= 44 else 2
+                section_score = 2 if 1 <= section_index < total_sections - 1 else 1
+                statement_score = 1 if not excerpt.endswith("؟") else 0
+                score = (
+                    marker_hits * 4 + length_score + section_score + statement_score,
+                    -abs(words - 36),
+                    -section_index,
+                    -start,
+                )
+                candidate = {"section_id": section_id, "text": excerpt}
+                if best is None or score > best[0]:
+                    best = (score, candidate)
+    return None if best is None else best[1]
+
+
+def _isolate_podcast_promo_unit(
+    voice_units: list[tuple[str, str]],
+    promo_text: str,
+) -> list[tuple[str, str]]:
+    promo = " ".join(str(promo_text or "").split()).strip()
+    if not promo:
+        return voice_units
+    topic_indexes = [index for index, (role, _text) in enumerate(voice_units) if role == "topic"]
+    if not topic_indexes:
+        return voice_units
+    first, last = topic_indexes[0], topic_indexes[-1]
+    topic_text = " ".join(text for role, text in voice_units[first : last + 1] if role == "topic")
+    if topic_text.count(promo) != 1:
+        return voice_units
+    prefix, suffix = topic_text.split(promo, 1)
+    replacement: list[tuple[str, str]] = []
+    replacement.extend(("topic", item) for item in _bounded_voice_chunks(prefix))
+    replacement.append(("promo_short", promo))
+    replacement.extend(("topic", item) for item in _bounded_voice_chunks(suffix))
+    return [*voice_units[:first], *replacement, *voice_units[last + 1 :]]
+
+
 def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
@@ -163,6 +240,7 @@ def _synthesize_sectioned_voice(
     identity_definition: str = "",
     identity_closer: str = "",
     require_charon_only: bool = False,
+    podcast_promo: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
 
@@ -232,6 +310,16 @@ def _synthesize_sectioned_voice(
                     voice_units.append(("outro", remaining))
             else:
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
+
+        if (
+            fmt == "podcast"
+            and isinstance(podcast_promo, Mapping)
+            and str(podcast_promo.get("section_id") or "") == section_id
+        ):
+            voice_units = _isolate_podcast_promo_unit(
+                voice_units,
+                str(podcast_promo.get("text") or ""),
+            )
 
         chunks = [text for _role, text in voice_units if text]
         roles = [role for role, text in voice_units if text]
@@ -304,6 +392,7 @@ def _synthesize_sectioned_voice(
                         identity_definition=identity_definition,
                         identity_closer=identity_closer,
                         require_charon_only=require_charon_only,
+                        podcast_promo=podcast_promo,
                     )
                     restarted["voice_restart_reason"] = "charon_failed_after_route_lock"
                     restarted["charon_tts_attempts_before_restart"] = prior_attempts
@@ -2807,6 +2896,79 @@ def _run_audio_mastering_stage(
     }
 
 
+def _run_podcast_derived_short_lite(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    final_master_qc: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    """Derive one optional 9:16 promo from the certified Podcast final, fail-soft."""
+    report_path = output_dir / "podcast-short.json"
+    delivered = output_dir / "podcast-short.mp4"
+    qc_copy = output_dir / "podcast-short-qc.json"
+    delivered.unlink(missing_ok=True)
+    qc_copy.unlink(missing_ok=True)
+    base = {
+        "schema_version": 1,
+        "source": "clean-v2-podcast-derived-short-lite",
+        "provider_calls_added": 0,
+    }
+    try:
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        units = timeline.get("audio_units")
+        promo = [
+            item
+            for item in units
+            if isinstance(item, Mapping) and str(item.get("role") or "") == "promo_short"
+        ] if isinstance(units, list) else []
+        if len(promo) != 1:
+            report = {**base, "status": "skipped_no_measured_promo_unit"}
+            atomic_write_json(report_path, report)
+            return report
+
+        start = float(promo[0].get("start") or 0.0)
+        end = float(promo[0].get("end") or 0.0)
+        duration = end - start
+        if not 7.0 <= duration <= 30.0:
+            report = {**base, "status": "skipped_duration_outside_7_30", "duration_seconds": round(duration, 3)}
+            atomic_write_json(report_path, report)
+            return report
+
+        short_dir = output_dir / "podcast-short"
+        shutil.rmtree(short_dir, ignore_errors=True)
+        short_dir.mkdir(parents=True, exist_ok=True)
+        short_final = render_podcast_derived_short(
+            final_path,
+            short_dir / "final.mp4",
+            start_seconds=start,
+            end_seconds=end,
+        )
+        atomic_write_json(short_dir / "plan.json", {"format": "moment"})
+        atomic_write_json(short_dir / "quality-final.json", {"format": "moment"})
+        atomic_write_json(
+            short_dir / "visual-timeline.json",
+            {"duration_seconds": round(duration, 3)},
+        )
+        qc = final_master_qc(short_dir)
+        shutil.copy2(short_final, delivered)
+        atomic_write_json(qc_copy, qc)
+        stream = qc.get("stream_contract") if isinstance(qc, Mapping) else {}
+        report = {
+            **base,
+            "status": "pass",
+            "duration_seconds": qc.get("final_duration_seconds", round(duration, 3)),
+            "width": (stream or {}).get("width"),
+            "height": (stream or {}).get("height"),
+            "final_master_qc_status": "pass",
+            "file": delivered.name,
+        }
+        atomic_write_json(report_path, report)
+        return report
+    except Exception as exc:
+        report = {**base, "status": "skipped_failed", "reason": f"{type(exc).__name__}:{str(exc)[:200]}"}
+        atomic_write_json(report_path, report)
+        return report
+
 def _inspect_final_with_short_gate(
     *,
     final_inspector: Callable[[Path], dict[str, Any]],
@@ -3833,6 +3995,14 @@ class CleanV2Pipeline:
                             "PODCAST_NABRA_PRIMARY_UNAVAILABLE"
                         )
                     activate_nabra_primary()
+                podcast_promo = (
+                    _select_podcast_promo_excerpt(
+                        list(script["sections"]),
+                        identity_closer=str(identity_runtime.get("closer") or ""),
+                    )
+                    if str(brief["format"]) == "podcast"
+                    else None
+                )
                 voice_result = journal.run(
                     "voice",
                     lambda: _synthesize_sectioned_voice(
@@ -4226,6 +4396,16 @@ class CleanV2Pipeline:
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
             )
 
+            podcast_short_report = (
+                _run_podcast_derived_short_lite(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    final_master_qc=self.final_master_qc,
+                )
+                if str(brief["format"]) == "podcast"
+                else {"status": "not_applicable"}
+            )
+
             journal.complete(
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
@@ -4238,6 +4418,7 @@ class CleanV2Pipeline:
                 cinematic_v2_status=cinematic_report.get("status"),
                 identity_media_status=identity_media_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
+                podcast_short_status=podcast_short_report.get("status"),
                 provider_wire_attempts=sum(
                     1
                     for item in getattr(self.router, "events", [])
@@ -4256,6 +4437,7 @@ class CleanV2Pipeline:
                 "opening_director_status": opening_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
+                "podcast_short_status": podcast_short_report.get("status"),
             }
         except Exception:
             self._write_runtime_events(output_dir)

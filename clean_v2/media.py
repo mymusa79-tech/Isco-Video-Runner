@@ -2308,6 +2308,86 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
+def render_podcast_derived_short(
+    source_path: Path,
+    output_path: Path,
+    *,
+    start_seconds: float,
+    end_seconds: float,
+) -> Path:
+    """Reframe one already-approved Podcast segment to 9:16 with no new media/provider call."""
+    start = float(start_seconds)
+    end = float(end_seconds)
+    duration = end - start
+    if start < 0 or duration < 7.0 or duration > 30.0:
+        raise RuntimeError(
+            f"podcast derived short duration must be 7-30s: start={start:.3f} end={end:.3f}"
+        )
+    source = Path(source_path)
+    if not source.is_file() or source.stat().st_size <= 0:
+        raise RuntimeError("podcast derived short source is missing")
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    vf = (
+        "[0:v]split=2[bg0][fg0];"
+        "[bg0]scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,boxblur=20:2[bg];"
+        "[fg0]scale=1040:-2[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2:format=auto,format=yuv420p[v]"
+    )
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{duration:.3f}",
+            "-i",
+            str(source),
+            "-filter_complex",
+            vf,
+            "-map",
+            "[v]",
+            "-map",
+            "0:a:0?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-r",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-c:a",
+            "aac",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-movflags",
+            "+faststart",
+            "-shortest",
+            str(output),
+        ],
+        timeout=600,
+    )
+    if not output.is_file() or output.stat().st_size <= 0:
+        raise RuntimeError("podcast derived short render is missing or empty")
+    return output
+
+
 def _rights_manifest_payload(output_dir: Path) -> dict[str, Any] | None:
     manifest_path = output_dir / "rights-manifest.json"
     if not manifest_path.is_file():

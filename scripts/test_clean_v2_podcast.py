@@ -13,7 +13,13 @@ from clean_v2.identity_sequence import (
     inject_spoken_identity,
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
-from clean_v2.pipeline import _planning_prompt, _script_prompt
+from clean_v2.pipeline import (
+    _isolate_podcast_promo_unit,
+    _planning_prompt,
+    _run_podcast_derived_short_lite,
+    _script_prompt,
+    _select_podcast_promo_excerpt,
+)
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
 from clean_v2.podcast_key_text import build_events as build_podcast_key_text_events
@@ -289,6 +295,118 @@ class PodcastVisualIdentityTests(unittest.TestCase):
             missing["cultural_islamic_policy"],
             "advisory_missing_evidence",
         )
+
+
+class PodcastDerivedShortLiteTests(unittest.TestCase):
+    def test_local_promo_selection_avoids_opening_and_preserves_text(self) -> None:
+        sections = [
+            {
+                "id": "s1",
+                "narration": "هذا هو الهوك. اللهم صل وسلم على نبينا محمد. تعريف القناة ثم نبدأ.",
+            },
+            {
+                "id": "s2",
+                "narration": (
+                    "نحن لا نعود إلى العادة القديمة لأننا نسينا ضررها. "
+                    "المشكلة أنها ما زالت تؤدي وظيفة يومية لا نعرف كيف نستبدلها. "
+                    "ولهذا يصبح القرار وحده أضعف من البيئة التي تعيد السلوك كل مرة."
+                ),
+            },
+        ]
+        promo = _select_podcast_promo_excerpt(sections)
+        self.assertIsNotNone(promo)
+        assert promo is not None
+        self.assertEqual(promo["section_id"], "s2")
+        self.assertNotIn("هذا هو الهوك", promo["text"])
+
+        original = [
+            ("topic", "قبل المقطع."),
+            ("topic", promo["text"]),
+            ("topic", "بعد المقطع."),
+        ]
+        isolated = _isolate_podcast_promo_unit(original, promo["text"])
+        self.assertEqual([role for role, _ in isolated].count("promo_short"), 1)
+        before = " ".join(text for _role, text in original)
+        after = " ".join(text for _role, text in isolated)
+        self.assertEqual(" ".join(before.split()), " ".join(after.split()))
+
+    def test_derived_short_reuses_final_and_passes_existing_qc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"video-source")
+            (root / "timeline-first.json").write_text(
+                __import__("json").dumps(
+                    {
+                        "audio_units": [
+                            {
+                                "role": "promo_short",
+                                "start": 12.0,
+                                "end": 27.0,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_render(_source, output, **_kwargs):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"derived-video")
+                return output
+
+            with mock.patch(
+                "clean_v2.pipeline.render_podcast_derived_short",
+                side_effect=fake_render,
+            ):
+                report = _run_podcast_derived_short_lite(
+                    output_dir=root,
+                    final_path=final_path,
+                    final_master_qc=lambda _root: {"status": "pass"},
+                )
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue((root / "podcast-short.mp4").is_file())
+            self.assertTrue((root / "podcast-short-qc.json").is_file())
+
+    def test_derived_short_qc_failure_never_fails_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"video-source")
+            (root / "timeline-first.json").write_text(
+                __import__("json").dumps(
+                    {
+                        "audio_units": [
+                            {
+                                "role": "promo_short",
+                                "start": 5.0,
+                                "end": 20.0,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_render(_source, output, **_kwargs):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"derived-video")
+                return output
+
+            with mock.patch(
+                "clean_v2.pipeline.render_podcast_derived_short",
+                side_effect=fake_render,
+            ):
+                report = _run_podcast_derived_short_lite(
+                    output_dir=root,
+                    final_path=final_path,
+                    final_master_qc=lambda _root: (_ for _ in ()).throw(
+                        RuntimeError("qc blocked")
+                    ),
+                )
+            self.assertEqual(report["status"], "skipped_failed")
+            self.assertTrue(final_path.is_file())
+            self.assertFalse((root / "podcast-short.mp4").exists())
 
 
 if __name__ == "__main__":
