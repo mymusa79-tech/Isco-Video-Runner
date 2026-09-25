@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import time
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -98,6 +99,29 @@ STAGES = (
 
 
 VOICE_CHUNK_MAX_CHARS = 550
+SHORT_IDENTITY_INTRO_SILENCE_SECONDS = 1.0
+SHORT_IDENTITY_FINAL_SILENCE_SECONDS = 0.75
+
+
+def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
+    """Create exact-format PCM silence so Timeline First can measure it like voice."""
+    if seconds <= 0:
+        raise ValueError("silence duration must be positive")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(reference), "rb") as source:
+        channels = source.getnchannels()
+        sample_width = source.getsampwidth()
+        sample_rate = source.getframerate()
+        compression = source.getcomptype()
+        compression_name = source.getcompname()
+    frames = max(1, int(round(sample_rate * seconds)))
+    with wave.open(str(destination), "wb") as target:
+        target.setnchannels(channels)
+        target.setsampwidth(sample_width)
+        target.setframerate(sample_rate)
+        target.setcomptype(compression, compression_name)
+        target.writeframes(b"\x00" * frames * channels * sample_width)
+    return destination
 
 
 def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) -> list[str]:
@@ -337,7 +361,10 @@ def _synthesize_sectioned_voice(
         section_fallback = False
 
         for chunk_index, chunk_text in enumerate(chunks, start=1):
-            if len(chunks) == 1:
+            short_identity_silence = fmt == "short" and (
+                index == 1 or index == len(sections)
+            )
+            if len(chunks) == 1 and not short_identity_silence:
                 chunk_path = section_path
             else:
                 chunk_dir = audio_dir / f"{index:02d}-chunks"
@@ -468,16 +495,58 @@ def _synthesize_sectioned_voice(
                     }
                 )
 
+            role = roles[chunk_index - 1]
             chunk_paths.append(chunk_path)
             chunk_reports.append(
                 {
-                    "chunk": chunk_index,
+                    "chunk": len(chunk_reports) + 1,
                     "file": str(chunk_path.relative_to(narration_path.parent)),
                     "chars": len(chunk_text),
                     "provider": provider,
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
-                    "role": roles[chunk_index - 1],
+                    "role": role,
+                }
+            )
+
+            if fmt == "short" and index == 1 and role == "hook":
+                silence_path = chunk_path.parent / "intro-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    silence_path,
+                    SHORT_IDENTITY_INTRO_SILENCE_SECONDS,
+                )
+                chunk_paths.append(silence_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "intro_silence",
+                    }
+                )
+
+        if fmt == "short" and index == len(sections):
+            silence_reference = chunk_paths[-1]
+            final_silence = silence_reference.parent / "final-silence.wav"
+            _write_silence_like(
+                silence_reference,
+                final_silence,
+                SHORT_IDENTITY_FINAL_SILENCE_SECONDS,
+            )
+            chunk_paths.append(final_silence)
+            chunk_reports.append(
+                {
+                    "chunk": len(chunk_reports) + 1,
+                    "file": str(final_silence.relative_to(narration_path.parent)),
+                    "chars": 0,
+                    "provider": "deterministic_silence",
+                    "charon_attempts": 0,
+                    "fallback_used": False,
+                    "role": "final_silence",
                 }
             )
 
@@ -525,7 +594,7 @@ def _synthesize_sectioned_voice(
                 "provider": provider,
                 "charon_attempts": section_attempts,
                 "fallback_used": section_fallback,
-                "chunk_count": len(chunks),
+                "chunk_count": len(chunk_reports),
                 "chunks": chunk_reports,
             }
         )
@@ -2877,11 +2946,12 @@ def _run_audio_mastering_stage(
             "format": fmt,
             "sequence": [
                 "hook",
-                "intro",
-                "prayer_sentence_with_visual",
+                "intro_silence_with_fully_opaque_intro",
+                "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
-                "topic",
-                "outro",
+                "topic_music_window",
+                "outro_no_music_fully_opaque",
+                "final_silence_freeze",
             ],
             "timeline_owner": voice_timeline["timeline_owner"],
             "identity_events": voice_timeline["identity_events"],

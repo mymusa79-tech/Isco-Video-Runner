@@ -192,24 +192,41 @@ def _identity_events(
     *,
     voice_seconds: float,
     require_identity: bool,
+    fmt: str,
 ) -> list[dict[str, Any]]:
     hook = _one_role(units, "hook")
     prayer = _one_role(units, "prayer")
     identity = _one_role(units, "channel_identity")
     outro = _one_role(units, "outro")
+    intro_silence = _one_role(units, "intro_silence")
+    final_silence = _one_role(units, "final_silence")
 
-    if require_identity and (hook is None or prayer is None or identity is None or outro is None):
+    short_missing_silence = fmt == "short" and (
+        intro_silence is None or final_silence is None
+    )
+    if require_identity and (
+        hook is None
+        or prayer is None
+        or identity is None
+        or outro is None
+        or short_missing_silence
+    ):
         raise TimelineFirstError(
             "TIMELINE_FIRST_IDENTITY_AUDIO_BOUNDS_MISSING "
             f"hook={hook is not None} prayer={prayer is not None} "
-            f"identity={identity is not None} outro={outro is not None}"
+            f"identity={identity is not None} outro={outro is not None} "
+            f"intro_silence={intro_silence is not None} final_silence={final_silence is not None}"
         )
     if prayer is None or identity is None:
         return []
 
-    intro_start = float(prayer["start"])
-    intro_end = float(identity["end"])
-    topic_start = intro_end
+    if fmt == "short":
+        intro_start = float(intro_silence["start"])
+        intro_end = float(intro_silence["end"])
+    else:
+        intro_start = float(prayer["start"])
+        intro_end = float(identity["end"])
+    topic_start = float(identity["end"])
     topic_end = float(outro["start"]) if outro is not None else voice_seconds
     events: list[dict[str, Any]] = []
     if hook is not None:
@@ -225,7 +242,11 @@ def _identity_events(
         [
             {
                 "kind": "intro",
-                "source": "measured_prayer_plus_identity_audio_window",
+                "source": (
+                    "measured_intro_silence"
+                    if fmt == "short"
+                    else "measured_prayer_plus_identity_audio_window"
+                ),
                 "start": intro_start,
                 "end": intro_end,
             },
@@ -259,6 +280,15 @@ def _identity_events(
                 "source": "measured_voice_chunk",
                 "start": float(outro["start"]),
                 "end": float(outro["end"]),
+            }
+        )
+    if fmt == "short" and final_silence is not None:
+        events.append(
+            {
+                "kind": "final_silence",
+                "source": "measured_silence_chunk",
+                "start": float(final_silence["start"]),
+                "end": float(final_silence["end"]),
             }
         )
     return events
