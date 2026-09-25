@@ -892,7 +892,7 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
 
 
 def render_selection_confirmation(request: dict[str, Any]) -> str:
-    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط", "podcast": "بودكاست"}[str(request["scope"])]
+    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط", "podcast": "خارج النص"}[str(request["scope"])]
     pack = [item for item in request.get("research_pack", []) if isinstance(item, dict)]
     lines = [
         "✅ تم اختيار الفكرة وحفظ مصادر البحث",
@@ -948,7 +948,7 @@ def render_production_status(runtime: dict[str, Any]) -> str:
         "long": "🎬 فيديو طويل",
         "short": "⚡ شورت",
         "bundle": "🎬 طويل + ⚡ شورت",
-        "podcast": "🎙️ بودكاست",
+        "podcast": "🎙️ خارج النص",
     }.get(str(runtime.get("scope") or ""), "إنتاج")
     kind = str(runtime.get("kind") or "")
     if str(runtime.get("scope") or "") == "bundle" and kind:
@@ -1037,7 +1037,7 @@ def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[s
     if not isinstance(delivery, dict) or not delivery:
         return "⚪ لا يوجد إنتاج ناجح محفوظ بعد.", None
     kind = str(delivery.get("kind") or "")
-    scope_label = "⚡ شورت" if kind == "short" else ("🎙️ بودكاست" if kind == "podcast" else "🎬 فيديو طويل")
+    scope_label = "⚡ شورت" if kind == "short" else ("🎙️ خارج النص" if kind == "podcast" else "🎬 فيديو طويل")
     topic = str(delivery.get("topic") or "").strip()
     url = str(delivery.get("browser_download_url") or "").strip()
     lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
