@@ -131,7 +131,7 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           for attempt in 1 2 3; do
-            if pip-audit --no-deps -r requirements-lock.txt; then
+            if pip-audit --no-deps --vulnerability-service osv -r requirements-lock.txt; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
