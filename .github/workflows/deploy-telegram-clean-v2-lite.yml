@@ -138,12 +138,7 @@ jobs:
           }
 
           commands='[
-            {"command":"start","description":"فتح الواجهة الرئيسية"},
-            {"command":"research","description":"البحث عن أفكار جديدة"},
-            {"command":"stats","description":"عرض إحصائيات القناة"},
-            {"command":"status","description":"معرفة حالة الإنتاج الحالية"},
-            {"command":"last","description":"عرض آخر إنتاج ناجح"},
-            {"command":"cancel","description":"إلغاء اختيار ينتظر التأكيد"}
+            {"command":"start","description":"فتح الرئيسية"}
           ]'
 
           response="$(api setMyCommands "$(jq -nc --argjson commands "$commands" '{commands:$commands}')")"
@@ -152,17 +147,17 @@ jobs:
           response="$(api setChatMenuButton "$(jq -nc --argjson chat_id "$TELEGRAM_CHAT_ID" '{chat_id:$chat_id,menu_button:{type:"commands"}}')")"
           printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
 
-          response="$(api setMyDescription "$(jq -nc --arg d "مساعد نداء اليقظة: ابحث عن موضوع، اختره، ثم أكّد الإنتاج. تابع حالة الإنتاج وإحصائيات القناة من نفس البوت." '{description:$d}')")"
+          response="$(api setMyDescription "$(jq -nc --arg d "مساعد نداء اليقظة: كل الأدوات داخل قائمة الرئيسية؛ البحث والمحفوظات والمستعملة والمتابعة في مكان واحد." '{description:$d}')")"
           printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
 
-          response="$(api setMyShortDescription "$(jq -nc --arg d "بحث، إنتاج، متابعة وإحصائيات قناة نداء اليقظة." '{short_description:$d}')")"
+          response="$(api setMyShortDescription "$(jq -nc --arg d "كل أدوات القناة داخل الرئيسية." '{short_description:$d}')")"
           printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
 
       - name: Verify visible Telegram interface
         run: |
           set -euo pipefail
           commands="$(curl --fail-with-body --silent --show-error "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands")"
-          printf '%s' "$commands" | python -c 'import json,sys; p=json.load(sys.stdin); got=[x.get("command") for x in p.get("result",[])]; assert p.get("ok") is True; assert got == ["start","research","stats","status","last","cancel"], got'
+          printf '%s' "$commands" | python -c 'import json,sys; p=json.load(sys.stdin); got=[x.get("command") for x in p.get("result",[])]; assert p.get("ok") is True; assert got == ["start"], got'
 
           menu="$(curl --fail-with-body --silent --show-error "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChatMenuButton?chat_id=${TELEGRAM_CHAT_ID}")"
           printf '%s' "$menu" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True; assert p.get("result",{}).get("type") == "commands", p'
@@ -170,7 +165,7 @@ jobs:
       - name: Notify owner that visible interface is active
         run: |
           set -euo pipefail
-          payload="$(jq -nc --arg chat_id "$TELEGRAM_CHAT_ID" '{chat_id:$chat_id,text:"✅ تم تحديث واجهة البوت فعليًا.\n\nالقائمة الرئيسية أصبحت بالعربية. اختر ما تريد مباشرة من الأزرار أسفل المحادثة.",disable_web_page_preview:true,reply_markup:{keyboard:[[{text:"🔎 بحث جديد"},{text:"📊 الإحصائيات"}],[{text:"🟢 حالة الإنتاج"},{text:"🎥 آخر إنتاج"}],[{text:"❌ إلغاء الاختيار"},{text:"🏠 الرئيسية"}]],resize_keyboard:true,is_persistent:true,input_field_placeholder:"اختر من القائمة"}}')"
+          payload="$(jq -nc --arg chat_id "$TELEGRAM_CHAT_ID" '{chat_id:$chat_id,text:"✅ تم تبسيط واجهة البوت.\n\nخارج القوائم بقي زر واحد فقط: 🏠 الرئيسية. افتحه لتجد البحث والمحفوظات والمستعملة والإحصائيات والمتابعة.",disable_web_page_preview:true,reply_markup:{keyboard:[[{text:"🏠 الرئيسية"}]],resize_keyboard:true,is_persistent:true,input_field_placeholder:"افتح الرئيسية"}}')"
           response="$(curl --fail-with-body --silent --show-error \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H 'content-type: application/json' \
