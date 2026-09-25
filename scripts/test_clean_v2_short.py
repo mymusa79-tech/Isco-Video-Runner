@@ -84,7 +84,9 @@ from clean_v2.short_format import (
     SHORT_WIDTH,
     ShortFormatError,
     TEMPLATE_VISUAL_QUERY_DIRECTIVES,
+    apply_safe_short_s3_action_prefix_trim,
     apply_safe_short_s3_single_action_trim,
+    normalize_short_script_candidate,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -499,15 +501,69 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(only_forbidden_payoff)
 
-    def test_pipeline_reapplies_safe_s3_trim_after_text_repair(self) -> None:
+    def test_canonical_short_gate_trims_safe_discourse_prefix_before_action(self) -> None:
+        script = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "تتوقف أحيانًا لأن البداية تبدو أكبر من طاقتك."},
+                {"id": "s2", "narration": "حين تصغر نقطة البدء يصبح الاحتكاك أقل."},
+                {
+                    "id": "s3",
+                    "narration": "عندها يصبح الطريق أوضح. الآن ابدأ بمهمة واحدة تستطيع إنهاءها اليوم.",
+                },
+            ],
+        }
+        self.assertTrue(apply_safe_short_s3_action_prefix_trim(script))
+        self.assertEqual(
+            script["sections"][2]["narration"],
+            "عندها يصبح الطريق أوضح. ابدأ بمهمة واحدة تستطيع إنهاءها اليوم.",
+        )
+        validate_short_script(script)
+
+        unsafe = json.loads(json.dumps(script, ensure_ascii=False))
+        unsafe["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. عندما تكون مستعدًا ابدأ بمهمة واحدة اليوم."
+        )
+        original = unsafe["sections"][2]["narration"]
+        self.assertFalse(apply_safe_short_s3_action_prefix_trim(unsafe))
+        self.assertEqual(unsafe["sections"][2]["narration"], original)
+
+    def test_canonical_short_normalizer_is_single_idempotent_owner(self) -> None:
+        script = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {
+                    "id": "s3",
+                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. الآن اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        first = normalize_short_script_candidate(script)
+        after_first = json.loads(json.dumps(script, ensure_ascii=False))
+        second = normalize_short_script_candidate(script)
+        self.assertTrue(first["s3_action_prefix_trimmed"])
+        self.assertEqual(script, after_first)
+        self.assertEqual(
+            second,
+            {
+                "hook_trimmed": False,
+                "s3_action_prefix_trimmed": False,
+                "s3_trimmed": False,
+            },
+        )
+        validate_short_script(script)
+
+    def test_pipeline_reapplies_canonical_short_gate_after_text_repair(self) -> None:
         source = inspect.getsource(CleanV2Pipeline.run)
         post_repair = source.split(
             "# A successful bounded repair mutates script.json in place.",
             1,
         )[1].split("identity_runtime =", 1)[0]
-        trim_index = post_repair.index("apply_safe_short_s3_single_action_trim(script)")
+        normalize_index = post_repair.index("normalize_short_script_candidate(script)")
         validate_index = post_repair.index("validate_short_script(script)")
-        self.assertLess(trim_index, validate_index)
+        self.assertLess(normalize_index, validate_index)
 
     def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
