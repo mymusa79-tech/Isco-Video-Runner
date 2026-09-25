@@ -55,26 +55,6 @@ def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     return prompt
 
 
-def _normalize_mistral_short_candidate(
-    candidate: dict[str, Any],
-    *,
-    prompt: str,
-    stage: str,
-) -> dict[str, Any]:
-    """Apply only already-certified deterministic Short repairs before validation."""
-    if stage != "script" or "SHORT_FORMAT_CONTRACT:" not in prompt:
-        return candidate
-
-    from .short_format import (
-        apply_safe_short_hook_trim,
-        apply_safe_short_s3_single_action_trim,
-    )
-
-    apply_safe_short_hook_trim(candidate)
-    apply_safe_short_s3_single_action_trim(candidate)
-    return candidate
-
-
 MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -983,12 +963,6 @@ class ProviderRouter:
                 continue
 
             try:
-                if adapter.name == "mistral":
-                    candidate = _normalize_mistral_short_candidate(
-                        candidate,
-                        prompt=prompt,
-                        stage=stage,
-                    )
                 normalized = validator(candidate)
             except Exception as exc:
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
