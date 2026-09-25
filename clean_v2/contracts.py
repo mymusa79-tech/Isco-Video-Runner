@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-SUPPORTED_FORMATS = frozenset({"film", "moment", "story", "short"})
+SUPPORTED_FORMATS = frozenset({"film", "moment", "story", "short", "podcast"})
 _HASH_METADATA_KEYS = frozenset({"approved_hash", "brief_sha256"})
 
 
@@ -125,6 +125,9 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if fmt == "film":
         if len(raw_sections) != 5:
             raise ContractError("plan section count must be exactly 5 for film")
+    elif fmt == "podcast":
+        if not 2 <= len(raw_sections) <= 5:
+            raise ContractError("plan section count must be between 2 and 5 for podcast")
     elif fmt == "short":
         if len(raw_sections) != 3:
             raise ContractError("plan section count must be exactly 3 for short")
