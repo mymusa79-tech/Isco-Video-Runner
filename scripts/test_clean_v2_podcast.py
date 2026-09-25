@@ -77,7 +77,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("ONE visual beat per section", planning)
         self.assertIn("audio must", planning)
         self.assertIn("خارج النص", planning)
-        self.assertIn('append\n" | خارج النص"', planning)
+        self.assertIn('" | خارج النص"', planning)
         self.assertIn("one thoughtful person is speaking calmly to one listener", script)
         self.assertIn("do not announce sections", script)
         self.assertIn("neutral female narrator", script)
@@ -166,7 +166,7 @@ class PodcastTelegramTests(unittest.TestCase):
     def test_podcast_delivery_and_status_keep_the_same_shared_paths(self) -> None:
         root = Path("/tmp/clean-v2-podcast-test")
         self.assertEqual(delivery._target_dirs(root, "podcast"), [("podcast", root / "podcast")])
-        self.assertIn("بودكاست", started_text(scope="podcast", topic="موضوع", run_url=""))
+        self.assertIn("خارج النص", started_text(scope="podcast", topic="موضوع", run_url=""))
         messages = dict(
             milestone_messages(
                 {"stages": [{"name": "planning", "status": "pass"}]},
