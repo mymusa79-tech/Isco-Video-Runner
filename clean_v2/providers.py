@@ -541,6 +541,20 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                 "required": ["beginning", "transformation", "arrival"],
                 "additionalProperties": False,
             },
+            "retention_thread": {
+                "type": "object",
+                "properties": {
+                    "hook_tension": dict(non_blank_string),
+                    "payoff_answer": dict(non_blank_string),
+                    "visual_motif": dict(non_blank_string),
+                },
+                "required": [
+                    "hook_tension",
+                    "payoff_answer",
+                    "visual_motif",
+                ],
+                "additionalProperties": False,
+            },
             "beats": {
                 "type": "array",
                 "minItems": min_sections,
@@ -552,6 +566,11 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                         "section_id": dict(non_blank_string),
                         "viewer_intent": dict(non_blank_string),
                         "shot_intent": dict(non_blank_string),
+                        "role": {
+                            "type": "string",
+                            "enum": ["hook", "body", "payoff"],
+                        },
+                        "stock_query_en": dict(non_blank_string),
                         "source_preference": {
                             "type": "string",
                             "enum": ["stock_motion", "ai_still"],
@@ -562,13 +581,15 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                         "section_id",
                         "viewer_intent",
                         "shot_intent",
+                        "role",
+                        "stock_query_en",
                         "source_preference",
                     ],
                     "additionalProperties": False,
                 },
             },
         },
-        "required": ["visual_world", "story_arc", "beats"],
+        "required": ["visual_world", "story_arc", "retention_thread", "beats"],
         "additionalProperties": False,
     }
     return {

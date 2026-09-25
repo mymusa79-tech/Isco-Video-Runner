@@ -3151,7 +3151,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             self.assertIn("Current:", contextual_visual)
             self.assertIn("Previous: story opening", contextual_visual)
             self.assertIn("Next: story arrival", contextual_visual)
-            self.assertIn("Same story arc:", contextual_visual)
+            self.assertIn("Same hook-to-payoff arc:", contextual_visual)
         self.assertEqual(outcome["result"]["status"], "pass")
         self.assertEqual(
             outcome["result"]["semantic_recovery_candidate_review_limit_per_section"],

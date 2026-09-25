@@ -81,6 +81,7 @@ SHORT_MASTER_LOOK_FILTER = (
 )
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
+AI_STILL_CLIP_SECONDS = 12.0
 SHORT_MIN_COLOR_SATURATION_AVG = 5.0
 
 
@@ -1025,6 +1026,127 @@ def _render_local_short_ai_still(source: Path, destination: Path) -> Path:
     return destination
 
 
+def _render_ai_still(source: Path, destination: Path, *, fmt: str) -> Path:
+    """Turn one generated still into a restrained clip for the shared renderer."""
+    if fmt == "short":
+        width, height = 1080, 1920
+    elif fmt == "film":
+        width, height = 1920, 1080
+    else:
+        raise RuntimeError("ai_still_render_format_unsupported")
+    frames = max(1, int(round(AI_STILL_CLIP_SECONDS * 30.0)))
+    zoom = 0.025
+    vf = (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},"
+        f"zoompan=z='min({1.0 + zoom:.6f},1+{zoom:.6f}*on/{frames})':"
+        "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"d=1:s={width}x{height}:fps=30,format=yuv420p"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            str(source),
+            "-vf",
+            vf,
+            "-t",
+            f"{AI_STILL_CLIP_SECONDS:g}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            str(destination),
+        ],
+        timeout=240,
+    )
+    if not destination.is_file() or destination.stat().st_size < 1024:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError("ai_still_render_failed")
+    return destination
+
+
+def _prepare_ai_reference(source: Path, destination: Path) -> Path:
+    """Create the sub-512px reference required by FLUX.2 Klein."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-vf",
+            (
+                "scale=480:480:force_original_aspect_ratio=decrease,"
+                "pad=480:480:(ow-iw)/2:(oh-ih)/2:color=black"
+            ),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            str(destination),
+        ],
+        timeout=90,
+    )
+    if not destination.is_file() or destination.stat().st_size < 1024:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError("ai_still_reference_failed")
+    return destination
+
+
+def _ai_still_prompt(
+    visual_story: Mapping[str, Any],
+    beat: Mapping[str, Any],
+    *,
+    fmt: str,
+    with_reference: bool,
+) -> str:
+    thread = visual_story.get("retention_thread")
+    thread = thread if isinstance(thread, Mapping) else {}
+    orientation = "vertical 9:16" if fmt == "short" else "horizontal 16:9"
+    visual_world = str(visual_story.get("visual_world") or "").strip()[:320]
+    motif = str(thread.get("visual_motif") or "").strip()[:180]
+    viewer_intent = str(beat.get("viewer_intent") or "").strip()[:240]
+    scene = str(beat.get("shot_intent") or "").strip()[:260]
+    reference_rule = (
+        "Use input image 0 as the exact environment/style anchor; preserve its location, "
+        "palette, practical lighting, lens language, textures, and recurring motif. "
+        if with_reference
+        else "Establish one distinctive coherent environment that can be reused later. "
+    )
+    prompt = (
+        f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
+        f"Visual world: {visual_world}. "
+        f"Recurring motif: {motif}. "
+        f"Beat role: {str(beat.get('role') or '').strip()}. "
+        f"Viewer intent: {viewer_intent}. "
+        f"Scene: {scene}. "
+        f"{reference_rule}"
+        "Lived-in foreground, midground and background depth, soft warm-neutral practical light, "
+        "one clear focal action, clean negative space for Arabic overlay. No identifiable faces; "
+        "hands, back view, objects, or environment only. No readable text, letters, logos, "
+        "watermarks, UI, collage, split screen, fantasy glow, or exaggerated advertising look."
+    )
+    return " ".join(prompt.split())[:2048]
+
+
 def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, Any] | None:
     files = [item for item in (video.get("video_files") or []) if isinstance(item, dict) and item.get("link")]
     if not files:
@@ -1384,17 +1506,20 @@ class StockVisualSource:
             )
             section_beat_counts[section_id] = beat_ordinal + 1
 
-            # shot_intent remains the semantic story description. Stock providers
-            # receive only a usable English/ASCII query. Localized/Arabic intent
-            # falls back to Planning's dedicated visual_query_en boundary.
-            normalized_intent = " ".join(shot_intent.split()).strip()
-            stock_query_en = (
-                normalized_intent
-                if normalized_intent
-                and normalized_intent.isascii()
-                and any(char.isalpha() for char in normalized_intent)
-                else fallback_query
-            )
+            # Fresh Phase-B stories own one retrieval query per semantic beat.
+            # Old resumable artifacts without that field retain the latest
+            # English-intent/section-query fallback instead of regressing to
+            # localized text at the stock-provider boundary.
+            stock_query_en = str(raw_beat.get("stock_query_en") or "").strip()
+            if not stock_query_en:
+                normalized_intent = " ".join(shot_intent.split()).strip()
+                stock_query_en = (
+                    normalized_intent
+                    if normalized_intent
+                    and normalized_intent.isascii()
+                    and any(char.isalpha() for char in normalized_intent)
+                    else fallback_query
+                )
             if not stock_query_en:
                 continue
 
@@ -1405,6 +1530,7 @@ class StockVisualSource:
                     "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
                     ).strip(),
@@ -1426,6 +1552,9 @@ class StockVisualSource:
                     }
                 )
 
+        ai_reference: Path | None = None
+        ai_route_available = True
+
         def _acquire_one(
             query: str,
             section_id: str,
@@ -1433,6 +1562,127 @@ class StockVisualSource:
             *,
             auxiliary: bool,
         ) -> bool:
+            nonlocal ai_reference, ai_route_available
+            wants_ai = str(beat.get("source_preference") or "") == "ai_still"
+            if wants_ai and ai_route_available:
+                # AI is an optional visual anchor, never a required dependency.
+                # The provider module proves zero-cost eligibility before inference.
+                from clean_v2.ai_still import (
+                    CloudflareAIStillUnavailable,
+                    generate_cloudflare_ai_still,
+                )
+
+                beat_id = str(beat.get("id") or f"b{len(clips) + 1}")
+                still_dir = output_dir / ".ai-stills"
+                still = still_dir / f"{beat_id}.image"
+                destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+                prompt = _ai_still_prompt(
+                    raw_story if isinstance(raw_story, Mapping) else {},
+                    beat,
+                    fmt=fmt,
+                    with_reference=ai_reference is not None,
+                )
+                try:
+                    provenance = generate_cloudflare_ai_still(
+                        prompt=prompt,
+                        destination=still,
+                        fmt=fmt,
+                        reference=ai_reference,
+                    )
+                    _render_ai_still(still, destination, fmt=fmt)
+                    if self.media_preflight is not None:
+                        blocked = self.media_preflight(destination)
+                        if blocked is not None:
+                            raise CloudflareAIStillUnavailable(
+                                "security_v1_block:"
+                                + str(
+                                    blocked.get("local_media_rejection")
+                                    or "security_v1_block"
+                                )[:80]
+                            )
+                    if fmt == "short":
+                        color_ok, color_reason = _short_visual_color_compatible(
+                            destination
+                        )
+                        if not color_ok:
+                            raise CloudflareAIStillUnavailable(
+                                f"short_color_rejected:{color_reason}"
+                            )
+                    if self.media_transform is not None:
+                        destination = Path(self.media_transform(destination))
+                    next_reference = ai_reference
+                    if next_reference is None:
+                        next_reference = _prepare_ai_reference(
+                            still, still_dir / "continuity-reference.jpg"
+                        )
+                except Exception as exc:
+                    # Keep the two bookends coherent: if the opening anchor cannot be
+                    # completed, skip the matching AI payoff and use stock for both.
+                    ai_route_available = False
+                    destination.unlink(missing_ok=True)
+                    still.unlink(missing_ok=True)
+                    reason = str(exc)
+                    local_failure = any(
+                        marker in reason
+                        for marker in (
+                            "feature_flag_disabled",
+                            "credentials_unavailable",
+                            "account_id_malformed",
+                            "prompt_invalid",
+                            "format_unsupported",
+                        )
+                    )
+                    self._event(
+                        "cloudflare_workers_ai",
+                        query,
+                        "fallback_to_stock",
+                        wire_attempted=not local_failure,
+                        reason=reason[:120],
+                    )
+                else:
+                    ai_reference = next_reference
+                    candidate = {
+                        "provider": "cloudflare_workers_ai",
+                        "asset_id": (
+                            f"ai-{beat_id}-"
+                            f"{str(provenance.get('prompt_sha256') or '')[:16]}"
+                        ),
+                        "source_url": provenance.get("source_url"),
+                        "creator": "Isco Clean V2 / FLUX.2 Klein 4B",
+                        "creator_url": provenance.get("source_url"),
+                        "query": query,
+                        "local_file": destination.name,
+                        "section_id": section_id,
+                        "beat_id": beat_id,
+                        "viewer_intent": str(beat.get("viewer_intent") or ""),
+                        "shot_intent": str(beat.get("shot_intent") or query),
+                        "role": str(beat.get("role") or ""),
+                        "source_preference": "ai_still",
+                        "source_actual": "ai_still",
+                        "ai_generated": True,
+                        "ai_provenance": dict(provenance),
+                    }
+                    if auxiliary:
+                        candidate["pacing_auxiliary"] = True
+                        candidate["story_beat_auxiliary"] = True
+                    clips.append(destination)
+                    rights.append(candidate)
+                    self._event(
+                        "cloudflare_workers_ai",
+                        query,
+                        "selected",
+                        wire_attempted=True,
+                    )
+                    return True
+            elif wants_ai:
+                self._event(
+                    "cloudflare_workers_ai",
+                    query,
+                    "fallback_to_stock",
+                    wire_attempted=False,
+                    reason="ai_anchor_pair_disabled",
+                )
+
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
                 if candidate is None:
@@ -1485,8 +1735,7 @@ class StockVisualSource:
                 candidate["beat_id"] = str(beat.get("id") or "")
                 candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
-                # Marker only. Even ai_still preference still uses the current
-                # stock-motion source in Phase B; no AI-image provider is activated.
+                candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(
                     beat.get("source_preference") or "stock_motion"
                 )
@@ -1825,6 +2074,7 @@ class StockVisualSource:
             }
             row["local_file"] = destination.name
             row["section_id"] = str(section_id or "")
+            row["source_actual"] = "stock_motion"
             row["semantic_recovery"] = True
             row["semantic_recovery_candidate_index"] = len(admitted) + 1
             admitted.append((replacement, row))
@@ -1924,6 +2174,7 @@ class StockVisualSource:
             }
             admitted["local_file"] = destination.name
             admitted["section_id"] = str(section_id or "")
+            admitted["source_actual"] = "stock_motion"
             admitted["semantic_recovery"] = True
             self._event(
                 provider,

@@ -23,6 +23,7 @@ from clean_v2.pipeline import (
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
+from clean_v2 import ai_still as ai_still_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
     GeminiPrimaryNabraFallbackSynthesizer,
@@ -1053,7 +1054,7 @@ class ShortContractTests(unittest.TestCase):
                 0.04,
             )
 
-    def test_ai_still_preference_is_marker_only_in_phase_b(self) -> None:
+    def test_ai_still_preference_falls_back_when_free_provider_is_unavailable(self) -> None:
         plan = _plan(
             [
                 "thoughtful person alone pausing by window",
@@ -1116,7 +1117,12 @@ class ShortContractTests(unittest.TestCase):
                 return_value=(True, None),
             ), mock.patch(
                 "clean_v2.media._render_local_short_ai_still",
-            ) as render_still:
+            ) as render_still, mock.patch(
+                "clean_v2.ai_still.generate_cloudflare_ai_still",
+                side_effect=ai_still_module.CloudflareAIStillUnavailable(
+                    "cloudflare_image_feature_flag_disabled"
+                ),
+            ):
                 clips, rights = source.acquire(
                     plan,
                     output,

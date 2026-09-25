@@ -73,7 +73,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 4
+RESUME_CONTRACT_VERSION = 5
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -2649,7 +2649,7 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
 
 
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
-    # Planning owns one unified visual story for both long and short formats.
+    # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     plan = validate_plan(value, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
@@ -2881,6 +2881,9 @@ Keep the visual companion deliberately sparse. Default to ONE visual beat per se
 remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
 feeling, place, or observable action; never change imagery merely because a sentence ended. The
 visuals support the narration and must never carry information required to understand the episode.
+Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction, not
+as manufactured suspense. payoff_answer must resolve or deepen that question honestly, while the
+visual motif remains supportive and non-essential to a listener with the screen closed.
 """
         if fmt == "podcast"
         else ""
@@ -2891,6 +2894,13 @@ visuals support the narration and must never carry information required to under
         "section idea but show a different observable action, detail, consequence, or "
         "result so the next shot adds information instead of duplicate B-roll. Do not "
         "paraphrase the same search phrase."
+        if fmt == "short"
+        else ""
+    )
+    short_retention_instruction = (
+        "For short only: payoff_answer must be a descriptive resolution or observable "
+        "outcome, never an instruction. The script will add its one permitted direct "
+        "action as a separate sentence; do not encode a second action in payoff_answer."
         if fmt == "short"
         else ""
     )
@@ -2935,14 +2945,32 @@ or religious symbols into ordinary scenes unless the topic genuinely requires th
 natural respectful world, not decorative stereotyping.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
-shared by long and short formats. The visual world must stay coherent with the restrained lighting
-world above. The story arc is only beginning -> transformation -> arrival. Create a new beat ONLY
-when the idea, feeling, or observable action genuinely changes. A beat may remain on one scene for
-as long as that idea continues; NEVER invent extra beats to hit a duration or shot-count target.
-Every planned section must have at least one beat and at most three. For each beat, viewer_intent
-states what the viewer should understand or feel, and shot_intent is one concise concrete English
-image/motion intent suitable for stock retrieval. source_preference is only a future-facing marker:
-use stock_motion or ai_still, but DO NOT assume AI imagery is active.
+shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
+The visual world must stay coherent with the restrained lighting world above. The story arc is only
+beginning -> transformation -> arrival. Add one retention_thread
+that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
+by the first spoken sentence; payoff_answer is the concrete answer delivered later; visual_motif is
+one object, action, or composition that returns in the payoff in a visibly changed state. The plan's
+promise is the honest value earned by staying. Use only three beat roles: the first is role=hook, the
+last is role=payoff, and every middle beat is role=body. Each viewer_intent must state the distinct
+new information or visible state earned in that beat; never repeat the prior intent with different
+wording.
+{short_retention_instruction}
+
+Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
+remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
+or shot-count target. Every planned section must have at least one beat and at most three. For each
+beat, viewer_intent states what the viewer should understand or feel. shot_intent is the richer
+semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
+distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
+section-level query across multiple beats and never put Arabic in stock_query_en.
+
+Choose source_preference=stock_motion for observable real-world movement in the body. The first
+hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
+same controlled new environment, and the payoff must return to the hook's recurring motif in a
+visibly changed state. Do not use ai_still on any middle beat, so the whole video has exactly two AI
+anchor beats. AI stills remain free-only and fail safely to quality-gated stock when unavailable;
+no beat may bypass the same no-face, cultural, advertiser-safety, and final semantic-quality gates.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -2980,13 +3008,20 @@ Return one JSON object with exactly this useful shape:
       "transformation": "very brief transformation",
       "arrival": "very brief arrival"
     }},
+    "retention_thread": {{
+      "hook_tension": "the precise unresolved tension opened by the hook",
+      "payoff_answer": "the concrete answer delivered later",
+      "visual_motif": "one recurring object/action/composition that visibly changes"
+    }},
     "beats": [
       {{
         "id": "b1",
         "section_id": "s1",
         "viewer_intent": "what the viewer should understand or feel here",
-        "shot_intent": "concise concrete English image or motion intent",
-        "source_preference": "stock_motion"
+        "shot_intent": "rich semantic/cinematic image or motion intent",
+        "role": "hook",
+        "stock_query_en": "distinct concise English retrieval query for this beat",
+        "source_preference": "ai_still"
       }}
     ]
   }}
@@ -2999,6 +3034,7 @@ def _script_prompt(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
     *,
+    visual_story: Mapping[str, Any] | None = None,
     transitions: list[str] | None = None,
     identity_opener: str = "",
 ) -> str:
@@ -3034,7 +3070,27 @@ def _script_prompt(
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
+    story_json = json.dumps(
+        dict(visual_story) if isinstance(visual_story, Mapping) else fallback_visual_story(plan),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    hook_length_guidance = (
+        "For short, the complete first sentence has a hard maximum of 18 Arabic words; "
+        "count it before returning JSON. Do not shorten by breaking grammar or removing "
+        "the specific tension. Do not optimize any sentence for a target duration."
+        if fmt == "short"
+        else "Do not optimize for a fixed word count or duration."
+    )
+    short_payoff_guidance = (
+        "For short, express payoff_answer as descriptive resolution, then write the one "
+        "permitted direct-action sentence separately. No other s3 sentence may contain "
+        "direct or indirect advice or a derivative of the action verb family listed in "
+        "SHORT_FORMAT_CONTRACT."
+        if fmt == "short"
+        else ""
+    )
     identity_handoff = (
         SHORT_CHANNEL_DEFINITION
         if fmt == "short"
@@ -3070,6 +3126,18 @@ LOCKED_PLAN:
 The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
+
+LOCKED_VISUAL_STORY:
+{story_json}
+
+The retention_thread and the plan promise are equally authoritative. The first spoken sentence must
+open hook_tension honestly, every section must advance its beat viewer_intent instead of circling the
+same idea, and the ending must deliver payoff_answer. The final payoff should verbally complete the
+same tension while the visual plan returns to visual_motif in a changed state. Do not invent a second
+unrelated hook, abandon the promised question after the identity handoff, or save all useful value
+for the last sentence; give an earned partial answer as the body advances.
+{short_payoff_guidance}
+
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
 host will place visual CTA overlays only in safe content windows after value has been delivered.
 For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
@@ -3083,7 +3151,7 @@ sound believable and human, never inflated, generic, manufactured, or forced sho
 hook is fully acceptable when the tension is specific. Avoid reusable motivational openings that could
 fit dozens of unrelated videos. The hook must open the SAME core tension the script will develop, and
 the later payoff must meaningfully resolve that tension; do not write a strong hook that the body
-abandons. Do not optimize for a fixed word count or duration.
+abandons. {hook_length_guidance}
 
 Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
 runtime inserts exactly one approved prayer sentence and one channel-definition sentence immediately
@@ -3614,6 +3682,7 @@ class CleanV2Pipeline:
                         prompt=_script_prompt(
                             brief,
                             plan,
+                            visual_story=visual_story,
                             transitions=identity.get("transitions"),
                             identity_opener=str(identity.get("opener") or ""),
                         ),

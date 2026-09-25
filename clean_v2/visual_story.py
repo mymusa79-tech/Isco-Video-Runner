@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 
@@ -8,7 +9,47 @@ VISUAL_WORLD_DEFAULT = (
     "environments, hands, objects, routines and wide shots; no identifiable faces."
 )
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
+BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
+MAX_AI_STILL_BEATS = 2
+
+
+def _beat_role(index: int, total: int) -> str:
+    if index == 0:
+        return "hook"
+    if index == total - 1:
+        return "payoff"
+    return "body"
+
+
+def _fallback_retention_thread(plan: Mapping[str, Any]) -> dict[str, str]:
+    sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
+    first = sections[0] if sections else {}
+    last = sections[-1] if sections else {}
+    return {
+        "hook_tension": str(first.get("purpose") or plan.get("promise") or "").strip(),
+        "payoff_answer": str(last.get("purpose") or plan.get("promise") or "").strip(),
+        "visual_motif": str(first.get("visual_query_en") or "one recurring visual object").strip(),
+    }
+
+
+def _fallback_stock_query(
+    section: Mapping[str, Any],
+    *,
+    beat_in_section: int,
+    shot_intent: str,
+) -> str:
+    candidates = (
+        section.get("visual_query_en") if beat_in_section == 0 else None,
+        section.get("visual_query_alt_en") if beat_in_section == 1 else None,
+        shot_intent if shot_intent.isascii() else None,
+        section.get("visual_query_en"),
+    )
+    return next((str(item).strip() for item in candidates if str(item or "").strip()), "")
+
+
+def _query_key(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
 
 
 def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -20,23 +61,50 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
     midpoint = purposes[len(purposes) // 2]
     beats = []
     for index, section in enumerate(sections, start=1):
+        purpose = str(section.get("purpose") or "").strip()
         beats.append(
             {
                 "id": f"b{index}",
                 "section_id": str(section.get("id") or f"s{index}"),
-                "viewer_intent": str(section.get("purpose") or "").strip(),
+                "viewer_intent": f"{purpose}؛ المرحلة {index}".strip("؛ "),
                 "shot_intent": str(section.get("visual_query_en") or "").strip(),
-                "source_preference": "stock_motion",
+                "role": _beat_role(index - 1, len(sections)),
+                "stock_query_en": str(section.get("visual_query_en") or "").strip(),
+                "source_preference": (
+                    "ai_still"
+                    if index == 1 or index == len(sections)
+                    else "stock_motion"
+                ),
+            }
+        )
+    if len(beats) == 1:
+        section = sections[0]
+        base_query = str(section.get("visual_query_en") or "").strip()
+        payoff_query = str(section.get("visual_query_alt_en") or "").strip()
+        if not payoff_query or _query_key(payoff_query) == _query_key(base_query):
+            payoff_query = (base_query[:220].rstrip() + " visibly completed outcome").strip()
+        purpose = str(section.get("purpose") or "").strip()
+        beats[0]["role"] = "hook"
+        beats.append(
+            {
+                "id": "b2",
+                "section_id": str(section.get("id") or "s1"),
+                "viewer_intent": (purpose + "؛ تظهر النتيجة المكتسبة").strip("؛ "),
+                "shot_intent": (purpose[:220].rstrip() + "؛ حالة النتيجة المرئية").strip(),
+                "role": "payoff",
+                "stock_query_en": payoff_query,
+                "source_preference": "ai_still",
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "visual_world": VISUAL_WORLD_DEFAULT,
         "story_arc": {
             "beginning": purposes[0],
             "transformation": midpoint,
             "arrival": purposes[-1],
         },
+        "retention_thread": _fallback_retention_thread(plan),
         "beats": beats,
     }
 
@@ -60,9 +128,31 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
     if any(not text for text in arc.values()):
         raise ValueError("visual_story story_arc requires beginning, transformation, and arrival")
 
+    raw_thread = value.get("retention_thread")
+    fallback_thread = _fallback_retention_thread(plan)
+    if raw_thread is None:
+        thread = fallback_thread
+        explicit_retention_contract = False
+    elif not isinstance(raw_thread, Mapping):
+        raise ValueError("visual_story retention_thread must be an object")
+    else:
+        thread = {
+            key: (
+                " ".join(str(raw_thread.get(key) or "").split()).strip()
+                or fallback_thread[key]
+            )
+            for key in ("hook_tension", "payoff_answer", "visual_motif")
+        }
+        if any(len(text) > 400 for text in thread.values()):
+            raise ValueError("visual_story retention_thread is too verbose")
+        explicit_retention_contract = True
+
     sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
     section_ids = [str(item.get("id") or "").strip() for item in sections]
     section_order = {section_id: index for index, section_id in enumerate(section_ids)}
+    section_by_id = {
+        str(item.get("id") or "").strip(): item for item in sections
+    }
     if not section_ids:
         raise ValueError("visual_story requires planned sections")
     if not 1 <= len(raw_beats) <= max(1, len(section_ids) * MAX_BEATS_PER_SECTION):
@@ -70,6 +160,8 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
 
     beats: list[dict[str, str]] = []
     seen_ids: set[str] = set()
+    seen_queries: set[str] = set()
+    seen_intents: set[str] = set()
     per_section = {section_id: 0 for section_id in section_ids}
     prior_section_index = -1
     for index, raw in enumerate(raw_beats, start=1):
@@ -79,7 +171,26 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         section_id = str(raw.get("section_id") or "").strip()
         viewer_intent = " ".join(str(raw.get("viewer_intent") or "").split()).strip()
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
-        source_preference = str(raw.get("source_preference") or "").strip()
+        role = (
+            _beat_role(index - 1, len(raw_beats))
+            if explicit_retention_contract
+            else str(raw.get("role") or _beat_role(index - 1, len(raw_beats))).strip()
+        )
+        explicit_stock_query = "stock_query_en" in raw
+        stock_query_en = " ".join(str(raw.get("stock_query_en") or "").split()).strip()
+        if not stock_query_en and not explicit_stock_query:
+            stock_query_en = _fallback_stock_query(
+                section_by_id.get(section_id) or {},
+                beat_in_section=per_section.get(section_id, 0),
+                shot_intent=shot_intent,
+            )
+        source_preference = (
+            "ai_still"
+            if explicit_retention_contract and index in {1, len(raw_beats)}
+            else "stock_motion"
+            if explicit_retention_contract
+            else str(raw.get("source_preference") or "").strip()
+        )
 
         if not beat_id or beat_id in seen_ids:
             raise ValueError("visual_story beat ids must be unique and non-empty")
@@ -87,10 +198,21 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(f"visual_story beat {beat_id} references an unknown section")
         if section_order[section_id] < prior_section_index:
             raise ValueError("visual_story beats must follow planned section order")
-        if not viewer_intent or not shot_intent:
-            raise ValueError(f"visual_story beat {beat_id} requires viewer_intent and shot_intent")
+        if not viewer_intent or not shot_intent or not stock_query_en:
+            raise ValueError(
+                f"visual_story beat {beat_id} requires viewer_intent, shot_intent, "
+                "and stock_query_en"
+            )
         if len(viewer_intent) > 600 or len(shot_intent) > 260:
             raise ValueError(f"visual_story beat {beat_id} is too verbose")
+        if len(stock_query_en) > 260:
+            raise ValueError(f"visual_story beat {beat_id} stock_query_en is too verbose")
+        if re.search(r"[\u0600-\u06ff]", stock_query_en):
+            raise ValueError(
+                f"visual_story beat {beat_id} stock_query_en must stay English"
+            )
+        if role not in BEAT_ROLES:
+            raise ValueError(f"visual_story beat {beat_id} has invalid role")
         if source_preference not in SOURCE_PREFERENCES:
             raise ValueError(
                 f"visual_story beat {beat_id} source_preference must be stock_motion or ai_still"
@@ -103,12 +225,41 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 f"visual_story section {section_id} exceeds {MAX_BEATS_PER_SECTION} beats"
             )
         seen_ids.add(beat_id)
+        query_key = _query_key(stock_query_en)
+        intent_key = " ".join(viewer_intent.lower().split())
+        if explicit_retention_contract and explicit_stock_query:
+            if query_key in seen_queries:
+                fallback_query = _fallback_stock_query(
+                    section_by_id.get(section_id) or {},
+                    beat_in_section=per_section[section_id] - 1,
+                    shot_intent=shot_intent,
+                )
+                fallback_key = _query_key(fallback_query)
+                if (
+                    fallback_key
+                    and fallback_key not in seen_queries
+                    and not re.search(r"[\u0600-\u06ff]", fallback_query)
+                ):
+                    stock_query_en = fallback_query
+                    query_key = fallback_key
+            if not query_key or query_key in seen_queries:
+                raise ValueError(
+                    "visual_story stock_query_en values must be distinct per beat"
+                )
+            if intent_key in seen_intents:
+                raise ValueError(
+                    "visual_story viewer_intent values must add new information per beat"
+                )
+        seen_queries.add(query_key)
+        seen_intents.add(intent_key)
         beats.append(
             {
                 "id": beat_id,
                 "section_id": section_id,
                 "viewer_intent": viewer_intent,
                 "shot_intent": shot_intent,
+                "role": role,
+                "stock_query_en": stock_query_en,
                 "source_preference": source_preference,
             }
         )
@@ -119,10 +270,37 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             "visual_story must cover every planned section: missing=" + ",".join(missing)
         )
 
+    ai_still_count = sum(
+        beat["source_preference"] == "ai_still" for beat in beats
+    )
+    if ai_still_count > MAX_AI_STILL_BEATS:
+        raise ValueError(
+            f"visual_story permits at most {MAX_AI_STILL_BEATS} ai_still anchor beats"
+        )
+    if explicit_retention_contract:
+        if len(beats) < 2:
+            raise ValueError(
+                "visual_story fresh hook-to-payoff contract requires at least two beats"
+            )
+        if beats[0]["role"] != "hook":
+            raise ValueError("visual_story first beat role must be hook")
+        if beats[-1]["role"] != "payoff":
+            raise ValueError("visual_story final beat role must be payoff")
+        if any(beat["role"] != "body" for beat in beats[1:-1]):
+            raise ValueError("visual_story middle beat roles must be body")
+        if (
+            beats[0]["source_preference"] != "ai_still"
+            or beats[-1]["source_preference"] != "ai_still"
+        ):
+            raise ValueError(
+                "visual_story fresh hook and payoff beats must be ai_still anchors"
+            )
+
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "visual_world": visual_world[:800],
         "story_arc": {key: text[:400] for key, text in arc.items()},
+        "retention_thread": {key: text[:400] for key, text in thread.items()},
         "beats": beats,
     }
 
@@ -168,7 +346,18 @@ def contextual_intent(
         "story arrival",
         48,
     )
-    return (
-        f"Current: {current}. Previous: {previous}. Next: {following}. "
-        "Same story arc: judge whether this shot belongs naturally between its neighbors."
+    current_beat = beats[current_index]
+    role = _context_fragment(current_beat.get("role"), "body", 10)
+    intent = _context_fragment(current_beat.get("viewer_intent"), "new information", 36)
+    thread = visual_story.get("retention_thread")
+    motif = _context_fragment(
+        thread.get("visual_motif") if isinstance(thread, Mapping) else "",
+        "recurring motif",
+        22,
     )
+    context = (
+        f"Role: {role}. Intent: {intent}. Current: {current}. "
+        f"Previous: {previous}. Next: {following}. Motif: {motif}. "
+        "Same hook-to-payoff arc: judge continuity."
+    )
+    return context[:300].rstrip()

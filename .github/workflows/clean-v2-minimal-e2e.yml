@@ -23,6 +23,8 @@ on:
       - "scripts/test_clean_v2_visual_pacing.py"
       - "scripts/test_clean_v2_unified_visual_story.py"
       - "scripts/test_clean_v2_podcast.py"
+      - "scripts/test_clean_v2_ai_still.py"
+      - "scripts/test_clean_v2_timeline_first.py"
       - "scripts/telegram_clean_v2_notify.py"
       - "scripts/test_telegram_clean_v2_notify.py"
       - "scripts/telegram_clean_v2_control.py"
@@ -87,6 +89,8 @@ jobs:
             scripts.test_clean_v2_visual_pacing \
             scripts.test_clean_v2_unified_visual_story \
             scripts.test_clean_v2_podcast \
+            scripts.test_clean_v2_ai_still \
+            scripts.test_clean_v2_timeline_first \
             scripts.test_telegram_clean_v2_notify \
             scripts.test_telegram_clean_v2_control \
             scripts.test_clean_v2_release_delivery \
@@ -114,6 +118,7 @@ jobs:
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-resume
       # isco_video_agent (imported by scripts/final_master_qc.py for the ffmpeg probe

@@ -49,15 +49,29 @@ def render_identity_composition(
     intro_start, intro_end = bounds("intro")
     prayer_start, prayer_end = bounds("prayer")
     outro_start, outro_end = bounds("outro")
+    # Keep the approved identity animation, but let the underlying story world
+    # remain perceptible instead of replacing a strong hook with a hard black
+    # slate. Short alpha fades make the handoff continuous without extending it.
+    identity_alpha = 0.88
+    intro_fade = min(0.18, (intro_end - intro_start) / 3.0)
+    outro_fade = min(0.18, (outro_end - outro_start) / 3.0)
+    intro_fade_out = max(0.0, intro_end - intro_start - intro_fade)
+    outro_fade_out = max(0.0, outro_end - outro_start - outro_fade)
 
     filters = (
         f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps=30,"
+        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+        f"colorchannelmixer=aa={identity_alpha:.2f},"
+        f"fade=t=in:st=0:d={intro_fade:.3f}:alpha=1,"
+        f"fade=t=out:st={intro_fade_out:.3f}:d={intro_fade:.3f}:alpha=1,"
         f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
         f"[2:v]scale={card_width}:-1,format=rgba,"
         f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
         f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps=30,"
+        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+        f"colorchannelmixer=aa={identity_alpha:.2f},"
+        f"fade=t=in:st=0:d={outro_fade:.3f}:alpha=1,"
+        f"fade=t=out:st={outro_fade_out:.3f}:d={outro_fade:.3f}:alpha=1,"
         f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
         f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
         f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"

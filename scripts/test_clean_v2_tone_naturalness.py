@@ -45,6 +45,8 @@ def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
         "hook_honesty": True,
         "hook_curiosity": True,
         "hook_genericness": False,
+        "hook_body_continuity": True,
+        "payoff_resolves_hook": True,
         "notes": [],
     }
 
@@ -65,6 +67,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 "hook_honesty",
                 "hook_curiosity",
                 "hook_genericness",
+                "hook_body_continuity",
+                "payoff_resolves_hook",
                 "notes",
             },
         )
@@ -107,11 +111,15 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             "hook_honesty",
             "hook_curiosity",
             "hook_genericness",
+            "hook_body_continuity",
+            "payoff_resolves_hook",
         ):
             self.assertIn(field, scoped)
         self.assertIn("calm hooks are fully acceptable", scoped)
         self.assertIn("dozens of unrelated videos", scoped)
         self.assertIn("SAME audit response", scoped)
+        self.assertIn("body keeps developing the SAME unresolved tension", scoped)
+        self.assertIn("closing payoff directly and satisfactorily", scoped)
 
     def test_generic_hook_example_is_rejected(self):
         payload = _tone_result()
@@ -134,6 +142,20 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(len(hook_flags), 1)
         self.assertIn("hook_specificity", hook_flags[0])
         self.assertIn("hook_genericness", hook_flags[0])
+
+    def test_hook_that_drops_after_opening_or_lacks_payoff_is_rejected(self):
+        payload = _tone_result()
+        payload["hook_body_continuity"] = False
+        payload["payoff_resolves_hook"] = False
+        result = _enforce_hook_quality_contract(payload)
+        self.assertEqual(result["status"], "block")
+        hook_flag = next(
+            item
+            for item in result["narrative_format_flags"]
+            if item.startswith("hook_quality:")
+        )
+        self.assertIn("hook_body_continuity", hook_flag)
+        self.assertIn("payoff_resolves_hook", hook_flag)
 
     def test_specific_quiet_hook_example_is_accepted(self):
         payload = _tone_result()

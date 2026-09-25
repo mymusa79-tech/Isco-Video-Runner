@@ -82,6 +82,10 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("audio must", planning)
         self.assertIn("خارج النص", planning)
         self.assertIn("listener's understanding must", planning)
+        self.assertIn("genuine central question or contradiction", planning)
+        self.assertIn("visual motif remains supportive and non-essential", planning)
+        self.assertIn("without erasing their separate pacing and audio rules", planning)
+        self.assertNotIn("payoff_answer must be a descriptive resolution", planning)
         self.assertIn("neutral female narrator", script)
         self.assertIn("local Nabra af_msa", script)
         self.assertIn("Never invent first-person", script)
@@ -90,6 +94,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("article, lecture, news script", script)
         self.assertIn("speaking simply to one listener", script)
         self.assertIn("numbered-list", script)
+        self.assertNotIn("HARD maximum of 18 Arabic words", script)
 
     def test_podcast_reuses_long_identity_without_a_new_identity_system(self) -> None:
         sections = [

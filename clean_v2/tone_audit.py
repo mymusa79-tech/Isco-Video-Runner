@@ -21,6 +21,8 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "hook_honesty": {"type": "boolean"},
         "hook_curiosity": {"type": "boolean"},
         "hook_genericness": {"type": "boolean"},
+        "hook_body_continuity": {"type": "boolean"},
+        "payoff_resolves_hook": {"type": "boolean"},
         "notes": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
@@ -34,6 +36,8 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "hook_honesty",
         "hook_curiosity",
         "hook_genericness",
+        "hook_body_continuity",
+        "payoff_resolves_hook",
         "notes",
     ],
     "additionalProperties": False,
@@ -54,6 +58,8 @@ _HOOK_QUALITY_FIELDS = (
     "hook_honesty",
     "hook_curiosity",
     "hook_genericness",
+    "hook_body_continuity",
+    "payoff_resolves_hook",
 )
 
 
@@ -93,7 +99,7 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   naturally inside its existing anchor section.
 - The narrative identity opener/closer are host-owned exact phrases. Do not request
   rewriting them; judge only the surrounding spoken transition.
-- Evaluate the actual PLAN hook (the first spoken sentence) with four required booleans in the
+- Evaluate the actual PLAN hook (the first spoken sentence) with six required booleans in the
   SAME audit response; this adds no provider call:
   * hook_specificity=true only when the hook names a concrete situation, tension, behavior,
     consequence, or question rather than a broad motivational claim.
@@ -103,11 +109,19 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
     a specific unresolved question/tension; calm hooks are fully acceptable.
   * hook_genericness=true when changing roughly one or two words could make the same sentence fit
     dozens of unrelated videos. Genericness=true is always a defect.
-- A hook passes only when specificity, honesty, and curiosity are true AND genericness is false.
+  * hook_body_continuity=true only when the body keeps developing the SAME unresolved tension after
+    the host-owned prayer/channel handoff, with each section adding meaning rather than restarting,
+    repeating, or dropping into generic advice.
+  * payoff_resolves_hook=true only when the actual closing payoff directly and satisfactorily
+    answers the SAME question/tension opened by the actual first spoken sentence. Topic similarity
+    alone is insufficient.
+- A hook-to-payoff spine passes only when specificity, honesty, curiosity, hook_body_continuity,
+  and payoff_resolves_hook are true AND genericness is false.
   If it fails, set status=block and add one concise narrative_format_flags item prefixed exactly
   "hook_quality:" naming the failed dimension(s). Do not demand sensationalism.
 - Extend the existing JSON object with exactly these required boolean fields:
-  "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness".
+  "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness",
+  "hook_body_continuity", "payoff_resolves_hook".
 [/CLEAN_V2_TONE_SCOPE]
 """.strip()
 
@@ -134,6 +148,10 @@ def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
         failed.append("hook_curiosity")
     if result["hook_genericness"]:
         failed.append("hook_genericness")
+    if not result["hook_body_continuity"]:
+        failed.append("hook_body_continuity")
+    if not result["payoff_resolves_hook"]:
+        failed.append("payoff_resolves_hook")
 
     if failed:
         result["status"] = "block"
