@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -53,6 +54,54 @@ def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     ):
         return prompt.rstrip() + "\n\n" + _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX
     return prompt
+
+
+def _mistral_short_hook_repair_eligible(exc: Exception) -> bool:
+    """Allow one bounded hook-only rewrite for a near-miss, never a limit increase."""
+    match = re.search(r"short_hook_too_long words=(\d+) maximum=18", str(exc))
+    return bool(match and 19 <= int(match.group(1)) <= 21)
+
+
+def _mistral_short_hook_repair_prompt(candidate: dict[str, Any]) -> str:
+    return (
+        "MISTRAL_SHORT_HOOK_BOUNDED_REPAIR — change only the first sentence of s1. "
+        "Return the same JSON shape. Rewrite that hook as one complete natural Arabic "
+        "sentence of 10-16 whitespace-delimited words. Preserve the same tension and "
+        "meaning; do not add facts, commands, greeting, prayer, CTA, or channel identity. "
+        "Do not change title, the rest of s1, s2, or s3. CANDIDATE_JSON:\n"
+        + json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+
+
+def _splice_mistral_repaired_hook_only(
+    original: dict[str, Any],
+    repaired: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Accept only the repaired first sentence; preserve every other provider field."""
+    from .short_format import _first_sentence, _word_count
+
+    try:
+        original_s1 = str(original["sections"][0]["narration"]).strip()
+        repaired_s1 = str(repaired["sections"][0]["narration"]).strip()
+    except (KeyError, IndexError, TypeError):
+        return None
+
+    original_hook = _first_sentence(original_s1)
+    repaired_hook = _first_sentence(repaired_s1)
+    if (
+        not original_hook
+        or not repaired_hook
+        or not original_s1.startswith(original_hook)
+        or not 10 <= _word_count(repaired_hook) <= 16
+    ):
+        return None
+
+    result = copy.deepcopy(original)
+    remainder = original_s1[len(original_hook):].lstrip()
+    result["sections"][0]["narration"] = (
+        f"{repaired_hook} {remainder}".strip() if remainder else repaired_hook
+    )
+    return result
 
 
 MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
@@ -981,9 +1030,60 @@ class ProviderRouter:
             if provider_failed or candidate is None:
                 continue
 
+            candidate_before_validation = copy.deepcopy(candidate)
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+                if (
+                    adapter.name == "mistral"
+                    and stage == "script"
+                    and _mistral_short_hook_repair_eligible(exc)
+                ):
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="retrying",
+                        wire_attempted=False,
+                        reason="mistral_short_hook_bounded_repair",
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    try:
+                        repair_raw = adapter.invoke(
+                            _mistral_short_hook_repair_prompt(candidate_before_validation),
+                            min(int(max_tokens), 800),
+                            stage,
+                        )
+                        wire_count += 1
+                        repaired_candidate = _splice_mistral_repaired_hook_only(
+                            candidate_before_validation,
+                            repair_raw,
+                        )
+                        if repaired_candidate is None:
+                            raise ValueError("mistral_short_hook_repair_invalid")
+                        repaired_normalized = validator(repaired_candidate)
+                    except Exception as repair_exc:
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="failed",
+                            wire_attempted=True,
+                            reason=_safe_validator_reason(repair_exc),
+                            provider_attempt=provider_attempt + 1,
+                            stage_wire_attempt=wire_count,
+                        )
+                    else:
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="success",
+                            wire_attempted=True,
+                            reason="mistral_short_hook_bounded_repair",
+                            provider_attempt=provider_attempt + 1,
+                            stage_wire_attempt=wire_count,
+                        )
+                        return repaired_normalized
+
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
                     print(
