@@ -14,6 +14,7 @@ from clean_v2.contextual_cta import CtaMode, bind_contextual_cta
 from clean_v2.contracts import ContractError, validate_plan
 from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
+    CleanV2Pipeline,
     _audit_narrative_format_for_brief,
     _planning_prompt,
     _script_prompt,
@@ -459,6 +460,16 @@ class ShortContractTests(unittest.TestCase):
             "short_s3_payoff_contains_forbidden_action_family",
         ):
             validate_short_script(only_forbidden_payoff)
+
+    def test_pipeline_reapplies_safe_s3_trim_after_text_repair(self) -> None:
+        source = inspect.getsource(CleanV2Pipeline.run)
+        post_repair = source.split(
+            "# A successful bounded repair mutates script.json in place.",
+            1,
+        )[1].split("identity_runtime =", 1)[0]
+        trim_index = post_repair.index("apply_safe_short_s3_single_action_trim(script)")
+        validate_index = post_repair.index("validate_short_script(script)")
+        self.assertLess(trim_index, validate_index)
 
     def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
