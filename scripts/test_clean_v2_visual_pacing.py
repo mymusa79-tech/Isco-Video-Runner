@@ -12,6 +12,7 @@ from unittest import mock
 
 from clean_v2.contracts import compute_brief_sha256
 from clean_v2.pipeline import CINEMATIC_STAGE, CleanV2Pipeline, _estimate_section_seconds
+from clean_v2 import ai_still as ai_still_module
 from clean_v2 import media as media_module
 
 
@@ -61,6 +62,25 @@ def _pacing_plan(*section_ids: str) -> dict:
 
 
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
+    def test_ai_prompt_keeps_safety_rules_when_story_fields_are_maximal(self) -> None:
+        prompt = media_module._ai_still_prompt(
+            {
+                "visual_world": "w" * 800,
+                "retention_thread": {"visual_motif": "m" * 400},
+            },
+            {
+                "role": "hook",
+                "viewer_intent": "v" * 600,
+                "shot_intent": "s" * 260,
+            },
+            fmt="short",
+            with_reference=False,
+        )
+        self.assertLessEqual(len(prompt), 2048)
+        self.assertIn("No identifiable faces", prompt)
+        self.assertIn("No readable text", prompt)
+        self.assertTrue(prompt.endswith("exaggerated advertising look."))
+
     @staticmethod
     def _story(*beats: dict) -> dict:
         return {
@@ -73,16 +93,29 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
                 "transformation": "see the smaller action",
                 "arrival": "understand the practical next step",
             },
+            "retention_thread": {
+                "hook_tension": "the first step still feels larger than it is",
+                "payoff_answer": "one visible action is enough to begin",
+                "visual_motif": "the same notebook changes from closed to checked",
+            },
             "beats": list(beats),
         }
 
     @staticmethod
-    def _beat(beat_id: str, section_id: str, shot_intent: str) -> dict:
+    def _beat(
+        beat_id: str,
+        section_id: str,
+        shot_intent: str,
+        *,
+        stock_query_en: str | None = None,
+    ) -> dict:
         return {
             "id": beat_id,
             "section_id": section_id,
             "viewer_intent": f"understand {beat_id}",
             "shot_intent": shot_intent,
+            "role": "hook" if beat_id == "b1" else "body",
+            "stock_query_en": stock_query_en or f"distinct notebook action {beat_id} hands only",
             "source_preference": "stock_motion",
         }
 
@@ -157,16 +190,151 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 2)
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
-    def test_ai_still_preference_is_marker_only_and_does_not_activate_ai_source(self) -> None:
+    def test_ai_still_unavailable_falls_back_to_stock_without_blocking_video(self) -> None:
         beat = self._beat("b1", "s1", "warm desk by window no face")
         beat["source_preference"] = "ai_still"
-        clips, rights = self._acquire(fmt="film", beats=[beat], seconds=90.0)
+        with mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=ai_still_module.CloudflareAIStillUnavailable(
+                "cloudflare_image_feature_flag_disabled"
+            ),
+        ):
+            clips, rights = self._acquire(fmt="film", beats=[beat], seconds=90.0)
         self.assertEqual(len(clips), 1)
         self.assertEqual(rights[0]["source_preference"], "ai_still")
         self.assertEqual(rights[0]["source_actual"], "stock_motion")
         self.assertEqual(rights[0]["provider"], "pexels")
 
-    def test_non_ascii_story_intent_uses_section_english_stock_query(self) -> None:
+    def test_failed_opening_ai_anchor_disables_the_matching_payoff_call(self) -> None:
+        opening = self._beat("b1", "s1", "closed notebook in warm room")
+        payoff = self._beat("b2", "s1", "same notebook with completed task")
+        opening["source_preference"] = "ai_still"
+        payoff.update({"source_preference": "ai_still", "role": "payoff"})
+        with mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=ai_still_module.CloudflareAIStillUnavailable(
+                "cloudflare_image_preflight_timeout"
+            ),
+        ) as generate:
+            _clips, rights = self._acquire(
+                fmt="film", beats=[opening, payoff], seconds=90.0
+            )
+
+        self.assertEqual(generate.call_count, 1)
+        self.assertEqual(
+            [row["source_actual"] for row in rights],
+            ["stock_motion", "stock_motion"],
+        )
+
+    def test_ai_still_preference_uses_generated_anchor_with_provenance(self) -> None:
+        beat = self._beat("b1", "s1", "warm desk by window no face")
+        beat["source_preference"] = "ai_still"
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(beat)
+        source = media_module.StockVisualSource()
+
+        def fake_generate(*, prompt, destination, fmt, reference):
+            self.assertIn("Recurring motif", prompt)
+            self.assertEqual(fmt, "film")
+            self.assertIsNone(reference)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"\xff\xd8\xff" + b"I" * 2048)
+            return {
+                "provider": "cloudflare_workers_ai",
+                "model": ai_still_module.CLOUDFLARE_IMAGE_MODEL,
+                "prompt_sha256": "a" * 64,
+                "source_url": "https://developers.cloudflare.com/workers-ai/",
+                "ai_generated": True,
+            }
+
+        def fake_render(_source, destination, *, fmt):
+            self.assertEqual(fmt, "film")
+            Path(destination).write_bytes(b"V" * 4096)
+            return Path(destination)
+
+        def fake_reference(_source, destination):
+            Path(destination).write_bytes(b"R" * 2048)
+            return Path(destination)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=fake_generate,
+        ), mock.patch.object(
+            media_module, "_render_ai_still", side_effect=fake_render
+        ), mock.patch.object(
+            media_module, "_prepare_ai_reference", side_effect=fake_reference
+        ), mock.patch.object(
+            source, "_pexels"
+        ) as pexels, mock.patch.object(
+            source, "_pixabay"
+        ) as pixabay:
+            clips, rights = source.acquire(plan, Path(root), "film", 5)
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["source_actual"], "ai_still")
+        self.assertTrue(rights[0]["ai_generated"])
+        self.assertEqual(
+            rights[0]["ai_provenance"]["model"],
+            ai_still_module.CLOUDFLARE_IMAGE_MODEL,
+        )
+        pexels.assert_not_called()
+        pixabay.assert_not_called()
+
+    def test_second_ai_bookend_reuses_first_environment_as_reference(self) -> None:
+        opening = self._beat("b1", "s1", "closed notebook in a warm lived-in room")
+        payoff = self._beat("b2", "s1", "same notebook with one completed task")
+        opening["source_preference"] = "ai_still"
+        payoff.update(
+            {
+                "source_preference": "ai_still",
+                "role": "payoff",
+            }
+        )
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(opening, payoff)
+        source = media_module.StockVisualSource()
+        references: list[Path | None] = []
+
+        def fake_generate(*, prompt, destination, fmt, reference):
+            del prompt, fmt
+            references.append(reference)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"\xff\xd8\xff" + b"I" * 2048)
+            return {
+                "prompt_sha256": str(len(references)) * 64,
+                "source_url": "https://developers.cloudflare.com/workers-ai/",
+                "ai_generated": True,
+            }
+
+        def fake_render(_source, destination, *, fmt):
+            del fmt
+            Path(destination).write_bytes(b"V" * 4096)
+            return Path(destination)
+
+        def fake_reference(_source, destination):
+            Path(destination).write_bytes(b"R" * 2048)
+            return Path(destination)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=fake_generate,
+        ), mock.patch.object(
+            media_module, "_render_ai_still", side_effect=fake_render
+        ), mock.patch.object(
+            media_module, "_prepare_ai_reference", side_effect=fake_reference
+        ), mock.patch.object(source, "_pexels") as pexels, mock.patch.object(
+            source, "_pixabay"
+        ) as pixabay:
+            _clips, rights = source.acquire(plan, Path(root), "film", 5)
+
+        self.assertIsNone(references[0])
+        self.assertIsNotNone(references[1])
+        self.assertEqual(references[1].name, "continuity-reference.jpg")
+        self.assertEqual([row["source_actual"] for row in rights], ["ai_still"] * 2)
+        pexels.assert_not_called()
+        pixabay.assert_not_called()
+
+    def test_stock_search_uses_per_beat_english_query_not_semantic_shot_intent(self) -> None:
         seen_queries: list[str] = []
         source = media_module.StockVisualSource(
             query_normalizer=lambda query: seen_queries.append(query) or query
@@ -179,8 +347,53 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
 
         plan = _pacing_plan("s1")
         plan["visual_story"] = self._story(
-            self._beat("b1", "s1", "يد تكتب مهمة واحدة في دفتر")
+            self._beat(
+                "b1",
+                "s1",
+                "يد متوقفة فوق دفتر في ضوء صباحي دافئ",
+                stock_query_en="paused hand above notebook warm morning window",
+            )
         )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(
+            seen_queries,
+            ["paused hand above notebook warm morning window"],
+        )
+        self.assertEqual(
+            rights[0]["shot_intent"],
+            "يد متوقفة فوق دفتر في ضوء صباحي دافئ",
+        )
+
+    def test_non_ascii_story_intent_uses_section_english_stock_query(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        beat = self._beat("b1", "s1", "يد تكتب مهمة واحدة في دفتر")
+        beat.pop("stock_query_en")
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(beat)
         with tempfile.TemporaryDirectory() as root, mock.patch.object(
             source, "_pexels", return_value=candidate
         ), mock.patch.object(
@@ -217,10 +430,11 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
 
         plan = _pacing_plan("s1")
         plan["sections"][0]["visual_query_alt_en"] = "hand circles one task on paper"
-        plan["visual_story"] = self._story(
-            self._beat("b1", "s1", "لقطة دلالية أولى"),
-            self._beat("b2", "s1", "لقطة دلالية ثانية"),
-        )
+        first = self._beat("b1", "s1", "لقطة دلالية أولى")
+        second = self._beat("b2", "s1", "لقطة دلالية ثانية")
+        first.pop("stock_query_en")
+        second.pop("stock_query_en")
+        plan["visual_story"] = self._story(first, second)
         with tempfile.TemporaryDirectory() as root, mock.patch.object(
             source, "_pexels", side_effect=fake_pexels
         ), mock.patch.object(

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from clean_v2.pipeline import _inspect_final_with_short_gate
+from clean_v2.timeline_render import render_identity_composition
 from clean_v2.timeline_first import build_voice_owned_timeline
 from clean_v2.visual_qa import verify_final_composition_visual_qa
 
@@ -140,6 +141,40 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             self.assertTrue(
                 all(row["source"].startswith("measured_") for row in report["identity_events"])
             )
+
+    def test_identity_animation_preserves_the_story_world_beneath_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = {}
+            for name in ("intro", "prayer", "outro"):
+                path = root / f"{name}.asset"
+                path.write_bytes(b"A" * 2048)
+                assets[name] = path
+            timeline = {
+                "voice_seconds_measured": 12.0,
+                "identity_events": [
+                    {"kind": "intro", "start": 2.0, "end": 6.0},
+                    {"kind": "prayer", "start": 2.0, "end": 3.5},
+                    {"kind": "outro", "start": 10.0, "end": 12.0},
+                ],
+            }
+            with mock.patch(
+                "clean_v2.timeline_render.identity_asset_paths",
+                return_value=assets,
+            ), mock.patch("clean_v2.timeline_render.subprocess.run") as run:
+                render_identity_composition(
+                    root / "source.mp4",
+                    root / "destination.mp4",
+                    fmt="short",
+                    timeline=timeline,
+                )
+
+        command = run.call_args.args[0]
+        filters = command[command.index("-filter_complex") + 1]
+        self.assertEqual(filters.count("colorchannelmixer=aa=0.88"), 2)
+        self.assertEqual(filters.count("alpha=1"), 4)
+        self.assertIn("[0:v][intro]overlay", filters)
+        self.assertIn("[v2][outro]overlay", filters)
 
 
 class FinalCompositionVisualQATests(unittest.TestCase):

@@ -12,6 +12,7 @@ from clean_v2.visual_story import contextual_intent, fallback_visual_story, vali
 
 STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
+MAX_RETENTION_QUALITY_FLOOR_DROP = 0.08
 
 
 class CleanV2VisualQABlock(RuntimeError):
@@ -20,6 +21,20 @@ class CleanV2VisualQABlock(RuntimeError):
 
 class CleanV2VisualQAInfrastructure(RuntimeError):
     pass
+
+
+def _retention_quality_target(
+    *,
+    hook_floor: float | None,
+    absolute_floor: float,
+) -> float:
+    """Keep later beats close to the opening instead of merely above minimum."""
+    if hook_floor is None:
+        return float(absolute_floor)
+    return max(
+        float(absolute_floor),
+        float(hook_floor) - MAX_RETENTION_QUALITY_FLOOR_DROP,
+    )
 
 
 def _secret(name: str) -> str:
@@ -410,8 +425,11 @@ def run_final_cut_visual_qa(
     visual_story_path = output_dir / "visual-story.json"
     if visual_story_path.is_file():
         try:
+            raw_visual_story = json.loads(
+                visual_story_path.read_text(encoding="utf-8")
+            )
             visual_story = validate_visual_story(
-                json.loads(visual_story_path.read_text(encoding="utf-8")),
+                raw_visual_story,
                 plan,
             )
         except Exception as exc:
@@ -419,10 +437,24 @@ def run_final_cut_visual_qa(
                 "CLEAN_V2_VISUAL_QA_BLOCK reason=visual_story_invalid"
             ) from exc
         story_file_present = True
+        retention_quality_enabled = bool(
+            isinstance(raw_visual_story, Mapping)
+            and raw_visual_story.get("schema_version") == 2
+            and isinstance(raw_visual_story.get("retention_thread"), Mapping)
+        )
     else:
         # Direct unit callers and pre-Phase-B fixtures retain one beat per section.
         visual_story = fallback_visual_story(plan)
         story_file_present = False
+        retention_quality_enabled = False
+    story_beats = [
+        item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)
+    ]
+    hook_beat_id = (
+        str(story_beats[0].get("id") or "").strip()
+        if retention_quality_enabled and story_beats
+        else ""
+    )
     script_by_id = {
         str(item.get("id") or ""): str(item.get("narration") or "")
         for item in (script.get("sections") or [])
@@ -491,6 +523,7 @@ def run_final_cut_visual_qa(
     evidence_root.mkdir(parents=True, exist_ok=True)
     final_media_mutated = False
     audited_selected_clip_count = 0
+    hook_floor: float | None = None
 
     def review_clip(
         *,
@@ -673,13 +706,44 @@ def run_final_cut_visual_qa(
                         clip_position=clip_position,
                         beat_id=beat_id,
                     )
+                    if beat_id == hook_beat_id and hook_floor is None:
+                        hook_floor = primary_floor
+                    retention_target = _retention_quality_target(
+                        hook_floor=(
+                            hook_floor
+                            if retention_quality_enabled and beat_id != hook_beat_id
+                            else None
+                        ),
+                        absolute_floor=FINAL_CUT_TARGET_SEMANTIC_FLOOR,
+                    )
+                    primary_audit["retention_quality_target"] = round(
+                        retention_target, 6
+                    )
+                    primary_audit["hook_quality_floor"] = (
+                        round(hook_floor, 6) if hook_floor is not None else None
+                    )
+                    primary_audit["retention_quality_delta_from_hook"] = (
+                        round(primary_floor - hook_floor, 6)
+                        if hook_floor is not None
+                        else None
+                    )
+                    if (
+                        is_final_cut_ready(primary_audit)
+                        and primary_floor < retention_target
+                    ):
+                        primary_audit["final_cut_readiness"] = (
+                            "not_ready_retention_drop"
+                        )
                     audits.append(primary_audit)
                     _write_json(output_dir / "visual-audit.json", audits)
 
-                    if is_final_cut_ready(primary_audit):
+                    if (
+                        is_final_cut_ready(primary_audit)
+                        and primary_floor >= retention_target
+                    ):
                         continue
 
-                    if primary_floor >= FINAL_CUT_TARGET_SEMANTIC_FLOOR:
+                    if primary_floor >= retention_target:
                         raise CleanV2VisualQABlock(
                             f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
                             f"position={clip_position} "
@@ -692,7 +756,9 @@ def run_final_cut_visual_qa(
                         "clip_position": clip_position,
                         "status": "started",
                         "primary_floor": round(primary_floor, 6),
-                        "target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
+                        "target": retention_target,
+                        "absolute_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
+                        "hook_floor": hook_floor,
                         "original_query": intended_visual,
                         "attempt_limit": 1,
                         "candidate_review_limit": MAX_SEMANTIC_RECOVERY_CANDIDATES,
@@ -872,9 +938,30 @@ def run_final_cut_visual_qa(
                                 cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
                             raise
 
-                        audits.append(recovery_audit)
                         best_recovery_floor = max(best_recovery_floor, recovery_floor)
-                        ready = is_final_cut_ready(recovery_audit)
+                        recovery_audit["retention_quality_target"] = round(
+                            retention_target, 6
+                        )
+                        recovery_audit["hook_quality_floor"] = (
+                            round(hook_floor, 6) if hook_floor is not None else None
+                        )
+                        recovery_audit["retention_quality_delta_from_hook"] = (
+                            round(recovery_floor - hook_floor, 6)
+                            if hook_floor is not None
+                            else None
+                        )
+                        ready = (
+                            is_final_cut_ready(recovery_audit)
+                            and recovery_floor >= retention_target
+                        )
+                        if (
+                            is_final_cut_ready(recovery_audit)
+                            and recovery_floor < retention_target
+                        ):
+                            recovery_audit["final_cut_readiness"] = (
+                                "not_ready_retention_drop"
+                            )
+                        audits.append(recovery_audit)
                         candidate_reviews.append(
                             {
                                 "index": candidate_position,
@@ -959,15 +1046,19 @@ def run_final_cut_visual_qa(
                         "beat_id",
                         "viewer_intent",
                         "shot_intent",
+                        "role",
                         "source_preference",
-                        "source_actual",
                         "pacing_auxiliary",
                         "story_beat_auxiliary",
                     ):
                         if story_key in original_row:
                             replacement_row[story_key] = original_row[story_key]
+                    replacement_row.setdefault("source_actual", "stock_motion")
                     replacement_row["recovery_of_provider"] = original_row.get("provider")
                     replacement_row["recovery_of_asset_id"] = original_row.get("asset_id")
+                    replacement_row["recovery_of_source_actual"] = original_row.get(
+                        "source_actual"
+                    )
                     replacement_row["recovery_of_query"] = intended_visual
                     row.clear()
                     row.update(replacement_row)
@@ -975,6 +1066,8 @@ def run_final_cut_visual_qa(
                     primary_audit["replaced_by_semantic_recovery"] = True
                     recovery_audit["is_selected"] = True
                     recovery_audit["promoted_to_final_cut"] = True
+                    if beat_id == hook_beat_id:
+                        hook_floor = recovery_floor
                     final_media_mutated = True
                     recovery_record.update(
                         {
@@ -1028,6 +1121,11 @@ def run_final_cut_visual_qa(
         "audited_selected_clip_count": audited_selected_clip_count,
         "visual_audit_count": len(audits),
         "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
+        "retention_quality_enabled": retention_quality_enabled,
+        "retention_quality_max_floor_drop": MAX_RETENTION_QUALITY_FLOOR_DROP,
+        "hook_quality_floor": (
+            round(hook_floor, 6) if hook_floor is not None else None
+        ),
         "provider_attempts": ledger.to_summary().get("provider_attempts", {}),
         "final_media_mutated": final_media_mutated,
     }

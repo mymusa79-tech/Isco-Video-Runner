@@ -32,6 +32,7 @@ jobs:
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       STATE_BRANCH: clean-v2-telegram-state
       STATE_FILE: state/telegram-clean-v2.json
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
