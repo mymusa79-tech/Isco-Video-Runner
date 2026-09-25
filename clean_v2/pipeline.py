@@ -1932,6 +1932,19 @@ def _tone_repair_prompt(
         )
     else:
         hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
+    podcast_progression_repair_guidance = (
+        "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
+        "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
+        "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
+        "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
+        "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
+        "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
+        "too shallow. The final section must answer or deepen the exact opening tension with an earned "
+        "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
+        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries."
+        if str(brief.get("format") or "") == "podcast"
+        else ""
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1961,6 +1974,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   Use as many of your patches as the listed flags require, up to the maximum below.
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
+{podcast_progression_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -3449,8 +3463,16 @@ def _script_prompt(
             "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
             "write toward a word-count or duration target: continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
-            "been answered fully. The episode must work as audio alone. Let punctuation create breathing "
-            "room so Nabra sounds conversational rather than rushed."
+            "been answered fully. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
+            "s2 must add a mechanism, cause, or distinction already supported by the approved brief/plan that "
+            "explains WHY the tension exists instead of renaming s1; s3, when present, must derive a new "
+            "implication or resolution from s2 rather than restating it, and later sections must continue the "
+            "same forward reasoning. Before returning JSON, compare adjacent sections: if either could replace "
+            "the other without losing a new explanatory step, rewrite the later section. The final section must "
+            "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
+            "built before it; generic advice and synonymous restatement are not progression. The episode must "
+            "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
+            "than rushed."
         )
     elif fmt == "short":
         length = (
