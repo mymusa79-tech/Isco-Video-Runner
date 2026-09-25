@@ -23,11 +23,12 @@ MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX = """
 MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
-- The first spoken sentence (Hook) must be one complete natural Arabic sentence, preferably 8-16 words and NEVER more than 18.
+- The first spoken sentence (Hook) must be one complete natural Arabic sentence, TARGET 12-16 words and NEVER more than 18.
 - Count words exactly like the validator: split the first sentence on whitespace; each non-empty item is one word, even when punctuation is attached.
 - Preserve grammar, approved factual meaning, and the information gap; do not shorten by deleting context needed for comprehension.
-- Hook preflight: isolate s1 first sentence -> split on spaces -> count -> if count > 18, rewrite it more densely without fragmenting the sentence -> count again.
-- If a complete hook still lands at 19-20 words, DO NOT return it and do not delete meaning. End the first sentence at a complete grammatical boundary between words 16-18 and move the remaining detail into the next sentence, then recount the first sentence.
+- Hook preflight: isolate s1 first sentence -> split on spaces -> count -> if count > 16, rewrite it more densely as a complete 12-16 word sentence without fragmenting it -> count again.
+- Treat 17-18 words as validator headroom only, not a writing target. Never intentionally return a 17-18 word first draft when the same meaning can be expressed naturally in 12-16 words.
+- If a complete draft still lands at 17-20 words, DO NOT return it. Rewrite the first sentence itself to 12-16 words and move secondary detail to sentence two, then recount the first sentence.
 
 MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Isolate s3 and split it into complete sentences.
@@ -35,7 +36,9 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
 - Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
 - Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
-- Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero. If any count fails, rewrite s3 completely and repeat the checks before returning JSON.
+- Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero.
+- If ANY payoff sentence contains a forbidden action-family term, rewrite that payoff sentence as a purely descriptive state/result with zero command/action-family stems, then rescan all of s3 from the beginning.
+- If any count or rescan fails, rewrite s3 completely and repeat the checks before returning JSON.
 - Do not rely on downstream repair or trimming to fix Hook or s3.
 """.strip()
 
