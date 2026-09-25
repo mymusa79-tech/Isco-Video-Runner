@@ -74,7 +74,8 @@ class PodcastFormatTests(unittest.TestCase):
         }
         planning = _planning_prompt(brief)
         script = _script_prompt(brief, self._plan(3))
-        self.assertIn("genuinely worthwhile central question", planning)
+        planning_compact = " ".join(planning.split())
+        self.assertIn("genuinely worthwhile central question", planning_compact)
         self.assertIn("generic self-help", planning)
         self.assertIn("ONE visual beat per section", planning)
         self.assertIn("audio must", planning)
