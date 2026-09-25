@@ -80,12 +80,14 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             narration.write_bytes(b"master")
             files = {
                 "audio/01-chunks/01.wav": ("hook", 4.0),
+                "audio/01-chunks/intro-silence.wav": ("intro_silence", 1.0),
                 "audio/01-chunks/02.wav": ("prayer", 3.0),
                 "audio/01-chunks/03.wav": ("channel_identity", 5.0),
                 "audio/01-chunks/04.wav": ("topic", 6.0),
                 "audio/02.wav": ("topic", 5.0),
                 "audio/03-chunks/01.wav": ("topic", 4.0),
                 "audio/03-chunks/02.wav": ("outro", 3.0),
+                "audio/03-chunks/final-silence.wav": ("final_silence", 0.75),
             }
             sections = [
                 {"id": "s1", "chunks": []},
@@ -94,14 +96,16 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             ]
             section_for = {
                 "audio/01-chunks/01.wav": 0,
+                "audio/01-chunks/intro-silence.wav": 0,
                 "audio/01-chunks/02.wav": 0,
                 "audio/01-chunks/03.wav": 0,
                 "audio/01-chunks/04.wav": 0,
                 "audio/02.wav": 1,
                 "audio/03-chunks/01.wav": 2,
                 "audio/03-chunks/02.wav": 2,
+                "audio/03-chunks/final-silence.wav": 2,
             }
-            durations = {"narration-mastered.wav": 30.0}
+            durations = {"narration-mastered.wav": 31.75}
             for relative, (role, seconds) in files.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,7 +122,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             def duration(path: Path) -> float:
                 path = Path(path)
                 if path.name == "narration-mastered.wav":
-                    return 30.0
+                    return 31.75
                 return files[str(path.relative_to(root))][1]
 
             with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
@@ -131,13 +135,15 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
             events = {row["kind"]: row for row in report["identity_events"]}
             self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
-            self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.0, 7.0))
+            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 5.0))
+            self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (5.0, 8.0))
             self.assertEqual(
                 (events["channel_identity"]["start"], events["channel_identity"]["end"]),
-                (7.0, 12.0),
+                (8.0, 13.0),
             )
-            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 12.0))
-            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.0, 30.0))
+            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.0, 28.0))
+            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (28.0, 31.0))
+            self.assertEqual((events["final_silence"]["start"], events["final_silence"]["end"]), (31.0, 31.75))
             self.assertTrue(
                 all(row["source"].startswith("measured_") for row in report["identity_events"])
             )
@@ -153,9 +159,10 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             timeline = {
                 "voice_seconds_measured": 12.0,
                 "identity_events": [
-                    {"kind": "intro", "start": 2.0, "end": 6.0},
-                    {"kind": "prayer", "start": 2.0, "end": 3.5},
-                    {"kind": "outro", "start": 10.0, "end": 12.0},
+                    {"kind": "intro", "start": 2.0, "end": 3.0},
+                    {"kind": "prayer", "start": 3.0, "end": 4.5},
+                    {"kind": "outro", "start": 10.0, "end": 11.25},
+                    {"kind": "final_silence", "start": 11.25, "end": 12.0},
                 ],
             }
             with mock.patch(
@@ -171,8 +178,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
         command = run.call_args.args[0]
         filters = command[command.index("-filter_complex") + 1]
-        self.assertEqual(filters.count("colorchannelmixer=aa=0.88"), 2)
-        self.assertEqual(filters.count("alpha=1"), 4)
+        self.assertNotIn("colorchannelmixer=aa=", filters)
+        self.assertNotIn("alpha=1", filters)
+        self.assertIn("tpad=stop_mode=clone", filters)
         self.assertIn("[0:v][intro]overlay", filters)
         self.assertIn("[v2][outro]overlay", filters)
 
@@ -195,7 +203,8 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                             {"kind": "prayer", "start": 3.0, "end": 5.0},
                             {"kind": "channel_identity", "start": 5.0, "end": 8.0},
                             {"kind": "topic", "start": 8.0, "end": 31.0},
-                            {"kind": "outro", "start": 31.0, "end": 34.0},
+                            {"kind": "outro", "start": 31.0, "end": 33.25},
+                            {"kind": "final_silence", "start": 33.25, "end": 34.0},
                         ],
                     }
                 ),
@@ -230,7 +239,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
             self.assertEqual(result["source_media"], "final.mp4")
             self.assertEqual(
                 result["identity_event_kinds"],
-                ["hook", "intro", "prayer", "channel_identity", "topic", "outro"],
+                ["hook", "intro", "prayer", "channel_identity", "topic", "outro", "final_silence"],
             )
             updated = json.loads(
                 (root / "final-cut-visual-qa.json").read_text(encoding="utf-8")
