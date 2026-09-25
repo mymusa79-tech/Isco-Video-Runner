@@ -40,7 +40,8 @@ from .structural_ai import structural_ai_flags
 from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
-    normalize_short_script_candidate,
+    apply_safe_short_hook_trim,
+    apply_safe_short_s3_single_action_trim,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -968,31 +969,16 @@ def _run_legacy_tone_naturalness_audit(
 
     api_key = _read_secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
-    identity_path = output_dir / "narrative-identity.json"
-    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
-    short_identity_scope = str(brief.get("format") or "") == "short"
-    if short_identity_scope:
-        trusted_identity = _trusted_identity_for_factuality(
-            output_dir=output_dir,
-            brief=brief,
-        )
-        audit_script = _script_without_trusted_identity(script, trusted_identity)
-    else:
-        trusted_identity = ()
-        audit_script = script
-
     production_plan = _build_production_plan_for_audit(
         brief=brief,
         plan=plan,
-        script=audit_script,
+        script=script,
     )
-    production_plan.hook = _first_spoken_sentence(audit_script)
+    identity_path = output_dir / "narrative-identity.json"
+    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
+    production_plan.hook = _first_spoken_sentence(script)
     production_plan.closing_payoff = (
-        (
-            _closing_payoff_for_tone_audit(audit_script)
-            if short_identity_scope
-            else _closing_payoff_for_tone_audit(script, identity=identity)
-        )
+        _closing_payoff_for_tone_audit(script, identity=identity)
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -1010,14 +996,6 @@ def _run_legacy_tone_naturalness_audit(
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-tone-naturalness-audit",
-        **(
-            {
-                "trusted_identity_excluded_from_model_judgment": True,
-                "trusted_identity": list(trusted_identity),
-            }
-            if short_identity_scope
-            else {}
-        ),
         **result,
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
@@ -2653,9 +2631,11 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     if str(brief.get("format") or "") == "short":
-        # One deterministic owner repairs only certified local Short shapes, then
-        # the unchanged strict validators decide acceptance for every provider.
-        normalize_short_script_candidate(script)
+        # A 1-2 word hook overrun may be repaired locally only at a conservative natural
+        # boundary. Unsafe continuous sentences remain hard contract failures so the
+        # bounded provider route can continue exactly as before.
+        apply_safe_short_hook_trim(script)
+        apply_safe_short_s3_single_action_trim(script)
         validate_short_hook_contract(script)
         validate_short_script(script)
     return script
@@ -2861,9 +2841,12 @@ APPROVED_BRIEF:
 Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
 outside the approved brief and its research_pack. Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
-English stock-footage search phrase. Keep every section purpose complete (never cut mid-thought),
-and keep each visual query concise and at most 260 characters. Keep the whole video's stock searches
-inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
+English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
+words: one observable action OR one simple setting, plus only the few composition/light cues that
+materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
+only instead of relying on a negative "no faces" suffix. Keep every section purpose complete; never cut mid-thought,
+and keep each visual query concise and at most 260 characters. Keep the whole video's
+stock searches inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
 soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
 itself requires them. Prefer environments, hands, objects, routines, and wide shots without
 identifiable faces. When the scene permits it, make the search describe a lived-in cinematic
@@ -3624,10 +3607,10 @@ class CleanV2Pipeline:
                 item["narration"] for item in script["sections"]
             )
             if str(brief["format"]) == "short":
-                # Any bounded repair re-enters the same canonical Short gate used
-                # for initial provider acceptance; no stage owns a private variant.
-                normalize_short_script_candidate(script)
-                validate_short_hook_contract(script)
+                # A bounded text repair can re-introduce a second explicit action.
+                # Reuse the same conservative local normalizer used at initial
+                # script acceptance, then keep the unchanged strict validator.
+                apply_safe_short_s3_single_action_trim(script)
                 validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
