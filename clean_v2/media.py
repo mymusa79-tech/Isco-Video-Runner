@@ -722,7 +722,7 @@ class GeminiPrimaryPiperFallbackSynthesizer:
 
 
 class GeminiPrimaryNabraFallbackSynthesizer:
-    """Production voice route: Charon first, then one local Nabra fallback."""
+    """Production voice route with Charon-first default and an explicit local-Nabra primary lock."""
 
     EXPECTED_PRIMARY_VOICE = "Charon"
     EXPECTED_QUESTIONER_VOICE = "Orus"
@@ -764,7 +764,9 @@ class GeminiPrimaryNabraFallbackSynthesizer:
             output_path.unlink(missing_ok=True)
             raise VoiceInfrastructureError(
                 charon_attempts=self.charon_attempts,
-                charon_reason="charon_unavailable",
+                charon_reason=(
+                    "not_attempted_nabra_primary" if self._nabra_primary else "charon_unavailable"
+                ),
                 secondary_reason=f"nabra_{_tts_failure_reason(exc, missing='unavailable')}"[:120],
                 piper_fallback_allowed=False,
             ) from None
