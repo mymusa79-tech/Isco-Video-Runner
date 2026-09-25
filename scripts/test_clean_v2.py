@@ -1705,13 +1705,18 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 chunk for chunk in chunks
                 if str(chunk.get("provider") or "") == "deterministic_silence"
             ]
-            expected_voice_calls = len(chunks) - len(silence_chunks)
+            self.assertEqual(len(silence_chunks), 2)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
                 {"intro_silence", "final_silence"},
             )
-            self.assertGreater(expected_voice_calls, len(_script()["sections"]))
-            self.assertEqual(first_voice.calls, expected_voice_calls)
+            self.assertTrue(
+                all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)
+            )
+            # Silence is materialized locally from the adjacent WAV format; it
+            # must affect measured timing without becoming an extra TTS call.
+            self.assertGreater(first_voice.calls, len(_script()["sections"]))
+            self.assertLess(first_voice.calls, len(chunks))
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:
