@@ -538,10 +538,10 @@ _SAFE_HOOK_INCOMPLETE_KEYS = {
 
 
 def _safe_short_hook_trim_candidate(hook: str) -> str | None:
-    """Return a conservative local trim only for a 1-2 word hook overrun."""
+    """Return a conservative local trim only for a 1-3 word hook overrun."""
     words = _clean(hook).split()
     overrun = len(words) - SHORT_HOOK_MAX_WORDS
-    if overrun not in (1, 2):
+    if overrun not in (1, 2, 3):
         return None
 
     candidates: list[int] = []
