@@ -186,13 +186,14 @@ def _upload_and_get_direct_url(
     assets = payload.get("assets")
     if not isinstance(assets, list):
         raise RuntimeError("GitHub Release assets payload is malformed")
+    asset_name = Path(video).name
     for item in assets:
-        if not isinstance(item, dict) or str(item.get("name") or "") != "final.mp4":
+        if not isinstance(item, dict) or str(item.get("name") or "") != asset_name:
             continue
         url = str(item.get("browser_download_url") or "").strip()
         if url.startswith("https://"):
             return url
-    raise RuntimeError("GitHub Release final.mp4 browser_download_url is missing")
+    raise RuntimeError(f"GitHub Release asset browser_download_url is missing: {asset_name}")
 
 
 def publish_one(
@@ -238,12 +239,34 @@ def publish_one(
         button_url=url,
     ):
         print("Telegram direct-video delivery warning: message was not delivered")
-    return {
+    delivery = {
         "kind": kind,
         "topic": resolved_topic,
         "release_tag": tag,
         "browser_download_url": url,
     }
+    if kind == "podcast":
+        short_video = Path(root) / "podcast-short.mp4"
+        short_qc = _read_json(Path(root) / "podcast-short-qc.json")
+        if (
+            short_video.is_file()
+            and short_video.stat().st_size > 0
+            and str(short_qc.get("status") or "").casefold() == "pass"
+        ):
+            short_url = _upload_and_get_direct_url(
+                tag=tag,
+                video=short_video,
+                repository=repository,
+                run=run,
+            )
+            if not send_message(
+                "⚡ شورت «خارج النص» جاهز من نفس الحلقة",
+                button_text="⚡ مشاهدة/تحميل الشورت",
+                button_url=short_url,
+            ):
+                print("Telegram Podcast-short delivery warning: message was not delivered")
+            delivery["short_browser_download_url"] = short_url
+    return delivery
 
 
 def deliver(
