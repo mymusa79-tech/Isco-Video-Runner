@@ -4,52 +4,40 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from clean_v2.short_timed_text import (
-    ACCENT_ASS,
     BODY_FONT,
+    BODY_FONT_SIZE,
     EXTRUSION_ASS,
     OUTLINE_ASS,
     PRIMARY_ASS,
     SHADOW_ASS,
+    _accent_caption,
+    _accent_word_index,
+    _ass_escape,
+    _ass_time,
     _filter_escape_path,
+    _plain_caption,
     _secret_free_subprocess_env,
 )
 
 SCHEMA_VERSION = 1
 RENDERER_VERSION = "clean-v2-podcast-key-text-3d-lite-v1"
 MAX_EVENTS = 3
-FONT_SIZE = 78
+FONT_SIZE = min(82, BODY_FONT_SIZE)
 TEXT_X = 960
 TEXT_Y = 770
-EXTRUDE_X = 4
-EXTRUDE_Y = 5
-SHADOW_X = 9
-SHADOW_Y = 11
+EXTRUDE = (4, 5)
+SHADOW = (9, 11)
 DISPLAY_SECONDS = 4.2
-FINAL_QUIET_SECONDS = 1.2
-MAX_WORDS = 14
+MAX_WORDS = 9
 TRANSITION_MARKERS = ("لكن", "المشكلة", "الحقيقة", "ربما", "وهنا", "لأن", "لهذا")
-_STOPWORDS = frozenset({
-    "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
-    "لكن", "هذا", "هذه", "ذلك", "التي", "الذي", "هو", "هي", "كان", "كنت",
-    "ما", "لا", "لم", "لن", "قد", "كل", "حتى", "فقط",
-})
 
 
 class PodcastKeyTextError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class KeyTextEvent:
-    start: float
-    end: float
-    text: str
-    role: str
 
 
 def _clean(value: object) -> str:
@@ -60,49 +48,47 @@ def _sentences(value: object) -> list[str]:
     text = _clean(value)
     if not text:
         return []
-    return [
-        part.strip()
-        for part in re.split(r"(?<=[.!؟!])\s+", text)
-        if part.strip()
-    ] or [text]
+    return [part.strip() for part in re.split(r"(?<=[.!؟!])\s+", text) if part.strip()] or [text]
 
 
-def _usable(sentence: str) -> bool:
-    count = len(_clean(sentence).split())
-    return 3 <= count <= MAX_WORDS
+def _compact_candidates(value: object) -> list[str]:
+    candidates: list[str] = []
+    for sentence in _sentences(value):
+        pieces = [sentence]
+        if "،" in sentence:
+            pieces = [part.strip() for part in sentence.split("،") if part.strip()]
+        for piece in pieces:
+            if 3 <= len(piece.split()) <= MAX_WORDS:
+                candidates.append(piece)
+    return candidates
 
 
 def _pick_text(narration: str, role: str, *, closer: str = "") -> str:
     text = _clean(narration)
-    normalized_closer = _clean(closer)
-    if normalized_closer and text.endswith(normalized_closer):
-        text = text[: -len(normalized_closer)].strip()
-    sentences = _sentences(text)
-    if not sentences:
+    closer = _clean(closer)
+    if closer and text.endswith(closer):
+        text = text[: -len(closer)].strip()
+    candidates = _compact_candidates(text)
+    if not candidates:
         return ""
-
     if role == "hook":
-        return sentences[0] if _usable(sentences[0]) else ""
-
+        return candidates[0]
     if role == "turn":
-        for sentence in sentences:
-            if _usable(sentence) and any(marker in sentence for marker in TRANSITION_MARKERS):
-                return sentence
-        candidates = [sentence for sentence in sentences if _usable(sentence)]
-        return candidates[0] if candidates else ""
-
-    candidates = [sentence for sentence in sentences if _usable(sentence)]
-    return candidates[-1] if candidates else ""
+        return next(
+            (item for item in candidates if any(marker in item for marker in TRANSITION_MARKERS)),
+            candidates[0],
+        )
+    return candidates[-1]
 
 
 def _seconds(value: object, label: str) -> float:
     try:
-        parsed = float(value)
+        seconds = float(value)
     except (TypeError, ValueError):
         raise PodcastKeyTextError(f"podcast_key_text_{label}_invalid") from None
-    if parsed < 0:
+    if seconds < 0:
         raise PodcastKeyTextError(f"podcast_key_text_{label}_invalid")
-    return parsed
+    return seconds
 
 
 def build_events(
@@ -122,24 +108,23 @@ def build_events(
     ):
         raise PodcastKeyTextError("podcast_key_text_timeline_invalid")
 
-    if len(sections) == 2:
-        selected = [(0, "hook"), (1, "payoff")]
-    else:
-        selected = [(0, "hook"), (len(sections) // 2, "turn"), (len(sections) - 1, "payoff")]
-
-    identity_events = timeline.get("identity_events")
-    typed_identity = [item for item in identity_events if isinstance(item, Mapping)] if isinstance(identity_events, list) else []
-    hook_window = next((item for item in typed_identity if str(item.get("kind") or "") == "hook"), None)
-    outro_window = next((item for item in typed_identity if str(item.get("kind") or "") == "outro"), None)
+    selected = (
+        [(0, "hook"), (1, "payoff")]
+        if len(sections) == 2
+        else [(0, "hook"), (len(sections) // 2, "turn"), (len(sections) - 1, "payoff")]
+    )
+    raw_identity = timeline.get("identity_events")
+    identity = [item for item in raw_identity if isinstance(item, Mapping)] if isinstance(raw_identity, list) else []
+    hook_window = next((item for item in identity if str(item.get("kind") or "") == "hook"), None)
+    outro_window = next((item for item in identity if str(item.get("kind") or "") == "outro"), None)
 
     events: list[dict[str, object]] = []
-    for index, role in selected[:MAX_EVENTS]:
+    for index, role in selected:
         section = sections[index]
         timing = section_events[index]
         if not isinstance(section, Mapping) or not isinstance(timing, Mapping):
             raise PodcastKeyTextError("podcast_key_text_section_invalid")
-        expected_id = str(section.get("id") or "")
-        if str(timing.get("section_id") or "") != expected_id:
+        if str(timing.get("section_id") or "") != str(section.get("id") or ""):
             raise PodcastKeyTextError("podcast_key_text_section_order_invalid")
 
         text = _pick_text(
@@ -155,80 +140,21 @@ def build_events(
         if section_end <= section_start:
             raise PodcastKeyTextError("podcast_key_text_duration_invalid")
 
-        if role == "hook":
-            if isinstance(hook_window, Mapping):
-                start = _seconds(hook_window.get("start"), "hook_start")
-                hook_end = _seconds(hook_window.get("end"), "hook_end")
-                end = min(hook_end, start + DISPLAY_SECONDS)
-            else:
-                start = section_start + min(0.15, max(0.0, (section_end - section_start) * 0.05))
-                end = min(section_end, start + DISPLAY_SECONDS)
-        elif role == "turn":
+        if role == "hook" and isinstance(hook_window, Mapping):
+            start = _seconds(hook_window.get("start"), "hook_start")
+            end = min(_seconds(hook_window.get("end"), "hook_end"), start + DISPLAY_SECONDS)
+        elif role == "payoff" and isinstance(outro_window, Mapping):
+            end = max(section_start, _seconds(outro_window.get("start"), "outro_start") - 0.35)
+            start = max(section_start, end - DISPLAY_SECONDS)
+        else:
             start = section_start + min(0.8, max(0.0, (section_end - section_start) * 0.18))
             end = min(section_end, start + DISPLAY_SECONDS)
-        else:
-            payoff_limit = section_end
-            if isinstance(outro_window, Mapping):
-                payoff_limit = min(payoff_limit, _seconds(outro_window.get("start"), "outro_start"))
-            end = max(section_start, payoff_limit - 0.35)
-            start = max(section_start, end - DISPLAY_SECONDS)
 
-        if end - start < 1.5:
-            continue
-        events.append(
-            {
-                "start": round(start, 3),
-                "end": round(end, 3),
-                "text": text,
-                "role": role,
-            }
-        )
-    return events
-
-
-def _ass_time(seconds: float) -> str:
-    centis = int(round(max(0.0, seconds) * 100))
-    hours, rem = divmod(centis, 360000)
-    minutes, rem = divmod(rem, 6000)
-    secs, cs = divmod(rem, 100)
-    return f"{hours}:{minutes:02d}:{secs:02d}.{cs:02d}"
-
-
-def _ass_escape(text: str) -> str:
-    return _clean(text).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
-
-
-def _wrap(text: str, maximum_words: int = 6) -> str:
-    words = _clean(text).split()
-    lines = [" ".join(words[i:i + maximum_words]) for i in range(0, len(words), maximum_words)]
-    return r"\N".join(_ass_escape(line) for line in lines)
-
-
-def _focus_index(text: str) -> int:
-    words = _clean(text).split()
-    candidates: list[tuple[int, int]] = []
-    for index, word in enumerate(words):
-        bare = re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)
-        if bare and bare not in _STOPWORDS:
-            candidates.append((len(bare), index))
-    return max(candidates)[1] if candidates else max(0, len(words) - 1)
-
-
-def _face_text(text: str) -> str:
-    words = _clean(text).split()
-    focus = _focus_index(text)
-    rendered: list[str] = []
-    for index, word in enumerate(words):
-        escaped = _ass_escape(word)
-        if index == focus:
-            rendered.append("{\\c" + ACCENT_ASS + "}" + escaped + "{\\c" + PRIMARY_ASS + "}")
-        else:
-            rendered.append(escaped)
-    # Re-wrap after color tags by preserving authored words in compact lines.
-    if len(words) <= 6:
-        return "\u202B" + " ".join(rendered) + "\u202C"
-    chunks = [" ".join(rendered[i:i + 6]) for i in range(0, len(rendered), 6)]
-    return "\u202B" + r"\N".join(chunks) + "\u202C"
+        if end - start >= 1.5:
+            events.append(
+                {"start": round(start, 3), "end": round(end, 3), "text": text, "role": role}
+            )
+    return events[:MAX_EVENTS]
 
 
 def build_ass(events: Sequence[Mapping[str, object]]) -> str:
@@ -250,26 +176,21 @@ def build_ass(events: Sequence[Mapping[str, object]]) -> str:
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
-    for raw in events[:MAX_EVENTS]:
-        start = _ass_time(_seconds(raw.get("start"), "start"))
-        end = _ass_time(_seconds(raw.get("end"), "end"))
-        text = _clean(raw.get("text"))
+    common = r"\an5\fad(180,240)\fscx98\fscy98\t(0,120,\fscx100\fscy100)"
+    for item in events[:MAX_EVENTS]:
+        text = _clean(item.get("text"))
         if not text:
             continue
-        plain = "\u202B" + _wrap(text) + "\u202C"
-        face = _face_text(text)
-        common = r"\an5\fad(180,240)\fscx98\fscy98\t(0,120,\fscx100\fscy100)"
-        lines.append(
-            f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X + SHADOW_X},{TEXT_Y + SHADOW_Y})}}{plain}"
-        )
-        lines.append(
-            f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X + EXTRUDE_X},{TEXT_Y + EXTRUDE_Y})}}{plain}"
-        )
-        lines.append(
-            f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X},{TEXT_Y})}}{face}"
+        start = _ass_time(_seconds(item.get("start"), "start"))
+        end = _ass_time(_seconds(item.get("end"), "end"))
+        plain = _plain_caption(text)
+        face = _accent_caption(text, _accent_word_index(text))
+        lines.extend(
+            [
+                f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,{{{common}\\pos({TEXT_X + SHADOW[0]},{TEXT_Y + SHADOW[1]})}}{plain}",
+                f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,{{{common}\\pos({TEXT_X + EXTRUDE[0]},{TEXT_Y + EXTRUDE[1]})}}{plain}",
+                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,{{{common}\\pos({TEXT_X},{TEXT_Y})}}{face}",
+            ]
         )
     lines.append("")
     return "\n".join(lines)
@@ -287,20 +208,16 @@ def apply_podcast_key_text(
         timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PodcastKeyTextError("podcast_key_text_timeline_missing") from exc
-    identity: Mapping[str, Any] = {}
+
+    closer = ""
     if identity_path.is_file():
         try:
-            parsed = json.loads(identity_path.read_text(encoding="utf-8"))
-            if isinstance(parsed, Mapping):
-                identity = parsed
+            identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            closer = str(identity.get("closer") or "") if isinstance(identity, dict) else ""
         except (OSError, json.JSONDecodeError):
-            identity = {}
+            closer = ""
 
-    events = build_events(
-        script=script,
-        timeline=timeline,
-        closer=str(identity.get("closer") or ""),
-    )
+    events = build_events(script=script, timeline=timeline, closer=closer)
     if not events:
         return {
             "schema_version": SCHEMA_VERSION,
@@ -313,29 +230,16 @@ def apply_podcast_key_text(
         }
 
     ass_path = Path(output_dir) / "podcast-key-text.ass"
-    ass_path.write_text(build_ass(events), encoding="utf-8")
     rendered = Path(output_dir) / ".final-podcast-key-text.mp4"
+    ass_path.write_text(build_ass(events), encoding="utf-8")
     try:
         subprocess.run(
             [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(Path(final_path).resolve()),
-                "-vf",
-                f"subtitles='{_filter_escape_path(ass_path)}'",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-c:a",
-                "copy",
-                str(rendered.resolve()),
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(Path(final_path).resolve()),
+                "-vf", f"subtitles='{_filter_escape_path(ass_path)}'",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-c:a", "copy", str(rendered.resolve()),
             ],
             check=True,
             timeout=1800,
@@ -361,8 +265,6 @@ def apply_podcast_key_text(
         "font_size": FONT_SIZE,
         "depth_layers": 3,
         "black_text_box": False,
-        "extrusion_offset": [EXTRUDE_X, EXTRUDE_Y],
-        "shadow_offset": [SHADOW_X, SHADOW_Y],
         "provider_calls_added": 0,
         "style_source": "approved_short_3d_tracked_text",
     }
