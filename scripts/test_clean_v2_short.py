@@ -964,7 +964,7 @@ class ShortContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "status": "pass",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_voice",
                         "voice_seconds_measured": 1.127,
                     }
                 ),
@@ -1192,7 +1192,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
         self.assertNotIn("atempo=", source)
         self.assertNotIn("synthesize_", source)
 
-    def test_measured_charon_voice_retimes_sections_and_timed_text_exactly(self) -> None:
+    def test_measured_voice_retimes_sections_and_timed_text_exactly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             audio_dir = root / "audio"
@@ -1219,7 +1219,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["status"], "pass")
-            self.assertEqual(report["timeline_owner"], "measured_charon_voice")
+            self.assertEqual(report["timeline_owner"], "measured_voice")
             self.assertFalse(report["time_compression"])
             self.assertFalse(report["tts_regeneration_for_duration"])
             self.assertEqual(
