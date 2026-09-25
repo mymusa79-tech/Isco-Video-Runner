@@ -524,7 +524,7 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
-_SAFE_HOOK_TRIM_MAX_OVERRUN = 2
+_SAFE_HOOK_TRIM_MAX_OVERRUN = 3
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
 _SAFE_HOOK_INCOMPLETE_ENDINGS = {
@@ -538,10 +538,10 @@ _SAFE_HOOK_INCOMPLETE_KEYS = {
 
 
 def _safe_short_hook_trim_candidate(hook: str) -> str | None:
-    """Return a conservative local trim only for a 1-2 word hook overrun."""
+    """Return a conservative local trim only for a 1-3 word hook overrun."""
     words = _clean(hook).split()
     overrun = len(words) - SHORT_HOOK_MAX_WORDS
-    if overrun not in (1, 2):
+    if overrun not in (1, 2, 3):
         return None
 
     candidates: list[int] = []

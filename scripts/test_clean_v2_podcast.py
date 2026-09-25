@@ -14,6 +14,9 @@ from clean_v2.identity_sequence import (
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
 from clean_v2.pipeline import _planning_prompt, _script_prompt
+from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
+from clean_v2.podcast_key_text import build_events as build_podcast_key_text_events
+from clean_v2.visual_qa import _apply_cultural_islamic_policy
 from scripts import clean_v2_release_delivery as delivery
 from scripts.telegram_clean_v2_control import (
     _request_hash,
@@ -71,15 +74,21 @@ class PodcastFormatTests(unittest.TestCase):
         }
         planning = _planning_prompt(brief)
         script = _script_prompt(brief, self._plan(3))
-        self.assertIn("genuinely worthwhile central question", planning)
+        planning_compact = " ".join(planning.split())
+        self.assertIn("genuinely worthwhile central question", planning_compact)
         self.assertIn("generic self-help", planning)
         self.assertIn("ONE visual beat per section", planning)
         self.assertIn("audio must", planning)
+        self.assertIn("خارج النص", planning)
+        self.assertIn("listener's understanding must", planning)
         self.assertIn("neutral female narrator", script)
         self.assertIn("local Nabra af_msa", script)
         self.assertIn("Never invent first-person", script)
         self.assertIn("Do not write toward a word-count or duration target", script)
         self.assertIn("audio alone", script)
+        self.assertIn("article, lecture, news script", script)
+        self.assertIn("speaking simply to one listener", script)
+        self.assertIn("numbered-list", script)
 
     def test_podcast_reuses_long_identity_without_a_new_identity_system(self) -> None:
         sections = [
@@ -123,7 +132,11 @@ class PodcastTelegramTests(unittest.TestCase):
             for button in row
         ]
         self.assertIn("scope:podcast", callbacks)
-        self.assertIn("سؤال مركزي حقيقي", _scope_research_instruction("podcast"))
+        labels = [button["text"] for row in scope_keyboard() for button in row]
+        self.assertIn("🎙️ خارج النص", labels)
+        instruction = _scope_research_instruction("podcast")
+        self.assertIn("سؤال مركزي حقيقي", instruction)
+        self.assertIn("يتغير فهم المستمع", instruction)
 
     def test_materialized_podcast_brief_keeps_choice_simple_and_marks_female_narration(self) -> None:
         request = {
@@ -151,13 +164,17 @@ class PodcastTelegramTests(unittest.TestCase):
                 Path(tmp) / "brief.json",
             )
         self.assertEqual(brief["format"], "podcast")
+        self.assertEqual(brief["series_name"], "خارج النص")
         self.assertIn("راوية أنثوية محايدة", brief["editorial_intent"])
+        self.assertIn("مستمع واحد", brief["editorial_intent"])
         self.assertTrue(any("female narrator" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("simple-deep" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("Arab/Muslim" in item for item in brief["hard_constraints"]))
 
     def test_podcast_delivery_and_status_keep_the_same_shared_paths(self) -> None:
         root = Path("/tmp/clean-v2-podcast-test")
         self.assertEqual(delivery._target_dirs(root, "podcast"), [("podcast", root / "podcast")])
-        self.assertIn("بودكاست", started_text(scope="podcast", topic="موضوع", run_url=""))
+        self.assertIn("خارج النص", started_text(scope="podcast", topic="موضوع", run_url=""))
         messages = dict(
             milestone_messages(
                 {"stages": [{"name": "planning", "status": "pass"}]},
@@ -165,7 +182,69 @@ class PodcastTelegramTests(unittest.TestCase):
                 kind="podcast",
             )
         )
-        self.assertIn("🎙️ البودكاست", messages["planning"])
+        self.assertIn("🎙️ خارج النص", messages["planning"])
+
+
+class PodcastVisualIdentityTests(unittest.TestCase):
+    def test_sparse_key_text_uses_approved_3d_style_at_most_three_times(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "أحيانًا نعرف الضرر ونعود إليه. هذه بداية السؤال."},
+                {"id": "s2", "narration": "المشكلة أن السلوك القديم يؤدي وظيفة لا نراها. وهنا تتغير الزاوية."},
+                {"id": "s3", "narration": "حين نفهم الوظيفة يصبح التغيير أوضح. وهنا تنتهي الفكرة، لا الرحلة."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 10.0},
+                {"section_id": "s2", "start": 10.0, "end": 20.0},
+                {"section_id": "s3", "start": 20.0, "end": 30.0},
+            ],
+        }
+        events = build_podcast_key_text_events(
+            script=script,
+            timeline=timeline,
+            closer="وهنا تنتهي الفكرة، لا الرحلة.",
+        )
+        self.assertLessEqual(len(events), 3)
+        self.assertEqual([item["role"] for item in events], ["hook", "turn", "payoff"])
+        ass = build_podcast_key_text_ass(events)
+        self.assertIn("PlayResX: 1920", ass)
+        self.assertIn("Style: Shadow", ass)
+        self.assertIn("Style: Extrusion", ass)
+        self.assertIn("&H005BA8D7", ass)
+        self.assertNotIn("drawbox", ass)
+
+    def test_cultural_islamic_visual_risk_is_a_local_fail_closed_gate(self) -> None:
+        safe = _apply_cultural_islamic_policy(
+            {
+                "status": "pass",
+                "cultural_conflict": False,
+                "cultural_islamic_suitability_risk": False,
+                "reason": "safe",
+            }
+        )
+        self.assertEqual(safe["status"], "pass")
+        self.assertEqual(safe["cultural_islamic_policy"], "pass")
+
+        risky = _apply_cultural_islamic_policy(
+            {
+                "status": "pass",
+                "cultural_conflict": False,
+                "cultural_islamic_suitability_risk": True,
+                "reason": "revealing clothing",
+            }
+        )
+        self.assertEqual(risky["status"], "block")
+        self.assertEqual(risky["cultural_islamic_policy"], "block")
+
+        missing = _apply_cultural_islamic_policy({"status": "pass", "reason": "unknown"})
+        self.assertEqual(missing["status"], "pass")
+        self.assertEqual(
+            missing["cultural_islamic_policy"],
+            "advisory_missing_evidence",
+        )
 
 
 if __name__ == "__main__":

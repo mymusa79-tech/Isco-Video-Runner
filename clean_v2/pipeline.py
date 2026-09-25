@@ -2378,6 +2378,7 @@ def _run_legacy_cinematic_layer(
 
     short_timed_text_report: dict[str, Any] | None = None
     short_audio_polish_report: dict[str, Any] | None = None
+    podcast_key_text_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
 
@@ -2408,6 +2409,29 @@ def _run_legacy_cinematic_layer(
             short_audio_polish_report,
         )
 
+    if fmt == "podcast":
+        from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
+
+        try:
+            podcast_key_text_report = apply_podcast_key_text(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
+            )
+        except PodcastKeyTextError as exc:
+            # Decorative local enhancement only: keep the finished video if this
+            # extra FFmpeg/libass pass fails. Normal successful output is unchanged.
+            podcast_key_text_report = {
+                "status": "skipped",
+                "mode": "fail_soft",
+                "reason": str(exc),
+                "provider_calls_added": 0,
+            }
+        atomic_write_json(
+            output_dir / "podcast-key-text.json",
+            podcast_key_text_report,
+        )
+
     # Final CTA surface is local and deterministic: only the user-approved icon
     # PNGs / original subscribe+bell clip / original click sound are allowed.
     # It runs after any Short music bed so the click remains audible above music.
@@ -2431,6 +2455,7 @@ def _run_legacy_cinematic_layer(
         "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
+        "podcast_key_text": podcast_key_text_report,
     }
 
 
@@ -2840,12 +2865,17 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only: turn the approved topic into a genuinely worthwhile central question and a
-specific, non-obvious angle. Reject generic self-help treatment and superficial list-style planning.
-The episode must have intellectual/narrative movement: each section must add a new cause, example,
-tension, distinction, implication, or resolution instead of restating the previous section. Do not
+For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
+worthwhile central question and a specific, non-obvious angle. Reject generic self-help treatment,
+superficial list-style planning, and topics that merely sound deep. The listener's understanding must
+meaningfully change between the beginning and the end. Each section must add a new cause, example,
+tension, distinction, implication, or resolution instead of restating the previous section. The
+structure is internal production scaffolding only: it must be invisible to the listener. Do not
 manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
 make complete sense with the screen closed.
+
+The episode title must be specific to THIS episode and carry its real tension or promise; append
+" | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
 
 Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
 remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
@@ -2880,9 +2910,12 @@ APPROVED_BRIEF:
 Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
 outside the approved brief and its research_pack. Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
-English stock-footage search phrase. Keep every section purpose complete (never cut mid-thought),
-and keep each visual query concise and at most 260 characters. Keep the whole video's stock searches
-inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
+English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
+words: one observable action OR one simple setting, plus only the few composition/light cues that
+materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
+only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
+and keep each visual query concise and at most 260 characters. Keep the whole
+video's stock searches inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
 soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
 itself requires them. Prefer environments, hands, objects, routines, and wide shots without
 identifiable faces. When the scene permits it, make the search describe a lived-in cinematic
@@ -2974,14 +3007,20 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "podcast":
         length = (
-            "For podcast, write natural spoken Modern Standard Arabic for one neutral female narrator "
-            "(local Nabra af_msa). Never invent first-person memories, experiences, credentials, or a male "
-            "speaker identity for her. Do not write toward a word-count or duration target: continue only "
-            "while each paragraph adds meaning, and stop when the central question has been answered fully. "
-            "The episode must work as audio alone. Preserve momentum through real progression of the idea, "
-            "examples, distinctions, and earned resolution—not forced cliffhangers, repeated rhetorical "
-            "questions, or generic motivational filler. Vary sentence length naturally and use punctuation "
-            "to give the listener room to process ideas."
+            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female "
+            "narrator (local Nabra af_msa). The idea may be carefully planned, but the prose must NOT sound "
+            "like an article, lecture, news script, motivational speech, or over-rehearsed monologue. Write "
+            "as if one thoughtful person understood the subject deeply and is now speaking simply to one "
+            "listener. Use simple vocabulary with deep meaning, natural sentence-length variation, and "
+            "occasional plain transitions only when they are genuinely needed. Never use numbered-list "
+            "delivery such as أولا/ثانيا/ثالثا, repeated section signposting, a rhetorical question every "
+            "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
+            "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
+            "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
+            "write toward a word-count or duration target: continue only while each paragraph adds a new "
+            "meaning, example, distinction, tension, or resolution, and stop when the central question has "
+            "been answered fully. The episode must work as audio alone. Let punctuation create breathing "
+            "room so Nabra sounds conversational rather than rushed."
         )
     elif fmt == "short":
         length = (

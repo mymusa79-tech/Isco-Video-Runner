@@ -205,7 +205,7 @@ def milestone_messages(
     kind: str,
 ) -> list[tuple[str, str]]:
     passed = passed_stages(manifest)
-    prefix = "🎙️ البودكاست" if kind == "podcast" else ("🎬 الطويل" if kind == "long" else "⚡ الشورت")
+    prefix = "🎙️ خارج النص" if kind == "podcast" else ("🎬 الطويل" if kind == "long" else "⚡ الشورت")
     result: list[tuple[str, str]] = []
     total = len(MILESTONES)
     for index, (stage, label) in enumerate(MILESTONES, 1):
@@ -279,7 +279,7 @@ def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
 
 
 def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_url: str) -> str:
-    label = "Podcast" if kind == "podcast" else ("Short" if kind == "short" else "Long")
+    label = "Outside Text" if kind == "podcast" else ("Short" if kind == "short" else "Long")
     manifest_status = str(manifest.get("status") or "")
     stage = current_stage(manifest)
     topic = str(manifest.get("topic") or "").strip()
@@ -342,7 +342,7 @@ def terminal(output: Path, *, job_status: str, kind: str, run_url: str) -> int:
 
 
 def started_text(*, scope: str, topic: str, run_url: str) -> str:
-    label = {"long": "🎬 فيديو طويل", "short": "⚡ شورت", "bundle": "🎬 طويل + ⚡ شورت", "podcast": "🎙️ بودكاست"}.get(scope, "الإنتاج")
+    label = {"long": "🎬 فيديو طويل", "short": "⚡ شورت", "bundle": "🎬 طويل + ⚡ شورت", "podcast": "🎙️ خارج النص"}.get(scope, "الإنتاج")
     lines = [
         f"🚀 بدأ الإنتاج فعليًا — {label}",
         f"الموضوع: {topic}" if topic else "الموضوع: غير محدد",
@@ -354,7 +354,7 @@ def started_text(*, scope: str, topic: str, run_url: str) -> str:
 
 
 def artifact_delivery_text(*, scope: str, topic: str) -> str:
-    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الحزمة", "podcast": "البودكاست"}.get(scope, "الإنتاج")
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الحزمة", "podcast": "خارج النص"}.get(scope, "الإنتاج")
     lines = [f"🎥 {label} جاهز للتسليم"]
     if topic:
         lines.append(f"الموضوع: {topic}")

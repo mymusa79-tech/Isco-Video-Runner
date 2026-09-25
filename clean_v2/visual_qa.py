@@ -167,6 +167,27 @@ def _apply_no_face_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _apply_cultural_islamic_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
+    """Block explicit cultural risk without creating a new failure on omitted fields."""
+    result = dict(audit)
+    required = ("cultural_conflict", "cultural_islamic_suitability_risk")
+    missing = [field for field in required if field not in result]
+    risk = any(bool(result.get(field)) for field in required)
+    if risk:
+        prior = " ".join(str(result.get("reason") or "").split()).strip()
+        result["cultural_islamic_policy"] = "block"
+        result["status"] = "block"
+        result["reason"] = "cultural_islamic_suitability_risk" + (
+            f"; {prior}" if prior else ""
+        )
+    elif missing:
+        result["cultural_islamic_policy"] = "advisory_missing_evidence"
+        result["cultural_islamic_missing_fields"] = missing
+    else:
+        result["cultural_islamic_policy"] = "pass"
+    return result
+
+
 
 def _sha256_media(path: Path) -> str:
     digest = hashlib.sha256()
@@ -578,6 +599,7 @@ def run_final_cut_visual_qa(
             )
 
         audit = _apply_no_face_policy(audit)
+        audit = _apply_cultural_islamic_policy(audit)
         floor = semantic_floor(audit)
         audit.update(
             {

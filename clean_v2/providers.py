@@ -984,6 +984,7 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
                     print(
