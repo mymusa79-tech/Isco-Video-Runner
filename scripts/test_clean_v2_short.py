@@ -60,9 +60,15 @@ from clean_v2.short_timed_text import (
     BODY_FONT_SIZE,
     CAPTION_MAX_WORDS,
     CAPTION_MIN_WORDS,
+    COMPOSITION_MODE,
+    SAFE_X_MAX,
+    SAFE_X_MIN,
+    SAFE_Y_MAX,
+    SAFE_Y_MIN,
     FOCUS_FONT,
     FOCUS_FONT_SIZE,
     MAX_DARK_SLATES,
+    build_composition_hints,
     build_events_from_voice_timeline,
     build_rich_ass,
     choose_dark_slate_index,
@@ -1179,8 +1185,9 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"\fscx98\fscy98", ass)
         self.assertIn("\u202B", ass)
         self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
-        self.assertIn(r"\pos(544,1365)", ass)
-        self.assertIn(r"\pos(549,1371)", ass)
+        self.assertIn(r"\pos(754,605)", ass)
+        self.assertIn(r"\pos(759,611)", ass)
+        self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
@@ -1205,10 +1212,50 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
         self.assertEqual(events[-1]["role"], "payoff")
+        self.assertEqual(events[0]["section_id"], "s1")
+        self.assertEqual(events[-1]["section_id"], "s3")
         for event in events:
             words = len(str(event["text"]).split())
             self.assertLessEqual(words, CAPTION_MAX_WORDS)
             self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
+
+    def test_local_composition_uses_visual_negative_space_without_provider_calls(self) -> None:
+        events = [
+            {"start": 0.0, "end": 2.0, "text": "لا تنتظر الدافع", "role": "hook", "section_id": "s1"},
+            {"start": 2.0, "end": 4.0, "text": "المشكلة أصغر مما تبدو", "role": "beat", "section_id": "s2"},
+            {"start": 4.0, "end": 6.0, "text": "ابدأ بخطوة واحدة", "role": "payoff", "section_id": "s3"},
+        ]
+        visual_story = {
+            "beats": [
+                {"section_id": "s1", "shot_intent": "person on left with negative space upper right"},
+                {"section_id": "s2", "shot_intent": "hands on right side of desk"},
+                {"section_id": "s3", "shot_intent": "centered notebook close shot"},
+            ]
+        }
+        hints = build_composition_hints(events, visual_story=visual_story, plan={})
+        self.assertEqual(COMPOSITION_MODE, "local_visual_intent_lite")
+        self.assertEqual(hints[0]["zone"], "upper_right")
+        self.assertEqual(hints[1]["zone"], "upper_left")
+        self.assertEqual(hints[2]["zone"], "lower_center")
+        for hint in hints:
+            self.assertGreaterEqual(hint["x"], SAFE_X_MIN)
+            self.assertLessEqual(hint["x"], SAFE_X_MAX)
+            self.assertGreaterEqual(hint["y"], SAFE_Y_MIN)
+            self.assertLessEqual(hint["y"], SAFE_Y_MAX)
+            self.assertGreaterEqual(hint["font_size"], 98)
+            self.assertLessEqual(hint["font_size"], 138)
+
+    def test_hook_type_is_larger_than_dense_beat_and_layout_stays_phrase_stable(self) -> None:
+        events = [
+            {"start": 0.0, "end": 2.0, "text": "ابدأ الآن", "role": "hook", "section_id": "s1"},
+            {"start": 2.0, "end": 4.0, "text": "هذه خمسة كلمات واضحة هنا الآن", "role": "beat", "section_id": "s2"},
+            {"start": 4.0, "end": 6.0, "text": "خذ خطوة صغيرة", "role": "payoff", "section_id": "s3"},
+        ]
+        hints = build_composition_hints(events)
+        self.assertGreater(hints[0]["font_size"], hints[1]["font_size"])
+        ass = build_rich_ass(events, layout_hints=hints)
+        hook_pos = rf"\pos({hints[0]['x']},{hints[0]['y']})"
+        self.assertGreater(ass.count(hook_pos), 1)
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
