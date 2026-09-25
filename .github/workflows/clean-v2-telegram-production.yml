@@ -92,7 +92,7 @@ jobs:
           scope="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].scope // empty' "$state")"
           topic="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].approved_topic // empty' "$state")"
           case "$scope" in
-            long|bundle|short) ;;
+            long|bundle|short|podcast) ;;
             *) echo "Unsupported Telegram request scope" >&2; exit 2 ;;
           esac
           echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
@@ -220,6 +220,9 @@ jobs:
               ;;
             short)
               run_one short short
+              ;;
+            podcast)
+              run_one podcast podcast
               ;;
             bundle)
               if ! run_one film long; then
