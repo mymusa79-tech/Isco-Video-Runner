@@ -31,8 +31,10 @@ FOCUS_SCALE = 1.42
 BODY_WRAP_WORDS = 4
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 4
-CAPTION_Y = 1360
+CAPTION_Y = 1400
 CAPTION_X = 540
+YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
+CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
 CAPTION_EXTRUDE_X = 4
 CAPTION_EXTRUDE_Y = 5
 CAPTION_SHADOW_X = 9
@@ -45,12 +47,12 @@ TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", 
 # renderer deterministic instead of parsing model-authored intent a second time.
 COMPOSITION_SCHEMA_VERSION = 2
 COMPOSITION_MODE = "planning_composed_upper_right_v2"
-SAFE_X_MIN = 300
-SAFE_X_MAX = 780
-SAFE_Y_MIN = 360
-SAFE_Y_MAX = 1380
-COMPOSITION_X = 750
-COMPOSITION_Y = 600
+SAFE_X_MIN = 180
+SAFE_X_MAX = 900
+SAFE_Y_MIN = 1160
+SAFE_Y_MAX = 1520
+COMPOSITION_X = 540
+COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
     "hook": 128,
     "beat": 110,
@@ -532,9 +534,9 @@ def build_composition_hints(
                 "event_index": index,
                 "section_id": section_id or None,
                 "role": item.role,
-                "zone": "upper_right",
+                "zone": "lower_center_youtube_safe",
                 "x": COMPOSITION_X,
-                "y": COMPOSITION_Y,
+                "y": min(COMPOSITION_Y, CAPTION_SAFE_BOTTOM_Y - 120),
                 "font_size": _font_size_for_event(item),
                 "source": "planning_composition_contract",
             }
