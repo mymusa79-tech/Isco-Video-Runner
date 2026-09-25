@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 4
-RICH_RENDERER_VERSION = "clean-v2-short-cinematic-type-v5"
+RICH_RENDERER_VERSION = "clean-v2-short-cinematic-type-tracked-v6"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Cinematic Type: keep one dependable Arabic family, but give the face a
@@ -415,6 +415,36 @@ def _plain_caption(text: str) -> str:
     return "\u202B" + _ass_escape(text) + "\u202C"
 
 
+def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, str]]:
+    """Approximate spoken-word windows inside a measured voice-owned phrase.
+
+    Exact word alignment is intentionally not claimed. Phrase boundaries come from
+    the measured voice timeline; each word receives a deterministic share based on
+    its visible Arabic length so the gold focus advances with the narration without
+    another model/provider call.
+    """
+    words = _clean(item.text).split()
+    if not words:
+        return []
+    duration = item.end - item.start
+    weights = [
+        max(1, len(re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)))
+        for word in words
+    ]
+    total = max(1, sum(weights))
+    cursor = item.start
+    windows: list[tuple[float, float, str]] = []
+    for index, (word, weight) in enumerate(zip(words, weights)):
+        word_end = (
+            item.end
+            if index == len(words) - 1
+            else cursor + duration * (weight / total)
+        )
+        windows.append((cursor, word_end, word))
+        cursor = word_end
+    return windows
+
+
 def build_rich_ass(
     events: Sequence[Mapping[str, object]],
     *,
@@ -441,58 +471,77 @@ def build_rich_ass(
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
+    def add_tier(
+        text: str,
+        *,
+        start_seconds: float,
+        end_seconds: float,
+        y: int,
+        size: int,
+        colour: str,
+        role_scale: int,
+        layer_base: int,
+    ) -> None:
+        if not text:
+            return
+        start = _ass_time(start_seconds)
+        end = _ass_time(end_seconds)
+        plain = _plain_caption(text)
+        face = "{\\c" + colour + f"\\fs{size}" + "}" + plain
+        shadow_tag = (
+            rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
+            rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
+        )
+        extrusion_tag = (
+            rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
+            rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
+        )
+        face_tag = (
+            rf"\an6\pos({CAPTION_RIGHT_X},{y})"
+            rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
+        )
+        lines.append(
+            f"Dialogue: {layer_base},{start},{end},Shadow,,0,0,0,,"
+            f"{{{shadow_tag}}}{plain}"
+        )
+        lines.append(
+            f"Dialogue: {layer_base + 1},{start},{end},Extrusion,,0,0,0,,"
+            f"{{{extrusion_tag}}}{plain}"
+        )
+        lines.append(
+            f"Dialogue: {layer_base + 2},{start},{end},Caption,,0,0,0,,"
+            f"{{{face_tag}}}{face}"
+        )
+
     for item in validated:
-        start = _ass_time(item.start)
-        end = _ass_time(item.end)
-        body, focus = split_focus_phrase(item.text, item.role)
         role_scale = 105 if item.role == "hook" else (102 if item.role == "payoff" else 100)
 
-        def add_tier(text: str, *, y: int, size: int, colour: str, layer_base: int) -> None:
-            if not text:
-                return
-            plain = _plain_caption(text)
-            face = (
-                "{\\c" + colour + f"\\fs{size}" + "}" + plain
-            )
-            shadow_tag = (
-                rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
-                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
-            )
-            extrusion_tag = (
-                rf"\an6\pos({CAPTION_RIGHT_X + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
-                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
-            )
-            face_tag = (
-                rf"\an6\pos({CAPTION_RIGHT_X},{y})"
-                rf"\fscx{role_scale}\fscy{role_scale}\fs{size}"
-            )
-            lines.append(
-                f"Dialogue: {layer_base},{start},{end},Shadow,,0,0,0,,"
-                f"{{{shadow_tag}}}{plain}"
-            )
-            lines.append(
-                f"Dialogue: {layer_base + 1},{start},{end},Extrusion,,0,0,0,,"
-                f"{{{extrusion_tag}}}{plain}"
-            )
-            lines.append(
-                f"Dialogue: {layer_base + 2},{start},{end},Caption,,0,0,0,,"
-                f"{{{face_tag}}}{face}"
-            )
-
+        # Stable white phrase: the viewer always sees enough context to understand
+        # the line and the text never jumps horizontally as individual words change.
         add_tier(
-            body,
+            item.text,
+            start_seconds=item.start,
+            end_seconds=item.end,
             y=CAPTION_BODY_Y,
             size=BODY_FONT_SIZE,
             colour=PRIMARY_ASS,
+            role_scale=role_scale,
             layer_base=0,
         )
-        add_tier(
-            focus,
-            y=CAPTION_FOCUS_Y,
-            size=FOCUS_FONT_SIZE,
-            colour=ACCENT_ASS,
-            layer_base=3,
-        )
+
+        # Gold tracked focus: advance one word at a time inside the measured
+        # voice-owned phrase window. This preserves the 3D face/depth/shadow stack.
+        for word_start, word_end, word in _word_highlight_windows(item):
+            add_tier(
+                word,
+                start_seconds=word_start,
+                end_seconds=word_end,
+                y=CAPTION_FOCUS_Y,
+                size=FOCUS_FONT_SIZE,
+                colour=ACCENT_ASS,
+                role_scale=role_scale,
+                layer_base=3,
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -579,9 +628,10 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "disabled_for_static_two_tier_phrase",
-        "word_highlight_count": 0,
+        "word_highlight_timing": "deterministic_word_weighted_within_voice_owned_phrase",
+        "word_highlight_count": sum(len(_word_highlight_windows(item)) for item in validated),
         "two_tier_phrase_layout": True,
+        "tracked_focus_tier": True,
         "voice_owned_event_timing_preserved": True,
     }
 
