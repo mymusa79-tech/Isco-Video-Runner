@@ -26,7 +26,7 @@ from clean_v2.short_timed_text import (
 SCHEMA_VERSION = 1
 RENDERER_VERSION = "clean-v2-sparse-key-text-3d-lite-v2"
 MAX_EVENTS = 3
-FONT_SIZE = min(82, BODY_FONT_SIZE)
+FONT_SIZE = 96
 TEXT_X = 960
 TEXT_Y = 770
 EXTRUDE = (2, 3)
@@ -35,7 +35,7 @@ DISPLAY_SECONDS = 4.2
 MAX_WORDS = 10
 
 FILM_MAX_EVENTS = 5
-FILM_FONT_SIZE = min(108, BODY_FONT_SIZE)
+FILM_FONT_SIZE = 116
 FILM_TEXT_Y = 760
 FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
@@ -253,6 +253,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
             _accent_word_index(text),
             body_size=font_size,
             focus_size=focus_size,
+            role=str(item.get("role") or "turn"),
         )
         lines.extend(
             [
@@ -350,9 +351,9 @@ def _apply_sparse_key_text(
         "extrusion_offset": list(EXTRUDE),
         "motion": "fade_180_240ms_scale_99_to_100",
         "provider_calls_added": 0,
-        "style_source": "shared_sparse_3d_key_text",
+        "style_source": "shared_clean_arabic_white_gold_line_hierarchy",
         "text_source_policy": "complete_verbatim_final_script_sentence_only",
-        "rtl_policy": "full_phrase_static_no_directional_word_sweep",
+        "rtl_policy": "full_phrase_static_white_then_gold_lines_no_directional_word_sweep",
     }
 
 
