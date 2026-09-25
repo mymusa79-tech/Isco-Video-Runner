@@ -191,6 +191,14 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     raw_sections = value.get("sections")
     if not isinstance(raw_sections, list):
         raise ContractError("script requires a sections array")
+    hook_visual_query = " ".join(
+        str(value.get("hook_visual_query_en") or "").split()
+    ).strip()
+    if hook_visual_query:
+        if len(hook_visual_query) > 260:
+            raise ContractError("script hook_visual_query_en exceeds 260 characters")
+        if not hook_visual_query.isascii():
+            raise ContractError("script hook_visual_query_en must be an English/ASCII stock query")
     expected = [str(item["id"]) for item in plan["sections"]]
     normalized: list[dict[str, str]] = []
     for raw in raw_sections:
@@ -206,11 +214,14 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
         raise ContractError(
             f"script section ids/order must match plan exactly: expected={expected} actual={actual}"
         )
-    return {
+    result = {
         "schema_version": 1,
         "title": str(value.get("title") or plan.get("title") or "").strip()[:300],
         "sections": normalized,
     }
+    if hook_visual_query:
+        result["hook_visual_query_en"] = hook_visual_query
+    return result
 
 
 def validate_narrative_identity(value: Any) -> dict[str, Any]:
