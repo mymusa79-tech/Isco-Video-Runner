@@ -1070,6 +1070,18 @@ _STOCK_RETRIEVAL_SAFE_TERMS = {
 PRIMARY_STOCK_CANDIDATES_PER_PROVIDER = 2
 
 
+def _english_stock_query_or_empty(value: object) -> str:
+    """Return a normalized English/ASCII stock phrase or an empty fallback signal."""
+    normalized = " ".join(str(value or "").split()).strip()
+    if (
+        not normalized
+        or not normalized.isascii()
+        or re.search(r"[A-Za-z]", normalized) is None
+    ):
+        return ""
+    return normalized
+
+
 def _compact_stock_retrieval_query(query: str) -> str:
     """Run212-inspired search-only compaction with zero provider/AI cost.
 
@@ -1420,12 +1432,21 @@ class StockVisualSource:
             beat_ordinal = section_beat_counts.get(section_id, 0)
             primary_query = str(section.get("visual_query_en") or "").strip()
             alternate_query = str(section.get("visual_query_alt_en") or "").strip()
-            stock_query_en = (
+            fallback_query = (
                 alternate_query
                 if beat_ordinal % 2 == 1 and alternate_query
                 else primary_query
             )
             section_beat_counts[section_id] = beat_ordinal + 1
+
+            # A visual beat owns the actual scene meaning. When its shot_intent is
+            # already an English stock-friendly phrase, retrieve against that exact
+            # beat instead of a looser section-level query. Localized/non-ASCII
+            # semantic intent falls back to the section's validated English query.
+            stock_query_en = (
+                _english_stock_query_or_empty(shot_intent)
+                or fallback_query
+            )
             if not stock_query_en:
                 continue
             beats.append(
