@@ -586,7 +586,7 @@ class ShortContractTests(unittest.TestCase):
                 {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
                 {
                     "id": "s3",
-                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. خطوة صغيرة تجعل البداية أوضح. اختر مهمة واحدة الآن.",
+                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
                 },
             ],
         }
@@ -604,7 +604,7 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             accepted["sections"][2]["narration"],
-            "خطوة صغيرة تجعل البداية أوضح. اختر مهمة واحدة الآن.",
+            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
         )
         validate_short_script(accepted)
         self.assertEqual(
