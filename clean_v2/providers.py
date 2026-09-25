@@ -34,7 +34,7 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - Isolate s3 and split it into complete sentences.
 - s3 MUST contain at least one descriptive payoff/explanation sentence BEFORE the final action sentence; the payoff must still make sense if the action sentence is removed.
 - Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
-- For that one action sentence, begin with EXACTLY ONE validator-recognized imperative from this allowlist: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. Do not substitute a synonym outside this list.
+- For that one action sentence, begin with EXACTLY ONE validator-recognized imperative from this allowlist: {validator_action_allowlist}. Do not substitute a synonym outside this list.
 - Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
 - Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
 - Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero.
@@ -51,7 +51,13 @@ def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
         and stage == "script"
         and "SHORT_FORMAT_CONTRACT:" in prompt
     ):
-        return prompt.rstrip() + "\n\n" + _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX
+        from .short_format import short_action_imperative_allowlist_text
+
+        suffix = _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX.replace(
+            "{validator_action_allowlist}",
+            short_action_imperative_allowlist_text(),
+        )
+        return prompt.rstrip() + "\n\n" + suffix
     return prompt
 
 
@@ -65,13 +71,9 @@ def _normalize_mistral_short_candidate(
     if stage != "script" or "SHORT_FORMAT_CONTRACT:" not in prompt:
         return candidate
 
-    from .short_format import (
-        apply_safe_short_hook_trim,
-        apply_safe_short_s3_single_action_trim,
-    )
+    from .short_format import normalize_short_script_candidate
 
-    apply_safe_short_hook_trim(candidate)
-    apply_safe_short_s3_single_action_trim(candidate)
+    normalize_short_script_candidate(candidate)
     return candidate
 
 
