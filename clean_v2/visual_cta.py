@@ -94,7 +94,7 @@ def _events(
             VisualCtaEvent(
                 mode=modes[index],
                 start_seconds=round(start, 3),
-                end_seconds=round(min(duration - 1.2, start + (3.5 if modes[index] == "subscribe_combo" else 1.35)), 3),
+                end_seconds=round(min(duration - 1.2, start + (2.6 if modes[index] == "subscribe_combo" else 1.35)), 3),
                 x=70,
                 y=560,
                 asset="subscribe_bell_reference.mp4" if modes[index] == "subscribe_combo" else _ICON_BY_MODE[modes[index]].name,
@@ -200,15 +200,22 @@ def _render(
             )
         else:
             combo_width = 760 if fmt == "short" else 700
+            combo_duration = max(0.8, event.end_seconds - event.start_seconds)
+            palette_filter = (
+                "hue=h=38:s=0.72,eq=contrast=1.04:brightness=-0.01"
+                if fmt == "short"
+                else "null"
+            )
             filters.append(
-                f"[{input_index}:v]trim=start=0.45:end=4.10,setpts=PTS-STARTPTS,"
+                f"[{input_index}:v]trim=start=0.45:duration={combo_duration:.3f},setpts=PTS-STARTPTS,"
                 "crop=1020:360:130:170,format=rgba,colorkey=0xFFFFFF:0.16:0.08,"
-                f"scale={combo_width}:-1,setpts=PTS+{event.start_seconds:.3f}/TB[{label}]"
+                f"{palette_filter},scale={combo_width}:-1,"
+                f"setpts=PTS+{event.start_seconds:.3f}/TB[{label}]"
             )
             delay = int(round(event.start_seconds * 1000))
             filters.append(
-                f"[{input_index}:a]atrim=start=0.45:end=4.10,asetpts=PTS-STARTPTS,"
-                f"adelay={delay}|{delay},volume=0.65[acombo{number}]"
+                f"[{input_index}:a]atrim=start=0.45:duration={combo_duration:.3f},asetpts=PTS-STARTPTS,"
+                f"adelay={delay}|{delay},volume=0.55[acombo{number}]"
             )
             audio_labels.append(f"[acombo{number}]")
 
@@ -293,6 +300,8 @@ def apply_visual_cta_assets(
         "events": [asdict(item) for item in events],
         "event_count": len(events),
         "short_max_two": fmt != "short" or len(events) <= 2,
+        "short_combo_max_seconds": 2.6 if fmt == "short" else None,
+        "short_combo_palette": "warm_gold_dark_harmonized" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": True,
         "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
