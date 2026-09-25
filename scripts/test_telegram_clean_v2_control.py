@@ -398,19 +398,29 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             control.cancel_current(state)
 
-    def test_start_explains_three_step_flow_and_safety_gate(self):
+    def test_start_opens_one_nested_main_menu(self):
         state = control.default_state()
         update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
         ), mock.patch.object(control, "send_telegram") as send:
             control.handle_update(state, update, Path(tmp) / "dispatch.json")
-        text = send.call_args.args[0]
-        self.assertIn("1)", text)
-        self.assertIn("2)", text)
-        self.assertIn("3)", text)
-        self.assertIn("الاختيار وحده لا يبدأ", text)
-        self.assertIn("/stats", text)
+        text, keyboard = send.call_args.args
+        self.assertIn("🏠 الرئيسية", text)
+        callbacks = [button["callback_data"] for row in keyboard for button in row]
+        self.assertEqual(
+            callbacks,
+            [
+                "main:research",
+                "main:saved",
+                "main:used",
+                "main:stats",
+                "main:status",
+                "main:last",
+                "main:cancel",
+            ],
+        )
+        self.assertNotIn("scope:long", callbacks)
 
     def test_research_copy_uses_human_market_language(self):
         result = {
@@ -562,6 +572,8 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         cases = {
             "🔎 بحث جديد": "بحث جديد",
             "📊 الإحصائيات": "الإحصائيات",
+            "📚 المحفوظات": "المحفوظات",
+            "✅ المستعملة": "المستعملة",
             "🟢 حالة الإنتاج": "حالة الإنتاج",
             "🎥 آخر إنتاج": "آخر إنتاج",
             "❌ إلغاء الاختيار": "إلغاء الاختيار",
@@ -635,6 +647,224 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         texts = [call.args[0] for call in send.call_args_list]
         self.assertTrue(any("يوجد إنتاج يعمل الآن" in text for text in texts))
         self.assertTrue(any("آخر إنتاج ناجح" in text for text in texts))
+
+
+    def test_saved_library_keeps_three_types_and_research_order(self):
+        state = control.default_state()
+        for idea_id, title in (
+            ("l1", "فكرة طويلة أولى"),
+            ("l2", "فكرة طويلة ثانية"),
+            ("s1", "فكرة شورت"),
+            ("p1", "فكرة بودكاست أولى"),
+            ("p2", "فكرة بودكاست ثانية"),
+            ("p3", "فكرة بودكاست ثالثة"),
+        ):
+            state["ideas"].append(
+                {
+                    "idea_id": idea_id,
+                    "title": title,
+                    "market_evidence": {
+                        "sample_count": 1,
+                        "distinct_channels": 1,
+                        "top_samples": [{"video_id": idea_id, "title": "مصدر"}],
+                    },
+                    "research_pack": [],
+                    "selected": False,
+                }
+            )
+        state["sessions"] = {
+            "long-old": {
+                "session_id": "long-old",
+                "scope": "long",
+                "idea_ids": ["l1", "l2"],
+                "created_at": "2026-09-24T10:00:00Z",
+            },
+            "short-new": {
+                "session_id": "short-new",
+                "scope": "short",
+                "idea_ids": ["s1"],
+                "created_at": "2026-09-25T10:00:00Z",
+            },
+            "podcast-newest": {
+                "session_id": "podcast-newest",
+                "scope": "podcast",
+                "idea_ids": ["p1", "p2", "p3"],
+                "created_at": "2026-09-25T12:00:00Z",
+            },
+        }
+        with mock.patch.object(control, "_release_library_records", return_value=[]):
+            text, keyboard = control._library_menu(state, "saved")
+            podcast = control._saved_library_items(state, "podcast", [])
+            page_text, page_keyboard = control._saved_library_view(state, "podcast")
+
+        self.assertEqual([row[0]["callback_data"] for row in keyboard[:3]], [
+            "library:saved:long",
+            "library:saved:short",
+            "library:saved:podcast",
+        ])
+        self.assertEqual(keyboard[-1][0]["callback_data"], "main:home")
+        self.assertIn("🎬 طويل — 2", text)
+        self.assertIn("⚡ شورت — 1", text)
+        self.assertIn("🎙️ بودكاست — 3", text)
+        self.assertEqual([item["title"] for item in podcast], [
+            "فكرة بودكاست أولى",
+            "فكرة بودكاست ثانية",
+            "فكرة بودكاست ثالثة",
+        ])
+        self.assertIn("ترتيب 1 ثم 2 ثم 3", page_text)
+        self.assertTrue(page_keyboard[0][0]["text"].startswith("1️⃣"))
+        self.assertTrue(page_keyboard[1][0]["text"].startswith("2️⃣"))
+        self.assertTrue(page_keyboard[2][0]["text"].startswith("3️⃣"))
+
+    def test_saved_library_uses_only_candidates_actually_shown_in_research(self):
+        state = control.default_state()
+        state["ideas"] = [
+            {"idea_id": "shown", "title": "فكرة ظهرت للمستخدم"},
+            {"idea_id": "internal", "title": "فكرة داخلية لم تعرض"},
+        ]
+        state["sessions"]["s1"] = {
+            "session_id": "s1",
+            "scope": "long",
+            "idea_ids": ["shown"],
+            "created_at": "2026-09-25T12:00:00Z",
+        }
+        items = control._saved_library_items(state, "long", [])
+        self.assertEqual([item["idea_id"] for item in items], ["shown"])
+
+    def test_successful_release_moves_topic_out_of_saved_view(self):
+        state = control.default_state()
+        state["ideas"] = [{"idea_id": "p1", "title": "موضوع بودكاست ناجح"}]
+        state["sessions"]["s1"] = {
+            "session_id": "s1",
+            "scope": "podcast",
+            "idea_ids": ["p1"],
+            "created_at": "2026-09-25T12:00:00Z",
+        }
+        used = [{"kind": "podcast", "topic": "موضوع بودكاست ناجح"}]
+        self.assertEqual(control._saved_library_items(state, "podcast", used), [])
+
+    def test_release_library_separates_long_short_and_podcast(self):
+        payload = [
+            {
+                "draft": False,
+                "tag_name": "clean-v2-final-podcast-1",
+                "name": "Clean V2 Podcast — بودكاست ناجح",
+                "published_at": "2026-09-25T12:00:00Z",
+                "assets": [],
+            },
+            {
+                "draft": False,
+                "tag_name": "clean-v2-final-short-1",
+                "name": "Clean V2 Short — شورت ناجح",
+                "published_at": "2026-09-25T11:00:00Z",
+                "assets": [],
+            },
+            {
+                "draft": False,
+                "tag_name": "clean-v2-final-film-1",
+                "name": "Clean V2 Film — طويل ناجح",
+                "published_at": "2026-09-25T10:00:00Z",
+                "assets": [],
+            },
+        ]
+        with mock.patch.object(control, "_github_release_json", return_value=payload):
+            records = control._release_library_records()
+        self.assertEqual([item["kind"] for item in records], ["podcast", "short", "long"])
+
+    def test_saved_pick_does_not_reorder_original_research_library(self):
+        state = control.default_state()
+        state["ideas"] = [
+            {
+                "idea_id": "p1",
+                "title": "الفكرة الأولى",
+                "market_evidence": {
+                    "sample_count": 1,
+                    "distinct_channels": 1,
+                    "top_samples": [{"video_id": "v1", "title": "مصدر"}],
+                },
+                "research_pack": [],
+                "selected": False,
+            },
+            {
+                "idea_id": "p2",
+                "title": "الفكرة الثانية",
+                "market_evidence": {
+                    "sample_count": 1,
+                    "distinct_channels": 1,
+                    "top_samples": [{"video_id": "v2", "title": "مصدر"}],
+                },
+                "research_pack": [],
+                "selected": False,
+            },
+        ]
+        state["sessions"]["original"] = {
+            "session_id": "original",
+            "scope": "podcast",
+            "idea_ids": ["p1", "p2"],
+            "created_at": "2026-09-25T10:00:00Z",
+        }
+        with mock.patch.object(control, "_release_library_records", return_value=[]):
+            control.select_saved_candidate(state, "podcast", "p2")
+            items = control._saved_library_items(state, "podcast", [])
+        self.assertEqual([item["idea_id"] for item in items], ["p1", "p2"])
+        self.assertEqual([item["rank"] for item in items], [1, 2])
+
+    def test_saved_pick_reuses_original_scope_without_dispatch(self):
+        state = control.default_state()
+        state["ideas"] = [{
+            "idea_id": "p1",
+            "title": "موضوع بودكاست محفوظ",
+            "market_evidence": {
+                "sample_count": 1,
+                "distinct_channels": 1,
+                "top_samples": [{"video_id": "v1", "title": "مصدر"}],
+            },
+            "research_pack": [],
+            "selected": False,
+        }]
+        with mock.patch.object(control, "_release_library_records", return_value=[]):
+            request = control.select_saved_candidate(state, "podcast", "p1")
+        self.assertEqual(request["scope"], "podcast")
+        self.assertEqual(request["status"], "awaiting_confirmation")
+        self.assertIsNone(request["dispatched_at"])
+
+    def test_main_menu_callbacks_are_nested_and_read_only(self):
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "_release_library_records", return_value=[]), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            for callback_data in ("main:home", "main:research", "main:saved", "main:used"):
+                update = {
+                    "callback_query": {
+                        "from": {"id": 123},
+                        "message": {"chat": {"id": 123}},
+                        "data": callback_data,
+                    }
+                }
+                control.handle_update(state, update, dispatch)
+                self.assertFalse(dispatch.exists())
+        sent = [(call.args[0], call.args[1] if len(call.args) > 1 else None) for call in send.call_args_list]
+        self.assertTrue(any("🏠 الرئيسية" in text for text, _ in sent))
+        self.assertTrue(any("اختر نوع المحتوى" in text for text, _ in sent))
+        self.assertTrue(any("📚 المحفوظات" in text for text, _ in sent))
+        self.assertTrue(any("✅ المستعملة" in text for text, _ in sent))
+
+    def test_saved_and_used_commands_never_create_dispatch_file(self):
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "_release_library_records", return_value=[]), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            for command in ("/saved", "/used"):
+                update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": command}}
+                control.handle_update(state, update, dispatch)
+                self.assertFalse(dispatch.exists())
+        self.assertEqual(send.call_count, 2)
 
 
 if __name__ == "__main__":
