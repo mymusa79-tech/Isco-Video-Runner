@@ -33,6 +33,12 @@ SHORT_MAX_SECONDS = 30
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 CLEAN_V2_DELIVERY_TAG_PREFIX = "clean-v2-final-"
+LIBRARY_ORDER = ("long", "short", "podcast")
+LIBRARY_LABELS = {
+    "long": ("🎬", "طويل"),
+    "short": ("⚡", "شورت"),
+    "podcast": ("🎙️", "بودكاست"),
+}
 
 FALLBACK_IDEAS = [
     ("لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟", "التسويف وتأجيل المهام المهمة"),
@@ -852,12 +858,37 @@ def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str)
     return request
 
 
+def main_menu_keyboard() -> list[list[dict[str, str]]]:
+    return [
+        [{"text": "🔎 بحث جديد", "callback_data": "main:research"}],
+        [
+            {"text": "📚 المحفوظات", "callback_data": "main:saved"},
+            {"text": "✅ المستعملة", "callback_data": "main:used"},
+        ],
+        [
+            {"text": "📊 الإحصائيات", "callback_data": "main:stats"},
+            {"text": "🟢 حالة الإنتاج", "callback_data": "main:status"},
+        ],
+        [{"text": "🎥 آخر إنتاج", "callback_data": "main:last"}],
+        [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
+    ]
+
+
+def render_main_menu() -> str:
+    return (
+        "🏠 الرئيسية\n\n"
+        "كل الأدوات هنا داخل قائمة واحدة. اختر ما تريد؛ "
+        "ولا يبدأ الإنتاج إلا بعد «تأكيد الإنتاج»."
+    )
+
+
 def scope_keyboard() -> list[list[dict[str, str]]]:
     return [
         [{"text": "🎬 Long فقط", "callback_data": "scope:long"}],
         [{"text": "🎬➕⚡ Long + Short", "callback_data": "scope:bundle"}],
         [{"text": "⚡ Short فقط", "callback_data": "scope:short"}],
         [{"text": "🎙️ خارج النص", "callback_data": "scope:podcast"}],
+        [{"text": "↩️ الرئيسية", "callback_data": "main:home"}],
     ]
 
 
@@ -995,6 +1026,182 @@ def _github_release_json(path: str) -> Any:
         return None
 
 
+def _library_kind_for_scope(scope: str) -> str:
+    value = str(scope or "")
+    if value in {"long", "bundle"}:
+        return "long"
+    return value if value in {"short", "podcast"} else ""
+
+
+def _release_library_records() -> list[dict[str, str]]:
+    payload = _github_release_json("releases?per_page=100")
+    if not isinstance(payload, list):
+        return []
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for release in payload:
+        if not isinstance(release, dict) or release.get("draft"):
+            continue
+        tag = str(release.get("tag_name") or "")
+        if not tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX):
+            continue
+        kind = (
+            "short"
+            if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "short-")
+            else ("podcast" if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "podcast-") else "long")
+        )
+        name = str(release.get("name") or "").strip()
+        topic = name.split(" — ", 1)[1].strip() if " — " in name else ""
+        key = kind + "|" + normalize_title(topic)
+        if not topic or key in seen:
+            continue
+        seen.add(key)
+        records.append(
+            {
+                "kind": kind,
+                "topic": topic,
+                "used_at": str(release.get("published_at") or release.get("created_at") or ""),
+            }
+        )
+    return records
+
+
+def _saved_library_items(
+    state: dict[str, Any],
+    kind: str,
+    used_records: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    used_records = used_records if used_records is not None else _release_library_records()
+    used_titles = [
+        str(item.get("topic") or "")
+        for item in used_records
+        if str(item.get("kind") or "") == kind
+    ]
+    sessions = [
+        item for item in state.get("sessions", {}).values()
+        if isinstance(item, dict)
+        and str(item.get("source") or "") != "saved_library"
+        and _library_kind_for_scope(str(item.get("scope") or "")) == kind
+    ]
+    sessions.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for session in sessions:
+        for rank, idea_id in enumerate(session.get("idea_ids") or [], 1):
+            idea = _idea_by_id(state, str(idea_id))
+            if not isinstance(idea, dict):
+                continue
+            title = str(idea.get("title") or "").strip()
+            normalized = normalize_title(title)
+            if not title or not normalized or normalized in seen:
+                continue
+            if any(same_topic(title, used_title) for used_title in used_titles):
+                continue
+            seen.add(normalized)
+            result.append(
+                {
+                    "idea_id": str(idea.get("idea_id") or ""),
+                    "title": title,
+                    "scope": str(session.get("scope") or ""),
+                    "rank": rank,
+                }
+            )
+    return result
+
+
+def _library_menu(
+    state: dict[str, Any],
+    bucket: str,
+) -> tuple[str, list[list[dict[str, str]]]]:
+    used = _release_library_records()
+    if bucket == "saved":
+        counts = {kind: len(_saved_library_items(state, kind, used)) for kind in LIBRARY_ORDER}
+        lines = ["📚 المحفوظات", "", "من نتائج البحث التي عُرضت لك فعليًا؛ الأحدث أولًا."]
+    elif bucket == "used":
+        counts = {kind: sum(item.get("kind") == kind for item in used) for kind in LIBRARY_ORDER}
+        lines = ["✅ المستعملة", "", "المواضيع التي خرج لها إنتاج ناجح فعليًا."]
+    else:
+        raise RuntimeError("unsupported library bucket")
+    keyboard: list[list[dict[str, str]]] = []
+    for kind in LIBRARY_ORDER:
+        icon, label = LIBRARY_LABELS[kind]
+        lines.append(f"{icon} {label} — {counts[kind]}")
+        keyboard.append(
+            [{"text": f"{icon} {label} ({counts[kind]})", "callback_data": f"library:{bucket}:{kind}"}]
+        )
+    keyboard.append([{"text": "↩️ الرئيسية", "callback_data": "main:home"}])
+    return "\n".join(lines), keyboard
+
+
+def _saved_library_view(
+    state: dict[str, Any],
+    kind: str,
+) -> tuple[str, list[list[dict[str, str]]]]:
+    icon, label = LIBRARY_LABELS[kind]
+    items = _saved_library_items(state, kind)
+    lines = [f"📚 المحفوظات — {icon} {label}", ""]
+    keyboard: list[list[dict[str, str]]] = []
+    if not items:
+        lines.append("لا توجد أفكار محفوظة من البحث لهذا النوع حتى الآن.")
+    else:
+        lines.append("الأحدث أولًا، وداخل كل بحث يبقى ترتيب 1 ثم 2 ثم 3.")
+        for item in items[:30]:
+            rank = int(item["rank"])
+            prefix = "1️⃣" if rank == 1 else "2️⃣" if rank == 2 else "3️⃣" if rank == 3 else "•"
+            title = str(item["title"])
+            short_title = title if len(title) <= 42 else title[:39].rstrip() + "…"
+            keyboard.append(
+                [{
+                    "text": f"{prefix} {short_title}",
+                    "callback_data": f"savedpick:{item['scope']}:{item['idea_id']}",
+                }]
+            )
+        if len(items) > 30:
+            lines.append(f"\n+ {len(items) - 30} أقدم محفوظة غير معروضة هنا.")
+    keyboard.append([{"text": "↩️ المحفوظات", "callback_data": "library:saved"}])
+    return "\n".join(lines), keyboard
+
+
+def _used_library_view(kind: str) -> tuple[str, list[list[dict[str, str]]]]:
+    icon, label = LIBRARY_LABELS[kind]
+    items = [item for item in _release_library_records() if item.get("kind") == kind]
+    lines = [f"✅ المستعملة — {icon} {label}", ""]
+    if not items:
+        lines.append("لا يوجد إنتاج ناجح لهذا النوع حتى الآن.")
+    else:
+        for index, item in enumerate(items[:30], 1):
+            date = str(item.get("used_at") or "")[:10]
+            lines.append(f"{index}) {str(item.get('topic') or '')}" + (f" — {date}" if date else ""))
+        if len(items) > 30:
+            lines.append(f"\n+ {len(items) - 30} أقدم.")
+    return "\n".join(lines), [[{"text": "↩️ المستعملة", "callback_data": "library:used"}]]
+
+
+def select_saved_candidate(state: dict[str, Any], scope: str, idea_id: str) -> dict[str, Any]:
+    if scope not in SCOPES:
+        raise RuntimeError("unsupported saved selection scope")
+    idea = _idea_by_id(state, idea_id)
+    if not isinstance(idea, dict):
+        raise RuntimeError("saved idea is missing")
+    kind = _library_kind_for_scope(scope)
+    used_titles = [
+        str(item.get("topic") or "")
+        for item in _release_library_records()
+        if item.get("kind") == kind
+    ]
+    if any(same_topic(str(idea.get("title") or ""), title) for title in used_titles):
+        raise RuntimeError("saved idea is already used")
+    session_id = secrets.token_hex(4)
+    state["sessions"][session_id] = {
+        "session_id": session_id,
+        "scope": scope,
+        "idea_ids": [idea_id],
+        "created_at": utc_now(),
+        "source": "saved_library",
+    }
+    return select_candidate(state, session_id, 0)
+
+
 def latest_release_delivery() -> dict[str, str]:
     payload = _github_release_json("releases?per_page=50")
     if not isinstance(payload, list):
@@ -1072,6 +1279,93 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     callback = update.get("callback_query")
     if isinstance(callback, dict):
         data = str(callback.get("data") or "")
+        if data.startswith("main:"):
+            action = data.split(":", 1)[1]
+            if action == "home":
+                send_telegram(render_main_menu(), main_menu_keyboard())
+                return
+            if action == "research":
+                send_telegram(
+                    "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
+                    scope_keyboard(),
+                )
+                return
+            if action in {"saved", "used"}:
+                library_text, library_keyboard = _library_menu(state, action)
+                send_telegram(library_text, library_keyboard)
+                return
+            if action == "status":
+                send_telegram(
+                    render_production_status(load_runtime_status()),
+                    [[{"text": "↩️ الرئيسية", "callback_data": "main:home"}]],
+                )
+                return
+            if action == "last":
+                last_text, last_keyboard = render_last_success(latest_release_delivery())
+                rows = list(last_keyboard or [])
+                rows.append([{"text": "↩️ الرئيسية", "callback_data": "main:home"}])
+                send_telegram(last_text, rows)
+                return
+            if action == "stats":
+                try:
+                    stats = channel_stats(state)
+                except Exception as exc:
+                    print(f"YouTube stats failed: {type(exc).__name__}")
+                    send_telegram(
+                        "⚠️ تعذر تحديث إحصائيات YouTube الآن. لم يتأثر البحث أو الإنتاج.",
+                        [[{"text": "↩️ الرئيسية", "callback_data": "main:home"}]],
+                    )
+                    return
+                send_telegram(
+                    render_channel_stats(stats),
+                    [[{"text": "↩️ الرئيسية", "callback_data": "main:home"}]],
+                )
+                return
+            if action == "cancel":
+                try:
+                    request = cancel_current(state)
+                except Exception:
+                    send_telegram(
+                        "⚠️ لا يوجد اختيار معلّق يمكن إلغاؤه الآن.",
+                        [[{"text": "↩️ الرئيسية", "callback_data": "main:home"}]],
+                    )
+                    return
+                send_telegram(
+                    f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.",
+                    [[{"text": "↩️ الرئيسية", "callback_data": "main:home"}]],
+                )
+                return
+            raise RuntimeError("unsupported main-menu callback")
+        if data in {"library:saved", "library:used"}:
+            bucket = data.split(":", 1)[1]
+            library_text, library_keyboard = _library_menu(state, bucket)
+            send_telegram(library_text, library_keyboard)
+            return
+        if data.startswith("library:saved:") or data.startswith("library:used:"):
+            parts = data.split(":")
+            try:
+                if len(parts) != 3 or parts[2] not in LIBRARY_ORDER:
+                    raise RuntimeError("malformed library callback")
+                if parts[1] == "saved":
+                    library_text, library_keyboard = _saved_library_view(state, parts[2])
+                else:
+                    library_text, library_keyboard = _used_library_view(parts[2])
+            except Exception:
+                send_telegram("⚠️ تعذر فتح هذه القائمة الآن.")
+                return
+            send_telegram(library_text, library_keyboard)
+            return
+        if data.startswith("savedpick:"):
+            parts = data.split(":")
+            try:
+                if len(parts) != 3:
+                    raise RuntimeError("malformed saved selection")
+                request = select_saved_candidate(state, parts[1], parts[2])
+            except Exception:
+                send_telegram("⚠️ هذه الفكرة المحفوظة لم تعد صالحة للاختيار.")
+                return
+            send_telegram(render_selection_confirmation(request))
+            return
         if data.startswith("scope:"):
             scope = data.split(":", 1)[1]
             try:
@@ -1101,23 +1395,22 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
 
     message = update.get("message") or {}
     text = _normalize_user_command_text(str(message.get("text") or ""))
-    if text in {"/start", "start", "ابدأ", "ابدأ البوت", "الرئيسية"}:
-        send_telegram(
-            "👋 مرحبًا بك في مساعد نداء اليقظة\n\n"
-            "1) ابحث عن فكرة مناسبة للقناة.\n"
-            "2) اختر الفكرة التي تناسبك.\n"
-            "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n"
-            "الاختيار وحده لا يبدأ أي إنتاج.\n"
-            "📊 للإحصائيات استخدم /stats.\n"
-            "🔎 للبحث استخدم /research.",
-            scope_keyboard(),
-        )
+    if text in {"/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "الرئيسية"}:
+        send_telegram(render_main_menu(), main_menu_keyboard())
         return
-    if text in {"/menu", "menu", "/research", "research", "بحث", "بحث جديد"}:
+    if text in {"/research", "research", "بحث", "بحث جديد"}:
         send_telegram(
             "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
             scope_keyboard(),
         )
+        return
+    if text in {"/saved", "saved", "محفوظات", "المحفوظات"}:
+        library_text, library_keyboard = _library_menu(state, "saved")
+        send_telegram(library_text, library_keyboard)
+        return
+    if text in {"/used", "used", "مستعملة", "المستعملة"}:
+        library_text, library_keyboard = _library_menu(state, "used")
+        send_telegram(library_text, library_keyboard)
         return
     if text in {"/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"}:
         send_telegram(render_production_status(load_runtime_status()))
@@ -1171,7 +1464,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             f"الموضوع: {request['approved_topic']}"
         )
         return
-    send_telegram("استخدم /research لطلب 3 أفكار جديدة، /stats لإحصائيات القناة، أو اختر فكرة ثم أرسل «تأكيد الإنتاج» حرفيًا.")
+    send_telegram("استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. بدء الإنتاج يتطلب «تأكيد الإنتاج» حرفيًا.")
 
 
 def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: str, fmt: str, output: Path) -> dict[str, Any]:
