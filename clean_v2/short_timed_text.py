@@ -28,7 +28,7 @@ FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 108
 FOCUS_FONT_SIZE = 154
 FOCUS_SCALE = 1.22
-BODY_WRAP_WORDS = 4
+BODY_WRAP_WORDS = 6
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
@@ -441,35 +441,34 @@ def _accent_caption(
     *,
     body_size: int = BODY_FONT_SIZE,
     focus_size: int = FOCUS_FONT_SIZE,
+    role: str = "beat",
 ) -> str:
-    """Render one dominant gold keyword with smaller white supporting copy."""
+    """Render static Arabic line hierarchy: white lead line, gold emphasis line."""
+    del focus_index  # Kept only for compatibility with older callers/tests.
     words = _clean(text).split()
     if not words:
         return ""
+    rows = [
+        words[index : index + BODY_WRAP_WORDS]
+        for index in range(0, len(words), BODY_WRAP_WORDS)
+    ][:2]
     rendered: list[str] = []
-    for index, word in enumerate(words):
-        escaped = _ass_escape(word)
-        if index == focus_index:
-            rendered.append(
-                "{\\fs"
-                + str(focus_size)
-                + "\\bord3\\shad0\\c"
-                + ACCENT_ASS
-                + "}"
-                + escaped
-                + "{\\fs"
-                + str(body_size)
-                + "\\bord3\\c"
-                + PRIMARY_ASS
-                + "}"
-            )
-        else:
-            rendered.append(escaped)
-    lines = [
-        r"\h".join(rendered[index : index + BODY_WRAP_WORDS])
-        for index in range(0, len(rendered), BODY_WRAP_WORDS)
-    ]
-    return "\u202B" + r"\N".join(lines) + "\u202C"
+    for row_index, row in enumerate(rows):
+        # Two-line Arabic hierarchy mirrors the approved visual reference:
+        # white first line, gold second line. One-line payoff may be all gold.
+        use_gold = row_index == 1 or (len(rows) == 1 and role == "payoff")
+        color = ACCENT_ASS if use_gold else PRIMARY_ASS
+        size = focus_size if use_gold and len(rows) > 1 else body_size
+        row_text = r"\h\h".join(_ass_escape(word) for word in row)
+        rendered.append(
+            "{\\fs"
+            + str(size)
+            + "\\bord3\\shad0\\c"
+            + color
+            + "}"
+            + row_text
+        )
+    return "\u202B" + r"\N".join(rendered) + "\u202C"
 
 
 def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
@@ -585,6 +584,7 @@ def build_rich_ass(
             focus_index,
             body_size=font_size,
             focus_size=focus_size,
+            role=item.role,
         )
         start = _ass_time(item.start)
         end = _ass_time(item.end)
@@ -710,13 +710,13 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "single_semantic_focus_phrase_static",
+        "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
         "word_highlight_count": len(validated),
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
-        "rtl_policy": "explicit_rtl_embedding_with_hard_word_spacing",
+        "rtl_policy": "explicit_rtl_two_line_hierarchy_double_hard_word_spacing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "phrase_fade_150_200ms_scale_99_to_100",
-        "shadow_policy": "soft_offset_4x5_no_black_box",
+        "caption_motion": "full_phrase_fade_150_200ms_scale_99_to_100",
+        "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_no_black_box",
     }
 
 
