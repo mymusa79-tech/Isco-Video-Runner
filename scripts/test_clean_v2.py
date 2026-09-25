@@ -5198,6 +5198,24 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
         }
         captured: dict[str, object] = {}
 
+        def fake_build(*, brief, plan, script):
+            del brief, plan
+            built = SimpleNamespace(
+                sections=[
+                    SimpleNamespace(narration=str(item.get("narration") or ""))
+                    for item in script["sections"]
+                ],
+                hook="",
+                closing_payoff="",
+                identity_opener="",
+                identity_closer="",
+                identity_transitions=[],
+            )
+            captured["audit_script"] = json.loads(
+                json.dumps(script, ensure_ascii=False)
+            )
+            return built
+
         def fake_tone(_api_key, production_plan, _model):
             captured["plan"] = production_plan
             return {
@@ -5220,9 +5238,15 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
                 json.dumps(self.IDENTITY, ensure_ascii=False),
                 encoding="utf-8",
             )
-            with mock.patch(
-                "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
-                side_effect=fake_tone,
+            with (
+                mock.patch(
+                    "clean_v2.pipeline._build_production_plan_for_audit",
+                    side_effect=fake_build,
+                ),
+                mock.patch(
+                    "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                    side_effect=fake_tone,
+                ),
             ):
                 report = _run_legacy_tone_naturalness_audit(
                     output_dir=root,
