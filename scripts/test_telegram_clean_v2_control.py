@@ -159,6 +159,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
                 output,
             )
             self.assertEqual(brief["format"], "short")
+            self.assertFalse(any("30 seconds" in item for item in brief["hard_constraints"]))
             self.assertTrue(output.is_file())
             with self.assertRaises(RuntimeError):
                 control.materialize_brief(
@@ -343,10 +344,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
     def test_stats_format_split_uses_clean_v2_short_contract(self):
         videos = [
             {"title": "فيديو 2:50", "duration_seconds": 170, "published_at": "2026-09-24T10:00:00Z"},
-            {"title": "شورت 25 ثانية", "duration_seconds": 25, "published_at": "2026-09-24T09:00:00Z"},
+            {"title": "شورت 59 ثانية", "duration_seconds": 59, "published_at": "2026-09-24T09:00:00Z"},
         ]
         short, long = control._latest_by_clean_v2_format(videos)
-        self.assertEqual(short["title"], "شورت 25 ثانية")
+        self.assertEqual(short["title"], "شورت 59 ثانية")
         self.assertEqual(long["title"], "فيديو 2:50")
 
     def test_research_session_closes_after_first_selection(self):
@@ -543,7 +544,9 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
     def test_bundle_research_prompt_requires_long_and_derived_short_fit(self):
         instruction = control._scope_research_instruction("bundle")
         self.assertIn("حلقة طويلة", instruction)
-        self.assertIn("شورت مستقل", instruction)
+        self.assertIn("شورت قوي من نفس الحلقة", instruction)
+        self.assertNotIn("شورت مستقل", instruction)
+        self.assertEqual(control.FORMATS_BY_SCOPE["bundle"], ["film"])
         self.assertNotEqual(instruction, control._scope_research_instruction("long"))
 
     def test_new_research_obsoletes_previous_unselected_results(self):
