@@ -55,19 +55,35 @@ function scopeKeyboard() {
       [{ text: "🎬 طويل + ⚡ شورت", callback_data: "scope:bundle" }],
       [{ text: "⚡ شورت فقط", callback_data: "scope:short" }],
       [{ text: "🎙️ بودكاست", callback_data: "scope:podcast" }],
+      [{ text: "↩️ الرئيسية", callback_data: "main:home" }],
+    ],
+  };
+}
+
+function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🔎 بحث جديد", callback_data: "main:research" }],
+      [
+        { text: "📚 المحفوظات", callback_data: "main:saved" },
+        { text: "✅ المستعملة", callback_data: "main:used" },
+      ],
+      [
+        { text: "📊 الإحصائيات", callback_data: "main:stats" },
+        { text: "🟢 حالة الإنتاج", callback_data: "main:status" },
+      ],
+      [{ text: "🎥 آخر إنتاج", callback_data: "main:last" }],
+      [{ text: "❌ إلغاء الاختيار", callback_data: "main:cancel" }],
     ],
   };
 }
 
 function arabicMainKeyboard() {
   return {
-    keyboard: [
-      [{ text: "🔎 بحث جديد" }, { text: "📊 الإحصائيات" }],
-      [{ text: "🟢 حالة الإنتاج" }, { text: "🎥 آخر إنتاج" }],
-      [{ text: "❌ إلغاء الاختيار" }],
-    ],
+    keyboard: [[{ text: "🏠 الرئيسية" }]],
     resize_keyboard: true,
     is_persistent: true,
+    input_field_placeholder: "افتح الرئيسية",
   };
 }
 
@@ -76,19 +92,16 @@ async function sendWelcome(env, chatId) {
     chat_id: chatId,
     text:
       "👋 مرحبًا بك في مساعد نداء اليقظة\n\n" +
-      "1) ابحث عن فكرة مناسبة للقناة.\n" +
-      "2) اختر الفكرة التي تناسبك.\n" +
-      "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n" +
-      "الاختيار وحده لا يبدأ أي إنتاج.\n" +
-      "📊 للإحصائيات استخدم /stats.\n" +
-      "🔎 للبحث استخدم /research.",
+      "كل الأدوات أصبحت داخل «🏠 الرئيسية».\n" +
+      "افتحها واختر البحث أو المحفوظات أو المستعملة أو المتابعة.\n\n" +
+      "الاختيار وحده لا يبدأ أي إنتاج؛ التشغيل يحتاج «تأكيد الإنتاج».",
     reply_markup: arabicMainKeyboard(),
   });
 
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text: "ابدأ من القائمة العربية بالأسفل، أو اختر نوع المحتوى للبحث:",
-    reply_markup: scopeKeyboard(),
+    text: "🏠 الرئيسية\n\nاختر ما تريد من هنا:",
+    reply_markup: mainMenuKeyboard(),
   });
 }
 
@@ -159,11 +172,11 @@ async function dispatchControl(env, update) {
 }
 
 function isStartText(text) {
-  return ["/start", "start", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
+  return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
 
 function isResearchText(text) {
-  return ["/menu", "menu", "/research", "research", "بحث", "🔎 بحث جديد"].includes(String(text || "").trim());
+  return ["/research", "research", "بحث", "🔎 بحث جديد"].includes(String(text || "").trim());
 }
 
 function isCancelText(text) {
@@ -180,6 +193,14 @@ function isStatusText(text) {
 
 function isStatsText(text) {
   return ["/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات", "📊 الإحصائيات"].includes(String(text || "").trim());
+}
+
+function isSavedText(text) {
+  return ["/saved", "saved", "محفوظات", "المحفوظات", "📚 المحفوظات"].includes(String(text || "").trim());
+}
+
+function isUsedText(text) {
+  return ["/used", "used", "مستعملة", "المستعملة", "✅ المستعملة"].includes(String(text || "").trim());
 }
 
 export default {
@@ -214,11 +235,18 @@ export default {
     }
 
     if (update.callback_query) {
+      if (current.data === "main:research") {
+        ctx.waitUntil(answerCallback(env, current.callbackId));
+        ctx.waitUntil(sendScopeMenu(env, current.chat));
+        return new Response("OK");
+      }
       if (current.data.startsWith("scope:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "🔎 بدأ البحث…"));
-      } else if (current.data.startsWith("pick:")) {
+      } else if (current.data.startsWith("pick:") || current.data.startsWith("savedpick:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "✅ أسجل الاختيار…"));
         ctx.waitUntil(clearCallbackKeyboard(env, current));
+      } else if (current.data.startsWith("library:") || current.data.startsWith("main:")) {
+        ctx.waitUntil(answerCallback(env, current.callbackId));
       } else {
         ctx.waitUntil(answerCallback(env, current.callbackId, "أمر غير معروف"));
         return new Response("OK");
@@ -241,6 +269,17 @@ export default {
     }
     if (isResearchText(text)) {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
+      return new Response("OK");
+    }
+    if (isSavedText(text) || isUsedText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر فتح القائمة الآن. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
       return new Response("OK");
     }
     if (isCancelText(text)) {
@@ -302,7 +341,7 @@ export default {
     ctx.waitUntil(
       telegram(env, "sendMessage", {
         chat_id: current.chat,
-        text: "استخدم /research لطلب 3 أفكار جديدة، و/stats لإحصائيات القناة. بدء الإنتاج يتطلب العبارة الدقيقة «تأكيد الإنتاج».",
+        text: "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. بدء الإنتاج يتطلب العبارة الدقيقة «تأكيد الإنتاج».",
       }),
     );
     return new Response("OK");
