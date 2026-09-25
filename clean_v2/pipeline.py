@@ -2840,12 +2840,15 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only: turn the approved topic into a genuinely worthwhile central question and a
-specific, non-obvious angle. Reject generic self-help treatment and superficial list-style planning.
-The episode must have intellectual/narrative movement: each section must add a new cause, example,
-tension, distinction, implication, or resolution instead of restating the previous section. Do not
-manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
-make complete sense with the screen closed.
+For podcast only, this series is "خارج النص". Turn the approved topic into a genuinely worthwhile
+central question and a specific, non-obvious angle. Reject generic self-help treatment, superficial
+list-style planning, and topics that only sound deep. The listener's understanding should genuinely
+move from the beginning to the end: each section must add a new cause, example, tension, distinction,
+implication, or resolution instead of restating the previous section. The structure is internal
+scaffolding only and must stay invisible to the listener. Do not manufacture suspense, cliffhangers,
+or rhetorical questions just to hold attention. The audio must make complete sense with the screen
+closed. Give the episode a specific title built around its real question/tension and append
+" | خارج النص"; never use "خارج النص" alone as the episode title.
 
 Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
 remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
@@ -2974,14 +2977,18 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "podcast":
         length = (
-            "For podcast, write natural spoken Modern Standard Arabic for one neutral female narrator "
-            "(local Nabra af_msa). Never invent first-person memories, experiences, credentials, or a male "
-            "speaker identity for her. Do not write toward a word-count or duration target: continue only "
-            "while each paragraph adds meaning, and stop when the central question has been answered fully. "
-            "The episode must work as audio alone. Preserve momentum through real progression of the idea, "
-            "examples, distinctions, and earned resolution—not forced cliffhangers, repeated rhetorical "
-            "questions, or generic motivational filler. Vary sentence length naturally and use punctuation "
-            "to give the listener room to process ideas."
+            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female narrator "
+            "(local Nabra af_msa), as if one thoughtful person is speaking calmly to one listener—not reading "
+            "an article, delivering a lecture, or performing a tightly packaged script. Use simple language "
+            "with deep meaning, natural connective phrases, and varied sentence length. Never invent first-person "
+            "memories, experiences, credentials, or a male speaker identity for her. Do not announce sections, "
+            "do not use first/second/third list structure, and do not end every paragraph with a maxim, lesson, "
+            "or motivational punchline. The internal plan must be invisible in the spoken result. Do not write "
+            "toward a word-count or duration target: continue only while each paragraph adds meaning, and stop "
+            "when the central question has been answered naturally. The episode must work as audio alone. "
+            "Preserve momentum through real progression, examples, distinctions, and earned resolution—not "
+            "forced cliffhangers, repeated rhetorical questions, or generic motivational filler. Leave natural "
+            "breathing room in punctuation without theatrical pauses."
         )
     elif fmt == "short":
         length = (
