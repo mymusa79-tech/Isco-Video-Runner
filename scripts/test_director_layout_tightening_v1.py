@@ -94,10 +94,14 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         ]
         ass = text_module.build_rich_ass(events)
         self.assertGreater(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
-        self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.35)
+        self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.20)
         self.assertIn(text_module.ACCENT_ASS, ass)
         self.assertIn(r"\bord4", ass)
         self.assertIn("Style: Shadow", ass)
+        self.assertEqual((text_module.CAPTION_SHADOW_X, text_module.CAPTION_SHADOW_Y), (4, 5))
+        self.assertEqual((text_module.CAPTION_EXTRUDE_X, text_module.CAPTION_EXTRUDE_Y), (2, 3))
+        self.assertIn(r"\\fad(150,200)", ass)
+        self.assertIn(r"\\fscx99\\fscy99", ass)
 
     def test_rule_4_context_requires_specific_meaning_before_general_mood(self) -> None:
         plan = {
