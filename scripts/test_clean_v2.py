@@ -2778,12 +2778,19 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             return Path(destination)
 
     @staticmethod
-    def _audit(*, relevance: float, quality: float, status: str, evidence) -> dict:
+    def _audit(
+        *,
+        relevance: float,
+        quality: float,
+        status: str,
+        evidence,
+        identifiable_person: bool = False,
+    ) -> dict:
         return {
             "status": status,
             "relevance": relevance,
             "visual_quality": quality,
-            "identifiable_person": False,
+            "identifiable_person": identifiable_person,
             "sensitive_trait_implication_risk": False,
             "prominent_logo_or_brand": False,
             "cultural_conflict": False,
@@ -2802,6 +2809,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         *,
         recovery_relevance: float | None = None,
         recovery_relevances: list[float] | None = None,
+        primary_identifiable_person: bool = False,
     ):
         scores = list(
             recovery_relevances
@@ -2888,6 +2896,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                     quality=0.95,
                     status="block",
                     evidence=evidence,
+                    identifiable_person=primary_identifiable_person,
                 )
             score_index = min(audit_counter["n"] - 2, len(scores) - 1)
             score = scores[score_index]
@@ -3139,6 +3148,29 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
+
+    def test_no_face_block_uses_deterministic_query_without_router_call(self) -> None:
+        original_router = self._Router
+        self._Router = lambda _alternate: self._FailingRecoveryRouter()
+        try:
+            with mock.patch.object(
+                visual_qa_module,
+                "_deterministic_no_face_recovery_query",
+                return_value=self.ALTERNATE_QUERY,
+            ):
+                outcome = self._run_case(
+                    recovery_relevance=0.92,
+                    primary_identifiable_person=True,
+                )
+        finally:
+            self._Router = original_router
+
+        self.assertEqual(outcome["router_calls"], 0)
+        self.assertEqual(outcome["acquire_calls"], 1)
+        self.assertEqual(outcome["commit_calls"], 1)
+        self.assertEqual(outcome["recovery"][0]["query_source"], "deterministic_no_face")
+        self.assertEqual(outcome["recovery"][0]["router_events"], [])
+        self.assertEqual(outcome["result"]["status"], "pass")
 
     def test_attempt1_recovery_provider_exhaustion_is_infrastructure_not_content(self) -> None:
         original_router = self._Router
