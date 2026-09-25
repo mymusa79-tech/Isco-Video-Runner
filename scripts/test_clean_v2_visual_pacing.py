@@ -188,6 +188,50 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 2)
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
+    def test_short_local_color_reject_tries_one_next_candidate_same_provider(self) -> None:
+        source = media_module.StockVisualSource()
+        candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
+        pexels_calls = {"n": 0}
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            pexels_calls["n"] += 1
+            return candidates.pop(0) if candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        color_results = iter([
+            (False, "short_near_monochrome saturation_avg=4.0"),
+            (True, None),
+        ])
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat("b1", "s1", "hands writing one line notebook")
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible",
+            side_effect=lambda _path: next(color_results),
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        self.assertEqual(pexels_calls["n"], 2)
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["asset_id"], "p2")
+
     def test_ai_still_preference_is_marker_only_and_does_not_activate_ai_source(self) -> None:
         beat = self._beat("b1", "s1", "warm desk by window no face")
         beat["source_preference"] = "ai_still"
