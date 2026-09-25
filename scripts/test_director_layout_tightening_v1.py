@@ -155,6 +155,21 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("warm", inspect.getsource(cta_module.apply_visual_cta_assets))
         self.assertIn("hue=h=38", source)
 
+    def test_rule_5b_short_cta_sits_above_captions_and_sfx_between_voice_and_music(self) -> None:
+        events = cta_module._events(
+            fmt="short",
+            duration=50.0,
+            script={"title": "كيف تبدأ؟"},
+            authored_mode="none",
+        )
+        self.assertTrue(events)
+        self.assertTrue(all(item.y == cta_module.SHORT_CTA_Y for item in events))
+        self.assertLess(cta_module.SHORT_CTA_Y, text_module.CAPTION_Y)
+        self.assertEqual(cta_module.SFX_TARGET_REL_DB, -12.0)
+        self.assertGreater(cta_module.SFX_TARGET_REL_DB, -22.0)
+        self.assertGreaterEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MIN_REL_DB)
+        self.assertLessEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MAX_REL_DB)
+
     def test_rule_6_captions_are_lower_center_above_bottom_15_percent(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "مهمة واحدة تكفي", "role": "hook", "section_id": "s1"},
