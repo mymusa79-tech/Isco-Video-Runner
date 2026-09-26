@@ -8,6 +8,11 @@ from pathlib import Path
 from clean_v2 import providers as providers_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
+from clean_v2.media import (
+    _choose_diverse_stock_query,
+    _semantic_query_overlap,
+    _visual_action_family,
+)
 from clean_v2.pipeline import (
     _persist_planning_artifacts,
     _planning_prompt,
@@ -157,7 +162,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             prompt = " ".join(_planning_prompt(_brief(fmt)).split())
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
-            self.assertIn("exactly two AI anchor beats", prompt)
+            self.assertIn("at most THREE AI stills", prompt)
             self.assertIn("stock_query_en is a separate, distinct", prompt)
             self.assertIn("6-14 useful search words", prompt)
             self.assertIn("hands only, back view, or objects only", prompt)
@@ -165,6 +170,39 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
+
+    def test_planning_prompt_requires_semantic_visual_variety_not_prop_swaps(self) -> None:
+        prompt = " ".join(_planning_prompt(_brief("short")).split())
+        self.assertIn("Visual variety must be SEMANTIC, not cosmetic", prompt)
+        self.assertIn(
+            "notebook, journal, pen, sticky notes, checklist, and writing as one visual-action family",
+            prompt,
+        )
+        self.assertIn("Do not place the same dominant action/object family in consecutive beats", prompt)
+        self.assertIn("stuck -> choosing -> moving -> completing", prompt)
+
+    def test_local_visual_family_guard_treats_writing_props_as_one_family(self) -> None:
+        self.assertEqual(_visual_action_family("hands writing in notebook warm light"), "writing")
+        self.assertEqual(_visual_action_family("journal with pen and sticky notes closeup"), "writing")
+        self.assertEqual(_visual_action_family("typing on laptop keyboard"), "screen")
+        selected, family, rewritten = _choose_diverse_stock_query(
+            "hands writing in notebook warm light",
+            [
+                "person walking along quiet path back view",
+                "hands typing on laptop keyboard",
+            ],
+            previous_family="writing",
+            family_counts={"writing": 1},
+        )
+        self.assertEqual(family, "walking")
+        self.assertTrue(rewritten)
+        self.assertIn("walking", selected)
+
+    def test_stock_metadata_overlap_rewards_exact_meaning_inside_same_result_page(self) -> None:
+        query = "person walking quiet path morning"
+        relevant = _semantic_query_overlap(query, "walking person on quiet morning path")
+        generic = _semantic_query_overlap(query, "coffee notebook desk aesthetic")
+        self.assertGreater(relevant, generic)
 
     def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
         prompt = " ".join(_planning_prompt(_brief("podcast")).split())
@@ -244,7 +282,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             ["hook", "body", "payoff"],
         )
 
-    def test_fresh_story_normalizes_exactly_two_ai_bookends_locally(self) -> None:
+    def test_fresh_story_keeps_ai_bookends_and_allows_one_semantic_gap_ai_body(self) -> None:
         planned = _planning_value("short")
         planned["visual_story"]["beats"][0]["source_preference"] = "stock_motion"
         planned["visual_story"]["beats"][1]["source_preference"] = "ai_still"
@@ -252,8 +290,14 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["ai_still", "stock_motion", "ai_still"],
+            ["ai_still", "ai_still", "ai_still"],
         )
+
+        planned = _planning_value("film")
+        planned["visual_story"]["beats"][1]["source_preference"] = "ai_still"
+        planned["visual_story"]["beats"][2]["source_preference"] = "ai_still"
+        with self.assertRaisesRegex(ValueError, "at most one semantic-gap AI"):
+            validate_visual_story(planned["visual_story"], planned)
 
     def test_partial_retention_thread_uses_existing_plan_without_provider_retry(self) -> None:
         planned = _planning_value("podcast")
