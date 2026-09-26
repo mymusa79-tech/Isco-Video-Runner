@@ -95,8 +95,10 @@ def select_cover_source(
 
     pool = ranked or deferred
     if pool:
-        # Local visual scoring inspects at most three already-approved assets.
-        candidates = sorted(pool, key=lambda item: item[0], reverse=True)[:3]
+        # Local visual scoring inspects a small bounded pool of already-approved
+        # assets. Five gives Cover Studio more room to find channel-fit depth
+        # without any extra stock search or provider call.
+        candidates = sorted(pool, key=lambda item: item[0], reverse=True)[:5]
         try:
             from .cover_studio import rank_cover_candidates
 
