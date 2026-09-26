@@ -568,11 +568,11 @@ def _karaoke_caption(
             cursor += 1
             tagged.append(rf"{{\kf{duration_cs}}}{_ass_escape(word)}")
         rendered.append(
-            "{\fs"
+            "{\\fs"
             + str(size)
-            + "\bord3\shad0\1c"
+            + "\\bord3\\shad0\\1c"
             + ACCENT_ASS
-            + "\2c"
+            + "\\2c"
             + PRIMARY_ASS
             + "}"
             + ARABIC_WORD_GAP.join(tagged)
