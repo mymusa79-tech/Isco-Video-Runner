@@ -116,6 +116,7 @@ jobs:
           )
           sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
           sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
+          python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
 
       - name: Install locked Engine runtime
         working-directory: engine
