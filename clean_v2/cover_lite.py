@@ -86,12 +86,12 @@ def select_cover_source(
         # Podcast deliberately prefers a meaningful body/payoff frame so "خارج النص"
         # does not look like a bright generic social thumbnail.
         role = str(row.get("role") or "")
-        if role == "hook":
-            score += 14.0 if fmt == "short" else 6.0 if fmt == "film" else 0.0
-        elif fmt == "podcast":
-            score += 12.0
-        elif fmt == "film":
-            score += 3.0
+        role_bonus = {
+            "short": {"hook": 10.0, "body": 5.0, "payoff": 7.0},
+            "film": {"hook": 3.0, "body": 7.0, "payoff": 8.0},
+            "podcast": {"hook": 1.0, "body": 9.0, "payoff": 10.0},
+        }.get(fmt, {})
+        score += float(role_bonus.get(role, 0.0))
         if str(row.get("source_actual") or "") == "ai_still":
             score += 8.0
         if not row.get("pacing_auxiliary"):
