@@ -86,7 +86,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "audio/01-chunks/04.wav": ("topic", 6.0),
                 "audio/02.wav": ("topic", 5.0),
                 "audio/03-chunks/01.wav": ("topic", 4.0),
-                "audio/03-chunks/02.wav": ("outro", 3.0),
+                "audio/03-chunks/pre-outro-silence.wav": ("pre_outro_silence", 0.45),
+                "audio/03-chunks/outro-silence.wav": ("outro_silence", 2.0),
                 "audio/03-chunks/final-silence.wav": ("final_silence", 0.75),
             }
             sections = [
@@ -102,10 +103,11 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "audio/01-chunks/04.wav": 0,
                 "audio/02.wav": 1,
                 "audio/03-chunks/01.wav": 2,
-                "audio/03-chunks/02.wav": 2,
+                "audio/03-chunks/pre-outro-silence.wav": 2,
+                "audio/03-chunks/outro-silence.wav": 2,
                 "audio/03-chunks/final-silence.wav": 2,
             }
-            durations = {"narration-mastered.wav": 31.75}
+            durations = {"narration-mastered.wav": 31.2}
             for relative, (role, seconds) in files.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,7 +124,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             def duration(path: Path) -> float:
                 path = Path(path)
                 if path.name == "narration-mastered.wav":
-                    return 31.75
+                    return 31.2
                 return files[str(path.relative_to(root))][1]
 
             with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
@@ -142,8 +144,17 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 (8.0, 13.0),
             )
             self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.0, 28.0))
-            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (28.0, 31.0))
-            self.assertEqual((events["final_silence"]["start"], events["final_silence"]["end"]), (31.0, 31.75))
+            self.assertEqual(
+                (events["pre_outro_silence"]["start"], events["pre_outro_silence"]["end"]),
+                (28.0, 28.45),
+            )
+            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (28.45, 30.45))
+            self.assertEqual(events["outro"]["source"], "measured_outro_silence")
+            self.assertEqual(
+                (events["final_silence"]["start"], events["final_silence"]["end"]),
+                (30.45, 31.2),
+            )
+            self.assertEqual(report["section_events"][-1]["end"], 28.0)
             self.assertTrue(
                 all(row["source"].startswith("measured_") for row in report["identity_events"])
             )
@@ -161,7 +172,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                     "audio/01-chunks/03.wav": ("channel_identity", 5.0),
                     "audio/01-chunks/04.wav": ("topic", 6.0),
                     "audio/02-chunks/01.wav": ("topic", 5.0),
-                    "audio/02-chunks/02.wav": ("outro", 3.0),
+                    "audio/02-chunks/02.wav": ("topic", 3.0),
+                    "audio/02-chunks/pre-outro-silence.wav": ("pre_outro_silence", 0.6),
+                    "audio/02-chunks/outro-silence.wav": ("outro_silence", 3.0),
                     "audio/02-chunks/final-silence.wav": ("final_silence", 1.0),
                 }
                 sections = [{"id": "s1", "chunks": []}, {"id": "s2", "chunks": []}]
@@ -184,7 +197,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 def duration(path: Path) -> float:
                     path = Path(path)
                     if path.name == "narration-mastered.wav":
-                        return 28.25
+                        return 31.85
                     return files[str(path.relative_to(root))][1]
 
                 with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
@@ -203,12 +216,18 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                     (events["channel_identity"]["start"], events["channel_identity"]["end"]),
                     (8.25, 13.25),
                 )
-                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.25, 24.25))
-                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (24.25, 27.25))
+                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.25, 27.25))
+                self.assertEqual(
+                    (events["pre_outro_silence"]["start"], events["pre_outro_silence"]["end"]),
+                    (27.25, 27.85),
+                )
+                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.85, 30.85))
+                self.assertEqual(events["outro"]["source"], "measured_outro_silence")
                 self.assertEqual(
                     (events["final_silence"]["start"], events["final_silence"]["end"]),
-                    (27.25, 28.25),
+                    (30.85, 31.85),
                 )
+                self.assertEqual(report["section_events"][-1]["end"], 27.25)
 
     def test_identity_animation_preserves_the_story_world_beneath_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -265,7 +284,8 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                             {"kind": "prayer", "start": 3.0, "end": 5.0},
                             {"kind": "channel_identity", "start": 5.0, "end": 8.0},
                             {"kind": "topic", "start": 8.0, "end": 31.0},
-                            {"kind": "outro", "start": 31.0, "end": 33.25},
+                            {"kind": "pre_outro_silence", "start": 31.0, "end": 31.5},
+                            {"kind": "outro", "start": 31.5, "end": 33.25},
                             {"kind": "final_silence", "start": 33.25, "end": 34.0},
                         ],
                     }
@@ -301,7 +321,10 @@ class FinalCompositionVisualQATests(unittest.TestCase):
             self.assertEqual(result["source_media"], "final.mp4")
             self.assertEqual(
                 result["identity_event_kinds"],
-                ["hook", "intro", "prayer", "channel_identity", "topic", "outro", "final_silence"],
+                [
+                    "hook", "intro", "prayer", "channel_identity", "topic",
+                    "pre_outro_silence", "outro", "final_silence",
+                ],
             )
             updated = json.loads(
                 (root / "final-cut-visual-qa.json").read_text(encoding="utf-8")
