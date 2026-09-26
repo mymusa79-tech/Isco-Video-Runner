@@ -1076,7 +1076,7 @@ class PipelineWiringTests(unittest.TestCase):
             timeline = json.loads(
                 (output / "timeline-first.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(timeline["timeline_owner"], "measured_charon_voice")
+            self.assertEqual(timeline["timeline_owner"], "measured_nabra_voice")
             self.assertAlmostEqual(
                 sum(received.values()),
                 float(timeline["voice_seconds_measured"]),
