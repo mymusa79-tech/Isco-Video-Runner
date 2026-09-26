@@ -13,6 +13,8 @@ from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     TtsProviderError,
     VoiceInfrastructureError,
+    soften_pcm_wav_edges_in_place,
+    trim_legacy_gemini_tail_silence_in_place,
 )
 from clean_v2.pipeline import (
     STAGES,
@@ -59,6 +61,60 @@ class _FakeResponse:
 
     def read(self, _limit: int) -> bytes:
         return self.payload
+
+
+class CharonChunkJoinTests(unittest.TestCase):
+    def _write_pcm(self, path: Path, *, speech_frames: int, tail_frames: int) -> None:
+        with wave.open(str(path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(24000)
+            # Deliberately non-zero speech ending so edge smoothing has work to do.
+            wav.writeframes((b"\xe8\x03" * speech_frames) + (b"\x00\x00" * tail_frames))
+
+    def test_trim_removes_only_exact_engine_zero_tail(self) -> None:
+        from isco_video_agent.media.audio_pacing import section_tail_seconds
+
+        transcript = "هذه جملة عربية واضحة."
+        expected_tail = int(round(24000 * section_tail_seconds(transcript)))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chunk.wav"
+            self._write_pcm(path, speech_frames=2400, tail_frames=expected_tail)
+            self.assertTrue(
+                trim_legacy_gemini_tail_silence_in_place(path, transcript)
+            )
+            with wave.open(str(path), "rb") as wav:
+                self.assertEqual(wav.getnframes(), 2400)
+
+    def test_trim_fails_soft_when_expected_tail_is_not_zero(self) -> None:
+        transcript = "هذه جملة عربية واضحة."
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chunk.wav"
+            self._write_pcm(path, speech_frames=2400, tail_frames=100)
+            before = path.read_bytes()
+            self.assertFalse(
+                trim_legacy_gemini_tail_silence_in_place(path, transcript)
+            )
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_edge_softening_keeps_frame_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chunk.wav"
+            self._write_pcm(path, speech_frames=2400, tail_frames=0)
+            with wave.open(str(path), "rb") as wav:
+                before = wav.getnframes()
+            self.assertTrue(
+                soften_pcm_wav_edges_in_place(
+                    path,
+                    fade_in_ms=4.0,
+                    fade_out_ms=4.0,
+                )
+            )
+            with wave.open(str(path), "rb") as wav:
+                after = wav.getnframes()
+                frames = wav.readframes(after)
+            self.assertEqual(after, before)
+            self.assertEqual(frames[-2:], b"\x00\x00")
 
 
 class CleanV2VoiceRoutingTests(unittest.TestCase):
