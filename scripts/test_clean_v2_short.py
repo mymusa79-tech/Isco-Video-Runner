@@ -1300,8 +1300,9 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn("ابدأ بالمهمة الأصغر،", [item["text"] for item in events])
         self.assertIn("ثم دع الزخم يكمل الطريق.", [item["text"] for item in events])
         ass = build_rich_ass(events)
-        self.assertIn(r"\h", ass)
-        self.assertIn("\u202B", ass)
+        self.assertIn("\u2009\u2009", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertNotIn("\u202C", ass)
         self.assertNotIn("deterministic_phrase_weighted_approximation", ass)
 
     def test_local_composition_uses_one_planning_owned_safe_zone_without_provider_calls(self) -> None:
