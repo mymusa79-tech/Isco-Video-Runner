@@ -26,6 +26,7 @@ on:
       - "scripts/test_clean_v2_ai_still.py"
       - "scripts/test_clean_v2_timeline_first.py"
       - "scripts/test_cover_lite.py"
+      - "scripts/test_cover_studio.py"
       - "scripts/test_director_layout_tightening_v1.py"
       - "scripts/telegram_clean_v2_notify.py"
       - "scripts/test_telegram_clean_v2_notify.py"
