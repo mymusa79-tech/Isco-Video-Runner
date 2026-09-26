@@ -31,6 +31,12 @@ FAMILIES = {
 }
 STYLES = {"clean", "depth", "impact"}
 
+ARABIC_STOPWORDS = {
+    "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل", "لكن",
+    "هذا", "هذه", "ذلك", "التي", "الذي", "ما", "لا", "لم", "لن", "كل", "فقط",
+    "حين", "قبل", "بعد", "ليس", "كانت", "كان",
+}
+
 
 @dataclass(frozen=True)
 class LayoutDecision:
@@ -99,12 +105,81 @@ def _zone_detail(image: Image.Image, box: tuple[int, int, int, int]) -> float:
 
 def _quiet_side(image: Image.Image) -> tuple[str, float]:
     width, height = image.size
-    left = _zone_detail(image, (0, 0, width // 2, height))
-    right = _zone_detail(image, (width // 2, 0, width, height))
+    # Judge the actual headline band rather than the entire frame. This avoids
+    # placing type over a busy subject just because the lower half is empty.
+    top = int(height * 0.10)
+    bottom = int(height * 0.62)
+    left = _zone_detail(image, (0, top, width // 2, bottom))
+    right = _zone_detail(image, (width // 2, top, width, bottom))
     difference = abs(left - right)
     if difference < 5.0:
         return "center", difference
     return ("left" if left < right else "right"), difference
+
+
+def _focus_index(text: str) -> int:
+    words = _clean(text).split()
+    if not words:
+        return 0
+    # Arabic cover copy is normally tension -> punch. Prefer the final content
+    # word so the visual hierarchy reads naturally right-to-left.
+    for index in range(len(words) - 1, -1, -1):
+        bare = words[index].strip("،؛:؟?!….-")
+        if bare and bare not in ARABIC_STOPWORDS:
+            return index
+    return len(words) - 1
+
+
+def _focus_parts(text: str) -> tuple[str, str, str]:
+    words = _clean(text).split()
+    if not words:
+        return "", "", ""
+    index = _focus_index(text)
+    return (
+        " ".join(words[:index]).strip(),
+        words[index].strip(),
+        " ".join(words[index + 1:]).strip(),
+    )
+
+
+def _text_width(text: str, *, size: int = 120, font_path: str = FONT_BOLD) -> int:
+    if not text:
+        return 0
+    probe = ImageDraw.Draw(Image.new("L", (20, 20), 0))
+    font = _font(font_path, size)
+    bbox = probe.textbbox((0, 0), text, font=font, direction="rtl", language="ar")
+    return max(0, bbox[2] - bbox[0])
+
+
+def _balanced_rows(text: str, *, maximum_rows: int = 2) -> list[str]:
+    words = _clean(text).split()
+    if len(words) <= 2 or maximum_rows <= 1:
+        return [" ".join(words)] if words else []
+    if maximum_rows >= 3 and len(words) >= 5:
+        # Search two split points and minimize visible-width imbalance.
+        best_rows: list[str] | None = None
+        best_score = float("inf")
+        for first in range(1, len(words) - 1):
+            for second in range(first + 1, len(words)):
+                rows = [
+                    " ".join(words[:first]),
+                    " ".join(words[first:second]),
+                    " ".join(words[second:]),
+                ]
+                widths = [_text_width(row) for row in rows]
+                score = max(widths) - min(widths) + max(widths) * 0.08
+                if score < best_score:
+                    best_score, best_rows = score, rows
+        if best_rows:
+            return best_rows
+    best_split, best_score = 1, float("inf")
+    for split in range(1, len(words)):
+        left = " ".join(words[:split])
+        right = " ".join(words[split:])
+        score = abs(_text_width(left) - _text_width(right))
+        if score < best_score:
+            best_score, best_split = score, split
+    return [" ".join(words[:best_split]), " ".join(words[best_split:])]
 
 
 def _mean_luma(image: Image.Image) -> float:
@@ -166,28 +241,28 @@ def choose_layout(
 def _text_style(style: str, size: int) -> dict[str, int | bool]:
     if style == "clean":
         return {
-            "stroke": max(3, round(size * 0.018)),
-            "depth": max(2, round(size * 0.012)),
-            "shadow_x": max(5, round(size * 0.018)),
-            "shadow_y": max(7, round(size * 0.025)),
+            "stroke": max(2, round(size * 0.012)),
+            "depth": max(1, round(size * 0.007)),
+            "shadow_x": max(4, round(size * 0.012)),
+            "shadow_y": max(5, round(size * 0.018)),
             "blur": max(4, round(size * 0.012)),
             "texture": False,
         }
     if style == "impact":
         return {
-            "stroke": max(7, round(size * 0.040)),
-            "depth": max(10, round(size * 0.065)),
-            "shadow_x": max(12, round(size * 0.055)),
-            "shadow_y": max(15, round(size * 0.070)),
-            "blur": max(6, round(size * 0.020)),
+            "stroke": max(5, round(size * 0.030)),
+            "depth": max(7, round(size * 0.045)),
+            "shadow_x": max(8, round(size * 0.032)),
+            "shadow_y": max(10, round(size * 0.042)),
+            "blur": max(5, round(size * 0.017)),
             "texture": True,
         }
     return {
-        "stroke": max(5, round(size * 0.030)),
-        "depth": max(7, round(size * 0.045)),
-        "shadow_x": max(9, round(size * 0.040)),
-        "shadow_y": max(11, round(size * 0.052)),
-        "blur": max(5, round(size * 0.018)),
+        "stroke": max(4, round(size * 0.022)),
+        "depth": max(4, round(size * 0.026)),
+        "shadow_x": max(6, round(size * 0.024)),
+        "shadow_y": max(8, round(size * 0.032)),
+        "blur": max(4, round(size * 0.014)),
         "texture": False,
     }
 
@@ -343,17 +418,9 @@ def _soft_veil(
 
 
 def _split_words(text: str, parts: int) -> list[str]:
-    words = _clean(text).split()
-    if not words:
-        return []
-    parts = max(1, min(parts, len(words)))
-    base, extra = divmod(len(words), parts)
-    rows, cursor = [], 0
-    for index in range(parts):
-        size = base + (1 if index < extra else 0)
-        rows.append(" ".join(words[cursor:cursor + size]))
-        cursor += size
-    return [row for row in rows if row]
+    # Kept as a compatibility helper for explicit family tests. Production-like
+    # family composition uses measured _balanced_rows instead.
+    return _balanced_rows(text, maximum_rows=parts)
 
 
 def _text_center_for_side(side: str, *, width: int) -> int:
@@ -381,15 +448,16 @@ def _render_family(
     style = decision.style
     side = decision.text_side
     draw = ImageDraw.Draw(image)
+    prefix, focus, suffix = _focus_parts(text)
 
     if family == "podcast_signature":
-        tag_font = _font(FONT_BOLD, 42 if width >= 1200 else 34)
+        tag_font = _font(FONT_BOLD, 40 if width >= 1200 else 34)
         tag_x = width - 120
-        tag_y = 82
+        tag_y = 78
         draw.rounded_rectangle(
-            (tag_x - 105, tag_y - 32, tag_x + 105, tag_y + 32),
-            radius=18,
-            fill=(20, 16, 13, 178),
+            (tag_x - 102, tag_y - 30, tag_x + 102, tag_y + 30),
+            radius=17,
+            fill=(20, 16, 13, 168),
             outline=(215, 168, 91, 205),
             width=2,
         )
@@ -407,16 +475,16 @@ def _render_family(
     if family == "split_cinematic":
         side = side if side != "center" else ("right" if fmt != "short" else "center")
         x = _text_center_for_side(side, width=width)
-        max_width = int(width * (0.53 if fmt != "short" else 0.78))
-        rows = _split_words(text, 2)
+        max_width = int(width * (0.46 if fmt != "short" else 0.74))
+        rows = _balanced_rows(text, maximum_rows=2)
         if fmt == "short":
-            y0, gap, start = 560, 230, 285
-            _soft_veil(image, box=(80, 280, 1000, 940), opacity=30, blur=90)
+            y0, gap, start_size = 520, 205, 255
+            _soft_veil(image, box=(110, 280, 970, 930), opacity=24, blur=100)
         else:
-            y0, gap, start = 250, 170, 205
-            x1 = 40 if side == "left" else width // 2
-            x2 = width // 2 if side == "left" else width - 40
-            _soft_veil(image, box=(x1, 80, x2, 650), opacity=55, blur=75)
+            y0, gap, start_size = 240, 155, 178
+            x1 = 45 if side == "left" else width // 2
+            x2 = width // 2 if side == "left" else width - 45
+            _soft_veil(image, box=(x1, 90, x2, 630), opacity=45, blur=85)
         for index, row in enumerate(rows):
             _render_line(
                 image,
@@ -424,27 +492,34 @@ def _render_family(
                 center_x=x,
                 center_y=y0 + index * gap,
                 max_width=max_width,
-                start_size=start + (14 if index else 0),
+                start_size=start_size + (8 if index else 0),
                 gold=index == len(rows) - 1,
                 style=style,
             )
-        _accent_line(draw, x1=max(60, x - max_width // 4), y=y0 + len(rows) * gap - 30, x2=min(width - 60, x + max_width // 4), thick=8)
+        if fmt != "short":
+            _accent_line(
+                draw,
+                x1=max(70, x - max_width // 5),
+                y=y0 + len(rows) * gap - 18,
+                x2=min(width - 70, x + max_width // 5),
+                thick=6,
+            )
         return
 
     if family == "centered_editorial":
-        rows = _split_words(text, 2 if len(words) <= 4 else 3)
+        rows = _balanced_rows(text, maximum_rows=2 if len(words) <= 4 else 3)
         if fmt == "short":
-            y0 = 520
-            gap = 215 if len(rows) <= 2 else 175
-            start = 265
-            max_width = 850
-            _soft_veil(image, box=(60, 250, 1020, 1040), opacity=38, blur=95)
+            y0 = 500
+            gap = 190 if len(rows) <= 2 else 155
+            start_size = 235
+            max_width = 820
+            _soft_veil(image, box=(100, 270, 980, 1000), opacity=25, blur=110)
         else:
-            y0 = 215
-            gap = 160
-            start = 185
-            max_width = 1040
-            _soft_veil(image, box=(120, 80, 1160, 640), opacity=60, blur=95)
+            y0 = 205
+            gap = 145
+            start_size = 160
+            max_width = 920
+            _soft_veil(image, box=(150, 90, 1130, 620), opacity=42, blur=100)
         for index, row in enumerate(rows):
             _render_line(
                 image,
@@ -452,49 +527,65 @@ def _render_family(
                 center_x=width // 2,
                 center_y=y0 + index * gap,
                 max_width=max_width,
-                start_size=start,
+                start_size=start_size,
                 gold=index == len(rows) - 1,
                 style="clean" if style == "clean" else "depth",
             )
         return
 
     if family == "bold_impact":
-        rows = _split_words(text, 2 if len(words) >= 3 else 1)
+        # Build hierarchy around one punch word instead of making an entire line
+        # enormous. This keeps the subject visible and feels designed, not scaled.
+        lead = " ".join(part for part in (prefix, suffix) if part).strip()
         if fmt == "short":
-            x, y0, gap, max_width, start = width // 2, 560, 255, 880, 330
+            x, lead_y, focus_y = width // 2, 505, 735
+            max_width, lead_size, focus_size = 800, 178, 285
+            _soft_veil(image, box=(110, 285, 970, 970), opacity=28, blur=105)
         else:
             side = side if side != "center" else "left"
             x = _text_center_for_side(side, width=width)
-            y0, gap, max_width, start = 245, 190, 560, 250
+            lead_y, focus_y = 205, 405
+            max_width, lead_size, focus_size = 500, 118, 230
             if side == "left":
-                _soft_veil(image, box=(20, 60, 690, 665), opacity=72, blur=85)
+                _soft_veil(image, box=(30, 65, 660, 650), opacity=58, blur=92)
             else:
-                _soft_veil(image, box=(590, 60, 1260, 665), opacity=72, blur=85)
-        for index, row in enumerate(rows):
-            _render_line(
-                image,
-                row,
-                center_x=x,
-                center_y=y0 + index * gap,
-                max_width=max_width,
-                start_size=start,
-                gold=index == len(rows) - 1,
-                style="impact",
-            )
+                _soft_veil(image, box=(620, 65, 1250, 650), opacity=58, blur=92)
+        if lead:
+            for row_index, row in enumerate(_balanced_rows(lead, maximum_rows=2)):
+                _render_line(
+                    image,
+                    row,
+                    center_x=x,
+                    center_y=lead_y + row_index * int(lead_size * 0.78),
+                    max_width=max_width,
+                    start_size=lead_size,
+                    gold=False,
+                    style="depth",
+                )
+        _render_line(
+            image,
+            focus or text,
+            center_x=x,
+            center_y=focus_y,
+            max_width=max_width,
+            start_size=focus_size,
+            gold=True,
+            style="impact",
+        )
         return
 
     if family == "minimal_warm":
-        rows = _split_words(text, 2)
+        rows = _balanced_rows(text, maximum_rows=2)
         if fmt == "short":
-            x, y0, gap, max_width, start = width // 2, 610, 195, 820, 230
-            _soft_veil(image, box=(120, 330, 960, 980), opacity=25, blur=110)
+            x, y0, gap, max_width, start_size = width // 2, 570, 175, 790, 205
+            _soft_veil(image, box=(135, 335, 945, 950), opacity=18, blur=120)
         else:
             side = side if side != "center" else "right"
             x = _text_center_for_side(side, width=width)
-            y0, gap, max_width, start = 270, 155, 600, 165
-            x1 = 60 if side == "left" else 630
-            x2 = 650 if side == "left" else 1220
-            _soft_veil(image, box=(x1, 90, x2, 620), opacity=42, blur=100)
+            y0, gap, max_width, start_size = 255, 140, 540, 140
+            x1 = 70 if side == "left" else 650
+            x2 = 630 if side == "left" else 1210
+            _soft_veil(image, box=(x1, 105, x2, 610), opacity=32, blur=110)
         for index, row in enumerate(rows):
             _render_line(
                 image,
@@ -502,43 +593,51 @@ def _render_family(
                 center_x=x,
                 center_y=y0 + index * gap,
                 max_width=max_width,
-                start_size=start,
+                start_size=start_size,
                 gold=index == len(rows) - 1,
                 style="clean",
                 font_path=FONT_BOLD,
             )
         return
 
-    # stacked_story
-    rows = _split_words(text, 3 if len(words) >= 4 else 2)
+    # stacked_story: supporting copy stays modest; one punch word owns the scale.
     if fmt == "short":
-        x, y0, gap, max_width, start = width // 2, 480, 195, 850, 250
-        _soft_veil(image, box=(70, 240, 1010, 1050), opacity=35, blur=100)
+        x, lead_y, focus_y, max_width = width // 2, 445, 700, 820
+        lead_size, focus_size = 165, 285
+        _soft_veil(image, box=(95, 250, 985, 1020), opacity=25, blur=110)
     else:
         side = side if side != "center" else "left"
         x = _text_center_for_side(side, width=width)
-        y0, gap, max_width, start = 190, 150, 575, 200
+        lead_y, focus_y, max_width = 170, 420, 520
+        lead_size, focus_size = 110, 225
         if side == "left":
-            _soft_veil(image, box=(20, 40, 690, 675), opacity=68, blur=88)
+            _soft_veil(image, box=(30, 55, 665, 665), opacity=58, blur=92)
         else:
-            _soft_veil(image, box=(590, 40, 1260, 675), opacity=68, blur=88)
-    for index, row in enumerate(rows):
-        if len(rows) == 3:
-            gold = index == 1
-            size = start + (28 if index == 1 else -12 if index == 2 else 0)
-        else:
-            gold = index == len(rows) - 1
-            size = start + (18 if gold else 0)
+            _soft_veil(image, box=(615, 55, 1250, 665), opacity=58, blur=92)
+
+    supporting = " ".join(part for part in (prefix, suffix) if part).strip()
+    support_rows = _balanced_rows(supporting, maximum_rows=2)
+    for index, row in enumerate(support_rows):
         _render_line(
             image,
             row,
             center_x=x,
-            center_y=y0 + index * gap,
+            center_y=lead_y + index * int(lead_size * 0.78),
             max_width=max_width,
-            start_size=size,
-            gold=gold,
-            style="impact" if gold else "depth",
+            start_size=lead_size,
+            gold=False,
+            style="depth",
         )
+    _render_line(
+        image,
+        focus or text,
+        center_x=x,
+        center_y=focus_y,
+        max_width=max_width,
+        start_size=focus_size,
+        gold=True,
+        style="impact",
+    )
 
 
 def render_cover(
