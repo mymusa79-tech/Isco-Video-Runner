@@ -1227,11 +1227,11 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\fscx98\fscy98", ass)
+        self.assertIn(r"\fscx99\fscy99", ass)
         self.assertNotIn("\u202B", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(549,1411)", ass)
+        self.assertIn(r"\pos(544,1405)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
