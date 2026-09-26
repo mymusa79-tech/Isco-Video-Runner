@@ -216,6 +216,112 @@ def _legacy_voice_identity() -> tuple[str, str]:
     return _voice_identity()
 
 
+def trim_legacy_gemini_tail_silence_in_place(path: Path, transcript: str) -> bool:
+    """Remove only the exact zero-tail appended by the pinned Engine TTS helper.
+
+    The legacy Engine appends 0.65-0.90s of PCM zeroes after *every* synthesize_wav
+    call. Clean V2 may split one semantic section into several provider calls for
+    retry safety, so retaining that macro-section pause after every internal chunk
+    creates robotic gaps. This function trims the tail only when the exact expected
+    trailing frames are all zero, otherwise it fails soft and leaves audio untouched.
+    """
+    try:
+        from isco_video_agent.media.audio_pacing import section_tail_seconds
+    except Exception:
+        return False
+
+    expected_seconds = float(section_tail_seconds(transcript))
+    if expected_seconds <= 0:
+        return False
+
+    source = Path(path)
+    temporary = source.with_name(source.name + ".trim-tail.tmp.wav")
+    try:
+        with wave.open(str(source), "rb") as wav:
+            params = wav.getparams()
+            frame_rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+
+        bytes_per_frame = params.nchannels * params.sampwidth
+        trim_frames = int(round(frame_rate * expected_seconds))
+        trim_bytes = trim_frames * bytes_per_frame
+        if trim_bytes <= 0 or len(frames) <= trim_bytes:
+            return False
+
+        tail = frames[-trim_bytes:]
+        if any(tail):
+            return False
+
+        kept = frames[:-trim_bytes]
+        if not kept:
+            return False
+
+        with wave.open(str(temporary), "wb") as wav:
+            wav.setparams(params)
+            wav.writeframes(kept)
+        temporary.replace(source)
+        return True
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        return False
+
+
+def soften_pcm_wav_edges_in_place(
+    path: Path,
+    *,
+    fade_in_ms: float = 4.0,
+    fade_out_ms: float = 4.0,
+) -> bool:
+    """Apply tiny PCM16 mono edge fades to prevent concat clicks.
+
+    The fade is intentionally only a few milliseconds: long enough to bring a
+    non-zero splice edge to zero, far too short to create an audible pause or
+    change speaking pace. Unsupported WAV shapes are left untouched.
+    """
+    source = Path(path)
+    temporary = source.with_name(source.name + ".edge-soften.tmp.wav")
+    try:
+        with wave.open(str(source), "rb") as wav:
+            params = wav.getparams()
+            if params.nchannels != 1 or params.sampwidth != 2 or params.comptype != "NONE":
+                return False
+            frame_rate = wav.getframerate()
+            frames = bytearray(wav.readframes(wav.getnframes()))
+
+        sample_count = len(frames) // 2
+        if sample_count < 8:
+            return False
+
+        import array
+        samples = array.array("h")
+        samples.frombytes(bytes(frames))
+        if __import__("sys").byteorder != "little":
+            samples.byteswap()
+
+        fade_in = max(0, min(sample_count // 4, int(round(frame_rate * fade_in_ms / 1000.0))))
+        fade_out = max(0, min(sample_count // 4, int(round(frame_rate * fade_out_ms / 1000.0))))
+
+        if fade_in:
+            for index in range(fade_in):
+                samples[index] = int(samples[index] * (index / float(fade_in)))
+        if fade_out:
+            start = sample_count - fade_out
+            for offset in range(fade_out):
+                factor = (fade_out - 1 - offset) / float(fade_out)
+                samples[start + offset] = int(samples[start + offset] * max(0.0, factor))
+
+        if __import__("sys").byteorder != "little":
+            samples.byteswap()
+        with wave.open(str(temporary), "wb") as wav:
+            wav.setparams(params)
+            wav.writeframes(samples.tobytes())
+        temporary.replace(source)
+        return True
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        return False
+
+
 def _legacy_gemini_synthesize(
     api_key: str,
     transcript: str,
