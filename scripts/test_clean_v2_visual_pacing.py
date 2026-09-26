@@ -1082,19 +1082,21 @@ class PipelineWiringTests(unittest.TestCase):
                 for item in timeline["section_events"]
             }
             self.assertEqual(received, exact_sections)
-            silent_roles = {
-                "intro_silence",
+            # The intro pause sits inside the first section's visual span
+            # underneath the opaque intro card. Only the terminal identity
+            # silences are outside content-scene pacing.
+            terminal_silent_roles = {
                 "pre_outro_silence",
                 "outro_silence",
                 "final_silence",
             }
-            silent_seconds = sum(
+            terminal_silent_seconds = sum(
                 float(item["end"]) - float(item["start"])
                 for item in timeline["audio_units"]
-                if str(item.get("role") or "") in silent_roles
+                if str(item.get("role") or "") in terminal_silent_roles
             )
             self.assertAlmostEqual(
-                sum(received.values()) + silent_seconds,
+                sum(received.values()) + terminal_silent_seconds,
                 float(timeline["voice_seconds_measured"]),
                 places=3,
             )
