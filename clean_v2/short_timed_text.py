@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 8
-RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-karaoke-sweep-lite-v8"
+SCHEMA_VERSION = 9
+RICH_RENDERER_VERSION = "clean-v2-short-arabic-large-static-rtl-v9"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
@@ -25,10 +25,10 @@ EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&HA8000000"  # soft transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 108
-FOCUS_FONT_SIZE = 154
-FOCUS_SCALE = 1.22
-BODY_WRAP_WORDS = 6
+BODY_FONT_SIZE = 124
+FOCUS_FONT_SIZE = 176
+FOCUS_SCALE = 1.20
+BODY_WRAP_WORDS = 5
 ARABIC_WORD_GAP = "\u2009\u2009"
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
@@ -55,9 +55,9 @@ SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
 COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
-    "hook": 128,
-    "beat": 110,
-    "payoff": 120,
+    "hook": 150,
+    "beat": 128,
+    "payoff": 140,
 }
 
 _SECRET_ENV_NAMES = {
@@ -666,12 +666,14 @@ def build_rich_ass(
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
         focus_size = max(
             font_size + 18,
-            min(160, int(round(font_size * FOCUS_SCALE))),
+            min(188, int(round(font_size * FOCUS_SCALE))),
         )
-        caption = _karaoke_caption(
-            item,
+        caption = _accent_caption(
+            item.text,
+            _accent_word_index(item.text),
             body_size=font_size,
             focus_size=focus_size,
+            role=item.role,
         )
         start = _ass_time(item.start)
         end = _ass_time(item.end)
@@ -797,14 +799,14 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "voice_owned_event_local_weighted_ass_kf_sweep",
-        "word_highlight_count": sum(len(_clean(item.text).split()) for item in validated),
-        "karaoke_mode": "full_phrase_visible_white_to_gold_smooth_fill",
+        "word_highlight_timing": "static_full_phrase_rtl_line_hierarchy",
+        "word_highlight_count": len(validated),
+        "karaoke_mode": "disabled_until_true_rtl_direction_is_guaranteed",
         "karaoke_provider_calls": 0,
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_local_kf_white_to_gold_sweep",
+        "caption_motion": "full_phrase_static_rtl_fade_150_200ms_scale_99_to_100",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 
