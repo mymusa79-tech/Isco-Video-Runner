@@ -1586,7 +1586,14 @@ class ShortPipelineSeamTests(unittest.TestCase):
                     wav.setsampwidth(2)
                     wav.setframerate(sample_rate)
                     wav.writeframes(b"\x00\x00" * int(round(cursor * sample_rate)))
-                return {"parts": marks}
+                return {
+                    "parts": marks,
+                    "single_continuous_inference": True,
+                    "continuous_narration_stream": True,
+                    "inference_passes": 1,
+                    "bounded_inference": False,
+                    "max_infer_chars": 500,
+                }
 
         gemini_calls = {"count": 0}
 
