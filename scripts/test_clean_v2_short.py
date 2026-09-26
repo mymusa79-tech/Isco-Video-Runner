@@ -1307,8 +1307,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\kf", ass)
-        self.assertEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn(PRIMARY_ASS, ass)
         self.assertIn(r"\fscx99\fscy99", ass)
         self.assertNotIn("\u202B", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
@@ -1362,8 +1362,8 @@ class ShortTimedTextTests(unittest.TestCase):
             self.assertLessEqual(hint["x"], SAFE_X_MAX)
             self.assertGreaterEqual(hint["y"], SAFE_Y_MIN)
             self.assertLessEqual(hint["y"], SAFE_Y_MAX)
-            self.assertGreaterEqual(hint["font_size"], 92)
-            self.assertLessEqual(hint["font_size"], 138)
+            self.assertGreaterEqual(hint["font_size"], 112)
+            self.assertLessEqual(hint["font_size"], 158)
 
     def test_hook_type_is_larger_than_dense_beat_and_layout_stays_phrase_stable(self) -> None:
         events = [
