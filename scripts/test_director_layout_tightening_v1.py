@@ -301,7 +301,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(len(catalog["tracks"]), 9)
         fake_ready = {
             "source": "FreePD", "license": catalog["license"], "license_url": catalog["license_url"],
-            "allow_download": False, "unavailable": [],
+            "allow_download": False, "unavailable": [], "catalog_track_count": len(catalog["tracks"]),
             "ready": [
                 {**track, "path": f"/tmp/{track['filename']}", "cache_status": "hit"}
                 for track in catalog["tracks"]
