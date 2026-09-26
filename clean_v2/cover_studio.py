@@ -49,7 +49,7 @@ SHADOW = (0, 0, 0, 145)
 
 PROGRAM_NAME = "خارج النص"
 CHANNEL_NAME = "نداء اليقظة"
-TONE_PROFILE = "deep_neutral"
+TONE_PROFILE = "channel_deep_neutral_v2"
 
 _STOPWORDS = {
     "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
@@ -156,26 +156,41 @@ def score_cover_candidate(path: Path, *, fmt: str) -> dict[str, Any]:
     stat = ImageStat.Stat(sample)
     luma = float(stat.mean[0])
     contrast = float(stat.stddev[0])
+    saturation = float(
+        ImageStat.Stat(image.convert("HSV").getchannel("S").resize((128, 96))).mean[0]
+    )
     side, quiet_delta = _quiet_side(image)
 
-    # The channel target is not bright lifestyle imagery. Prefer moderate,
-    # dimensional exposure with enough contrast and a usable quiet text zone.
-    exposure_score = max(0.0, 24.0 - abs(luma - 96.0) * 0.22)
+    if fmt == "podcast":
+        target_luma, bright_limit, saturation_limit = 88.0, 122.0, 86.0
+    elif fmt == "film":
+        target_luma, bright_limit, saturation_limit = 94.0, 138.0, 104.0
+    else:
+        target_luma, bright_limit, saturation_limit = 100.0, 148.0, 118.0
+
+    # Preserve semantic relevance from the upstream approved asset ranking, then
+    # prefer frames that feel grounded and dimensional rather than bright/lifestyle.
+    exposure_score = max(0.0, 24.0 - abs(luma - target_luma) * 0.24)
     contrast_score = min(18.0, contrast * 0.45)
     quiet_score = min(16.0, quiet_delta * 0.70)
-    bright_penalty = max(0.0, (luma - 145.0) * 0.22)
-    dark_penalty = max(0.0, (42.0 - luma) * 0.25)
-    podcast_depth_bonus = 4.0 if fmt == "podcast" and luma <= 118.0 else 0.0
+    bright_penalty = max(0.0, (luma - bright_limit) * 0.30)
+    saturation_penalty = max(0.0, (saturation - saturation_limit) * 0.10)
+    dark_penalty = max(0.0, (40.0 - luma) * 0.24)
+    podcast_depth_bonus = (
+        6.0 if fmt == "podcast" and 62.0 <= luma <= 112.0 and contrast >= 18.0 else 0.0
+    )
 
     visual_score = exposure_score + contrast_score + quiet_score + podcast_depth_bonus
-    visual_score -= bright_penalty + dark_penalty
+    visual_score -= bright_penalty + saturation_penalty + dark_penalty
     return {
         "visual_score": round(visual_score, 3),
         "luma": round(luma, 3),
         "contrast": round(contrast, 3),
+        "saturation": round(saturation, 3),
         "quiet_side": side,
         "quiet_delta": round(quiet_delta, 3),
         "tone_target": TONE_PROFILE,
+        "selection_profile": f"{fmt}_topic_relevant_deep_frame",
     }
 
 
@@ -298,7 +313,7 @@ def _crop(image, width: int, height: int):
     return image.resize((width, height), Image.Resampling.LANCZOS)
 
 
-def _vignette(image):
+def _vignette(image, *, strength: int = 82):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     width, height = image.size
     mask = Image.new("L", (width, height), 0)
@@ -310,33 +325,46 @@ def _vignette(image):
         fill=210,
     )
     mask = mask.filter(ImageFilter.GaussianBlur(max(80, int(min(width, height) * 0.16))))
-    shade = Image.new("RGBA", image.size, (0, 0, 0, 82))
+    shade = Image.new("RGBA", image.size, (0, 0, 0, max(0, min(150, strength))))
     return Image.composite(image, shade, mask)
 
 
-def _deep_grade(image):
+def _deep_grade(image, *, fmt: str):
     Image, _, ImageEnhance, _, _, ImageStat = _pil()
-    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(1.08)
-    image = ImageEnhance.Color(image).enhance(0.94)
+    if fmt == "podcast":
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.10, 0.88, 0.82, 0.88, 0.94, 0.010, 98
+        )
+    elif fmt == "film":
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.09, 0.92, 0.85, 0.90, 0.95, 0.014, 90
+        )
+    else:
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.07, 0.95, 0.88, 0.92, 0.96, 0.016, 82
+        )
+
+    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(contrast)
+    image = ImageEnhance.Color(image).enhance(color)
     mean = float(ImageStat.Stat(image.convert("L").resize((64, 64))).mean[0])
-    brightness = 0.86 if mean > 145 else 0.90 if mean > 118 else 0.95
+    brightness = high if mean > 145 else mid if mean > 118 else low
     image = ImageEnhance.Brightness(image).enhance(brightness)
-    warm = Image.new("RGB", image.size, (212, 145, 76))
-    image = Image.blend(image, warm, 0.018)
-    return _vignette(image.convert("RGBA"))
+    warm = Image.new("RGB", image.size, (202, 143, 84))
+    image = Image.blend(image, warm, warm_mix)
+    return _vignette(image.convert("RGBA"), strength=vignette)
 
 
 def _prepare_canvas(source: Path, *, fmt: str):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     frame = _extract_frame(source)
     if fmt == "short":
-        return _deep_grade(_crop(frame, 1080, 1920))
+        return _deep_grade(_crop(frame, 1080, 1920), fmt=fmt)
 
     if frame.width / max(1, frame.height) >= 1.35:
-        return _deep_grade(_crop(frame, 1280, 720))
+        return _deep_grade(_crop(frame, 1280, 720), fmt=fmt)
 
-    background = _deep_grade(_crop(frame, 1280, 720)).filter(ImageFilter.GaussianBlur(15))
-    foreground = _deep_grade(frame.resize((520, 720), Image.Resampling.LANCZOS))
+    background = _deep_grade(_crop(frame, 1280, 720), fmt=fmt).filter(ImageFilter.GaussianBlur(15))
+    foreground = _deep_grade(frame.resize((520, 720), Image.Resampling.LANCZOS), fmt=fmt)
     mask = Image.new("L", (520, 720), 255)
     mask_draw = ImageDraw.Draw(mask)
     for x in range(390, 520):
