@@ -591,6 +591,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                             "enum": ["hook", "body", "payoff"],
                         },
                         "stock_query_en": dict(non_blank_string),
+                        "display_text_ar": dict(non_blank_string),
                         "source_preference": {
                             "type": "string",
                             "enum": ["stock_motion", "ai_still"],
@@ -606,6 +607,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                         "shot_intent",
                         "role",
                         "stock_query_en",
+                        "display_text_ar",
                         "source_preference",
                     ],
                     "additionalProperties": False,

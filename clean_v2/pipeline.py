@@ -3858,6 +3858,26 @@ visual motif remains supportive and non-essential to a listener with the screen 
         if fmt == "short"
         else ""
     )
+    format_visual_profile = {
+        "short": (
+            "FORMAT VISUAL PROFILE — SHORT: favor close/medium no-face framing, one immediately readable "
+            "action/state per beat, quicker visible state changes, stronger local focal contrast, and clean "
+            "negative space for Arabic text. Use AI stills only when they make the exact moment more specific. "
+            "Do not make every frame golden-hour, glossy, or lifestyle-ad polished."
+        ),
+        "film": (
+            "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
+            "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
+            "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
+            "or turning the whole film into a scenic motivational montage."
+        ),
+        "podcast": (
+            "FORMAT VISUAL PROFILE — PODCAST: favor calm contained compositions, steady medium/wide framing, "
+            "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
+            "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
+            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad."
+        ),
+    }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -3877,7 +3897,11 @@ and keep each visual query concise and at most 260 characters. Keep the whole
 video's stock searches inside one restrained channel lighting world where semantically appropriate:
 natural practical light, moderate-to-deep exposure, soft directional contrast, and restrained warm-neutral tones.
 The channel mood is grounded upward movement: clarity, effort, recovery, small wins and earned hope.
-Do not make the world glossy, airy lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
+Use mature brightness rather than glow: preserve highlight detail, avoid blown sun/window highlights, avoid a
+permanent golden-hour wash, keep saturation restrained, let warm gold appear as a controlled accent, and preserve
+richer midtone depth so the image feels lived-in rather than commercial. Do not make the world glossy, airy
+lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
+{format_visual_profile}
 Do not mix obvious neon/night/cold-blue looks unless the topic itself requires them. Prefer environments,
 hands, objects, routines, back views, and wide shots without identifiable faces. When the scene permits it,
 make the search describe a lived-in cinematic environment with visible foreground/midground/background depth,
@@ -3899,7 +3923,24 @@ natural respectful world, not decorative stereotyping.
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
-beginning -> transformation -> arrival. Add one retention_thread
+beginning -> transformation -> arrival.
+
+HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook may keep the same warm-neutral
+channel palette, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
+topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
+that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
+asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
+coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
+Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
+
+VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, sticky notes, checklist and writing
+belong to one action family; laptop/keyboard/typing to another; walking/movement to another.
+Do not place the same dominant action family in consecutive beats and normally use one family no more
+than twice. The only intentional repeat may be the hook/payoff motif when its state visibly changes.
+Prefer an observable progression such as stuck -> choosing -> moving -> completed, so every new shot
+adds information instead of showing another angle of the same productivity prop.
+
+Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
 by the first spoken sentence; payoff_answer is the concrete answer delivered later; visual_motif is
 one object, action, or composition that returns in the payoff in a visibly changed state. The plan's
@@ -3915,17 +3956,31 @@ or shot-count target. Every planned section must have at least one beat and at m
 beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
-misleading substitutes that would look related but fail the exact idea. shot_intent is the richer
-semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
-distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
+misleading substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete
+English visual description of the exact observable action/state for THIS beat, preferably about 6-14
+useful words; it must be specific enough to search directly and must not be mood-only language.
+display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
+exact image/beat and expresses its visible meaning; never reuse the same display phrase on another beat,
+never describe an unrelated idea, and never ask the image generator to draw this text.
+stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
-Choose source_preference=stock_motion for observable real-world movement in the body. The first
-hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
-same controlled new environment, and the payoff must return to the hook's recurring motif in a
-visibly changed state. Do not use ai_still on any middle beat, so the whole video has exactly two AI
-anchor beats. AI stills remain free-only and fail safely to quality-gated stock when unavailable;
-no beat may bypass the same no-face, cultural, advertiser-safety, and final semantic-quality gates.
+Choose source_preference by what best communicates THIS beat, not by role. Hook, body, and payoff
+all follow the same semantic-quality rule: use ai_still when a controlled, distinctive, context-specific
+composition communicates the idea better; use stock_motion when real movement materially adds meaning.
+Never make all three roles look like the same setup. AI images MUST be image-only: no title, caption,
+letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned display text is added later.
+For short, normally use 2-4 AI still beats at most; for film, keep stock motion dominant and use up to
+4 AI anchors only at high-value idea turns; for podcast, remain sparse and normally use 2-3 AI anchors.
+All AI remains free-only and fails safely to quality-gated stock when unavailable. A recurring hook/payoff
+motif may return in a visibly changed state, but body AI beats must not be forced into the same environment.
+
+CHANNEL VISUAL SIGNATURE is semantic and compositional, not merely a color grade. Every beat must feel
+specific to نداء اليقظة through visible movement from friction toward clarity/progress, tactile lived-in
+detail, purposeful directional light, layered depth, restrained confidence and an earned sense of upward
+movement. Do not hard-code one prop such as notebooks, doors or stairs across episodes; the signature is
+the meaningful state-change and composition, not a repeated object. Warm-neutral grading supports this
+identity but never substitutes for a specific scene.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -3990,7 +4045,8 @@ Return one JSON object with exactly this useful shape:
         "shot_intent": "rich semantic/cinematic image or motion intent",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",
-        "source_preference": "ai_still"
+        "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
+        "source_preference": "stock_motion"
       }}
     ]
   }}

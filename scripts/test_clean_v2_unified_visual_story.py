@@ -63,6 +63,7 @@ def _planning_value(fmt: str = "film") -> dict:
                 "shot_intent": f"دفتر واحد يتغير بصريًا في المرحلة {index}",
                 "role": "hook" if is_first else "payoff" if is_last else "body",
                 "stock_query_en": f"warm notebook workspace distinct action {index} hands only",
+                "display_text_ar": f"لحظة مختلفة {index}",
                 "source_preference": (
                     "ai_still" if is_first or is_last else "stock_motion"
                 ),
@@ -94,6 +95,20 @@ def _planning_value(fmt: str = "film") -> dict:
 
 
 class UnifiedVisualStoryPlanningTests(unittest.TestCase):
+    def test_hook_stop_power_and_semantic_variety_apply_to_every_format_without_extra_stage(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                prompt = " ".join(_planning_prompt(_brief(fmt)).split())
+                self.assertIn("HOOK VISUAL STOP-POWER", prompt)
+                self.assertIn("MUST NOT be a calm mood-only establishing image", prompt)
+                self.assertIn("understood with sound off in the first frame", prompt)
+                self.assertIn("Avoid unrelated shock", prompt)
+                self.assertIn("VISUAL VARIETY is semantic, not cosmetic", prompt)
+                self.assertIn("Do not place the same dominant action family in consecutive beats", prompt)
+                self.assertIn("stuck -> choosing -> moving -> completed", prompt)
+                self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
+                self.assertIn("specific enough to search directly", prompt)
+
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
         planned = _validate_plan_for_brief(_planning_value("film"), brief)
@@ -158,8 +173,10 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             prompt = " ".join(_planning_prompt(_brief(fmt)).split())
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
-            self.assertIn("exactly two AI anchor beats", prompt)
-            self.assertIn("stock_query_en is a separate, distinct", prompt)
+            self.assertIn("Hook, body, and payoff all follow the same semantic-quality rule", prompt)
+            self.assertIn("AI images MUST be image-only", prompt)
+            self.assertIn("display_text_ar must be a unique natural Arabic phrase", prompt)
+            self.assertIn("stock_query_en remains a separate English retrieval fallback", prompt)
             self.assertIn("6-14 useful search words", prompt)
             self.assertIn("hands only, back view, or objects only", prompt)
             if fmt == "short":
@@ -178,6 +195,25 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("moderate-to-deep exposure", prompt)
             self.assertIn("glossy, airy lifestyle-ad bright", prompt)
             self.assertIn("generic coffee/laptop mood shots", prompt)
+
+    def test_each_format_has_distinct_visual_grammar_inside_one_channel_identity(self) -> None:
+        short_prompt = " ".join(_planning_prompt(_brief("short")).split())
+        film_prompt = " ".join(_planning_prompt(_brief("film")).split())
+        podcast_prompt = " ".join(_planning_prompt(_brief("podcast")).split())
+
+        for prompt in (short_prompt, film_prompt, podcast_prompt):
+            self.assertIn("Use mature brightness rather than glow", prompt)
+            self.assertIn("avoid a permanent golden-hour wash", prompt)
+            self.assertIn("warm gold appear as a controlled accent", prompt)
+
+        self.assertIn("FORMAT VISUAL PROFILE — SHORT", short_prompt)
+        self.assertIn("quicker visible state changes", short_prompt)
+        self.assertIn("FORMAT VISUAL PROFILE — FILM", film_prompt)
+        self.assertIn("wider lived-in environments", film_prompt)
+        self.assertIn("FORMAT VISUAL PROFILE — PODCAST", podcast_prompt)
+        self.assertIn("thoughtful room around the voice", podcast_prompt)
+        self.assertNotIn("FORMAT VISUAL PROFILE — PODCAST", short_prompt)
+        self.assertNotIn("FORMAT VISUAL PROFILE — SHORT", podcast_prompt)
 
     def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
         prompt = " ".join(_planning_prompt(_brief("podcast")).split())
@@ -206,6 +242,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         )
         beat = story["properties"]["beats"]["items"]
         self.assertIn("stock_query_en", beat["required"])
+        self.assertIn("display_text_ar", beat["required"])
         self.assertEqual(beat["properties"]["role"]["enum"], ["hook", "body", "payoff"])
         self.assertNotIn("progression", beat["properties"])
         self.assertNotIn("hook_relation", beat["properties"])
@@ -257,7 +294,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             ["hook", "body", "payoff"],
         )
 
-    def test_fresh_story_normalizes_exactly_two_ai_bookends_locally(self) -> None:
+    def test_fresh_story_preserves_semantic_source_choice_across_all_roles(self) -> None:
         planned = _planning_value("short")
         planned["visual_story"]["beats"][0]["source_preference"] = "stock_motion"
         planned["visual_story"]["beats"][1]["source_preference"] = "ai_still"
@@ -265,7 +302,11 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["ai_still", "stock_motion", "ai_still"],
+            ["stock_motion", "ai_still", "stock_motion"],
+        )
+        self.assertEqual(
+            [beat["display_text_ar"] for beat in validated["beats"]],
+            ["لحظة مختلفة 1", "لحظة مختلفة 2", "لحظة مختلفة 3"],
         )
 
     def test_partial_retention_thread_uses_existing_plan_without_provider_retry(self) -> None:
@@ -305,7 +346,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertEqual(validated["beats"][0]["role"], "hook")
         self.assertEqual(validated["beats"][-1]["role"], "payoff")
         self.assertTrue(
-            all(beat["source_preference"] == "ai_still" for beat in validated["beats"])
+            all(beat["source_preference"] == "stock_motion" for beat in validated["beats"])
         )
 
 

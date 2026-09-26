@@ -229,7 +229,15 @@ def _identity_events(
     intro_start = float(intro_silence["start"])
     intro_end = float(intro_silence["end"])
     topic_start = float(pre_topic_silence["end"])
-    topic_end = float(outro["start"]) if outro is not None else voice_seconds
+    final_silence_start = (
+        float(final_silence["start"])
+        if fmt in {"short", "film", "podcast"} and final_silence is not None
+        else voice_seconds
+    )
+    # Spoken closing/payoff remains visible on the story world. The opaque visual
+    # outro is reserved for the terminal silence, after the viewer has received
+    # the complete useful line.
+    topic_end = final_silence_start
     events: list[dict[str, Any]] = []
     if hook is not None:
         events.append(
@@ -281,16 +289,15 @@ def _identity_events(
                 "end": topic_end,
             }
         )
-    if outro is not None:
+    if fmt in {"short", "film", "podcast"} and final_silence is not None:
         events.append(
             {
                 "kind": "outro",
-                "source": "measured_voice_chunk",
-                "start": float(outro["start"]),
-                "end": float(outro["end"]),
+                "source": "post_payoff_terminal_silence",
+                "start": float(final_silence["start"]),
+                "end": float(final_silence["end"]),
             }
         )
-    if fmt in {"short", "film", "podcast"} and final_silence is not None:
         events.append(
             {
                 "kind": "final_silence",
@@ -301,6 +308,15 @@ def _identity_events(
                 ),
                 "start": float(final_silence["start"]),
                 "end": float(final_silence["end"]),
+            }
+        )
+    elif outro is not None:
+        events.append(
+            {
+                "kind": "outro",
+                "source": "measured_voice_chunk",
+                "start": float(outro["start"]),
+                "end": float(outro["end"]),
             }
         )
     return events

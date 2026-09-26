@@ -182,8 +182,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        combo = next(item for item in events if item.mode == "subscribe_combo")
-        self.assertLessEqual(combo.end_seconds - combo.start_seconds, 3.0)
+        self.assertLessEqual(len(events), 1)
+        self.assertTrue(events)
+        self.assertNotIn("subscribe_combo", {item.mode for item in events})
+        self.assertIn(events[0].mode, {"like", "comment"})
         source = inspect.getsource(cta_module._render)
         self.assertIn("warm", inspect.getsource(cta_module.apply_visual_cta_assets))
         self.assertIn("hue=h=38", source)

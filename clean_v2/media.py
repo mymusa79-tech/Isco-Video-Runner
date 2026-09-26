@@ -1220,27 +1220,46 @@ def _ai_still_prompt(
     must_have = ", ".join(str(item) for item in (beat.get("semantic_must_have") or []))[:240]
     should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
     scene = str(beat.get("shot_intent") or "").strip()[:260]
+    role = str(beat.get("role") or "").strip()
+    hook_visual_rule = (
+        "HOOK FRAME: make the first frame visually arresting but truthful to the exact topic. "
+        "Show an immediate observable tension, interrupted action, unusual state, visible consequence, "
+        "or decisive moment; favor close/medium framing, asymmetry, depth, and strong local focal contrast. "
+        "Do not use a passive calm establishing shot, generic desk, coffee cup, window-gazing, slow walking, "
+        "or typing unless that exact action is the semantic tension. "
+        if role == "hook"
+        else ""
+    )
     reference_rule = (
         "Use input image 0 as the exact environment/style anchor; preserve its location, "
         "palette, practical lighting, lens language, textures, and recurring motif. "
         if with_reference
         else "Establish one distinctive coherent environment that can be reused later. "
     )
-    prompt = (
+    core = (
         f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
         f"Visual world: {visual_world}. "
         f"Recurring motif: {motif}. "
-        f"Beat role: {str(beat.get('role') or '').strip()}. "
+        f"Beat role: {role}. "
+        f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
         f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
         f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
-        "Lived-in foreground, midground and background depth, soft warm-neutral practical light, "
-        "one clear focal action, clean negative space for Arabic overlay. No identifiable faces; "
-        "hands, back view, objects, or environment only. No readable text, letters, logos, "
-        "watermarks, UI, collage, split screen, fantasy glow, or exaggerated advertising look."
+        "Lived-in foreground, midground and background depth, warm-neutral practical light, "
+        "one clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
+        "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
     )
-    return " ".join(prompt.split())[:2048]
+    mandatory_tail = (
+        "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, UI, or logo. "
+        "No identifiable faces; hands, back view, objects, or environment only. "
+        "No readable text, letters, logos, watermarks, UI, collage, split screen, fantasy glow, "
+        "or exaggerated advertising look."
+    )
+    core = " ".join(core.split())
+    mandatory_tail = " ".join(mandatory_tail.split())
+    core_budget = max(0, 2048 - len(mandatory_tail) - 1)
+    return (core[:core_budget].rstrip() + " " + mandatory_tail).strip()
 
 
 def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, Any] | None:
@@ -1274,6 +1293,47 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     if saturation < SHORT_MIN_COLOR_SATURATION_AVG:
         return False, f"short_near_monochrome saturation_avg={saturation:.2f}"
     return True, None
+
+
+_STOCK_INTENT_DROP_TOKENS = frozenset({
+    "cinematic", "warm", "neutral", "lighting", "light", "shot", "frame",
+    "composition", "depth", "foreground", "background", "soft", "natural",
+})
+
+
+def _specific_beat_stock_query(value: object) -> str:
+    """Reuse the Beat's own English visual intent as the stock query when safe.
+
+    This restores the simple #866 behavior: no new model call, no new search pass,
+    and no semantic layer. Localized or overly vague/empty intent falls back to the
+    dedicated stock_query_en authored in Planning.
+    """
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
+        return ""
+    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
+    useful = [
+        token
+        for token in tokens
+        if token.casefold() not in _STOCK_INTENT_DROP_TOKENS
+    ]
+    if len(useful) < 3:
+        return ""
+    # Stock search stays compact. Preserve authored order and the concrete action/state.
+    return " ".join(useful[:14])
+
+
+HOOK_STOCK_RETRIEVAL_SUFFIX = "close up decisive action strong focal contrast"
+
+
+def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
+    """Strengthen only the hook retrieval without adding another provider request."""
+    compact = " ".join(str(query or "").split()).strip()
+    if str(beat.get("role") or "").strip() != "hook" or not compact:
+        return compact
+    lowered = compact.lower()
+    missing = [word for word in HOOK_STOCK_RETRIEVAL_SUFFIX.split() if word not in lowered]
+    return " ".join([compact, *missing])[:260].strip()
 
 
 CHANNEL_STOCK_QUERY_SUFFIX = "warm neutral cinematic"
@@ -1723,7 +1783,7 @@ class StockVisualSource:
                     }
                 )
 
-        ai_reference: Path | None = None
+        ai_hook_reference: Path | None = None
         ai_route_available = True
 
         def _acquire_one(
@@ -1733,7 +1793,7 @@ class StockVisualSource:
             *,
             auxiliary: bool,
         ) -> bool:
-            nonlocal ai_reference, ai_route_available
+            nonlocal ai_hook_reference, ai_route_available
             wants_ai = str(beat.get("source_preference") or "") == "ai_still"
             if wants_ai and ai_route_available:
                 # AI is an optional visual anchor, never a required dependency.
@@ -1751,14 +1811,21 @@ class StockVisualSource:
                     raw_story if isinstance(raw_story, Mapping) else {},
                     beat,
                     fmt=fmt,
-                    with_reference=ai_reference is not None,
+                    with_reference=(
+                        str(beat.get("role") or "") == "payoff"
+                        and ai_hook_reference is not None
+                    ),
                 )
                 try:
                     provenance = generate_cloudflare_ai_still(
                         prompt=prompt,
                         destination=still,
                         fmt=fmt,
-                        reference=ai_reference,
+                        reference=(
+                            ai_hook_reference
+                            if str(beat.get("role") or "") == "payoff"
+                            else None
+                        ),
                     )
                     _render_ai_still(still, destination, fmt=fmt)
                     if self.media_preflight is not None:
@@ -1781,14 +1848,17 @@ class StockVisualSource:
                             )
                     if self.media_transform is not None:
                         destination = Path(self.media_transform(destination))
-                    next_reference = ai_reference
-                    if next_reference is None:
-                        next_reference = _prepare_ai_reference(
-                            still, still_dir / "continuity-reference.jpg"
+                    next_hook_reference = ai_hook_reference
+                    if (
+                        str(beat.get("role") or "") == "hook"
+                        and next_hook_reference is None
+                    ):
+                        next_hook_reference = _prepare_ai_reference(
+                            still, still_dir / "hook-continuity-reference.jpg"
                         )
                 except Exception as exc:
-                    # Keep the two bookends coherent: if the opening anchor cannot be
-                    # completed, skip the matching AI payoff and use stock for both.
+                    # One unavailable free AI route must never block production.
+                    # Disable later AI attempts for this run and fall back to stock.
                     ai_route_available = False
                     destination.unlink(missing_ok=True)
                     still.unlink(missing_ok=True)
@@ -1811,7 +1881,7 @@ class StockVisualSource:
                         reason=reason[:120],
                     )
                 else:
-                    ai_reference = next_reference
+                    ai_hook_reference = next_hook_reference
                     candidate = {
                         "provider": "cloudflare_workers_ai",
                         "asset_id": (
@@ -1827,6 +1897,7 @@ class StockVisualSource:
                         "beat_id": beat_id,
                         "viewer_intent": str(beat.get("viewer_intent") or ""),
                         "shot_intent": str(beat.get("shot_intent") or query),
+                        "display_text_ar": str(beat.get("display_text_ar") or ""),
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
                         "source_actual": "ai_still",
@@ -1851,7 +1922,7 @@ class StockVisualSource:
                     query,
                     "fallback_to_stock",
                     wire_attempted=False,
-                    reason="ai_anchor_pair_disabled",
+                    reason="ai_route_disabled_after_prior_failure",
                 )
 
             for finder in (self._pexels, self._pixabay):
@@ -1909,6 +1980,7 @@ class StockVisualSource:
                 candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
                 candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
                 candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(
                     beat.get("source_preference") or "stock_motion"
@@ -1928,9 +2000,11 @@ class StockVisualSource:
         seen_sections: set[str] = set()
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
-            query = str(beat.get("stock_query_en") or "").strip()
+            specific = _specific_beat_stock_query(beat.get("shot_intent"))
+            query = specific or str(beat.get("stock_query_en") or "").strip()
             if not query:
                 continue
+            query = _hook_stock_retrieval_query(query, beat)
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
             query = _channel_stock_query(query)
@@ -2599,6 +2673,34 @@ def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None
     return section_ids
 
 
+def _exact_section_seconds_from_timeline(
+    output_dir: Path,
+) -> dict[str, float] | None:
+    """Read measured section durations so visual beats follow the voice timeline."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    rows = payload.get("section_events") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list) or not rows:
+        return None
+    result: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            return None
+        section_id = str(row.get("section_id") or "").strip()
+        try:
+            start = float(row.get("start"))
+            end = float(row.get("end"))
+        except (TypeError, ValueError):
+            return None
+        if not section_id or end <= start:
+            return None
+        result[section_id] = end - start
+    return result or None
+
+
 def _section_estimated_seconds_from_manifest(
     output_dir: Path,
 ) -> dict[str, float] | None:
@@ -2648,7 +2750,12 @@ def _section_slot_durations(
             order.append(section_id)
         counts[section_id] = counts.get(section_id, 0) + 1
 
-    estimated = _section_estimated_seconds_from_manifest(output_dir)
+    exact = _exact_section_seconds_from_timeline(output_dir)
+    estimated = (
+        exact
+        if exact is not None and all(section_id in exact for section_id in order)
+        else _section_estimated_seconds_from_manifest(output_dir)
+    )
     if estimated is not None and all(section_id in estimated for section_id in order):
         raw_shares = {section_id: max(0.0, estimated[section_id]) for section_id in order}
         raw_total = sum(raw_shares.values())
@@ -2698,20 +2805,20 @@ COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.035
-MASTER_LOOK_SATURATION = 0.92
-MASTER_LOOK_WARM_R = 0.004
-MASTER_LOOK_WARM_G = 0.001
-MASTER_LOOK_WARM_B = -0.005
+MASTER_LOOK_CONTRAST = 1.042
+MASTER_LOOK_SATURATION = 0.895
+MASTER_LOOK_WARM_R = 0.003
+MASTER_LOOK_WARM_G = 0.000
+MASTER_LOOK_WARM_B = -0.004
 
 # One restrained local finishing pass after the shared deep warm-neutral LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-channel-depth-finish-v2"
+CINEMATIC_FINISH_VERSION = "clean-v2-wakeful-depth-finish-v3"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.045:brightness=-0.010:saturation=1.015:gamma=0.990,"
-    "unsharp=5:5:0.42:5:5:0.0,"
-    "vignette=PI/12"
+    "eq=contrast=1.040:brightness=-0.014:saturation=0.995:gamma=0.985,"
+    "unsharp=5:5:0.36:5:5:0.0,"
+    "vignette=PI/14"
 )
 
 
@@ -2985,7 +3092,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Channel Deep Warm Neutral v2"',
+        'TITLE "Isco Wakeful Depth v3"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",

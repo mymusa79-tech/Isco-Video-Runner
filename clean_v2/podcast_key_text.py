@@ -225,6 +225,98 @@ def build_events(
             previous_end = end_seconds
     return events[:max_events]
 
+def _visual_beat_text_events(
+    *,
+    output_dir: Path,
+    timeline: Mapping[str, Any],
+    fmt: str,
+) -> list[dict[str, object]]:
+    """Sparse format-aware text selected from the same visual beats on screen."""
+    manifest_path = Path(output_dir) / "rights-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    assets = manifest.get("assets") if isinstance(manifest, Mapping) else None
+    section_events = timeline.get("section_events")
+    if not isinstance(assets, list) or not isinstance(section_events, list):
+        return []
+
+    by_section: dict[str, list[Mapping[str, Any]]] = {}
+    for row in assets:
+        if not isinstance(row, Mapping):
+            continue
+        section_id = str(row.get("section_id") or "").strip()
+        display = _clean(row.get("display_text_ar"))
+        beat_id = str(row.get("beat_id") or "").strip()
+        if section_id and display and beat_id:
+            by_section.setdefault(section_id, []).append(row)
+
+    all_events: list[dict[str, object]] = []
+    for timing in section_events:
+        if not isinstance(timing, Mapping):
+            return []
+        section_id = str(timing.get("section_id") or "").strip()
+        rows = by_section.get(section_id) or []
+        if not rows:
+            continue
+        section_start = _seconds(timing.get("start"), "visual_start")
+        section_end = _seconds(timing.get("end"), "visual_end")
+        if section_end <= section_start:
+            continue
+        slot = (section_end - section_start) / len(rows)
+        for row_index, row in enumerate(rows):
+            beat_start = section_start + slot * row_index
+            beat_end = section_end if row_index == len(rows) - 1 else section_start + slot * (row_index + 1)
+            raw_role = str(row.get("role") or "").strip()
+            role = "hook" if raw_role == "hook" else ("payoff" if raw_role == "payoff" else "turn")
+            all_events.append(
+                {
+                    "start": round(beat_start, 3),
+                    "end": round(beat_end, 3),
+                    "text": _clean(row.get("display_text_ar")),
+                    "role": role,
+                    "format": fmt,
+                    "beat_id": str(row.get("beat_id") or ""),
+                    "text_source": "visual_beat_display_text_ar",
+                }
+            )
+    if not all_events:
+        return []
+
+    if fmt == "podcast":
+        if len(all_events) <= MAX_EVENTS:
+            selected_indices = list(range(len(all_events)))
+        else:
+            selected_indices = sorted({0, len(all_events) // 2, len(all_events) - 1})
+        display_seconds = DISPLAY_SECONDS
+    else:
+        total_seconds = _seconds(section_events[-1].get("end"), "visual_total_end")
+        selected_indices = _film_selected_indices(len(all_events), total_seconds)
+        display_seconds = FILM_DISPLAY_SECONDS
+
+    selected: list[dict[str, object]] = []
+    previous_end = -999.0
+    for index in selected_indices:
+        item = dict(all_events[index])
+        beat_start = float(item["start"])
+        beat_end = float(item["end"])
+        start = beat_start + min(0.6, max(0.0, (beat_end - beat_start) * 0.12))
+        end = min(beat_end, start + display_seconds)
+        if fmt == "film" and start - previous_end < FILM_MIN_GAP_SECONDS:
+            continue
+        if end - start < 1.5:
+            continue
+        item["start"] = round(start, 3)
+        item["end"] = round(end, 3)
+        selected.append(item)
+        previous_end = end
+    if selected:
+        selected[0]["role"] = "hook"
+        selected[-1]["role"] = "payoff"
+    return selected
+
+
 def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -> str:
     if fmt not in {"podcast", "film"}:
         raise PodcastKeyTextError(f"sparse_key_text_format_invalid:{fmt}")
@@ -299,7 +391,13 @@ def _apply_sparse_key_text(
         except (OSError, json.JSONDecodeError):
             closer = ""
 
-    events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
+    events = _visual_beat_text_events(
+        output_dir=Path(output_dir),
+        timeline=timeline,
+        fmt=fmt,
+    )
+    if not events:
+        events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
     max_events = MAX_EVENTS if fmt == "podcast" else FILM_MAX_EVENTS
     font_size = FONT_SIZE if fmt == "podcast" else FILM_FONT_SIZE
     if not events:
@@ -363,7 +461,7 @@ def _apply_sparse_key_text(
         "motion": "fade_180_240ms_scale_99_to_100",
         "provider_calls_added": 0,
         "style_source": "shared_clean_arabic_white_gold_line_hierarchy",
-        "text_source_policy": "complete_verbatim_final_script_sentence_only",
+        "text_source_policy": "visual_beat_display_text_ar_when_available_else_complete_script_sentence",
         "rtl_policy": "full_phrase_static_white_then_gold_lines_no_directional_word_sweep",
     }
 
