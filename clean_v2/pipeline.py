@@ -2547,6 +2547,14 @@ def _factuality_repair_prompt(
         allowed_patch_section_ids = _repair_target_section_ids(
             script, revision_note, cta_plan
         )
+    nabra_safe_repair_guidance = (
+        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+        "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
+        "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
+        "comfortable to say in one breath.\n" + NABRA_SAFE_WRITING_GUIDANCE
+        if str(brief.get("format") or "") in {"short", "film", "podcast"}
+        else ""
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -2568,6 +2576,8 @@ ALLOWED_PATCH_SECTION_IDS:
 {research_boundaries}
 
 {targeted_structural}
+
+{nabra_safe_repair_guidance}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Fix EVERY concrete factuality, tone/naturalness, and structural problem listed in REVISION_NOTE,
