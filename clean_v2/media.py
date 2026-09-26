@@ -1327,6 +1327,8 @@ def _choose_semantically_diverse_query(
     if not candidates:
         return "", ""
     primary_family = _visual_action_family(candidates[0])
+    if not primary_family:
+        return candidates[0], ""
     if primary_family != previous_family and int(family_counts.get(primary_family, 0)) < 2:
         return candidates[0], primary_family
     for candidate in candidates[1:]:
