@@ -3295,16 +3295,29 @@ def _persist_planning_artifacts(
     return normalized, visual_story
 
 
+def _locked_short_payoff_answer(visual_story: Mapping[str, Any] | None) -> str:
+    if not isinstance(visual_story, Mapping):
+        return ""
+    thread = visual_story.get("retention_thread")
+    if not isinstance(thread, Mapping):
+        return ""
+    return " ".join(str(thread.get("payoff_answer") or "").split()).strip()
+
+
 def _validate_script_for_brief(
     value: Any,
     plan: Mapping[str, Any],
     brief: Mapping[str, Any],
+    visual_story: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     if str(brief.get("format") or "") == "short":
         # One deterministic owner repairs only certified local Short shapes, then
         # the unchanged strict validators decide acceptance for every provider.
-        normalize_short_script_candidate(script)
+        normalize_short_script_candidate(
+            script,
+            locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+        )
         validate_short_hook_contract(script)
         validate_short_script(script)
     return script
@@ -4595,7 +4608,10 @@ class CleanV2Pipeline:
                         ),
                         max_tokens=7500 if brief["format"] in {"film", "podcast"} else 2500,
                         validator=lambda value: _validate_script_for_brief(
-                            value, plan, brief
+                            value,
+                            plan,
+                            brief,
+                            visual_story,
                         ),
                     ),
                 )
@@ -4689,7 +4705,10 @@ class CleanV2Pipeline:
             if str(brief["format"]) == "short":
                 # Any bounded repair re-enters the same canonical Short gate used
                 # for initial provider acceptance; no stage owns a private variant.
-                normalize_short_script_candidate(script)
+                normalize_short_script_candidate(
+                    script,
+                    locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+                )
                 validate_short_hook_contract(script)
                 validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
