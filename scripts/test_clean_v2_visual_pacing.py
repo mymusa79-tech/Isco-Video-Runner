@@ -133,6 +133,8 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             with_reference=False,
         )
         self.assertLessEqual(len(prompt), 2048)
+        self.assertIn("IMAGE ONLY", prompt)
+        self.assertIn("do not render any caption", prompt)
         self.assertIn("No identifiable faces", prompt)
         self.assertIn("No readable text", prompt)
         self.assertTrue(prompt.endswith("exaggerated advertising look."))
@@ -385,8 +387,57 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
 
         self.assertIsNone(references[0])
         self.assertIsNotNone(references[1])
-        self.assertEqual(references[1].name, "continuity-reference.jpg")
+        self.assertEqual(references[1].name, "hook-continuity-reference.jpg")
         self.assertEqual([row["source_actual"] for row in rights], ["ai_still"] * 2)
+        pexels.assert_not_called()
+        pixabay.assert_not_called()
+
+    def test_body_ai_does_not_inherit_hook_reference(self) -> None:
+        hook = self._beat("b1", "s1", "closed notebook in warm room")
+        body = self._beat("b2", "s1", "hand moves phone away from notebook")
+        hook["source_preference"] = "ai_still"
+        body.update({"source_preference": "ai_still", "role": "body"})
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(hook, body)
+        source = media_module.StockVisualSource()
+        references: list[Path | None] = []
+
+        def fake_generate(*, prompt, destination, fmt, reference):
+            del prompt, fmt
+            references.append(reference)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"\xff\xd8\xff" + b"I" * 2048)
+            return {
+                "provider": "cloudflare_workers_ai",
+                "model": ai_still_module.CLOUDFLARE_IMAGE_MODEL,
+                "prompt_sha256": "b" * 64,
+                "source_url": "https://developers.cloudflare.com/workers-ai/",
+                "ai_generated": True,
+            }
+
+        def fake_render(_source, destination, *, fmt):
+            del fmt
+            Path(destination).write_bytes(b"V" * 4096)
+            return Path(destination)
+
+        def fake_reference(_source, destination):
+            Path(destination).write_bytes(b"R" * 2048)
+            return Path(destination)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=fake_generate,
+        ), mock.patch.object(
+            media_module, "_render_ai_still", side_effect=fake_render
+        ), mock.patch.object(
+            media_module, "_prepare_ai_reference", side_effect=fake_reference
+        ), mock.patch.object(source, "_pexels") as pexels, mock.patch.object(
+            source, "_pixabay"
+        ) as pixabay:
+            _clips, rights = source.acquire(plan, Path(root), "film", 5)
+
+        self.assertEqual(references, [None, None])
+        self.assertEqual([row["source_actual"] for row in rights], ["ai_still", "ai_still"])
         pexels.assert_not_called()
         pixabay.assert_not_called()
 
