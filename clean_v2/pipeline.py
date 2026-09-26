@@ -443,7 +443,7 @@ def _synthesize_continuous_nabra_voice(
     if not isinstance(marks, list) or len(marks) != len(units):
         raise RuntimeError("nabra_continuous_timing_marks_invalid")
 
-    timing = identity_timing_profile(fmt)
+    timing = identity_timing_profile(fmt) if fmt in IDENTITY_TIMELINE_FORMATS else None
     native_source = narration_path.with_name(".narration-nabra-native.wav")
     native_source.unlink(missing_ok=True)
     shutil.copyfile(narration_path, native_source)
@@ -543,7 +543,7 @@ def _synthesize_continuous_nabra_voice(
 
         section_id = unit["section_id"]
         role = unit["role"]
-        if role == "hook":
+        if role == "hook" and timing is not None:
             add_slice(
                 section_id=section_id,
                 role="hook",
@@ -556,7 +556,7 @@ def _synthesize_continuous_nabra_voice(
                 role="intro_silence",
                 seconds=timing["intro_silence_seconds"],
             )
-        elif role == "channel_identity":
+        elif role == "channel_identity" and timing is not None:
             add_slice(
                 section_id=section_id,
                 role=role,
@@ -657,11 +657,15 @@ def _synthesize_continuous_nabra_voice(
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
-        "external_silence_insertions": 2,
-        "structural_silence_seconds": {
-            "after_hook": timing["intro_silence_seconds"],
-            "before_topic": timing["pre_topic_silence_seconds"],
-        },
+        "external_silence_insertions": 2 if timing is not None else 0,
+        "structural_silence_seconds": (
+            {
+                "after_hook": timing["intro_silence_seconds"],
+                "before_topic": timing["pre_topic_silence_seconds"],
+            }
+            if timing is not None
+            else {}
+        ),
         "tempo_or_pitch_change": False,
         "sections": reports,
     }
