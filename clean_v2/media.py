@@ -2805,20 +2805,20 @@ COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.035
-MASTER_LOOK_SATURATION = 0.92
-MASTER_LOOK_WARM_R = 0.004
-MASTER_LOOK_WARM_G = 0.001
-MASTER_LOOK_WARM_B = -0.005
+MASTER_LOOK_CONTRAST = 1.042
+MASTER_LOOK_SATURATION = 0.895
+MASTER_LOOK_WARM_R = 0.003
+MASTER_LOOK_WARM_G = 0.000
+MASTER_LOOK_WARM_B = -0.004
 
 # One restrained local finishing pass after the shared deep warm-neutral LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-channel-depth-finish-v2"
+CINEMATIC_FINISH_VERSION = "clean-v2-wakeful-depth-finish-v3"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.045:brightness=-0.010:saturation=1.015:gamma=0.990,"
-    "unsharp=5:5:0.42:5:5:0.0,"
-    "vignette=PI/12"
+    "eq=contrast=1.040:brightness=-0.014:saturation=0.995:gamma=0.985,"
+    "unsharp=5:5:0.36:5:5:0.0,"
+    "vignette=PI/14"
 )
 
 
