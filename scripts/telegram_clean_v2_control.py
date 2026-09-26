@@ -1248,13 +1248,16 @@ def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[s
     scope_label = "⚡ شورت" if kind == "short" else ("🎙️ خارج النص" if kind == "podcast" else "🎬 فيديو طويل")
     topic = str(delivery.get("topic") or "").strip()
     url = str(delivery.get("browser_download_url") or "").strip()
+    package_url = str(delivery.get("package_browser_download_url") or "").strip()
     lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
     if topic:
         lines.append(f"الموضوع: {topic}")
-    keyboard = None
+    rows: list[list[dict[str, str]]] = []
+    if package_url:
+        rows.append([{"text": "📦 تحميل حزمة النشر كاملة", "url": package_url}])
     if url:
-        keyboard = [[{"text": "🎥 مشاهدة/تحميل الفيديو", "url": url}]]
-    return "\n".join(lines), keyboard
+        rows.append([{"text": "🎥 مشاهدة/تحميل الفيديو", "url": url}])
+    return "\n".join(lines), (rows or None)
 
 
 def authorized(update: dict[str, Any]) -> bool:
