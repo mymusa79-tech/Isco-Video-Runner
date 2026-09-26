@@ -62,9 +62,10 @@ def _g2p_preserving_breath_punctuation(pipeline: Any, text: str) -> str:
             # One model-native light-breath token; never stack punctuation.
             out.append(",")
             continue
-        if not part.strip():
+        lexical = part.strip()
+        if not lexical:
             continue
-        phonemes, _extra = pipeline.g2p(part)
+        phonemes, _extra = pipeline.g2p(lexical)
         phonemes = str(phonemes or "").strip()
         if not phonemes:
             raise RuntimeError("nabra_empty_lexical_phonemes")
