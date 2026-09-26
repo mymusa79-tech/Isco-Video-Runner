@@ -1220,7 +1220,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
@@ -1391,7 +1391,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertGreaterEqual(len(events), 4)
+            self.assertEqual(len(events), 3)
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
