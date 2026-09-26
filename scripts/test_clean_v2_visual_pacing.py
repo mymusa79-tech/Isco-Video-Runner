@@ -633,6 +633,43 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
 
+class ExactVisualSectionTimingTests(unittest.TestCase):
+    def test_visual_slot_durations_prefer_measured_voice_section_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root)
+            (output / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s2"},
+                        ],
+                        "estimated_section_seconds": {"s1": 50.0, "s2": 50.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (output / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "section_events": [
+                            {"section_id": "s1", "start": 0.0, "end": 3.0},
+                            {"section_id": "s2", "start": 3.0, "end": 9.0},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            durations = media_module._section_slot_durations(
+                output,
+                [Path("a.mp4"), Path("b.mp4")],
+                9.0,
+                pad=0.0,
+            )
+        self.assertAlmostEqual(durations[0], 3.0, places=3)
+        self.assertAlmostEqual(durations[1], 6.0, places=3)
+
+
 class SectionDurationEstimationTests(unittest.TestCase):
     """Test Requirement A: a section's estimated duration comes from its own
     narration length, not an equal flat share of the total."""
