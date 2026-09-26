@@ -132,7 +132,7 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertIn("short_browser_download_url", result)
         self.assertIn("package_browser_download_url", result)
         self.assertEqual(send.call_count, 3)
-        self.assertEqual(send.call_args_list[1].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
+        self.assertEqual(send.call_args_list[2].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
 
 
     def test_long_reuses_one_release_and_sends_optional_derived_short(self):
@@ -169,7 +169,7 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertIn("short_browser_download_url", result)
         self.assertIn("package_browser_download_url", result)
         self.assertEqual(send.call_count, 3)
-        self.assertEqual(send.call_args_list[1].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
+        self.assertEqual(send.call_args_list[2].kwargs["button_text"], "⚡ مشاهدة/تحميل الشورت")
 
     def test_bundle_is_one_long_delivery_with_optional_derived_short(self):
         runner = FakeRunner("https://github.com/example/repo/releases/download/tag/final.mp4")
