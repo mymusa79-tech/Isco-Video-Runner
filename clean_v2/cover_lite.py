@@ -10,7 +10,7 @@ from .media import _run
 
 
 SCHEMA_VERSION = 1
-RENDERER_VERSION = "clean-v2-cover-lite-v1"
+RENDERER_VERSION = "clean-v2-cover-studio-v2-fallback-v1"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 PROFILES = {
     "short": (1080, 1920, 132, 540, 420, "vertical"),
@@ -65,35 +65,77 @@ def _rights(output_dir: Path) -> list[Mapping[str, Any]]:
 def select_cover_source(
     output_dir: Path,
     *,
+    fmt: str,
     section_id: str | None = None,
     final_path: Path | None = None,
+    exclude_source_files: tuple[str, ...] = (),
 ) -> tuple[Path, dict[str, Any]]:
-    ranked: list[tuple[int, Path, Mapping[str, Any]]] = []
+    excluded = {Path(value).name for value in exclude_source_files if value}
+    ranked: list[tuple[float, Path, Mapping[str, Any]]] = []
+    deferred: list[tuple[float, Path, Mapping[str, Any]]] = []
     for index, row in enumerate(_rights(output_dir)):
         local_file = Path(str(row.get("local_file") or "")).name
         path = Path(output_dir) / "visuals" / local_file
         if not local_file or not path.is_file() or path.stat().st_size <= 0:
             continue
-        score = max(0, 20 - index)
-        score += 100 if section_id and str(row.get("section_id") or "") == str(section_id) else 0
-        score += 50 if str(row.get("role") or "") == "hook" else 0
-        score += 20 if str(row.get("source_actual") or "") == "ai_still" else 0
-        score += 10 if not row.get("pacing_auxiliary") else 0
-        ranked.append((score, path, row))
-    if ranked:
-        score, path, row = max(ranked, key=lambda item: item[0])
-        return path, {
-            "selection": "existing_visual_asset",
-            "score": score,
-            "section_id": str(row.get("section_id") or ""),
-            "beat_id": str(row.get("beat_id") or ""),
-            "role": str(row.get("role") or ""),
-            "source_actual": str(row.get("source_actual") or ""),
-        }
+
+        score = float(max(0, 14 - index))
+        if section_id and str(row.get("section_id") or "") == str(section_id):
+            score += 100.0
+        # Hook matters, but no longer dominates source choice. Coverability and
+        # depth are allowed to beat a generic hook frame.
+        if str(row.get("role") or "") == "hook":
+            score += 14.0
+        if str(row.get("source_actual") or "") == "ai_still":
+            score += 8.0
+        if not row.get("pacing_auxiliary"):
+            score += 5.0
+        target = deferred if local_file in excluded else ranked
+        target.append((score, path, row))
+
+    pool = ranked or deferred
+    if pool:
+        # Local visual scoring inspects at most three already-approved assets.
+        candidates = sorted(pool, key=lambda item: item[0], reverse=True)[:3]
+        try:
+            from .cover_studio import rank_cover_candidates
+
+            path, row, studio = rank_cover_candidates(candidates, fmt=fmt)
+            return path, {
+                "selection": "existing_visual_asset_cover_studio",
+                "score": studio.get("combined_score"),
+                "section_id": str(row.get("section_id") or ""),
+                "beat_id": str(row.get("beat_id") or ""),
+                "role": str(row.get("role") or ""),
+                "source_actual": str(row.get("source_actual") or ""),
+                "source_visual_score": studio.get("visual_score"),
+                "source_luma": studio.get("luma"),
+                "source_contrast": studio.get("contrast"),
+                "source_quiet_side": studio.get("quiet_side"),
+                "source_quiet_delta": studio.get("quiet_delta"),
+                "candidate_count_evaluated": studio.get("candidate_count_evaluated"),
+                "tone_target": studio.get("tone_target"),
+                "source_exclusion_applied": bool(excluded),
+            }
+        except Exception as exc:
+            score, path, row = max(candidates, key=lambda item: item[0])
+            return path, {
+                "selection": "existing_visual_asset_legacy_rank",
+                "score": score,
+                "section_id": str(row.get("section_id") or ""),
+                "beat_id": str(row.get("beat_id") or ""),
+                "role": str(row.get("role") or ""),
+                "source_actual": str(row.get("source_actual") or ""),
+                "source_exclusion_applied": bool(excluded),
+                "studio_source_fallback_reason": f"{type(exc).__name__}:{str(exc)[:180]}",
+            }
 
     fallback = Path(final_path) if final_path is not None else Path(output_dir) / "final.mp4"
     if fallback.is_file() and fallback.stat().st_size > 0:
-        return fallback, {"selection": "final_video_frame"}
+        return fallback, {
+            "selection": "final_video_frame",
+            "source_exclusion_applied": bool(excluded),
+        }
     raise RuntimeError("cover_source_missing")
 
 
@@ -238,6 +280,7 @@ def build_cover_lite(
     final_path: Path,
     output_name: str = "cover.jpg",
     section_id: str | None = None,
+    exclude_source_files: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
     if fmt == "short" and section_id is None:
@@ -247,15 +290,31 @@ def build_cover_lite(
     if not text:
         raise RuntimeError("cover_text_missing")
     source, selection = select_cover_source(
-        output_dir, section_id=section_id, final_path=final_path
+        output_dir,
+        fmt=fmt,
+        section_id=section_id,
+        final_path=final_path,
+        exclude_source_files=exclude_source_files,
     )
     output = output_dir / output_name
-    rendered = render_cover(source, output, text=text, fmt=fmt)
+
+    try:
+        from .cover_studio import render_cover_studio
+
+        rendered = render_cover_studio(source, output, text=text, fmt=fmt)
+        renderer_mode = "cover_studio_v2"
+    except Exception as exc:
+        rendered = render_cover(source, output, text=text, fmt=fmt)
+        rendered["studio_fallback_reason"] = f"{type(exc).__name__}:{str(exc)[:220]}"
+        rendered["renderer"] = "cover_lite_libass_fallback"
+        renderer_mode = "cover_lite_libass_fallback"
+
     return {
         "schema_version": SCHEMA_VERSION,
         "renderer": RENDERER_VERSION,
         "status": "pass",
         "mode": "fail_soft_local_renderer",
+        "renderer_mode": renderer_mode,
         "provider_calls_added": 0,
         "new_ai_stage": False,
         "new_quality_gate": False,
@@ -278,6 +337,7 @@ def run_cover_lite_fail_soft(
     output_name: str = "cover.jpg",
     report_name: str = "cover-lite.json",
     section_id: str | None = None,
+    exclude_source_files: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     try:
         report = build_cover_lite(
@@ -287,6 +347,7 @@ def run_cover_lite_fail_soft(
             final_path=final_path,
             output_name=output_name,
             section_id=section_id,
+            exclude_source_files=exclude_source_files,
         )
     except Exception as exc:
         report = {

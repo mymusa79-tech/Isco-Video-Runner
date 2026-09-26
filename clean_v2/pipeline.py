@@ -5170,6 +5170,7 @@ class CleanV2Pipeline:
                     output_name="podcast-short-cover.jpg",
                     report_name="podcast-short-cover.json",
                     section_id=str(podcast_short_report.get("section_id") or ""),
+                    exclude_source_files=(str(cover_report.get("source_file") or ""),),
                 )
                 if podcast_short_report.get("status") == "pass"
                 else {"status": "not_applicable"}
@@ -5195,6 +5196,7 @@ class CleanV2Pipeline:
                     output_name="long-short-cover.jpg",
                     report_name="long-short-cover.json",
                     section_id=str(long_short_report.get("section_id") or ""),
+                    exclude_source_files=(str(cover_report.get("source_file") or ""),),
                 )
                 if long_short_report.get("status") == "pass"
                 else {"status": "not_applicable"}
