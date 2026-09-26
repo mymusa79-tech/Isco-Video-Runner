@@ -1216,14 +1216,19 @@ def latest_release_delivery() -> dict[str, str]:
         if not isinstance(assets, list):
             continue
         direct_url = ""
+        package_url = ""
         for item in assets:
-            if not isinstance(item, dict) or str(item.get("name") or "") != "final.mp4":
+            if not isinstance(item, dict):
                 continue
+            name = str(item.get("name") or "")
             candidate = str(item.get("browser_download_url") or "").strip()
-            if candidate.startswith("https://"):
+            if not candidate.startswith("https://"):
+                continue
+            if name == "final.mp4":
                 direct_url = candidate
-                break
-        if not direct_url:
+            elif name == "publish-package.zip":
+                package_url = candidate
+        if not direct_url and not package_url:
             continue
         kind = (
             "short"
@@ -1237,6 +1242,7 @@ def latest_release_delivery() -> dict[str, str]:
             "topic": topic,
             "release_tag": tag,
             "browser_download_url": direct_url,
+            "package_browser_download_url": package_url,
         }
     return {}
 
@@ -1248,13 +1254,16 @@ def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[s
     scope_label = "⚡ شورت" if kind == "short" else ("🎙️ خارج النص" if kind == "podcast" else "🎬 فيديو طويل")
     topic = str(delivery.get("topic") or "").strip()
     url = str(delivery.get("browser_download_url") or "").strip()
+    package_url = str(delivery.get("package_browser_download_url") or "").strip()
     lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
     if topic:
         lines.append(f"الموضوع: {topic}")
-    keyboard = None
+    rows: list[list[dict[str, str]]] = []
+    if package_url:
+        rows.append([{"text": "📦 تحميل حزمة النشر كاملة", "url": package_url}])
     if url:
-        keyboard = [[{"text": "🎥 مشاهدة/تحميل الفيديو", "url": url}]]
-    return "\n".join(lines), keyboard
+        rows.append([{"text": "🎥 مشاهدة/تحميل الفيديو", "url": url}])
+    return "\n".join(lines), (rows or None)
 
 
 def authorized(update: dict[str, Any]) -> bool:

@@ -19,23 +19,27 @@ _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
+    # Charon keeps the short natural breathing restored in #909. The pre-outro
+    # gap is also brief; outro_silence is the duration of the silent visual card,
+    # not an inserted pause inside spoken delivery. Nabra keeps native measured
+    # pauses and must not be rebuilt from these values.
     "short": {
-        "intro_silence_seconds": 1.0,
-        "pre_outro_silence_seconds": 0.45,
+        "intro_silence_seconds": 0.35,
+        "pre_outro_silence_seconds": 0.35,
         "outro_silence_seconds": 2.0,
-        "final_silence_seconds": 0.75,
+        "final_silence_seconds": 0.35,
     },
     "film": {
-        "intro_silence_seconds": 1.25,
-        "pre_outro_silence_seconds": 0.60,
+        "intro_silence_seconds": 0.45,
+        "pre_outro_silence_seconds": 0.45,
         "outro_silence_seconds": 3.0,
-        "final_silence_seconds": 1.0,
+        "final_silence_seconds": 0.45,
     },
     "podcast": {
-        "intro_silence_seconds": 1.25,
-        "pre_outro_silence_seconds": 0.60,
+        "intro_silence_seconds": 0.45,
+        "pre_outro_silence_seconds": 0.45,
         "outro_silence_seconds": 3.0,
-        "final_silence_seconds": 1.0,
+        "final_silence_seconds": 0.45,
     },
 }
 

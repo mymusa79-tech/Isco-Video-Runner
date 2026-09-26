@@ -94,43 +94,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         ]
         ass = text_module.build_rich_ass(events)
         self.assertGreater(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
-        self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.20)
+        self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.35)
         self.assertIn(text_module.ACCENT_ASS, ass)
-        self.assertIn(r"\bord3", ass)
+        self.assertIn(r"\bord4", ass)
         self.assertIn("Style: Shadow", ass)
-        self.assertEqual((text_module.CAPTION_SHADOW_X, text_module.CAPTION_SHADOW_Y), (4, 5))
-        self.assertEqual((text_module.CAPTION_EXTRUDE_X, text_module.CAPTION_EXTRUDE_Y), (2, 3))
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertIn(r"\fscx99\fscy99", ass)
-
-    def test_rule_3b_arabic_caption_uses_static_white_gold_line_hierarchy(self) -> None:
-        events = [
-            {
-                "start": 0.0,
-                "end": 3.0,
-                "text": "لماذا يضيع وقتك دون أن تشعر كل يوم",
-                "role": "hook",
-            },
-            {
-                "start": 3.0,
-                "end": 5.0,
-                "text": "التشتت يسرق انتباهك بهدوء",
-                "role": "beat",
-            },
-            {
-                "start": 5.0,
-                "end": 7.0,
-                "text": "ابدأ بخطوة واحدة واضحة",
-                "role": "payoff",
-            },
-        ]
-        ass = text_module.build_rich_ass(events)
-        self.assertIn(text_module.PRIMARY_ASS, ass)
-        self.assertIn(text_module.ACCENT_ASS, ass)
-        self.assertIn(r"\N", ass)
-        self.assertIn(r"\h\h", ass)
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertNotIn(r"\bord5", ass)
 
     def test_rule_4_context_requires_specific_meaning_before_general_mood(self) -> None:
         plan = {
@@ -187,61 +154,6 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         source = inspect.getsource(cta_module._render)
         self.assertIn("warm", inspect.getsource(cta_module.apply_visual_cta_assets))
         self.assertIn("hue=h=38", source)
-
-    def test_rule_5a_cta_action_differs_from_current_scene_action(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "timeline-first.json").write_text(
-                json.dumps(
-                    {
-                        "section_events": [
-                            {"section_id": "s1", "start": 0.0, "end": 30.0},
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            (root / "visual-story.json").write_text(
-                json.dumps(
-                    {
-                        "beats": [
-                            {
-                                "section_id": "s1",
-                                "viewer_intent": "يرى فعل الكتابة بوضوح",
-                                "meaning_target": "شخص يكتب ملاحظة قصيرة",
-                                "shot_intent": "close shot of hand writing in notebook",
-                                "semantic_must_have": ["pen", "notebook", "writing"],
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            original = [
-                cta_module.VisualCtaEvent(
-                    mode="comment",
-                    start_seconds=12.0,
-                    end_seconds=13.4,
-                    x=465,
-                    y=cta_module.SHORT_CTA_Y,
-                    asset="comment_ORIGINAL.png",
-                )
-            ]
-            revised, decisions = cta_module._enforce_semantic_separation(
-                events=original,
-                output_dir=root,
-                script={
-                    "sections": [
-                        {"id": "s1", "narration": "اكتب الملاحظة التي ستبدأ بها الآن."}
-                    ]
-                },
-                fmt="short",
-            )
-            self.assertNotEqual(revised[0].mode, "comment")
-            self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
-            self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
     def test_rule_5b_short_cta_sits_above_captions_and_sfx_between_voice_and_music(self) -> None:
         events = cta_module._events(

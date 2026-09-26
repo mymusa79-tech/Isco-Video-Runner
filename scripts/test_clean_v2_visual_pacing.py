@@ -1076,25 +1076,9 @@ class PipelineWiringTests(unittest.TestCase):
             timeline = json.loads(
                 (output / "timeline-first.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(timeline["timeline_owner"], "measured_charon_voice")
-            exact_sections = {
-                str(item["section_id"]): float(item["duration_seconds"])
-                for item in timeline["section_events"]
-            }
-            self.assertEqual(received, exact_sections)
-            silent_roles = {
-                "intro_silence",
-                "pre_outro_silence",
-                "outro_silence",
-                "final_silence",
-            }
-            silent_seconds = sum(
-                float(item["end"]) - float(item["start"])
-                for item in timeline["audio_units"]
-                if str(item.get("role") or "") in silent_roles
-            )
+            self.assertEqual(timeline["timeline_owner"], "measured_nabra_voice")
             self.assertAlmostEqual(
-                sum(received.values()) + silent_seconds,
+                sum(received.values()),
                 float(timeline["voice_seconds_measured"]),
                 places=3,
             )

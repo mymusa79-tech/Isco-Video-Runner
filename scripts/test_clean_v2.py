@@ -1705,15 +1705,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 chunk for chunk in chunks
                 if str(chunk.get("provider") or "") == "deterministic_silence"
             ]
-            self.assertEqual(len(silence_chunks), 4)
+            self.assertEqual(len(silence_chunks), 2)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
-                {
-                    "intro_silence",
-                    "pre_outro_silence",
-                    "outro_silence",
-                    "final_silence",
-                },
+                {"intro_silence", "final_silence"},
             )
             self.assertTrue(
                 all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)

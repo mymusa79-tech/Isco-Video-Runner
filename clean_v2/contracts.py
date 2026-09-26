@@ -106,6 +106,8 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     title = str(value.get("title") or "").strip()
     promise = str(value.get("promise") or "").strip()
     cta = str(value.get("cta") or "").strip()
+    raw_cover_text = " ".join(str(value.get("cover_text") or "").split()).strip()
+    cover_text = raw_cover_text[:100] if 1 <= len(raw_cover_text.split()) <= 6 else ""
     raw_sections = value.get("sections")
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
@@ -145,6 +147,12 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         purpose = str(raw.get("purpose") or "").strip()
         query = str(raw.get("visual_query_en") or "").strip()
         alt_query = str(raw.get("visual_query_alt_en") or "").strip()
+        raw_section_cover = " ".join(str(raw.get("cover_text") or "").split()).strip()
+        section_cover_text = (
+            raw_section_cover[:100]
+            if 1 <= len(raw_section_cover.split()) <= 6
+            else ""
+        )
         if len(query) > 260:
             raise ContractError(
                 f"plan section {section_id} visual_query_en exceeds 260 characters"
@@ -178,14 +186,19 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         }
         if fmt == "short":
             section_value["visual_query_alt_en"] = alt_query
+        if section_cover_text:
+            section_value["cover_text"] = section_cover_text
         sections.append(section_value)
-    return {
+    result = {
         "schema_version": 1,
         "title": title[:300],
         "promise": promise[:800],
         "cta": cta[:700],
         "sections": sections,
     }
+    if cover_text:
+        result["cover_text"] = cover_text
+    return result
 
 
 def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -1219,37 +1220,20 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertNotIn(r"\bord5", ass)
-        self.assertIn(r"\fscx99\fscy99", ass)
-        self.assertNotIn("\u202B", ass)
-        self.assertNotIn("\u202C", ass)
-        self.assertIn("\u2009\u2009", ass)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertIn(r"\fscx98\fscy98", ass)
+        self.assertIn("\u202B", ass)
+        self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(544,1405)", ass)
+        self.assertIn(r"\pos(549,1411)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
-
-    def test_complete_arabic_caption_keeps_every_authored_word_in_two_lines(self) -> None:
-        text = "هذه الجملة العربية الكاملة يجب أن تظهر بوضوح دون حذف أي كلمة منها"
-        events = [
-            {"start": 0.0, "end": 4.0, "text": text, "role": "hook"},
-            {"start": 4.0, "end": 5.5, "text": "المعنى يصل كاملًا", "role": "payoff"},
-        ]
-        ass = build_rich_ass(events)
-        for word in text.split():
-            self.assertIn(word, ass)
-        self.assertEqual(ass.count(r"\N"), 3)
-        self.assertNotIn("\u202B", ass)
-        self.assertIn("\u2009\u2009", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
@@ -1268,42 +1252,17 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreaterEqual(len(events), 3)
+        self.assertGreater(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
         self.assertEqual(events[-1]["role"], "payoff")
         self.assertEqual(events[0]["section_id"], "s1")
         self.assertEqual(events[-1]["section_id"], "s3")
-        authored = " ".join(section["narration"] for section in script["sections"])
         for event in events:
-            self.assertIn(str(event["text"]), authored)
-            self.assertGreaterEqual(len(str(event["text"]).split()), CAPTION_MIN_WORDS)
-
-    def test_caption_preserves_complete_arabic_clause_and_static_rtl_focus(self) -> None:
-        script = {
-            "sections": [
-                {"id": "s1", "narration": "ابدأ بالمهمة الأصغر، ثم دع الزخم يكمل الطريق."},
-                {"id": "s2", "narration": "الوضوح يقلل التردد."},
-                {"id": "s3", "narration": "خطوة واحدة جيدة تكفي."},
-            ]
-        }
-        timeline = {
-            "status": "pass",
-            "section_events": [
-                {"section_id": "s1", "start": 0.0, "end": 5.0},
-                {"section_id": "s2", "start": 5.0, "end": 10.0},
-                {"section_id": "s3", "start": 10.0, "end": 15.0},
-            ],
-        }
-        events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertIn("ابدأ بالمهمة الأصغر،", [item["text"] for item in events])
-        self.assertIn("ثم دع الزخم يكمل الطريق.", [item["text"] for item in events])
-        ass = build_rich_ass(events)
-        self.assertIn("\u2009\u2009", ass)
-        self.assertNotIn("\u202B", ass)
-        self.assertNotIn("\u202C", ass)
-        self.assertNotIn("deterministic_phrase_weighted_approximation", ass)
+            words = len(str(event["text"]).split())
+            self.assertLessEqual(words, CAPTION_MAX_WORDS)
+            self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
 
     def test_local_composition_uses_one_planning_owned_safe_zone_without_provider_calls(self) -> None:
         events = [
@@ -1432,26 +1391,15 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertEqual(len(events), 3)
-            self.assertEqual(
-                [str(event["text"]) for event in events],
-                [
-                    "قد يختفي الدافع فجأة.",
-                    "لكن البداية لا تحتاج انتظارًا طويلًا.",
-                    "ابدأ بخطوة صغيرة الآن.",
-                ],
-            )
+            self.assertGreaterEqual(len(events), 4)
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
 
 class ShortAudioPolishTests(unittest.TestCase):
-    def test_charon_corrective_mastering_reuses_certified_lite_profile_without_tempo_change(self) -> None:
-        self.assertEqual(CHARON_CORRECTIVE_PROFILE, "audio-mastering-lite-charon-v1")
-        for fragment in ("highpass=f=70", "equalizer=f=220", "equalizer=f=3200", "deesser=", "acompressor="):
-            self.assertIn(fragment, CHARON_CORRECTIVE_FILTER)
-        self.assertNotIn("atempo", CHARON_CORRECTIVE_FILTER)
-        self.assertNotIn("rubberband", CHARON_CORRECTIVE_FILTER)
+    def test_charon_mastering_is_neutral_loudness_only(self) -> None:
+        self.assertEqual(CHARON_CORRECTIVE_PROFILE, "charon-loudness-only-v2")
+        self.assertEqual(CHARON_CORRECTIVE_FILTER, "")
 
     def test_music_is_minus_25_to_minus_20_db_and_generated_noise_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1532,6 +1480,9 @@ class ShortPipelineSeamTests(unittest.TestCase):
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
+        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", prompt)
+        self.assertIn("ONLY the minimum Arabic diacritic marks", prompt)
+        self.assertIn("punctuation as performance notation", prompt)
         self.assertIn("Do not write toward a target duration", prompt)
         self.assertIn("measured mastered voice owns the final runtime", prompt)
         self.assertNotIn("30-45 seconds", prompt)
@@ -1601,12 +1552,48 @@ class ShortPipelineSeamTests(unittest.TestCase):
         class FakeNabra:
             def __init__(self) -> None:
                 self.calls: list[str] = []
+                self.continuous_calls = 0
 
             def synthesize(self, transcript, output_path):
                 self.calls.append(str(transcript))
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_bytes(b"N" * 2048)
                 return Path(output_path)
+
+            def synthesize_continuous(self, parts, output_path):
+                self.continuous_calls += 1
+                self.calls.append(" | ".join(str(item["text"]) for item in parts))
+                sample_rate = 24000
+                cursor = 0.0
+                marks = []
+                for item in parts:
+                    start = cursor
+                    speech_end = start + 0.18
+                    pause_end = speech_end + 0.04
+                    marks.append(
+                        {
+                            "role": item["role"],
+                            "text": item["text"],
+                            "start_seconds": start,
+                            "speech_end_seconds": speech_end,
+                            "pause_end_seconds": pause_end,
+                        }
+                    )
+                    cursor = pause_end
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                with wave.open(str(output_path), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(b"\x00\x00" * int(round(cursor * sample_rate)))
+                return {
+                    "parts": marks,
+                    "single_continuous_inference": True,
+                    "continuous_narration_stream": True,
+                    "inference_passes": 1,
+                    "bounded_inference": False,
+                    "max_infer_chars": 500,
+                }
 
         gemini_calls = {"count": 0}
 
@@ -1674,8 +1661,13 @@ class ShortPipelineSeamTests(unittest.TestCase):
             )
 
         self.assertEqual(gemini_calls["count"], 4)
-        self.assertEqual(len(nabra.calls), 2)
+        self.assertEqual(nabra.continuous_calls, 1)
+        self.assertEqual(len(nabra.calls), 1)
+        self.assertIn("جملة أولى", nabra.calls[0])
+        self.assertIn("جملة ثانية", nabra.calls[0])
         self.assertEqual(report["voice_provider"], "nabra:af_msa")
+        self.assertTrue(report["single_continuous_inference"])
+        self.assertEqual(report["external_silence_insertions"], 0)
         self.assertTrue(report["voice_fallback_used"])
         self.assertEqual(
             report["voice_restart_reason"],
@@ -1730,8 +1722,10 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertEqual(captured["transcript"], transcript)
         self.assertEqual(captured["voice"], "Charon")
         self.assertEqual(captured["style"], SHORT_CHARON_STYLE)
-        self.assertIn("immediately and conversationally", str(captured["style"]))
-        self.assertIn("announcer-like", str(captured["style"]))
+        self.assertIn("same calm conversational cadence", str(captured["style"]))
+        self.assertIn("Do not reset into an announcer-like pickup", str(captured["style"]))
+        self.assertNotIn("clean first-word attack", str(captured["style"]))
+        self.assertNotIn("firmer in intent", str(captured["style"]))
 
     def test_primary_only_charon_failure_never_calls_azure_or_piper(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

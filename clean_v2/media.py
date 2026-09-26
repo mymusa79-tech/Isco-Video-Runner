@@ -30,16 +30,16 @@ CHARON_MAX_ATTEMPTS = 3
 CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
 
-# Performance-only direction appended to the already-proven Engine Gemini TTS
-# preamble when Clean V2 is using the Short Charon-only contract. It changes no
-# words and adds no provider call; it only asks for a cleaner, more immediate
-# conversational section onset instead of an announcer-like pickup.
-SHORT_CHARON_STYLE = (
-    " For short-form narration, begin each section immediately and conversationally "
-    "with a clean first-word attack. Keep the opening thought slightly firmer in intent, "
-    "but never louder, theatrical, breathless, or announcer-like. Preserve natural clear "
-    "Modern Standard Arabic and let punctuation control the pauses."
+# Deliberately light continuity direction for every Charon call. The pinned Engine
+# already supplies the full Arabic performance preamble; this only prevents each
+# separately synthesized unit from sounding like a fresh announcer pickup.
+CHARON_NATURAL_STYLE = (
+    " Keep this excerpt in the same calm conversational cadence as one continuous passage. "
+    "Do not reset into an announcer-like pickup at the start, over-emphasize the first word, "
+    "or manufacture dramatic pauses. Preserve the written punctuation naturally."
 )
+# Compatibility name used by focused Short tests/callers.
+SHORT_CHARON_STYLE = CHARON_NATURAL_STYLE
 
 AZURE_F0_VOICE = "ar-OM-AbdullahNeural"
 AZURE_F0_LOCALE = "ar-OM"
@@ -216,6 +216,51 @@ def _legacy_voice_identity() -> tuple[str, str]:
     return _voice_identity()
 
 
+def _remove_pinned_engine_tail_silence(
+    path: Path,
+    transcript: str,
+    *,
+    expected_seconds: float | None = None,
+) -> bool:
+    """Remove only the exact zero tail added by the pinned Engine pacing layer.
+
+    Gemini's own waveform and natural end-of-utterance timing remain untouched.
+    If the expected Engine tail is not all digital zero, fail soft and preserve
+    the synthesized file byte-for-byte.
+    """
+    try:
+        if expected_seconds is None:
+            from isco_video_agent.media.audio_pacing import section_tail_seconds
+            seconds = float(section_tail_seconds(transcript))
+        else:
+            seconds = float(expected_seconds)
+        if seconds <= 0:
+            return False
+        source = Path(path)
+        with wave.open(str(source), "rb") as wav:
+            params = wav.getparams()
+            total_frames = wav.getnframes()
+            trim_frames = int(round(params.framerate * seconds))
+            if trim_frames <= 0 or total_frames <= trim_frames:
+                return False
+            keep_frames = total_frames - trim_frames
+            wav.setpos(keep_frames)
+            expected_tail = wav.readframes(trim_frames)
+            if not expected_tail or any(expected_tail):
+                return False
+            wav.rewind()
+            kept = wav.readframes(keep_frames)
+
+        temp = source.with_name(source.name + ".charon-tail.tmp.wav")
+        with wave.open(str(temp), "wb") as wav:
+            wav.setparams(params)
+            wav.writeframes(kept)
+        temp.replace(source)
+        return True
+    except Exception:
+        return False
+
+
 def _legacy_gemini_synthesize(
     api_key: str,
     transcript: str,
@@ -225,10 +270,10 @@ def _legacy_gemini_synthesize(
     voice: str,
     style: str = "",
 ) -> Path:
-    """Reuse the legacy Gemini TTS implementation with exactly one provider attempt."""
+    """Reuse pinned Gemini TTS once, without its extra post-provider zero tail."""
     from isco_video_agent.providers.gemini import synthesize_wav
 
-    return synthesize_wav(
+    result = synthesize_wav(
         api_key,
         transcript,
         output_path,
@@ -237,6 +282,8 @@ def _legacy_gemini_synthesize(
         style=style,
         attempts=1,
     )
+    _remove_pinned_engine_tail_silence(Path(result), transcript)
+    return Path(result)
 
 
 def _tts_http_status(exc: BaseException) -> int | None:
@@ -628,7 +675,7 @@ class GeminiPrimaryPiperFallbackSynthesizer:
                         output_path,
                         model=self.tts_model,
                         voice=primary_voice,
-                        style=SHORT_CHARON_STYLE if primary_only else "",
+                        style=CHARON_NATURAL_STYLE,
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini TTS produced an empty narration file")
@@ -737,11 +784,12 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         tts_model: str = "gemini-3.1-flash-tts-preview",
         nabra: Any | None = None,
     ) -> None:
-        from .nabra_voice import NabraVoiceSynthesizer
+        from .nabra_voice import NabraVoiceSynthesizer, NABRA_REFERENCE_PROFILE
 
         self.api_key = str(api_key or "").strip()
         self.tts_model = str(tts_model or "").strip() or "gemini-3.1-flash-tts-preview"
         self.nabra = nabra if nabra is not None else NabraVoiceSynthesizer()
+        self._nabra_reference_profile = NABRA_REFERENCE_PROFILE
         self.last_provider: str | None = None
         self.fallback_used: bool | None = None
         self.charon_attempts = 0
@@ -779,8 +827,50 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.voice_approval_status = (
             "user_selected_primary" if self._nabra_primary else "human_approved_fallback"
         )
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
         print("Clean V2 voice provider selected: nabra:af_msa")
+        return result
+
+    @property
+    def nabra_continuous_ready(self) -> bool:
+        return self._route_lock == "nabra"
+
+    def synthesize_nabra_continuous(
+        self,
+        parts: list[dict[str, Any]],
+        output_path: Path,
+    ) -> dict[str, Any]:
+        """Run the approved Nabra profile once for the complete narration pass."""
+        if self._route_lock != "nabra":
+            raise RuntimeError("nabra_continuous_requires_nabra_route_lock")
+        joined = "\n".join(str(item.get("text") or "") for item in parts)
+        if _spoken_voice_roles(joined).get("mode") == "dialogue_qa":
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason="dialogue_charon_unavailable",
+                secondary_reason="nabra_single_narrator_only",
+                piper_fallback_allowed=False,
+            )
+        try:
+            result = self.nabra.synthesize_continuous(parts, output_path)
+        except Exception as exc:
+            output_path.unlink(missing_ok=True)
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason=(
+                    "not_attempted_nabra_primary" if self._nabra_primary else "charon_unavailable"
+                ),
+                secondary_reason=f"nabra_{_tts_failure_reason(exc, missing='unavailable')}"[:120],
+                piper_fallback_allowed=False,
+            ) from None
+        self.last_provider = "nabra:af_msa"
+        self.fallback_used = not self._nabra_primary
+        self.voice_approval_status = (
+            "user_selected_primary" if self._nabra_primary else "human_approved_fallback"
+        )
+        self.voice_reference_profile = self._nabra_reference_profile
+        self.voice_roles = {"mode": "single_narrator", "narrator": "nabra:af_msa"}
+        print("Clean V2 voice provider selected: nabra:af_msa (continuous native pauses)")
         return result
 
     def activate_full_run_nabra_fallback(self) -> None:
@@ -790,7 +880,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.last_provider = None
         self.fallback_used = True
         self.voice_approval_status = "human_approved_fallback"
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
 
     def activate_full_run_nabra_primary(self) -> None:
         """Lock the whole run to local Nabra without attempting any cloud voice."""
@@ -799,7 +889,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.last_provider = None
         self.fallback_used = False
         self.voice_approval_status = "user_selected_primary"
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
 
     def synthesize(
         self,
@@ -849,7 +939,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
                         output_path,
                         model=self.tts_model,
                         voice=primary_voice,
-                        style=SHORT_CHARON_STYLE if primary_only else "",
+                        style=CHARON_NATURAL_STYLE,
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini TTS produced an empty narration file")
