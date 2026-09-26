@@ -239,3 +239,46 @@ Proceed with a **Cover Studio V2 local compositor** based on:
 - existing Cover Lite fail-soft integration point.
 
 The benchmark is the approved quality target. The first coding step after this research phase should be an isolated local prototype renderer against old successful artifacts, not a production pipeline rewrite.
+
+
+## Prototype execution — 2026-09-26
+
+An isolated local prototype was implemented in `scripts/cover_studio_v2_prototype.py`.
+
+It was executed against two archived successful production hook frames from the existing Clean V2 artifacts. No image-generation provider, no Planning rerun, no Voice rerun, no stock search, and no production workflow were used.
+
+Environment observed during the prototype:
+- Pillow: 12.3.0
+- Raqm feature: available
+- local fonts found: Noto Kufi Arabic Black / ExtraBold / Bold
+- output: 1080x1920 JPEG
+- measured sample render: 1.54s wall-clock
+- measured maximum RSS: 162,076 KB (~158 MB)
+
+This satisfies the initial prototype performance guard (<10s and <250 MB) on the current execution environment. These numbers are local prototype measurements only and must still be re-measured on the actual GitHub-hosted production runner before production integration.
+
+The prototype deliberately keeps the source-selection logic out of scope. It takes one already-approved visual and applies:
+- warm/local background treatment,
+- Arabic RTL/Raqm shaping,
+- auto-fit heavy Kufi display typography,
+- two-line white/gold hierarchy,
+- crisp outline,
+- shallow solid extrusion,
+- separated blurred shadow,
+- restrained gold accents.
+
+Two generated prototype outputs were persisted in the Library:
+- `/Isco Video/Benchmarks/Cover Studio V2 Prototypes/prototype-1.jpg`
+- `/Isco Video/Benchmarks/Cover Studio V2 Prototypes/prototype-2.jpg`
+
+### Revised next step
+
+Do not add multi-candidate coverability scoring yet.
+
+First compare these two local-only prototype renders against the approved benchmark. If the typography/layout is accepted, production integration should replace only the current Cover Lite rendering backend while preserving:
+- the same pipeline call site,
+- the same `cover_text` metadata,
+- the same rights-manifest source selection,
+- the same fail-soft behavior.
+
+Only investigate local multi-source selection if real production evidence later shows source choice is the remaining dominant weakness.
