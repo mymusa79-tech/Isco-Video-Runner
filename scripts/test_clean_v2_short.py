@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -1551,12 +1552,41 @@ class ShortPipelineSeamTests(unittest.TestCase):
         class FakeNabra:
             def __init__(self) -> None:
                 self.calls: list[str] = []
+                self.continuous_calls = 0
 
             def synthesize(self, transcript, output_path):
                 self.calls.append(str(transcript))
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_bytes(b"N" * 2048)
                 return Path(output_path)
+
+            def synthesize_continuous(self, parts, output_path):
+                self.continuous_calls += 1
+                self.calls.append(" | ".join(str(item["text"]) for item in parts))
+                sample_rate = 24000
+                cursor = 0.0
+                marks = []
+                for item in parts:
+                    start = cursor
+                    speech_end = start + 0.18
+                    pause_end = speech_end + 0.04
+                    marks.append(
+                        {
+                            "role": item["role"],
+                            "text": item["text"],
+                            "start_seconds": start,
+                            "speech_end_seconds": speech_end,
+                            "pause_end_seconds": pause_end,
+                        }
+                    )
+                    cursor = pause_end
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                with wave.open(str(output_path), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(b"\x00\x00" * int(round(cursor * sample_rate)))
+                return {"parts": marks}
 
         gemini_calls = {"count": 0}
 
@@ -1624,8 +1654,13 @@ class ShortPipelineSeamTests(unittest.TestCase):
             )
 
         self.assertEqual(gemini_calls["count"], 4)
-        self.assertEqual(len(nabra.calls), 2)
+        self.assertEqual(nabra.continuous_calls, 1)
+        self.assertEqual(len(nabra.calls), 1)
+        self.assertIn("الجملة الأولى", nabra.calls[0])
+        self.assertIn("الجملة الثانية", nabra.calls[0])
         self.assertEqual(report["voice_provider"], "nabra:af_msa")
+        self.assertTrue(report["single_continuous_inference"])
+        self.assertEqual(report["external_silence_insertions"], 0)
         self.assertTrue(report["voice_fallback_used"])
         self.assertEqual(
             report["voice_restart_reason"],
