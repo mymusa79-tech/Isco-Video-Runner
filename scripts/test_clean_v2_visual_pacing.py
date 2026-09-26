@@ -105,6 +105,24 @@ class HookVisualStopPowerTests(unittest.TestCase):
         self.assertEqual(body, base)
         self.assertLessEqual(len(hook), 260)
 
+    def test_existing_alternate_query_breaks_repeated_productivity_action_without_new_call(self) -> None:
+        first, first_family = media_module._choose_semantically_diverse_query(
+            "hand writing notebook task",
+            ["person walking outdoor path"],
+            previous_family="",
+            family_counts={},
+        )
+        second, second_family = media_module._choose_semantically_diverse_query(
+            "pen writing checklist notebook",
+            ["person walking outdoor path"],
+            previous_family=first_family,
+            family_counts={first_family: 1},
+        )
+        self.assertEqual(first, "hand writing notebook task")
+        self.assertEqual(first_family, "writing")
+        self.assertEqual(second, "person walking outdoor path")
+        self.assertEqual(second_family, "walking")
+
 
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     def test_ai_prompt_keeps_safety_rules_when_story_fields_are_maximal(self) -> None:
