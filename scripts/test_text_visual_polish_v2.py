@@ -46,6 +46,27 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
 
+    def test_continuous_gold_wipe_moves_from_right_to_left_without_word_steps(self) -> None:
+        tag = text_module._rtl_gold_wipe_tag(
+            x=540,
+            y=1400,
+            duration_seconds=4.0,
+        )
+        self.assertIn(r"\clip(1040,1100,1040,1700)", tag)
+        self.assertIn(r"\t(0,4000,\clip(40,1100,1040,1700))", tag)
+        self.assertNotIn(r"\kf", tag)
+
+        events = [
+            {"start": 0.0, "end": 4.0, "text": "أمسكت بالقلم فوق الصفحة الفارغة", "role": "hook"},
+            {"start": 4.0, "end": 8.0, "text": "ثم بدأت الفكرة تتغير أمامي", "role": "beat"},
+            {"start": 8.0, "end": 12.0, "text": "الخطوة الصغيرة فتحت الطريق", "role": "payoff"},
+        ]
+        ass = text_module.build_rich_ass(events)
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn("أمسكت", ass)
+        self.assertIn("الفارغة", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+
     def test_short_karaoke_sweep_tracks_phrase_locally_without_provider_alignment(self) -> None:
         item = text_module.TimedTextEvent(
             start=1.0,
@@ -79,8 +100,12 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 8.0, "end": 12.0, "text": "الاستمرار الصغير يصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertGreaterEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertIn(text_module.PRIMARY_ASS, ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+        self.assertIn(r"\clip(", ass)
+        self.assertIn(r"\t(0,", ass)
         self.assertNotIn("\u202B", ass)
 
     def test_film_key_text_is_sparse_complete_and_breathes(self) -> None:

@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 8
-RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-karaoke-sweep-lite-v8"
+SCHEMA_VERSION = 10
+RICH_RENDERER_VERSION = "clean-v2-short-arabic-continuous-rtl-gold-wipe-v10"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
@@ -25,10 +25,10 @@ EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&HA8000000"  # soft transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 108
-FOCUS_FONT_SIZE = 154
-FOCUS_SCALE = 1.22
-BODY_WRAP_WORDS = 6
+BODY_FONT_SIZE = 124
+FOCUS_FONT_SIZE = 176
+FOCUS_SCALE = 1.20
+BODY_WRAP_WORDS = 5
 ARABIC_WORD_GAP = "\u2009\u2009"
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
@@ -55,9 +55,9 @@ SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
 COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
-    "hook": 128,
-    "beat": 110,
-    "payoff": 120,
+    "hook": 150,
+    "beat": 128,
+    "payoff": 140,
 }
 
 _SECRET_ENV_NAMES = {
@@ -585,6 +585,58 @@ def _plain_caption(text: str) -> str:
     return _ass_wrap_words(text)
 
 
+def _hierarchy_caption(
+    text: str,
+    *,
+    body_size: int,
+    focus_size: int,
+    color: str,
+) -> str:
+    """Render the complete phrase with identical geometry for white/gold layers."""
+    words = _clean(text).split()
+    if not words:
+        return ""
+    if len(words) <= BODY_WRAP_WORDS:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
+
+    rendered: list[str] = []
+    for row_index, row in enumerate(rows):
+        size = focus_size if row_index == 1 and len(rows) > 1 else body_size
+        rendered.append(
+            "{\\fs"
+            + str(size)
+            + "\\bord3\\shad0\\c"
+            + color
+            + "}"
+            + _rtl_row(row)
+        )
+    return r"\N".join(rendered)
+
+
+def _rtl_gold_wipe_tag(
+    *,
+    x: int,
+    y: int,
+    duration_seconds: float,
+) -> str:
+    """Continuous right-to-left gold reveal over a fully visible white phrase."""
+    duration_ms = max(1, int(round(max(0.001, duration_seconds) * 1000)))
+    left = max(0, x - 500)
+    right = min(1080, x + 500)
+    top = max(0, y - 300)
+    bottom = min(1920, y + 300)
+    # At t=0 the gold layer is clipped to zero width at the right edge.
+    # The left edge then travels continuously to the left while the right
+    # edge stays fixed, so the reveal follows natural Arabic reading direction.
+    return (
+        rf"\clip({right},{top},{right},{bottom})"
+        rf"\t(0,{duration_ms},\clip({left},{top},{right},{bottom}))"
+    )
+
+
 def _font_size_for_event(item: TimedTextEvent) -> int:
     words = len(_clean(item.text).split())
     size = ROLE_BASE_FONT_SIZE[item.role]
@@ -598,7 +650,7 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
         size -= 6
     elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(92, min(138, size))
+    return max(112, min(158, size))
 
 
 def build_composition_hints(
@@ -666,16 +718,28 @@ def build_rich_ass(
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
         focus_size = max(
             font_size + 18,
-            min(160, int(round(font_size * FOCUS_SCALE))),
+            min(188, int(round(font_size * FOCUS_SCALE))),
         )
-        caption = _karaoke_caption(
-            item,
+        white_face = _hierarchy_caption(
+            item.text,
             body_size=font_size,
             focus_size=focus_size,
+            color=PRIMARY_ASS,
+        )
+        gold_face = _hierarchy_caption(
+            item.text,
+            body_size=font_size,
+            focus_size=focus_size,
+            color=ACCENT_ASS,
         )
         start = _ass_time(item.start)
         end = _ass_time(item.end)
         motion = r"\fad(150,200)\fscx99\fscy99\t(0,140,\fscx100\fscy100)"
+        wipe = _rtl_gold_wipe_tag(
+            x=x,
+            y=y,
+            duration_seconds=item.end - item.start,
+        )
         shadow_tag = (
             rf"\an5\pos({x + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
             + rf"\fs{font_size}"
@@ -697,7 +761,11 @@ def build_rich_ass(
         )
         lines.append(
             f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
-            f"{{{face_tag}}}{caption}"
+            f"{{{face_tag}\\c{PRIMARY_ASS}}}{white_face}"
+        )
+        lines.append(
+            f"Dialogue: 3,{start},{end},Caption,,0,0,0,,"
+            f"{{{face_tag}{wipe}\\c{ACCENT_ASS}}}{gold_face}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -797,14 +865,14 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "voice_owned_event_local_weighted_ass_kf_sweep",
-        "word_highlight_count": sum(len(_clean(item.text).split()) for item in validated),
-        "karaoke_mode": "full_phrase_visible_white_to_gold_smooth_fill",
+        "word_highlight_timing": "continuous_full_phrase_rtl_clip_wipe",
+        "word_highlight_count": 0,
+        "karaoke_mode": "continuous_rtl_white_to_gold_clip_wipe_no_word_steps",
         "karaoke_provider_calls": 0,
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_local_kf_white_to_gold_sweep",
+        "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_continuous_right_to_left_gold_wipe",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 

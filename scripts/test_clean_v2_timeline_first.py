@@ -174,11 +174,16 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 (events["channel_identity"]["start"], events["channel_identity"]["end"]),
                 (7.35, 12.35),
             )
-            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (12.35, 27.35))
-            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.35, 30.35))
+            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (12.35, 30.35))
+            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (30.35, 30.7))
             self.assertEqual((events["final_silence"]["start"], events["final_silence"]["end"]), (30.35, 30.7))
+            self.assertEqual(events["outro"]["source"], "post_payoff_terminal_silence")
             self.assertTrue(
-                all(row["source"].startswith("measured_") for row in report["identity_events"])
+                all(
+                    row["source"].startswith("measured_")
+                    for row in report["identity_events"]
+                    if row["kind"] != "outro"
+                )
             )
 
     def test_film_and_podcast_use_the_same_measured_silence_sequence(self) -> None:
@@ -236,12 +241,13 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                     (events["channel_identity"]["start"], events["channel_identity"]["end"]),
                     (7.45, 12.45),
                 )
-                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (12.45, 23.45))
-                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (23.45, 26.45))
+                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (12.45, 26.45))
+                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (26.45, 26.9))
                 self.assertEqual(
                     (events["final_silence"]["start"], events["final_silence"]["end"]),
                     (26.45, 26.9),
                 )
+                self.assertEqual(events["outro"]["source"], "post_payoff_terminal_silence")
 
     def test_identity_animation_preserves_the_story_world_beneath_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
