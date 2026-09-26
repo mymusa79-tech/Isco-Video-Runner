@@ -2553,6 +2553,37 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertTrue(resumed_by_name["script"])
 
 
+class AIImageOnlyPolicyTests(unittest.TestCase):
+    def test_ai_generated_text_or_ui_artifact_is_hard_blocked_locally(self) -> None:
+        audit = {
+            "status": "pass",
+            "obvious_synthetic_or_visual_artifact": True,
+            "prominent_logo_or_brand": False,
+            "reason": "generated pseudo text and subscribe button",
+        }
+        result = visual_qa_module._apply_ai_image_only_policy(
+            audit,
+            {"source_actual": "ai_still"},
+        )
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(result["ai_image_only_policy"], "block")
+        self.assertIn("ai_image_only_text_ui_artifact", result["reason"])
+
+    def test_stock_visual_is_not_subject_to_ai_image_only_policy(self) -> None:
+        audit = {
+            "status": "pass",
+            "obvious_synthetic_or_visual_artifact": True,
+            "prominent_logo_or_brand": False,
+            "reason": "fixture",
+        }
+        result = visual_qa_module._apply_ai_image_only_policy(
+            audit,
+            {"source_actual": "stock_motion"},
+        )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["ai_image_only_policy"], "not_applicable")
+
+
 class VisualQADiagnosticsTests(unittest.TestCase):
     def test_contract_error_preserves_raw_provider_http_evidence_before_wrapping(self) -> None:
         source = Path("clean_v2/visual_qa.py").read_text(encoding="utf-8")
