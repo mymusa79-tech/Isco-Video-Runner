@@ -161,8 +161,18 @@ def _fallback_section_units(output_dir: Path) -> list[dict[str, Any]]:
 
 
 def _section_events(units: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    # Section timing is for authored/spoken content. Identity-only silence must
+    # never extend captions or key text into intro/outro visual cards.
+    silent_roles = {
+        "intro_silence",
+        "pre_outro_silence",
+        "outro_silence",
+        "final_silence",
+    }
     result: list[dict[str, Any]] = []
     for unit in units:
+        if str(unit.get("role") or "") in silent_roles:
+            continue
         section_id = str(unit.get("section_id") or "").strip()
         if not section_id:
             raise TimelineFirstError("TIMELINE_FIRST_SECTION_ID_MISSING")
@@ -198,24 +208,31 @@ def _identity_events(
     hook = _one_role(units, "hook")
     prayer = _one_role(units, "prayer")
     identity = _one_role(units, "channel_identity")
-    outro = _one_role(units, "outro")
     intro_silence = _one_role(units, "intro_silence")
+    pre_outro_silence = _one_role(units, "pre_outro_silence")
+    outro_silence = _one_role(units, "outro_silence")
     final_silence = _one_role(units, "final_silence")
+    legacy_outro = _one_role(units, "outro")
 
+    new_outro_ready = pre_outro_silence is not None and outro_silence is not None
     identity_missing_silence = fmt in {"short", "film", "podcast"} and (
-        intro_silence is None or final_silence is None
+        intro_silence is None
+        or final_silence is None
+        or (not new_outro_ready and legacy_outro is None)
     )
     if require_identity and (
         hook is None
         or prayer is None
         or identity is None
-        or outro is None
         or identity_missing_silence
     ):
         raise TimelineFirstError(
             "TIMELINE_FIRST_IDENTITY_AUDIO_BOUNDS_MISSING "
             f"hook={hook is not None} prayer={prayer is not None} "
-            f"identity={identity is not None} outro={outro is not None} "
+            f"identity={identity is not None} "
+            f"pre_outro_silence={pre_outro_silence is not None} "
+            f"outro_silence={outro_silence is not None} "
+            f"legacy_outro={legacy_outro is not None} "
             f"intro_silence={intro_silence is not None} final_silence={final_silence is not None}"
         )
     if prayer is None or identity is None:
@@ -224,7 +241,20 @@ def _identity_events(
     intro_start = float(intro_silence["start"])
     intro_end = float(intro_silence["end"])
     topic_start = float(identity["end"])
-    topic_end = float(outro["start"]) if outro is not None else voice_seconds
+
+    if new_outro_ready:
+        topic_end = float(pre_outro_silence["start"])
+        outro_start = float(outro_silence["start"])
+        outro_end = float(outro_silence["end"])
+    elif legacy_outro is not None:
+        topic_end = float(legacy_outro["start"])
+        outro_start = float(legacy_outro["start"])
+        outro_end = float(legacy_outro["end"])
+    else:
+        topic_end = voice_seconds
+        outro_start = voice_seconds
+        outro_end = voice_seconds
+
     events: list[dict[str, Any]] = []
     if hook is not None:
         events.append(
@@ -270,13 +300,22 @@ def _identity_events(
                 "end": topic_end,
             }
         )
-    if outro is not None:
+    if pre_outro_silence is not None:
+        events.append(
+            {
+                "kind": "pre_outro_silence",
+                "source": "measured_silence_chunk",
+                "start": float(pre_outro_silence["start"]),
+                "end": float(pre_outro_silence["end"]),
+            }
+        )
+    if outro_end > outro_start:
         events.append(
             {
                 "kind": "outro",
-                "source": "measured_voice_chunk",
-                "start": float(outro["start"]),
-                "end": float(outro["end"]),
+                "source": "measured_outro_silence" if new_outro_ready else "measured_voice_chunk",
+                "start": outro_start,
+                "end": outro_end,
             }
         )
     if fmt in {"short", "film", "podcast"} and final_silence is not None:
@@ -293,7 +332,6 @@ def _identity_events(
             }
         )
     return events
-
 
 def build_voice_owned_timeline(
     *,
