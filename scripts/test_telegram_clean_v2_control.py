@@ -517,6 +517,24 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         )
         self.assertEqual(keyboard[0][0]["text"], "🎥 مشاهدة/تحميل الفيديو")
 
+
+    def test_last_prefers_one_click_publish_package_when_available(self):
+        delivery = {
+            "kind": "podcast",
+            "topic": "حلقة جاهزة",
+            "browser_download_url": "https://github.example/releases/download/tag/final.mp4",
+            "package_browser_download_url": "https://github.example/releases/download/tag/publish-package.zip",
+        }
+        text, keyboard = control.render_last_success(delivery)
+        self.assertIn("خارج النص", text)
+        self.assertEqual(keyboard[0][0]["text"], "📦 تحميل حزمة النشر كاملة")
+        self.assertEqual(
+            keyboard[0][0]["url"],
+            "https://github.example/releases/download/tag/publish-package.zip",
+        )
+        self.assertEqual(keyboard[1][0]["text"], "🎥 مشاهدة/تحميل الفيديو")
+
+
     def test_latest_delivery_comes_from_clean_v2_release_asset_not_runtime_artifact(self):
         payload = [
             {
@@ -527,7 +545,11 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
                     {
                         "name": "final.mp4",
                         "browser_download_url": "https://github.example/releases/download/tag/final.mp4",
-                    }
+                    },
+                    {
+                        "name": "publish-package.zip",
+                        "browser_download_url": "https://github.example/releases/download/tag/publish-package.zip",
+                    },
                 ],
             }
         ]
@@ -538,6 +560,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertEqual(
             delivery["browser_download_url"],
             "https://github.example/releases/download/tag/final.mp4",
+        )
+        self.assertEqual(
+            delivery["package_browser_download_url"],
+            "https://github.example/releases/download/tag/publish-package.zip",
         )
         self.assertNotIn("artifact_url", delivery)
 
