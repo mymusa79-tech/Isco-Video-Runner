@@ -676,6 +676,7 @@ class ShortContractTests(unittest.TestCase):
                 "hook_trimmed": False,
                 "s3_action_prefix_trimmed": False,
                 "s3_trimmed": False,
+                "s3_locked_payoff_fallback": False,
             },
         )
         validate_short_script(script)
@@ -686,7 +687,7 @@ class ShortContractTests(unittest.TestCase):
             "# A successful bounded repair mutates script.json in place.",
             1,
         )[1].split("identity_runtime =", 1)[0]
-        normalize_index = post_repair.index("normalize_short_script_candidate(script)")
+        normalize_index = post_repair.index("normalize_short_script_candidate(")
         validate_index = post_repair.index("validate_short_script(script)")
         self.assertLess(normalize_index, validate_index)
 
