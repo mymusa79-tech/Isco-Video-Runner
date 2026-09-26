@@ -79,7 +79,9 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 8.0, "end": 12.0, "text": "الاستمرار الصغير يصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertGreaterEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertIn(text_module.PRIMARY_ASS, ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertNotIn("\u202B", ass)
 
