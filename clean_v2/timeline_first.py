@@ -123,6 +123,7 @@ def _load_voice_units(output_dir: Path) -> list[dict[str, Any]]:
                     "section_id": section_id,
                     "chunk": chunk_index,
                     "role": role,
+                    "provider": str(chunk.get("provider") or ""),
                     "file": relative,
                     "start": cursor,
                     "end": cursor + seconds,
@@ -238,7 +239,11 @@ def _identity_events(
         [
             {
                 "kind": "intro",
-                "source": "measured_intro_silence",
+                "source": (
+                    "measured_native_nabra_pause"
+                    if str(intro_silence.get("provider") or "") == "nabra_native_pause"
+                    else "measured_intro_silence"
+                ),
                 "start": intro_start,
                 "end": intro_end,
             },
@@ -278,7 +283,11 @@ def _identity_events(
         events.append(
             {
                 "kind": "final_silence",
-                "source": "measured_silence_chunk",
+                "source": (
+                    "measured_native_nabra_pause"
+                    if str(final_silence.get("provider") or "") == "nabra_native_pause"
+                    else "measured_silence_chunk"
+                ),
                 "start": float(final_silence["start"]),
                 "end": float(final_silence["end"]),
             }
@@ -297,12 +306,26 @@ def build_voice_owned_timeline(
     root = Path(output_dir)
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
     maximum = safety_max_seconds(fmt)
+    voice_provider = ""
+    voice_report_path = root / "voice-sections.json"
+    if voice_report_path.is_file():
+        try:
+            voice_report = json.loads(voice_report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            voice_report = {}
+        if isinstance(voice_report, Mapping):
+            voice_provider = str(voice_report.get("voice_provider") or "").strip()
+
     base = {
         "schema_version": 1,
         "contract_id": CONTRACT_ID,
         "source": CONTRACT_ID,
         "format": fmt,
-        "timeline_owner": "measured_nabra_voice" if fmt == "podcast" else "measured_charon_voice",
+        "timeline_owner": (
+            "measured_nabra_voice"
+            if voice_provider == "nabra:af_msa"
+            else "measured_charon_voice"
+        ),
         "voice_seconds_measured": round(voice_seconds, 3),
         "safety_maximum_seconds": maximum,
         "editorial_target_seconds": None,
