@@ -136,6 +136,74 @@ class CoverLiteTests(unittest.TestCase):
                 self.assertEqual(source.name, "body.mp4")
                 self.assertTrue(report["source_exclusion_applied"])
 
+    def test_podcast_prefers_topic_frame_over_generic_hook_when_unforced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            visuals = root / "visuals"
+            visuals.mkdir()
+            for name in ("hook.mp4", "body.mp4", "payoff.mp4"):
+                (visuals / name).write_bytes(b"x" * 2048)
+            (root / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "local_file": "hook.mp4",
+                                "section_id": "s1",
+                                "role": "hook",
+                                "source_actual": "ai_still",
+                            },
+                            {
+                                "local_file": "body.mp4",
+                                "section_id": "s2",
+                                "role": "body",
+                                "source_actual": "stock_motion",
+                            },
+                            {
+                                "local_file": "payoff.mp4",
+                                "section_id": "s3",
+                                "role": "payoff",
+                                "source_actual": "ai_still",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def choose(rows, fmt):
+                winner = max(rows, key=lambda item: item[0])
+                return (
+                    winner[1],
+                    winner[2],
+                    {
+                        "combined_score": winner[0],
+                        "visual_score": 1.0,
+                        "luma": 88.0,
+                        "contrast": 28.0,
+                        "saturation": 60.0,
+                        "quiet_side": "right",
+                        "quiet_delta": 10.0,
+                        "candidate_count_evaluated": len(rows),
+                        "tone_target": "deep_neutral",
+                        "selection_profile": f"{fmt}_topic_relevant_channel_depth",
+                    },
+                )
+
+            with mock.patch(
+                "clean_v2.cover_studio.rank_cover_candidates",
+                side_effect=choose,
+            ):
+                source, report = select_cover_source(root, fmt="podcast")
+
+            self.assertIn(source.name, {"body.mp4", "payoff.mp4"})
+            self.assertNotEqual(report["role"], "hook")
+            self.assertEqual(
+                report["source_selection_profile"],
+                "podcast_topic_relevant_channel_depth",
+            )
+            self.assertEqual(report["source_saturation"], 60.0)
+
     def test_landscape_source_gets_safe_vertical_reframe_for_short(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
