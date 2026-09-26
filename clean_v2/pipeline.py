@@ -319,7 +319,7 @@ def _synthesize_sectioned_voice(
             if fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
                 topic_text = remaining[: -len(closer)].strip()
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
-                voice_units.append(("outro", closer))
+                voice_units.append(("topic", closer))
             elif fmt in {"short", "film", "podcast"} and index == len(sections):
                 sentences = [
                     item.strip()
@@ -329,9 +329,9 @@ def _synthesize_sectioned_voice(
                 if len(sentences) >= 2:
                     topic_text = " ".join(sentences[:-1]).strip()
                     voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
-                    voice_units.append(("outro", sentences[-1]))
+                    voice_units.append(("topic", sentences[-1]))
                 else:
-                    voice_units.append(("outro", remaining))
+                    voice_units.append(("topic", remaining))
             else:
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
 
@@ -533,24 +533,42 @@ def _synthesize_sectioned_voice(
         if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
             timing = identity_timing_profile(fmt)
             silence_reference = chunk_paths[-1]
-            final_silence = silence_reference.parent / "final-silence.wav"
-            _write_silence_like(
-                silence_reference,
-                final_silence,
-                timing["final_silence_seconds"],
+            silent_units = (
+                (
+                    "pre_outro_silence",
+                    "pre-outro-silence.wav",
+                    timing["pre_outro_silence_seconds"],
+                ),
+                (
+                    "outro_silence",
+                    "outro-silence.wav",
+                    timing["outro_silence_seconds"],
+                ),
+                (
+                    "final_silence",
+                    "final-silence.wav",
+                    timing["final_silence_seconds"],
+                ),
             )
-            chunk_paths.append(final_silence)
-            chunk_reports.append(
-                {
-                    "chunk": len(chunk_reports) + 1,
-                    "file": str(final_silence.relative_to(narration_path.parent)),
-                    "chars": 0,
-                    "provider": "deterministic_silence",
-                    "charon_attempts": 0,
-                    "fallback_used": False,
-                    "role": "final_silence",
-                }
-            )
+            for silence_role, filename, seconds in silent_units:
+                silence_path = silence_reference.parent / filename
+                _write_silence_like(
+                    silence_reference,
+                    silence_path,
+                    seconds,
+                )
+                chunk_paths.append(silence_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": silence_role,
+                    }
+                )
 
         if len(chunk_paths) > 1:
             joined_section = audio_dir / f".{index:02d}-chunk-join.wav"
