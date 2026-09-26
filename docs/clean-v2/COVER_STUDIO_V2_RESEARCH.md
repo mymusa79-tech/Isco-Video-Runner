@@ -282,3 +282,36 @@ First compare these two local-only prototype renders against the approved benchm
 - the same fail-soft behavior.
 
 Only investigate local multi-source selection if real production evidence later shows source choice is the remaining dominant weakness.
+
+
+## Production candidate update — source diversity, podcast identity, deeper tone
+
+After visual review of the refined covers, three additional requirements were accepted and implemented in the production candidate:
+
+1. **Source selection is no longer hook-dominant.**
+   - Cover Studio locally evaluates at most three already-approved assets.
+   - It scores moderate exposure, local contrast, and a usable quiet text zone.
+   - Bright lifestyle-like frames are penalized.
+   - The main cover and a derived Short cover avoid reusing the same source when another approved asset exists.
+   - There are still zero provider calls and zero new stock searches.
+
+2. **Podcast identity is corrected.**
+   - Program name: `خارج النص`.
+   - Channel/brand: `نداء اليقظة`.
+   - The episode-specific `cover_text` remains the large topic headline.
+   - The footer no longer says `بودكاست نداء اليقظة`, which incorrectly made the channel name look like the program name.
+
+3. **The default cover tone is now `deep_neutral`.**
+   - Lower brightness than the earlier warm/lifestyle prototype.
+   - Slightly reduced saturation.
+   - Controlled contrast and a soft vignette for depth.
+   - Still warm enough for the channel, but not cheerful/bright by default.
+
+### Production wiring
+
+The production candidate now routes the existing Cover Lite call through Cover Studio V2 when Pillow/Raqm is available.
+If Pillow/Raqm/font/rendering fails, it immediately falls back to the existing libass Cover Lite renderer.
+A cover failure still cannot fail `final.mp4`.
+
+The only added runtime package is pinned `Pillow==12.3.0` in the active Clean V2 production/test workflows.
+No image model, Vision provider, font service, or paid dependency is added.
