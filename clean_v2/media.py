@@ -1289,53 +1289,32 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
-_VISUAL_ACTION_FAMILIES = {
-    "writing": frozenset({"write", "writing", "pen", "pencil", "notebook", "journal", "sticky", "checklist", "planner"}),
-    "screen": frozenset({"laptop", "computer", "keyboard", "typing", "screen", "monitor"}),
-    "reading": frozenset({"book", "books", "reading", "pages"}),
-    "phone": frozenset({"phone", "smartphone", "scrolling", "notification"}),
-    "walking": frozenset({"walk", "walking", "steps", "street", "path", "stairs"}),
-    "movement": frozenset({"exercise", "running", "training", "stretch", "gym", "movement"}),
-    "organizing": frozenset({"organize", "organizing", "sorting", "arranging", "declutter", "tidy"}),
-    "completion": frozenset({"finish", "finished", "complete", "completed", "done", "progress", "result"}),
-}
+_STOCK_INTENT_DROP_TOKENS = frozenset({
+    "cinematic", "warm", "neutral", "lighting", "light", "shot", "frame",
+    "composition", "depth", "foreground", "background", "soft", "natural",
+})
 
 
-def _visual_action_family(query: object) -> str:
-    tokens = set(re.findall(r"[a-z0-9]+", str(query or "").lower()))
-    best = ("", 0)
-    for family, vocabulary in _VISUAL_ACTION_FAMILIES.items():
-        hits = len(tokens.intersection(vocabulary))
-        if hits > best[1]:
-            best = (family, hits)
-    return best[0]
+def _specific_beat_stock_query(value: object) -> str:
+    """Reuse the Beat's own English visual intent as the stock query when safe.
 
-
-def _choose_semantically_diverse_query(
-    primary: str,
-    alternatives: list[str],
-    *,
-    previous_family: str,
-    family_counts: Mapping[str, int],
-) -> tuple[str, str]:
-    """Prefer an already-authored different action family; never add a provider call."""
-    candidates: list[str] = []
-    for raw in [primary, *alternatives]:
-        value = " ".join(str(raw or "").split()).strip()
-        if value and value not in candidates:
-            candidates.append(value)
-    if not candidates:
-        return "", ""
-    primary_family = _visual_action_family(candidates[0])
-    if not primary_family:
-        return candidates[0], ""
-    if primary_family != previous_family and int(family_counts.get(primary_family, 0)) < 2:
-        return candidates[0], primary_family
-    for candidate in candidates[1:]:
-        family = _visual_action_family(candidate)
-        if family and family != previous_family and int(family_counts.get(family, 0)) < 2:
-            return candidate, family
-    return candidates[0], primary_family
+    This restores the simple #866 behavior: no new model call, no new search pass,
+    and no semantic layer. Localized or overly vague/empty intent falls back to the
+    dedicated stock_query_en authored in Planning.
+    """
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
+        return ""
+    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
+    useful = [
+        token
+        for token in tokens
+        if token.casefold() not in _STOCK_INTENT_DROP_TOKENS
+    ]
+    if len(useful) < 3:
+        return ""
+    # Stock search stays compact. Preserve authored order and the concrete action/state.
+    return " ".join(useful[:14])
 
 
 HOOK_STOCK_RETRIEVAL_SUFFIX = "close up decisive action strong focal contrast"
@@ -1776,8 +1755,6 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
-                    "section_visual_query_en": primary_query,
-                    "section_visual_query_alt_en": alternate_query,
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
@@ -2003,25 +1980,10 @@ class StockVisualSource:
             return False
 
         seen_sections: set[str] = set()
-        previous_family = ""
-        family_counts: dict[str, int] = {}
-        for raw_beat in beats:
-            beat = dict(raw_beat)
+        for beat in beats:
             section_id = str(beat.get("section_id") or "")
-            primary = str(beat.get("stock_query_en") or "").strip()
-            alternatives = [
-                str(beat.get("section_visual_query_alt_en") or "").strip(),
-                str(beat.get("section_visual_query_en") or "").strip(),
-            ]
-            shot_intent = str(beat.get("shot_intent") or "").strip()
-            if shot_intent.isascii() and any(char.isalpha() for char in shot_intent):
-                alternatives.append(shot_intent)
-            query, family = _choose_semantically_diverse_query(
-                primary,
-                alternatives,
-                previous_family=previous_family,
-                family_counts=family_counts,
-            )
+            specific = _specific_beat_stock_query(beat.get("shot_intent"))
+            query = specific or str(beat.get("stock_query_en") or "").strip()
             if not query:
                 continue
             query = _hook_stock_retrieval_query(query, beat)
@@ -2031,9 +1993,6 @@ class StockVisualSource:
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
-                if family:
-                    family_counts[family] = family_counts.get(family, 0) + 1
-                    previous_family = family
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
