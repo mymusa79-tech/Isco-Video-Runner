@@ -105,23 +105,16 @@ class HookVisualStopPowerTests(unittest.TestCase):
         self.assertEqual(body, base)
         self.assertLessEqual(len(hook), 260)
 
-    def test_existing_alternate_query_breaks_repeated_productivity_action_without_new_call(self) -> None:
-        first, first_family = media_module._choose_semantically_diverse_query(
-            "hand writing notebook task",
-            ["person walking outdoor path"],
-            previous_family="",
-            family_counts={},
+    def test_specific_beat_intent_is_compacted_locally_without_new_call(self) -> None:
+        query = media_module._specific_beat_stock_query(
+            "cinematic warm hand freezes above unopened planner while phone notifications pile up"
         )
-        second, second_family = media_module._choose_semantically_diverse_query(
-            "pen writing checklist notebook",
-            ["person walking outdoor path"],
-            previous_family=first_family,
-            family_counts={first_family: 1},
+        self.assertEqual(
+            query,
+            "hand freezes above unopened planner while phone notifications pile up",
         )
-        self.assertEqual(first, "hand writing notebook task")
-        self.assertEqual(first_family, "writing")
-        self.assertEqual(second, "person walking outdoor path")
-        self.assertEqual(second_family, "walking")
+        self.assertEqual(media_module._specific_beat_stock_query("يد فوق دفتر"), "")
+        self.assertEqual(media_module._specific_beat_stock_query("warm cinematic lighting"), "")
 
 
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
@@ -397,7 +390,54 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         pexels.assert_not_called()
         pixabay.assert_not_called()
 
-    def test_stock_search_uses_per_beat_english_query_not_semantic_shot_intent(self) -> None:
+    def test_english_beat_shot_intent_drives_same_stock_request(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p-specific")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        shot_intent = (
+            "hand freezes above unopened planner while phone notifications pile up"
+        )
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat(
+                "b1",
+                "s1",
+                shot_intent,
+                stock_query_en="generic productivity desk planning",
+            )
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        expected = media_module._hook_stock_retrieval_query(
+            media_module._specific_beat_stock_query(shot_intent),
+            {"role": "hook"},
+        )
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(seen_queries, [expected])
+        self.assertNotIn("generic productivity desk planning", seen_queries[0])
+        self.assertEqual(rights[0]["shot_intent"], shot_intent)
+
+    def test_non_english_beat_intent_falls_back_to_dedicated_stock_query(self) -> None:
         seen_queries: list[str] = []
         source = media_module.StockVisualSource(
             query_normalizer=lambda query: seen_queries.append(query) or query
