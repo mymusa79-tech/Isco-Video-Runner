@@ -3408,6 +3408,16 @@ semantic/cinematic description used by story-context Visual QA. stock_query_en i
 distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
+Visual variety must be SEMANTIC, not cosmetic. Treat notebook, journal, pen, sticky notes, checklist,
+and writing as one visual-action family; treat laptop, keyboard, typing, and monitor as another.
+Do not place the same dominant action/object family in consecutive beats, and normally use one
+family no more than twice in the whole video. The only intentional repeat may be the hook/payoff
+retention motif when its visible state has genuinely changed. Coffee, books, desks, plants, and
+generic workspace props are atmosphere, not meaning: never use them as the main visual proof unless
+the narration actually depends on them. Prefer a progression of observable states/actions
+(e.g. stuck -> choosing -> moving -> completing) so each new shot adds information rather than
+showing another angle of the same behavior.
+
 Choose source_preference=stock_motion for observable real-world movement in the body. The first
 hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
 same controlled new environment, and the payoff must return to the hook's recurring motif in a
