@@ -1,10 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "FreePD / 0lhi/FreePD",
   "source_ref": "stream",
   "license": "CC0-1.0 / public domain dedication",
   "license_url": "https://github.com/0lhi/FreePD/blob/stream/LICENSE",
   "cache_policy": "download once into clean_v2/assets/music/cache; verify Git blob SHA-1 before use",
+  "selection_policy": "local deterministic topic-family + format pool; zero provider calls",
   "tracks": [
     {
       "id": "calm-sketch-piano",
@@ -12,7 +13,17 @@
       "filename": "calm-sketch-for-piano.mp3",
       "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Calm%20Sketch%20for%20Piano.mp3",
       "git_blob_sha1": "6da24f3b776ccdb8e406d628c516363bf7c09fd7",
-      "moods": ["focus", "planning", "productivity", "calm"]
+      "moods": [
+        "focus",
+        "planning",
+        "productivity",
+        "calm"
+      ],
+      "formats": [
+        "short",
+        "film",
+        "podcast"
+      ]
     },
     {
       "id": "peace-in-sunlight",
@@ -20,7 +31,17 @@
       "filename": "peace-in-sunlight.mp3",
       "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Peace%20in%20Sunlight.mp3",
       "git_blob_sha1": "d9589916a78acc9b2524eff6cdebd60e96a21e97",
-      "moods": ["hopeful", "uplifting", "recovery", "victory"]
+      "moods": [
+        "hopeful",
+        "uplifting",
+        "recovery",
+        "victory"
+      ],
+      "formats": [
+        "short",
+        "film",
+        "podcast"
+      ]
     },
     {
       "id": "a-little-faith",
@@ -28,7 +49,119 @@
       "filename": "a-little-faith.mp3",
       "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/A%20Little%20Faith.mp3",
       "git_blob_sha1": "871188430403ad9f305c94501c94a8bd684fd616",
-      "moods": ["reflective", "calm", "general", "awareness"]
+      "moods": [
+        "reflective",
+        "calm",
+        "general",
+        "awareness"
+      ],
+      "formats": [
+        "short",
+        "film",
+        "podcast"
+      ]
+    },
+    {
+      "id": "wonder-flow",
+      "title": "Wonder Flow",
+      "filename": "wonder-flow.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Wonder%20Flow.mp3",
+      "git_blob_sha1": "8e52b4938929f4de12441900c21ee5be09b9176d",
+      "moods": [
+        "warm",
+        "flow",
+        "hopeful",
+        "gentle-rise"
+      ],
+      "formats": [
+        "short",
+        "film"
+      ]
+    },
+    {
+      "id": "other-side-now",
+      "title": "We're on the Other Side Now",
+      "filename": "other-side-now.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/We%27re%20on%20the%20Other%20Side%20Now.mp3",
+      "git_blob_sha1": "23164dc372028fe5a16ace2ad6b6a6522d558053",
+      "moods": [
+        "rise",
+        "victory",
+        "arrival",
+        "hopeful"
+      ],
+      "formats": [
+        "short",
+        "film"
+      ]
+    },
+    {
+      "id": "all-in-silver-line",
+      "title": "All in a Silver Line",
+      "filename": "all-in-a-silver-line.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/All%20in%20a%20Silver%20Line.mp3",
+      "git_blob_sha1": "1a77260296f072cd47620948775e46fcc8d1ef75",
+      "moods": [
+        "cinematic",
+        "warm",
+        "depth",
+        "general"
+      ],
+      "formats": [
+        "film",
+        "podcast"
+      ]
+    },
+    {
+      "id": "wexford",
+      "title": "Wexford",
+      "filename": "wexford.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Wexford.mp3",
+      "git_blob_sha1": "3a1714570d2f3bdcdbe05e0a5d05b6c11f900f67",
+      "moods": [
+        "podcast",
+        "calm",
+        "human",
+        "warm"
+      ],
+      "formats": [
+        "podcast",
+        "film"
+      ]
+    },
+    {
+      "id": "acoustic-shifter",
+      "title": "Acoustic Shifter",
+      "filename": "acoustic-shifter.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/Acoustic%20Shifter.mp3",
+      "git_blob_sha1": "b4a7481592e2b23cd4d47b074bd58ee3876a8a50",
+      "moods": [
+        "focus",
+        "forward",
+        "light-motion",
+        "productivity"
+      ],
+      "formats": [
+        "short",
+        "film"
+      ]
+    },
+    {
+      "id": "c-major-2017",
+      "title": "2017 12 01 in C Major",
+      "filename": "2017-12-01-c-major.mp3",
+      "source_url": "https://raw.githubusercontent.com/0lhi/FreePD/stream/Zoned/2017%2012%2001%20in%20C%20Major.mp3",
+      "git_blob_sha1": "8d5e34e2319e507dda4d737f3a3e81bb8950b06c",
+      "moods": [
+        "warm",
+        "hopeful",
+        "podcast",
+        "cinematic"
+      ],
+      "formats": [
+        "film",
+        "podcast"
+      ]
     }
   ]
 }

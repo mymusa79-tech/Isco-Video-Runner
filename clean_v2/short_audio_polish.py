@@ -196,6 +196,7 @@ def apply_topic_audio_polish(
         topic_duration = topic_end - topic_start
         track_path, library_report = select_music_track(
             script,
+            fmt=fmt,
             allow_download=True,
         )
         if track_path is None:
@@ -240,8 +241,8 @@ def apply_topic_audio_polish(
             pass
 
     return {
-        "schema_version": 4,
-        "source": "clean-v2-topic-audio-polish-v1",
+        "schema_version": 5,
+        "source": "clean-v2-topic-audio-polish-v2-music-studio-lite",
         "format": fmt,
         "status": status,
         "reason": reason,
