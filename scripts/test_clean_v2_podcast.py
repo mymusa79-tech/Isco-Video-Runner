@@ -230,7 +230,7 @@ class PodcastNabraRoutingTests(unittest.TestCase):
         self.assertEqual(synth.charon_attempts, 0)
         self.assertEqual(synth.voice_approval_status, "user_selected_primary")
         self.assertTrue(synth.nabra_continuous_ready)
-        self.assertIn("native-pauses-v1", str(synth.voice_reference_profile))
+        self.assertIn("native-punctuation-v2", str(synth.voice_reference_profile))
 
 
 class PodcastTelegramTests(unittest.TestCase):

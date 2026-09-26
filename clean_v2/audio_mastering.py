@@ -10,6 +10,9 @@ from .media import probe_duration
 
 
 TARGET_INTEGRATED_LUFS = -16.0
+# The user-approved Nabra reference WAV measures ~-17.04 LUFS at -1.50 dBTP.
+# Keep Charon at the existing channel target, but match Nabra to that reference.
+NABRA_TARGET_INTEGRATED_LUFS = -17.0
 TARGET_TRUE_PEAK_DBTP = -1.5
 TARGET_LOUDNESS_RANGE = 11.0
 ALIMITER_CEILING_LINEAR = 0.84
@@ -21,15 +24,20 @@ CHARON_CORRECTIVE_PROFILE = "charon-loudness-only-v2"
 CHARON_CORRECTIVE_FILTER = ""
 CHARON_MASTERING_PROFILE = "charon-loudness-only-v2"
 CHARON_ACTIVE_FILTER = ""
-NABRA_MASTERING_PROFILE = "nabra-loudness-only-v1"
+NABRA_MASTERING_PROFILE = "nabra-reference-match-v2"
 NABRA_CORRECTIVE_FILTER = ""
 
 _LOUDNORM_JSON_RE = re.compile(r"\{\s*\"input_i\".*?\}", re.S)
 
 
-def _measure_loudness(path: Path, *, prefilter: str = "") -> dict[str, Any]:
+def _measure_loudness(
+    path: Path,
+    *,
+    prefilter: str = "",
+    target_integrated_lufs: float = TARGET_INTEGRATED_LUFS,
+) -> dict[str, Any]:
     loudnorm = (
-        f"loudnorm=I={TARGET_INTEGRATED_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:"
+        f"loudnorm=I={target_integrated_lufs}:TP={TARGET_TRUE_PEAK_DBTP}:"
         f"LRA={TARGET_LOUDNESS_RANGE}:print_format=json"
     )
     filter_chain = f"{prefilter},{loudnorm}" if prefilter else loudnorm
@@ -77,11 +85,18 @@ def master_narration_loudness(
     is_nabra = str(voice_provider or "").strip() == "nabra:af_msa"
     profile = NABRA_MASTERING_PROFILE if is_nabra else CHARON_MASTERING_PROFILE
     prefilter = NABRA_CORRECTIVE_FILTER if is_nabra else CHARON_ACTIVE_FILTER
+    target_integrated_lufs = (
+        NABRA_TARGET_INTEGRATED_LUFS if is_nabra else TARGET_INTEGRATED_LUFS
+    )
 
     before = probe_duration(src)
-    measured = _measure_loudness(src, prefilter=prefilter)
+    measured = _measure_loudness(
+        src,
+        prefilter=prefilter,
+        target_integrated_lufs=target_integrated_lufs,
+    )
     loudnorm = (
-        f"loudnorm=I={TARGET_INTEGRATED_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:"
+        f"loudnorm=I={target_integrated_lufs}:TP={TARGET_TRUE_PEAK_DBTP}:"
         f"LRA={TARGET_LOUDNESS_RANGE}:measured_I={measured['input_i']}:"
         f"measured_TP={measured['input_tp']}:measured_LRA={measured['input_lra']}:"
         f"measured_thresh={measured['input_thresh']}:"
@@ -120,7 +135,7 @@ def master_narration_loudness(
     return {
         "status": "pass",
         "voice_provider": str(voice_provider or ""),
-        "target_integrated_lufs": TARGET_INTEGRATED_LUFS,
+        "target_integrated_lufs": target_integrated_lufs,
         "target_true_peak_dbtp": TARGET_TRUE_PEAK_DBTP,
         "target_loudness_range": TARGET_LOUDNESS_RANGE,
         "alimiter_ceiling_linear": ALIMITER_CEILING_LINEAR,
