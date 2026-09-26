@@ -40,6 +40,39 @@ def _strip_terminal_model_punctuation(phonemes: str) -> str:
     return re.sub(r"[\s\.,;:!?،؛؟…—]+$", "", str(phonemes or "")).strip()
 
 
+def _g2p_preserving_breath_punctuation(pipeline: Any, text: str) -> str:
+    """Preserve writer-authored light-breath punctuation through Arabic G2P.
+
+    The pinned Arabic frontend already handles lexical pronunciation and normal
+    sentence-final punctuation well, but it can drop commas/semicolons/colons.
+    Split only at those light-breath marks, pass every lexical span to the same
+    G2P unchanged (including intentional minimal tashkeel), then restore a single
+    Kokoro comma token. Acoustic synthesis still happens once for the full pass.
+    """
+    source = " ".join(str(text or "").split()).strip()
+    if not source:
+        return ""
+
+    parts = re.split(r"([،,؛;:])", source)
+    out: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if re.fullmatch(r"[،,؛;:]", part):
+            # One model-native light-breath token; never stack punctuation.
+            out.append(",")
+            continue
+        if not part.strip():
+            continue
+        phonemes, _extra = pipeline.g2p(part)
+        phonemes = str(phonemes or "").strip()
+        if not phonemes:
+            raise RuntimeError("nabra_empty_lexical_phonemes")
+        out.append(phonemes)
+
+    return " ".join(out).strip()
+
+
 class NabraVoiceSynthesizer:
     """Listener-approved local Nabra-82M adapter.
 
@@ -128,8 +161,10 @@ class NabraVoiceSynthesizer:
             return sum(1 for ch in value if model.vocab.get(ch) is not None)
 
         for index, item in enumerate(normalized):
-            raw_phonemes, _extra = pipeline.g2p(item["text"])
-            raw_phonemes = str(raw_phonemes or "").strip()
+            raw_phonemes = _g2p_preserving_breath_punctuation(
+                pipeline,
+                item["text"],
+            )
             if not raw_phonemes:
                 raise RuntimeError(f"nabra_empty_phonemes:{index + 1}")
 
