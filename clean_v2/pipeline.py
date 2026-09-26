@@ -3773,7 +3773,20 @@ natural respectful world, not decorative stereotyping.
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
-beginning -> transformation -> arrival. Add one retention_thread
+beginning -> transformation -> arrival.
+
+HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook may keep the same warm-neutral
+channel palette, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
+topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
+that can be understood with sound off in the first frame. Prefer a close or medium focal composition,
+clear foreground/background separation, asymmetry, and stronger local subject contrast than the body.
+Do not open on a passive seated pose, generic desk, coffee cup, window-gazing, slow walking, or typing
+unless that exact action is the tension being discussed. Avoid unrelated shock, danger, fear, injury,
+misery, clickbait, or exaggerated advertising. The first stock_query_en and shot_intent must name the
+concrete visible hook action/state, not merely a calm mood or lighting style. After the hook, return to
+the restrained normal pacing and visual world.
+
+Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
 by the first spoken sentence; payoff_answer is the concrete answer delivered later; visual_motif is
 one object, action, or composition that returns in the payoff in a visibly changed state. The plan's
