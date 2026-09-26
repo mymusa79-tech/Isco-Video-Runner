@@ -1273,6 +1273,20 @@ def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, An
     return max(files, key=score)
 
 
+HOOK_STOCK_RETRIEVAL_SUFFIX = "close up decisive action strong focal contrast"
+
+
+def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
+    """Strengthen only the first hook retrieval; no extra search/provider call."""
+    compact = " ".join(str(query or "").split()).strip()
+    if str(beat.get("role") or "").strip() != "hook" or not compact:
+        return compact
+    suffix_words = HOOK_STOCK_RETRIEVAL_SUFFIX.split()
+    lowered = compact.lower()
+    missing = [word for word in suffix_words if word not in lowered]
+    return " ".join([compact, *missing])[:260].strip()
+
+
 def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     """Reject only near-monochrome Short stock; leave normal footage to the existing grade."""
     try:
@@ -1922,6 +1936,7 @@ class StockVisualSource:
             query = str(beat.get("stock_query_en") or "").strip()
             if not query:
                 continue
+            query = _hook_stock_retrieval_query(query, beat)
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
             auxiliary = section_id in seen_sections
