@@ -3845,15 +3845,28 @@ lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid l
 misleading substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete
 English visual description of the exact observable action/state for THIS beat, preferably about 6-14
 useful words; it must be specific enough to search directly and must not be mood-only language.
+display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
+exact image/beat and expresses its visible meaning; never reuse the same display phrase on another beat,
+never describe an unrelated idea, and never ask the image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
-Choose source_preference=stock_motion for observable real-world movement in the body. The first
-hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
-same controlled new environment, and the payoff must return to the hook's recurring motif in a
-visibly changed state. Do not use ai_still on any middle beat, so the whole video has exactly two AI
-anchor beats. AI stills remain free-only and fail safely to quality-gated stock when unavailable;
-no beat may bypass the same no-face, cultural, advertiser-safety, and final semantic-quality gates.
+Choose source_preference by what best communicates THIS beat, not by role. Hook, body, and payoff
+all follow the same semantic-quality rule: use ai_still when a controlled, distinctive, context-specific
+composition communicates the idea better; use stock_motion when real movement materially adds meaning.
+Never make all three roles look like the same setup. AI images MUST be image-only: no title, caption,
+letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned display text is added later.
+For short, normally use 2-4 AI still beats at most; for film, keep stock motion dominant and use up to
+4 AI anchors only at high-value idea turns; for podcast, remain sparse and normally use 2-3 AI anchors.
+All AI remains free-only and fails safely to quality-gated stock when unavailable. A recurring hook/payoff
+motif may return in a visibly changed state, but body AI beats must not be forced into the same environment.
+
+CHANNEL VISUAL SIGNATURE is semantic and compositional, not merely a color grade. Every beat must feel
+specific to نداء اليقظة through visible movement from friction toward clarity/progress, tactile lived-in
+detail, purposeful directional light, layered depth, restrained confidence and an earned sense of upward
+movement. Do not hard-code one prop such as notebooks, doors or stairs across episodes; the signature is
+the meaningful state-change and composition, not a repeated object. Warm-neutral grading supports this
+identity but never substitutes for a specific scene.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -3918,7 +3931,8 @@ Return one JSON object with exactly this useful shape:
         "shot_intent": "rich semantic/cinematic image or motion intent",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",
-        "source_preference": "ai_still"
+        "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
+        "source_preference": "stock_motion or ai_still according to this beat"
       }}
     ]
   }}
