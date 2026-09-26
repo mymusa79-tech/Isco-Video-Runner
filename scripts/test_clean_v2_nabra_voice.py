@@ -16,15 +16,21 @@ from clean_v2.audio_mastering import (
     CHARON_CORRECTIVE_FILTER,
     NABRA_CORRECTIVE_FILTER,
     NABRA_MASTERING_PROFILE,
+    NABRA_TARGET_INTEGRATED_LUFS,
 )
 from clean_v2.identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION
 from clean_v2.nabra_voice import (
     NabraVoiceSynthesizer,
+    NABRA_REFERENCE_DURATION_SECONDS,
+    NABRA_REFERENCE_INTEGRATED_LUFS,
     NABRA_REFERENCE_PROFILE,
+    NABRA_REFERENCE_SHA256,
+    NABRA_REFERENCE_TRUE_PEAK_DBTP,
     NABRA_SPEED,
     NABRA_VOICE,
     _diacritize_preserving_explicit_marks,
     _g2p_preserving_breath_punctuation,
+    _native_pause_marker,
 )
 from clean_v2.pipeline import _synthesize_sectioned_voice
 
@@ -90,8 +96,15 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(NABRA_SPEED, 0.87)
         self.assertEqual(
             NABRA_REFERENCE_PROFILE,
-            "nabra-82m-v0.1:af_msa:0.87:native-pauses-v1",
+            "nabra-82m-v0.1:af_msa:0.87:reference-01-v2",
         )
+        self.assertEqual(
+            NABRA_REFERENCE_SHA256,
+            "d367a96f13ebffa1162a446241a8bc56475ec1fac6f54b126ecefe903e3e5554",
+        )
+        self.assertEqual(NABRA_REFERENCE_DURATION_SECONDS, 13.95)
+        self.assertEqual(NABRA_REFERENCE_INTEGRATED_LUFS, -17.04)
+        self.assertEqual(NABRA_REFERENCE_TRUE_PEAK_DBTP, -1.50)
 
     def test_long_nabra_phonemes_split_only_for_model_limit(self) -> None:
         source = (
@@ -144,6 +157,24 @@ class NabraRouteTests(unittest.TestCase):
         )
         self.assertEqual(prepared, "هَذَا نَصٌّ وَاضِحٌ")
 
+    def test_camel_alignment_drift_keeps_full_contextual_diacritization(self) -> None:
+        class FakeFrontend:
+            def diacritize(self, text: str) -> str:
+                return "هَذَا نَصٌّ وَاضِحٌ جِدًّا"
+
+        prepared = _diacritize_preserving_explicit_marks(
+            FakeFrontend(),
+            "هذا نَص واضح",
+        )
+        self.assertEqual(prepared, "هَذَا نَصٌّ وَاضِحٌ جِدًّا")
+
+    def test_reference_01_pause_shape_is_writer_owned_not_role_owned(self) -> None:
+        self.assertEqual(_native_pause_marker("بداية هادئة،", final=False), ",")
+        self.assertEqual(_native_pause_marker("سؤال طبيعي؟", final=False), "?")
+        self.assertEqual(_native_pause_marker("جملة كاملة.", final=False), ".")
+        self.assertEqual(_native_pause_marker("فكرة بلا ترقيم", final=False), ",")
+        self.assertEqual(_native_pause_marker("الخاتمة", final=True), ".")
+
     def test_g2p_preserves_writer_breath_marks_and_intentional_tashkeel(self) -> None:
         class FakePipeline:
             def __init__(self) -> None:
@@ -173,7 +204,8 @@ class NabraRouteTests(unittest.TestCase):
         self.assertIn("تُسرِع", phonemes)
 
     def test_approved_voices_use_neutral_mastering_without_covering_timbre(self) -> None:
-        self.assertEqual(NABRA_MASTERING_PROFILE, "nabra-loudness-only-v1")
+        self.assertEqual(NABRA_MASTERING_PROFILE, "nabra-reference-01-loudness-v2")
+        self.assertEqual(NABRA_TARGET_INTEGRATED_LUFS, -17.0)
         self.assertEqual(NABRA_CORRECTIVE_FILTER, "")
         self.assertEqual(CHARON_CORRECTIVE_FILTER, "")
 
