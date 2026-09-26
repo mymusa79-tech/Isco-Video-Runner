@@ -7,9 +7,10 @@ from typing import Any, Mapping
 CHANNEL_VISUAL_IDENTITY = (
     "Grounded cinematic realism with quiet depth; restrained warm-neutral palette; "
     "moderate-to-deep natural exposure; practical directional light; tactile real environments; "
-    "hope shown through progress, effort and earned small wins rather than glossy lifestyle brightness "
-    "or forced melancholy; environments, hands, objects, routines, back views and wide shots; "
-    "no identifiable faces."
+    "a wakeful visual signature built on observable state-change from friction toward clarity, movement "
+    "or earned progress, never on one repeated prop; hope shown through effort and earned small wins "
+    "rather than glossy lifestyle brightness or forced melancholy; environments, hands, objects, routines, "
+    "back views and wide shots; no identifiable faces."
 )
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
@@ -225,10 +226,17 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             str(raw.get("display_text_ar") or "").split()
         ).strip()
         if not display_text_ar:
-            section = section_by_id.get(section_id) or {}
-            display_text_ar = " ".join(
-                str(section.get("cover_text") or "").split()
-            ).strip()
+            viewer_words = viewer_intent.split()
+            if (
+                re.search(r"[\u0600-\u06ff]", viewer_intent)
+                and 2 <= len(viewer_words) <= 10
+            ):
+                display_text_ar = viewer_intent
+            else:
+                section = section_by_id.get(section_id) or {}
+                display_text_ar = " ".join(
+                    str(section.get("cover_text") or "").split()
+                ).strip()
 
         if not beat_id or beat_id in seen_ids:
             raise ValueError("visual_story beat ids must be unique and non-empty")
