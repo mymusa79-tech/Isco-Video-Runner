@@ -96,7 +96,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertGreater(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
         self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.20)
         self.assertIn(text_module.ACCENT_ASS, ass)
-        self.assertIn(r"\bord4", ass)
+        self.assertIn(r"\bord3", ass)
         self.assertIn("Style: Shadow", ass)
         self.assertEqual((text_module.CAPTION_SHADOW_X, text_module.CAPTION_SHADOW_Y), (4, 5))
         self.assertEqual((text_module.CAPTION_EXTRUDE_X, text_module.CAPTION_EXTRUDE_Y), (2, 3))
