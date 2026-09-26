@@ -82,10 +82,16 @@ def select_cover_source(
         score = float(max(0, 14 - index))
         if section_id and str(row.get("section_id") or "") == str(section_id):
             score += 100.0
-        # Hook matters, but no longer dominates source choice. Coverability and
-        # depth are allowed to beat a generic hook frame.
-        if str(row.get("role") or "") == "hook":
-            score += 14.0
+        # Short can still prefer hook energy. Film is more restrained, while
+        # Podcast deliberately prefers a meaningful body/payoff frame so "خارج النص"
+        # does not look like a bright generic social thumbnail.
+        role = str(row.get("role") or "")
+        if role == "hook":
+            score += 14.0 if fmt == "short" else 6.0 if fmt == "film" else 0.0
+        elif fmt == "podcast":
+            score += 12.0
+        elif fmt == "film":
+            score += 3.0
         if str(row.get("source_actual") or "") == "ai_still":
             score += 8.0
         if not row.get("pacing_auxiliary"):
@@ -111,10 +117,12 @@ def select_cover_source(
                 "source_visual_score": studio.get("visual_score"),
                 "source_luma": studio.get("luma"),
                 "source_contrast": studio.get("contrast"),
+                "source_saturation": studio.get("saturation"),
                 "source_quiet_side": studio.get("quiet_side"),
                 "source_quiet_delta": studio.get("quiet_delta"),
                 "candidate_count_evaluated": studio.get("candidate_count_evaluated"),
                 "tone_target": studio.get("tone_target"),
+                "source_selection_profile": studio.get("selection_profile"),
                 "source_exclusion_applied": bool(excluded),
             }
         except Exception as exc:
