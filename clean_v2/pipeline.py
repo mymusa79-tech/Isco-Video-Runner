@@ -3771,13 +3771,16 @@ words: one observable action OR one simple setting, plus only the few compositio
 materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
 only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
 and keep each visual query concise and at most 260 characters. Keep the whole
-video's stock searches inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
-soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
-itself requires them. Prefer environments, hands, objects, routines, and wide shots without
-identifiable faces. When the scene permits it, make the search describe a lived-in cinematic
-environment with visible foreground/midground/background depth, practical light sources, contextual
-objects, and spatial separation around the subject; avoid empty walls, flat generic desks, or plain
-studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer the
+video's stock searches inside one restrained channel lighting world where semantically appropriate:
+natural practical light, moderate-to-deep exposure, soft directional contrast, and restrained warm-neutral tones.
+The channel mood is grounded upward movement: clarity, effort, recovery, small wins and earned hope.
+Do not make the world glossy, airy lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
+Do not mix obvious neon/night/cold-blue looks unless the topic itself requires them. Prefer environments,
+hands, objects, routines, back views, and wide shots without identifiable faces. When the scene permits it,
+make the search describe a lived-in cinematic environment with visible foreground/midground/background depth,
+practical light sources, contextual objects, and spatial separation around the subject; avoid empty walls,
+flat generic desks, plain studio-like backgrounds, and generic coffee/laptop mood shots unless the exact
+idea genuinely calls for them. For short-form searches, prefer the
 main subject/action on the left or lower-left with usable clean negative space in the upper-right for
 the Arabic on-screen text when that composition still fits the idea.
 
