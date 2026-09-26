@@ -204,6 +204,62 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertIn("short_browser_download_url", results[0])
         self.assertIn("package_browser_download_url", results[0])
 
+
+    def test_one_click_package_contains_publish_ready_assets_for_podcast(self):
+        direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
+        runner = FakeRunner(direct)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            delivery, "send_message", return_value=True
+        ) as send:
+            root = self._output(Path(tmp))
+            (root / "podcast-short.mp4").write_bytes(b"short-video")
+            (root / "podcast-short-qc.json").write_text(
+                json.dumps({"status": "pass"}),
+                encoding="utf-8",
+            )
+            (root / "podcast-short-cover.jpg").write_bytes(b"short-cover")
+            (root / "podcast-short.json").write_text(
+                json.dumps({"status": "pass", "section_id": "s2"}),
+                encoding="utf-8",
+            )
+            result = delivery.publish_one(
+                root=root,
+                kind="podcast",
+                topic="حلقة خارج النص",
+                delivery_key="telegram",
+                repository="example/repo",
+                target_sha="f" * 40,
+                run_id="999",
+                run_attempt="1",
+                run=runner,
+            )
+            package = root / "publish-package.zip"
+            self.assertTrue(package.is_file())
+            with zipfile.ZipFile(package) as archive:
+                names = set(archive.namelist())
+                expected = {
+                    "video.mp4",
+                    "cover.jpg",
+                    "publish.txt",
+                    "publish.json",
+                    "derived-short.mp4",
+                    "derived-short-cover.jpg",
+                    "derived-short-publish.txt",
+                    "derived-short-publish.json",
+                    "README.txt",
+                    "package-manifest.json",
+                }
+                self.assertTrue(expected.issubset(names))
+                publish = json.loads(archive.read("publish.json").decode("utf-8"))
+            self.assertIn("خارج النص", publish["title"])
+            self.assertIn("#خارج_النص", publish["hashtags"])
+            self.assertIn("package_browser_download_url", result)
+            self.assertEqual(
+                send.call_args_list[0].kwargs["button_text"],
+                "📦 تحميل حزمة النشر كاملة",
+            )
+
+
     def test_delivery_is_blocked_before_release_when_final_master_qc_is_not_pass(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             delivery, "send_message"
