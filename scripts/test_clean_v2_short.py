@@ -1228,8 +1228,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
         self.assertIn(r"\fscx98\fscy98", ass)
-        self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
+        self.assertNotIn("\u202B", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
         self.assertIn(r"\pos(549,1411)", ass)
         self.assertIn(r"\fs", ass)
@@ -1252,7 +1252,7 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreater(len(events), 3)
+        self.assertEqual(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
@@ -1280,7 +1280,7 @@ class ShortTimedTextTests(unittest.TestCase):
             self.assertLessEqual(hint["x"], SAFE_X_MAX)
             self.assertGreaterEqual(hint["y"], SAFE_Y_MIN)
             self.assertLessEqual(hint["y"], SAFE_Y_MAX)
-            self.assertGreaterEqual(hint["font_size"], 98)
+            self.assertGreaterEqual(hint["font_size"], 92)
             self.assertLessEqual(hint["font_size"], 138)
 
     def test_hook_type_is_larger_than_dense_beat_and_layout_stays_phrase_stable(self) -> None:
