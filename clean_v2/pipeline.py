@@ -3842,9 +3842,10 @@ or shot-count target. Every planned section must have at least one beat and at m
 beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
-misleading substitutes that would look related but fail the exact idea. shot_intent is the richer
-semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
-distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
+misleading substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete
+English visual description of the exact observable action/state for THIS beat, preferably about 6-14
+useful words; it must be specific enough to search directly and must not be mood-only language.
+stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
 Choose source_preference=stock_motion for observable real-world movement in the body. The first
