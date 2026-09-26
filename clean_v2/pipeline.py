@@ -2889,8 +2889,22 @@ def _run_audio_loudness_mastering(
 ) -> dict[str, Any]:
     from clean_v2.audio_mastering import master_narration_loudness
 
+    voice_provider = ""
+    manifest_path = output_dir / "run-manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        if isinstance(manifest, Mapping):
+            voice_provider = str(manifest.get("voice_provider") or "").strip()
+
     mastered_path = output_dir / "narration-mastered.wav"
-    result = master_narration_loudness(narration_path, mastered_path)
+    result = master_narration_loudness(
+        narration_path,
+        mastered_path,
+        voice_provider=voice_provider,
+    )
     report = {
         "schema_version": 1,
         "source": "clean-v2-audio-loudness-mastering",
