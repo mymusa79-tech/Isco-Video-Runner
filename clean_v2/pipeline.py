@@ -3809,7 +3809,24 @@ natural respectful world, not decorative stereotyping.
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
-beginning -> transformation -> arrival. Add one retention_thread
+beginning -> transformation -> arrival.
+
+HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook may keep the same warm-neutral
+channel palette, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
+topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
+that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
+asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
+coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
+Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
+
+VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, sticky notes, checklist and writing
+belong to one action family; laptop/keyboard/typing to another; walking/movement to another.
+Do not place the same dominant action family in consecutive beats and normally use one family no more
+than twice. The only intentional repeat may be the hook/payoff motif when its state visibly changes.
+Prefer an observable progression such as stuck -> choosing -> moving -> completed, so every new shot
+adds information instead of showing another angle of the same productivity prop.
+
+Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
 by the first spoken sentence; payoff_answer is the concrete answer delivered later; visual_motif is
 one object, action, or composition that returns in the payoff in a visibly changed state. The plan's
