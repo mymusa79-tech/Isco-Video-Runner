@@ -128,7 +128,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn(text_module.PRIMARY_ASS, ass)
         self.assertIn(text_module.ACCENT_ASS, ass)
         self.assertIn(r"\N", ass)
-        self.assertIn(r"\h\h", ass)
+        self.assertIn(text_module.ARABIC_WORD_GAP, ass)
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
 
