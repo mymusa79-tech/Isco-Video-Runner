@@ -397,6 +397,18 @@ class NabraRouteTests(unittest.TestCase):
             self.assertTrue(synth.fallback_used)
             self.assertEqual(backup.calls, 1)
 
+    def test_short_workflow_acceptance_allows_charon_or_nabra_timeline_owner(self) -> None:
+        for workflow in (
+            ".github/workflows/clean-v2-short-cohort.yml",
+            ".github/workflows/clean-v2-short-final-one.yml",
+        ):
+            source = Path(workflow).read_text(encoding="utf-8")
+            self.assertIn('"measured_charon_voice"|"measured_nabra_voice"', source)
+            self.assertNotIn(
+                'timeline_owner "$CLEAN_V2_OUTPUT/timeline-first.json")" = "measured_charon_voice"',
+                source,
+            )
+
     def test_both_routes_fail_closed(self) -> None:
         backup = _FakeNabra(fail=True)
         with tempfile.TemporaryDirectory() as tmp:
