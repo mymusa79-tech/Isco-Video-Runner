@@ -21,6 +21,20 @@ MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
+_MISTRAL_SHORT_S3_RETRY_REASON = (
+    "invalid_output_shortformaterror_short_s3_payoff_contains_forbidden_action_family"
+)
+_MISTRAL_SHORT_S3_RETRY_SUFFIX = """
+MISTRAL_SHORT_S3_RETRY — your first JSON was rejected only because descriptive s3 payoff prose
+contained a forbidden action-family derivative. Return the SAME script meaning and JSON shape,
+changing only s3 as needed:
+- keep at least one descriptive payoff sentence;
+- use ZERO forbidden action-family stems in every payoff sentence;
+- keep exactly one final direct action sentence beginning with exactly one allowlisted imperative;
+- do not add a second action, social CTA, greeting, prayer, or new factual claim.
+Before returning JSON, rescan every word in descriptive s3 prose against the forbidden families.
+""".strip()
+
 _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX = """
 MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 - The first spoken sentence (Hook) must be one complete natural Arabic sentence, TARGET 12-16 words and NEVER more than 18.
@@ -868,9 +882,10 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
 class ProviderRouter:
     """One pass over a bounded provider list.
 
-    The only same-provider exception is one Mistral Planning re-issue when the
-    provider returns syntactically invalid JSON despite strict json_schema mode.
-    This is a bounded provider-contract retry, not a second provider sweep.
+    The only same-provider exceptions are one Mistral Planning re-issue for
+    syntactically invalid strict-schema JSON and one terminal Mistral Short-script
+    re-issue for the exact s3 payoff-family validator defect. Both are bounded
+    provider-contract retries, never a second provider sweep.
     """
 
     def __init__(self, adapters: Iterable[ProviderAdapter] | None = None) -> None:
@@ -1028,6 +1043,7 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+                reason = _safe_validator_reason(exc)
 
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
@@ -1062,7 +1078,110 @@ class ProviderRouter:
                             separators=(",", ":"),
                         )
                     )
-                reason = _safe_validator_reason(exc)
+
+                short_s3_retry = (
+                    adapter.name == "mistral"
+                    and stage == "script"
+                    and provider_attempt == 1
+                    and "SHORT_FORMAT_CONTRACT:" in prompt
+                    and reason == _MISTRAL_SHORT_S3_RETRY_REASON
+                )
+                if short_s3_retry:
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="retrying",
+                        wire_attempted=True,
+                        reason="mistral_short_s3_contract_retry",
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    provider_attempt += 1
+                    retry_prompt = (
+                        _provider_prompt(
+                            prompt,
+                            provider=adapter.name,
+                            stage=stage,
+                        ).rstrip()
+                        + "\n\n"
+                        + _MISTRAL_SHORT_S3_RETRY_SUFFIX
+                    )
+                    try:
+                        retry_candidate = adapter.invoke(
+                            retry_prompt,
+                            max_tokens,
+                            stage,
+                        )
+                    except NoWireFailure as retry_exc:
+                        failures.append(f"{adapter.name}:{retry_exc.reason_code}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="unavailable",
+                            wire_attempted=False,
+                            reason=retry_exc.reason_code,
+                            provider_attempt=None,
+                            stage_wire_attempt=None,
+                        )
+                        continue
+                    except Exception as retry_exc:
+                        wire_count += 1
+                        retry_reason = str(
+                            getattr(retry_exc, "reason_code", "provider_failure")
+                        )
+                        failures.append(f"{adapter.name}:{retry_reason}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="failed",
+                            wire_attempted=True,
+                            reason=retry_reason,
+                            provider_attempt=provider_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        continue
+                    wire_count += 1
+                    try:
+                        normalized = validator(retry_candidate)
+                    except Exception as retry_validation_exc:
+                        retry_reason = _safe_validator_reason(retry_validation_exc)
+                        raw_content = (
+                            mistral_executor.get_last_mistral_executor_raw_content()
+                        )
+                        print(
+                            "Mistral script retry validator rejected raw content: "
+                            + json.dumps(
+                                _safe_mistral_script_raw_diagnostic(
+                                    raw_content,
+                                    retry_validation_exc,
+                                ),
+                                ensure_ascii=True,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                        )
+                        failures.append(f"{adapter.name}:{retry_reason}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="invalid_output",
+                            wire_attempted=True,
+                            reason=retry_reason,
+                            provider_attempt=provider_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        continue
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="success",
+                        wire_attempted=True,
+                        reason=None,
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    return normalized
+
                 failures.append(f"{adapter.name}:{reason}")
                 self._event(
                     stage=stage,
