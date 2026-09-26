@@ -397,12 +397,23 @@ def _landscape_background(source: Image.Image) -> Image.Image:
     if source.width / max(1, source.height) >= 1.35:
         return _grade(_cover_crop(source, 1280, 720)).convert("RGBA")
 
-    background = _cover_crop(source, 1280, 720).filter(ImageFilter.GaussianBlur(18))
-    background = ImageEnhance.Brightness(background).enhance(0.58)
-    foreground = source.convert("RGB").resize((405, 720), Image.Resampling.LANCZOS)
-    canvas = background.convert("RGBA")
-    canvas.alpha_composite(foreground.convert("RGBA"), (0, 0))
-    return canvas
+    # Prototype compatibility for archived portrait inputs only. Blend a sharp
+    # portrait slice into a blurred continuation instead of leaving a visible
+    # hard seam. Real Film/Podcast production assets are already landscape.
+    background = _grade(_cover_crop(source, 1280, 720)).filter(ImageFilter.GaussianBlur(16))
+    background = ImageEnhance.Brightness(background).enhance(0.66).convert("RGBA")
+    foreground = _grade(source.convert("RGB").resize((520, 720), Image.Resampling.LANCZOS)).convert("RGBA")
+
+    mask = Image.new("L", (520, 720), 255)
+    mask_draw = ImageDraw.Draw(mask)
+    for x in range(390, 520):
+        alpha = round(255 * (1.0 - (x - 390) / 130.0))
+        mask_draw.line((x, 0, x, 720), fill=max(0, alpha))
+    background.alpha_composite(foreground, (0, 0), (0, 0, 520, 720))
+    # Re-apply the feathered copy so the transition edge fades naturally.
+    feathered = Image.new("RGBA", background.size, (0, 0, 0, 0))
+    feathered.paste(foreground, (0, 0), mask)
+    return Image.alpha_composite(background, feathered)
 
 
 def _soft_veil(
