@@ -61,6 +61,51 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
+class HookVisualStopPowerTests(unittest.TestCase):
+    def test_ai_hook_prompt_is_stronger_than_body_without_clickbait(self) -> None:
+        story = {
+            "visual_world": "warm neutral coherent world",
+            "retention_thread": {"visual_motif": "notebook"},
+        }
+        hook = media_module._ai_still_prompt(
+            story,
+            {
+                "role": "hook",
+                "viewer_intent": "see the hesitation",
+                "meaning_target": "hand stops before opening notebook",
+                "shot_intent": "hand frozen above closed notebook",
+            },
+            fmt="short",
+            with_reference=False,
+        )
+        body = media_module._ai_still_prompt(
+            story,
+            {
+                "role": "body",
+                "viewer_intent": "understand the next step",
+                "meaning_target": "one task written",
+                "shot_intent": "hand writes one task",
+            },
+            fmt="short",
+            with_reference=False,
+        )
+        self.assertIn("HOOK FRAME:", hook)
+        self.assertIn("visually arresting but truthful", hook)
+        self.assertIn("stronger local subject contrast", hook)
+        self.assertNotIn("HOOK FRAME:", body)
+        self.assertIn("exaggerated advertising look", hook)
+
+    def test_hook_stock_query_is_strengthened_locally_only(self) -> None:
+        base = "closed notebook beside hand warm room"
+        hook = media_module._hook_stock_retrieval_query(base, {"role": "hook"})
+        body = media_module._hook_stock_retrieval_query(base, {"role": "body"})
+        self.assertIn("close", hook)
+        self.assertIn("decisive", hook)
+        self.assertIn("contrast", hook)
+        self.assertEqual(body, base)
+        self.assertLessEqual(len(hook), 260)
+
+
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     def test_ai_prompt_keeps_safety_rules_when_story_fields_are_maximal(self) -> None:
         prompt = media_module._ai_still_prompt(
