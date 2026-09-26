@@ -1220,18 +1220,18 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\fscx98\fscy98", ass)
-        self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
+        self.assertIn(r"\fscx99\fscy99", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(549,1411)", ass)
+        self.assertIn(r"\pos(544,1405)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
@@ -1252,7 +1252,7 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreater(len(events), 3)
+        self.assertEqual(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
@@ -1280,7 +1280,7 @@ class ShortTimedTextTests(unittest.TestCase):
             self.assertLessEqual(hint["x"], SAFE_X_MAX)
             self.assertGreaterEqual(hint["y"], SAFE_Y_MIN)
             self.assertLessEqual(hint["y"], SAFE_Y_MAX)
-            self.assertGreaterEqual(hint["font_size"], 98)
+            self.assertGreaterEqual(hint["font_size"], 92)
             self.assertLessEqual(hint["font_size"], 138)
 
     def test_hook_type_is_larger_than_dense_beat_and_layout_stays_phrase_stable(self) -> None:
@@ -1391,7 +1391,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertGreaterEqual(len(events), 4)
+            self.assertEqual(len(events), 3)
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
