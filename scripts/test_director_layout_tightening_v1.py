@@ -295,10 +295,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(hint["x"], 540)
         self.assertLessEqual(hint["y"], int(1920 * 0.85) - 120)
 
-    def test_rule_8_catalog_has_three_cc0_tracks_and_topic_selection_is_deterministic(self) -> None:
+    def test_rule_8_catalog_has_nine_cc0_tracks_and_topic_selection_is_deterministic(self) -> None:
         catalog = load_catalog()
         self.assertEqual(catalog["license"], "CC0-1.0 / public domain dedication")
-        self.assertGreaterEqual(len(catalog["tracks"]), 3)
+        self.assertEqual(len(catalog["tracks"]), 9)
         fake_ready = {
             "source": "FreePD", "license": catalog["license"], "license_url": catalog["license_url"],
             "allow_download": False, "unavailable": [],
@@ -307,14 +307,51 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 for track in catalog["tracks"]
             ],
         }
+        script = {"title": "لماذا تفشل خطط إدارة الوقت؟", "sections": []}
         with mock.patch("clean_v2.music_library.ensure_music_library", return_value=fake_ready):
-            path, report = select_music_track(
-                {"title": "لماذا تفشل خطط إدارة الوقت؟", "sections": []},
-                allow_download=False,
+            path, report = select_music_track(script, allow_download=False)
+            repeated_path, repeated_report = select_music_track(
+                script, fmt="short", allow_download=False
+            )
+            repeated_path_2, repeated_report_2 = select_music_track(
+                script, fmt="short", allow_download=False
             )
         self.assertEqual(report["selected_id"], "calm-sketch-piano")
         self.assertIsNotNone(path)
+        self.assertEqual(repeated_report["selected_id"], repeated_report_2["selected_id"])
+        self.assertEqual(repeated_path, repeated_path_2)
+        self.assertEqual(repeated_report["selection_family"], "focus")
+        self.assertEqual(repeated_report["selection_format"], "short")
+        self.assertIn(
+            repeated_report["selected_id"],
+            {"calm-sketch-piano", "acoustic-shifter", "wonder-flow"},
+        )
+        self.assertEqual(repeated_report["catalog_track_count"], 9)
         self.assertEqual((audio_module.MUSIC_MIN_REL_DB, audio_module.MUSIC_TARGET_REL_DB, audio_module.MUSIC_MAX_REL_DB), (-25.0, -22.0, -20.0))
+
+    def test_rule_8b_music_studio_has_distinct_format_pools_without_provider_calls(self) -> None:
+        catalog = load_catalog()
+        fake_ready = {
+            "source": "FreePD", "license": catalog["license"], "license_url": catalog["license_url"],
+            "allow_download": False, "unavailable": [],
+            "ready": [
+                {**track, "path": f"/tmp/{track['filename']}", "cache_status": "hit"}
+                for track in catalog["tracks"]
+            ],
+        }
+        script = {"title": "أعتقد أنني بدأت أفوز أخيرًا", "sections": []}
+        reports = {}
+        with mock.patch("clean_v2.music_library.ensure_music_library", return_value=fake_ready):
+            for fmt in ("short", "film", "podcast"):
+                _path, reports[fmt] = select_music_track(
+                    script, fmt=fmt, allow_download=False
+                )
+        self.assertEqual({reports[item]["selection_family"] for item in reports}, {"hopeful"})
+        self.assertEqual({reports[item]["selection_format"] for item in reports}, {"short", "film", "podcast"})
+        self.assertTrue(all(reports[item]["selected_id"] for item in reports))
+        source = inspect.getsource(audio_module.apply_topic_audio_polish)
+        self.assertIn("fmt=fmt", source)
+        self.assertNotIn("provider", inspect.getsource(select_music_track).lower())
 
     def test_rule_8_music_window_is_exactly_topic_not_hook_identity_or_outro(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
