@@ -1220,6 +1220,16 @@ def _ai_still_prompt(
     must_have = ", ".join(str(item) for item in (beat.get("semantic_must_have") or []))[:240]
     should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
     scene = str(beat.get("shot_intent") or "").strip()[:260]
+    role = str(beat.get("role") or "").strip()
+    hook_visual_rule = (
+        "HOOK FRAME: make the first frame visually arresting but truthful to the exact topic. "
+        "Show an immediate observable tension, interrupted action, unusual state, visible consequence, "
+        "or decisive moment; favor close/medium framing, asymmetry, depth, and strong local focal contrast. "
+        "Do not use a passive calm establishing shot, generic desk, coffee cup, window-gazing, slow walking, "
+        "or typing unless that exact action is the semantic tension. "
+        if role == "hook"
+        else ""
+    )
     reference_rule = (
         "Use input image 0 as the exact environment/style anchor; preserve its location, "
         "palette, practical lighting, lens language, textures, and recurring motif. "
@@ -1230,13 +1240,16 @@ def _ai_still_prompt(
         f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
         f"Visual world: {visual_world}. "
         f"Recurring motif: {motif}. "
-        f"Beat role: {str(beat.get('role') or '').strip()}. "
+        f"Beat role: {role}. "
+        f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
         f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
         f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
-        "Lived-in foreground, midground and background depth, soft warm-neutral practical light, "
-        "one clear focal action, clean negative space for Arabic overlay. No identifiable faces; "
+        "Lived-in foreground, midground and background depth, warm-neutral practical light, "
+        "one clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
+        "local subject contrast and a more immediate decisive composition; body/payoff stay restrained. "
+        "No identifiable faces; "
         "hands, back view, objects, or environment only. No readable text, letters, logos, "
         "watermarks, UI, collage, split screen, fantasy glow, or exaggerated advertising look."
     )
