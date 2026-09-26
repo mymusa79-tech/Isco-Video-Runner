@@ -532,6 +532,18 @@ class ShortContractTests(unittest.TestCase):
         )
         validate_short_script(forbidden_payoff)
 
+        clause_salvage = json.loads(json.dumps(base, ensure_ascii=False))
+        clause_salvage["sections"][2]["narration"] = (
+            "حين تبدأ بخطوة صغيرة، يعود الإحساس بالقدرة بعد أول نتيجة. "
+            "اختر مهمة واحدة الآن."
+        )
+        self.assertTrue(apply_safe_short_s3_single_action_trim(clause_salvage))
+        self.assertEqual(
+            clause_salvage["sections"][2]["narration"],
+            "يعود الإحساس بالقدرة بعد أول نتيجة. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(clause_salvage)
+
         only_forbidden_payoff = json.loads(json.dumps(base, ensure_ascii=False))
         only_forbidden_payoff["sections"][2]["narration"] = (
             "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن."
