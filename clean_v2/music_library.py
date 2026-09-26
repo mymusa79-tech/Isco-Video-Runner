@@ -13,6 +13,25 @@ CATALOG_PATH = _ASSET_DIR / "library.json"
 CACHE_DIR = _ASSET_DIR / "cache"
 MAX_TRACK_BYTES = 20 * 1024 * 1024
 DOWNLOAD_TIMEOUT_SECONDS = 45
+MUSIC_STUDIO_MIN_TRACKS = 6
+
+_FORMAT_POOLS = {
+    "short": {
+        "focus": ("calm-sketch-piano", "acoustic-shifter", "wonder-flow"),
+        "hopeful": ("peace-in-sunlight", "other-side-now", "wonder-flow"),
+        "general": ("wonder-flow", "a-little-faith", "peace-in-sunlight"),
+    },
+    "film": {
+        "focus": ("calm-sketch-piano", "c-major-2017", "all-in-silver-line"),
+        "hopeful": ("other-side-now", "peace-in-sunlight", "all-in-silver-line"),
+        "general": ("all-in-silver-line", "a-little-faith", "c-major-2017"),
+    },
+    "podcast": {
+        "focus": ("wexford", "calm-sketch-piano", "a-little-faith"),
+        "hopeful": ("c-major-2017", "peace-in-sunlight", "wexford"),
+        "general": ("a-little-faith", "wexford", "all-in-silver-line"),
+    },
+}
 
 _FOCUS_TERMS = (
     "وقت", "مهمة", "مهام", "عمل", "تركيز", "تنظيم", "قائمة", "إنتاج", "خطة",
@@ -34,8 +53,8 @@ def load_catalog() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError("music_catalog_unavailable") from exc
     tracks = value.get("tracks") if isinstance(value, Mapping) else None
-    if not isinstance(tracks, list) or len(tracks) < 3:
-        raise RuntimeError("music_catalog_requires_three_tracks")
+    if not isinstance(tracks, list) or len(tracks) < MUSIC_STUDIO_MIN_TRACKS:
+        raise RuntimeError("music_catalog_too_small_for_music_studio_lite")
     return dict(value)
 
 
@@ -132,30 +151,66 @@ def _script_text(script: Mapping[str, Any] | None) -> str:
     return " ".join(parts).lower()
 
 
+def _topic_family(text: str) -> tuple[str, str]:
+    if any(term in text for term in _FOCUS_TERMS):
+        return "focus", "topic_focus_productivity"
+    if any(term in text for term in _HOPEFUL_TERMS):
+        return "hopeful", "topic_hopeful_progress"
+    return "general", "topic_general_awareness"
+
+
+def _rotated_candidates(pool: tuple[str, ...], *, seed_text: str) -> tuple[list[str], int]:
+    if not pool:
+        return [], 0
+    digest = hashlib.sha256(seed_text.encode("utf-8")).digest()
+    offset = int.from_bytes(digest[:4], "big") % len(pool)
+    return [*pool[offset:], *pool[:offset]], offset
+
+
 def select_music_track(
     script: Mapping[str, Any] | None,
     *,
+    fmt: str | None = None,
     allow_download: bool | None = None,
 ) -> tuple[Path | None, dict[str, Any]]:
     report = ensure_music_library(allow_download=allow_download)
     ready = [item for item in report["ready"] if isinstance(item, Mapping)]
     by_id = {str(item.get("id") or ""): item for item in ready}
     text = _script_text(script)
-    if any(term in text for term in _FOCUS_TERMS):
-        preferred = "calm-sketch-piano"
-        reason = "topic_focus_productivity"
-    elif any(term in text for term in _HOPEFUL_TERMS):
-        preferred = "peace-in-sunlight"
-        reason = "topic_hopeful_progress"
-    else:
-        preferred = "a-little-faith"
-        reason = "topic_general_awareness"
+    family, reason = _topic_family(text)
 
-    chosen = by_id.get(preferred)
+    # Preserve the established deterministic single-track behavior for legacy
+    # callers that do not declare a format. Production now always passes fmt.
+    if fmt is None:
+        preferred = {
+            "focus": "calm-sketch-piano",
+            "hopeful": "peace-in-sunlight",
+            "general": "a-little-faith",
+        }[family]
+        candidates = [preferred]
+        rotation_index = 0
+        selection_format = "legacy"
+    else:
+        selection_format = str(fmt).strip().lower()
+        if selection_format not in _FORMAT_POOLS:
+            raise ValueError(f"music_selection_format_invalid:{fmt}")
+        pool = _FORMAT_POOLS[selection_format][family]
+        candidates, rotation_index = _rotated_candidates(
+            pool,
+            seed_text=f"{selection_format}|{family}|{text}",
+        )
+
+    chosen = next((by_id[item_id] for item_id in candidates if item_id in by_id), None)
     if chosen is None and ready:
         chosen = sorted(ready, key=lambda item: str(item.get("id") or ""))[0]
         reason += "_fallback_available"
+
     report["selection_reason"] = reason
+    report["selection_family"] = family
+    report["selection_format"] = selection_format
+    report["selection_candidates"] = candidates
+    report["selection_rotation_index"] = rotation_index
+    report["catalog_track_count"] = len(load_catalog()["tracks"])
     report["selected_id"] = str(chosen.get("id") or "") if chosen else None
     report["selected_title"] = str(chosen.get("title") or "") if chosen else None
     return (Path(str(chosen["path"])), report) if chosen else (None, report)
