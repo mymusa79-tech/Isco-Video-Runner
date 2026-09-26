@@ -448,10 +448,13 @@ def _accent_caption(
     words = _clean(text).split()
     if not words:
         return ""
-    rows = [
-        words[index : index + BODY_WRAP_WORDS]
-        for index in range(0, len(words), BODY_WRAP_WORDS)
-    ][:2]
+    # Keep every authored Arabic word. Balance the complete phrase into
+    # at most two visual rows instead of dropping words after two fixed chunks.
+    if len(words) <= BODY_WRAP_WORDS:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
     rendered: list[str] = []
     for row_index, row in enumerate(rows):
         # Two-line Arabic hierarchy mirrors the approved visual reference:
@@ -713,7 +716,7 @@ def render_progressive_text(
         "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
         "word_highlight_count": len(validated),
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
-        "rtl_policy": "explicit_rtl_two_line_hierarchy_double_hard_word_spacing",
+        "rtl_policy": "explicit_rtl_balanced_two_line_full_phrase_double_hard_word_spacing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "full_phrase_fade_150_200ms_scale_99_to_100",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_no_black_box",
