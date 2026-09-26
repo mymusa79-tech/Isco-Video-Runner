@@ -359,10 +359,17 @@ def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
     words = _clean(text).split()
     if not words:
         return ""
-    lines = []
-    for index in range(0, len(words), maximum_words):
-        escaped = [_ass_escape(word) for word in words[index : index + maximum_words]]
-        lines.append(r"\h".join(escaped))
+    # Match the face layer exactly: preserve every word and use at most two
+    # balanced RTL rows so shadow/extrusion never form a different silhouette.
+    if len(words) <= maximum_words:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
+    lines = [
+        r"\h\h".join(_ass_escape(word) for word in row)
+        for row in rows
+    ]
     return r"\N".join(lines)
 
 
@@ -719,7 +726,7 @@ def render_progressive_text(
         "rtl_policy": "explicit_rtl_balanced_two_line_full_phrase_double_hard_word_spacing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "full_phrase_fade_150_200ms_scale_99_to_100",
-        "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_no_black_box",
+        "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 
 
