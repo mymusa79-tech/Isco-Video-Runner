@@ -122,7 +122,7 @@ class CoverLiteTests(unittest.TestCase):
                 Path(command[-1]).write_bytes(b"jpg")
                 return mock.Mock(stdout="", stderr="")
 
-            with mock.patch("clean_v2.cover_lite._probe_dimensions", return_value=(1920, 1080)), mock.patch(
+            with mock.patch("clean_v2.cover_lite._dimensions", return_value=(1920, 1080)), mock.patch(
                 "clean_v2.cover_lite._run", side_effect=fake_run
             ) as run:
                 report = render_cover(
