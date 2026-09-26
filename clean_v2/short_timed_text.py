@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 5
-RICH_RENDERER_VERSION = "clean-v2-short-karaoke-3d-composition-lite-v5"
+SCHEMA_VERSION = 7
+RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-line-hierarchy-v7"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
@@ -22,23 +22,24 @@ ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm channel gold
 PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = "&H00231A12"  # dark warm side face
-SHADOW_ASS = "&H76000000"  # semi-transparent black
+SHADOW_ASS = "&HA8000000"  # soft transparent black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 108
 FOCUS_FONT_SIZE = 154
-FOCUS_SCALE = 1.42
-BODY_WRAP_WORDS = 4
+FOCUS_SCALE = 1.22
+BODY_WRAP_WORDS = 6
+ARABIC_WORD_GAP = "\u2009\u2009"
 CAPTION_MIN_WORDS = 2
-CAPTION_MAX_WORDS = 4
+CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
 CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
-CAPTION_EXTRUDE_X = 4
-CAPTION_EXTRUDE_Y = 5
-CAPTION_SHADOW_X = 9
-CAPTION_SHADOW_Y = 11
+CAPTION_EXTRUDE_X = 2
+CAPTION_EXTRUDE_Y = 3
+CAPTION_SHADOW_X = 4
+CAPTION_SHADOW_Y = 5
 MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
@@ -124,42 +125,29 @@ def _sentences(text: object) -> list[str]:
 
 
 def _phrase_chunks(text: object) -> list[str]:
-    """Split authored narration into balanced 2-5 word caption phrases."""
+    """Preserve authored Arabic grammar: split only at real punctuation boundaries."""
     chunks: list[str] = []
     for sentence in _sentences(text):
-        words = sentence.split()
-        if not words:
-            continue
-        if len(words) <= CAPTION_MAX_WORDS:
-            chunks.append(" ".join(words))
-            continue
-        chunk_count = math.ceil(len(words) / CAPTION_MAX_WORDS)
-        base, extra = divmod(len(words), chunk_count)
-        cursor = 0
-        for index in range(chunk_count):
-            size = base + (1 if index < extra else 0)
-            piece = words[cursor : cursor + size]
-            cursor += size
-            if piece:
-                chunks.append(" ".join(piece))
+        clauses = [
+            item.strip()
+            for item in re.split(r"(?<=[،؛:])\s+", sentence)
+            if item.strip()
+        ] or [sentence.strip()]
+        chunks.extend(clauses)
 
-    # Avoid one-word flashes when punctuation created a tiny standalone
-    # sentence. Merge locally when a neighbor still stays within five words.
+    # A one-word clause is usually punctuation residue. Merge it with its nearest
+    # neighbor without rewriting or reordering any authored words.
     index = 0
     while len(chunks) > 1 and index < len(chunks):
         if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
             index += 1
             continue
-        if index > 0 and len(chunks[index - 1].split()) < CAPTION_MAX_WORDS:
+        if index > 0:
             chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
             chunks.pop(index)
             continue
-        if index + 1 < len(chunks) and len(chunks[index + 1].split()) < CAPTION_MAX_WORDS:
-            chunks[index] = f"{chunks[index]} {chunks[index + 1]}"
-            chunks.pop(index + 1)
-            index += 1
-            continue
-        index += 1
+        chunks[1] = f"{chunks[0]} {chunks[1]}"
+        chunks.pop(0)
     return chunks
 
 
@@ -368,15 +356,25 @@ def _ass_escape(text: str) -> str:
     return _clean(text).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
 
 
+def _rtl_row(words: Sequence[str]) -> str:
+    """Keep authored logical Arabic order; libass/FriBidi owns RTL shaping."""
+    escaped = [_ass_escape(word) for word in words if _clean(word)]
+    return ARABIC_WORD_GAP.join(escaped)
+
+
 def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
     words = _clean(text).split()
     if not words:
         return ""
-    lines = [
-        " ".join(words[index : index + maximum_words])
-        for index in range(0, len(words), maximum_words)
-    ]
-    return r"\N".join(_ass_escape(line) for line in lines)
+    # Match the face layer exactly: preserve every word and use at most two
+    # balanced RTL rows so shadow/extrusion never form a different silhouette.
+    if len(words) <= maximum_words:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
+    lines = [_rtl_row(row) for row in rows]
+    return r"\N".join(lines)
 
 
 def _filter_escape_path(path: Path) -> str:
@@ -454,31 +452,37 @@ def _accent_caption(
     *,
     body_size: int = BODY_FONT_SIZE,
     focus_size: int = FOCUS_FONT_SIZE,
+    role: str = "beat",
 ) -> str:
-    """Render one dominant gold keyword with smaller white supporting copy."""
+    """Render static Arabic line hierarchy: white lead line, gold emphasis line."""
+    del focus_index  # Kept only for compatibility with older callers/tests.
     words = _clean(text).split()
     if not words:
         return ""
+    # Keep every authored Arabic word. Balance the complete phrase into
+    # at most two visual rows instead of dropping words after two fixed chunks.
+    if len(words) <= BODY_WRAP_WORDS:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
     rendered: list[str] = []
-    for index, word in enumerate(words):
-        escaped = _ass_escape(word)
-        if index == focus_index:
-            rendered.append(
-                "{\\fs"
-                + str(focus_size)
-                + "\\bord4\\shad0\\c"
-                + ACCENT_ASS
-                + "}"
-                + escaped
-                + "{\\fs"
-                + str(body_size)
-                + "\\bord5\\c"
-                + PRIMARY_ASS
-                + "}"
-            )
-        else:
-            rendered.append(escaped)
-    return "\u202B" + " ".join(rendered) + "\u202C"
+    for row_index, row in enumerate(rows):
+        # Two-line Arabic hierarchy mirrors the approved visual reference:
+        # white first line, gold second line. One-line payoff may be all gold.
+        use_gold = row_index == 1 or (len(rows) == 1 and role == "payoff")
+        color = ACCENT_ASS if use_gold else PRIMARY_ASS
+        size = focus_size if use_gold and len(rows) > 1 else body_size
+        row_text = _rtl_row(row)
+        rendered.append(
+            "{\\fs"
+            + str(size)
+            + "\\bord3\\shad0\\c"
+            + color
+            + "}"
+            + row_text
+        )
+    return r"\N".join(rendered)
 
 
 def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
@@ -501,8 +505,8 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
 
 
 def _plain_caption(text: str) -> str:
-    """One shaping-safe RTL copy for the depth layers."""
-    return "\u202B" + _ass_escape(text) + "\u202C"
+    """Shaping-safe Arabic copy: every visual row owns its RTL direction."""
+    return _ass_wrap_words(text)
 
 
 def _font_size_for_event(item: TimedTextEvent) -> int:
@@ -510,11 +514,15 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
     size = ROLE_BASE_FONT_SIZE[item.role]
     if words <= 2:
         size += 8
+    elif words >= 9:
+        size -= 16
     elif words >= 5:
         size -= 8
-    if len(_clean(item.text)) >= 34:
+    if len(_clean(item.text)) >= 46:
+        size -= 6
+    elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(98, min(138, size))
+    return max(92, min(138, size))
 
 
 def build_composition_hints(
@@ -567,8 +575,8 @@ def build_rich_ass(
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
         f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1",
-        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,70,70,0,1",
+        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -580,46 +588,44 @@ def build_rich_ass(
         x = int(hint.get("x") or CAPTION_X)
         y = int(hint.get("y") or CAPTION_Y)
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
-        for word_start, word_end, focus_index in _word_highlight_windows(item):
-            start = _ass_time(word_start)
-            end = _ass_time(word_end)
-            focus_size = max(
-                font_size + 28,
-                min(178, int(round(font_size * FOCUS_SCALE))),
-            )
-            caption = _accent_caption(
-                item.text,
-                focus_index,
-                body_size=font_size,
-                focus_size=focus_size,
-            )
-            if focus_index == 0:
-                scale = r"\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
-            else:
-                scale = r"\fscx100\fscy100"
-            shadow_tag = (
-                rf"\an5\pos({x + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
-                + rf"\fs{font_size}"
-                + scale
-            )
-            extrusion_tag = (
-                rf"\an5\pos({x + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
-                + rf"\fs{font_size}"
-                + scale
-            )
-            face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + scale
-            lines.append(
-                f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
-                f"{{{shadow_tag}}}{plain}"
-            )
-            lines.append(
-                f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
-                f"{{{extrusion_tag}}}{plain}"
-            )
-            lines.append(
-                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
-                f"{{{face_tag}}}{caption}"
-            )
+        focus_index = _accent_word_index(item.text)
+        focus_size = max(
+            font_size + 18,
+            min(160, int(round(font_size * FOCUS_SCALE))),
+        )
+        caption = _accent_caption(
+            item.text,
+            focus_index,
+            body_size=font_size,
+            focus_size=focus_size,
+            role=item.role,
+        )
+        start = _ass_time(item.start)
+        end = _ass_time(item.end)
+        motion = r"\fad(150,200)\fscx99\fscy99\t(0,140,\fscx100\fscy100)"
+        shadow_tag = (
+            rf"\an5\pos({x + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
+            + rf"\fs{font_size}"
+            + motion
+        )
+        extrusion_tag = (
+            rf"\an5\pos({x + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
+            + rf"\fs{font_size}"
+            + motion
+        )
+        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + motion
+        lines.append(
+            f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
+            f"{{{shadow_tag}}}{plain}"
+        )
+        lines.append(
+            f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
+            f"{{{extrusion_tag}}}{plain}"
+        )
+        lines.append(
+            f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
+            f"{{{face_tag}}}{caption}"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -718,9 +724,13 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "deterministic_phrase_weighted_approximation",
-        "word_highlight_count": sum(len(_word_highlight_windows(item)) for item in validated),
+        "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
+        "word_highlight_count": len(validated),
+        "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
+        "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
+        "caption_motion": "full_phrase_static_rtl_fade_150_200ms_scale_99_to_100",
+        "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 
 
