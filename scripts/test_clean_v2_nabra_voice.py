@@ -16,6 +16,8 @@ from clean_v2.audio_mastering import (
     CHARON_CORRECTIVE_FILTER,
     NABRA_CORRECTIVE_FILTER,
     NABRA_MASTERING_PROFILE,
+    NABRA_TARGET_INTEGRATED_LUFS,
+    TARGET_INTEGRATED_LUFS,
 )
 from clean_v2.identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION
 from clean_v2.nabra_voice import (
@@ -25,6 +27,7 @@ from clean_v2.nabra_voice import (
     NABRA_VOICE,
     _diacritize_preserving_explicit_marks,
     _g2p_preserving_breath_punctuation,
+    _native_pause_marker,
 )
 from clean_v2.pipeline import _synthesize_sectioned_voice
 
@@ -90,7 +93,7 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(NABRA_SPEED, 0.87)
         self.assertEqual(
             NABRA_REFERENCE_PROFILE,
-            "nabra-82m-v0.1:af_msa:0.87:native-pauses-v1",
+            "nabra-82m-v0.1:af_msa:0.87:native-punctuation-v2",
         )
 
     def test_long_nabra_phonemes_split_only_for_model_limit(self) -> None:
@@ -173,9 +176,33 @@ class NabraRouteTests(unittest.TestCase):
         self.assertIn("تُسرِع", phonemes)
 
     def test_approved_voices_use_neutral_mastering_without_covering_timbre(self) -> None:
-        self.assertEqual(NABRA_MASTERING_PROFILE, "nabra-loudness-only-v1")
+        self.assertEqual(NABRA_MASTERING_PROFILE, "nabra-reference-match-v2")
+        self.assertEqual(NABRA_TARGET_INTEGRATED_LUFS, -17.0)
+        self.assertEqual(TARGET_INTEGRATED_LUFS, -16.0)
         self.assertEqual(NABRA_CORRECTIVE_FILTER, "")
         self.assertEqual(CHARON_CORRECTIVE_FILTER, "")
+
+    def test_native_pause_uses_writer_punctuation_not_role_replacement(self) -> None:
+        self.assertEqual(
+            _native_pause_marker("hook", text="هذا هو الهوك.", final=False),
+            ".",
+        )
+        self.assertEqual(
+            _native_pause_marker("topic", text="هل تعرف لماذا؟", final=False),
+            "?",
+        )
+        self.assertEqual(
+            _native_pause_marker("topic", text="خذ نفسًا،", final=False),
+            ",",
+        )
+        self.assertEqual(
+            _native_pause_marker("prayer", text="الصلاة على النبي", final=False),
+            ",",
+        )
+        self.assertEqual(
+            _native_pause_marker("outro", text="هذه الخلاصة", final=True),
+            ".",
+        )
 
     def test_nabra_locked_route_uses_one_continuous_pass_and_native_pause_units(self) -> None:
         sections = [
