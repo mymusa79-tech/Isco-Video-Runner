@@ -2976,6 +2976,7 @@ def _run_legacy_cinematic_layer(
     short_timed_text_report: dict[str, Any] | None = None
     short_audio_polish_report: dict[str, Any] | None = None
     podcast_key_text_report: dict[str, Any] | None = None
+    film_key_text_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
 
@@ -2990,27 +2991,45 @@ def _run_legacy_cinematic_layer(
             short_timed_text_report,
         )
 
-    if fmt == "podcast":
-        from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
+    if fmt in {"podcast", "film"}:
+        from clean_v2.podcast_key_text import (
+            PodcastKeyTextError,
+            apply_film_key_text,
+            apply_podcast_key_text,
+        )
 
         try:
-            podcast_key_text_report = apply_podcast_key_text(
-                output_dir=output_dir,
-                final_path=final_path,
-                script=script,
-            )
+            if fmt == "podcast":
+                podcast_key_text_report = apply_podcast_key_text(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    script=script,
+                )
+                sparse_report = podcast_key_text_report
+            else:
+                film_key_text_report = apply_film_key_text(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    script=script,
+                )
+                sparse_report = film_key_text_report
         except PodcastKeyTextError as exc:
-            # Decorative local enhancement only: keep the finished video if this
-            # extra FFmpeg/libass pass fails. Normal successful output is unchanged.
-            podcast_key_text_report = {
+            # Decorative local enhancement only: the finished video survives if
+            # this deterministic FFmpeg/libass pass fails.
+            sparse_report = {
                 "status": "skipped",
                 "mode": "fail_soft",
+                "format": fmt,
                 "reason": str(exc),
                 "provider_calls_added": 0,
             }
+            if fmt == "podcast":
+                podcast_key_text_report = sparse_report
+            else:
+                film_key_text_report = sparse_report
         atomic_write_json(
-            output_dir / "podcast-key-text.json",
-            podcast_key_text_report,
+            output_dir / f"{fmt}-key-text.json",
+            sparse_report,
         )
 
     topic_audio_polish_report: dict[str, Any] | None = None
@@ -3060,6 +3079,7 @@ def _run_legacy_cinematic_layer(
         "short_audio_polish": short_audio_polish_report,
         "topic_audio_polish": topic_audio_polish_report,
         "podcast_key_text": podcast_key_text_report,
+        "film_key_text": film_key_text_report,
     }
 
 
@@ -3793,6 +3813,16 @@ misleading substitutes that would look related but fail the exact idea. shot_int
 semantic/cinematic description used by story-context Visual QA. stock_query_en is a separate,
 distinct, retrieval-only English phrase of about 6-14 useful words for THAT beat; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
+
+Visual variety must be SEMANTIC, not cosmetic. Treat notebook, journal, pen, sticky notes, checklist,
+and writing as one visual-action family; treat laptop, keyboard, typing, and monitor as another.
+Do not place the same dominant action/object family in consecutive beats, and normally use one
+family no more than twice in the whole video. The only intentional repeat may be the hook/payoff
+retention motif when its visible state has genuinely changed. Coffee, books, desks, plants, and
+generic workspace props are atmosphere, not meaning: never use them as the main visual proof unless
+the narration actually depends on them. Prefer a progression of observable states/actions
+(e.g. stuck -> choosing -> moving -> completing) so each new shot adds information rather than
+showing another angle of the same behavior.
 
 Choose source_preference=stock_motion for observable real-world movement in the body. The first
 hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
