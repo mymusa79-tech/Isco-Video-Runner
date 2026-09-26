@@ -36,6 +36,18 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertGreater(deep_score["visual_score"], bright_score["visual_score"])
             self.assertEqual(deep_score["tone_target"], TONE_PROFILE)
 
+    def test_podcast_scoring_rejects_bright_saturated_lifestyle_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            vivid = Image.new("RGB", (1280, 720), (245, 190, 55))
+            vivid.save(root / "vivid.jpg", quality=95)
+            deep = self._image(root / "deep.jpg", value=92, accent=True)
+            vivid_score = score_cover_candidate(root / "vivid.jpg", fmt="podcast")
+            deep_score = score_cover_candidate(deep, fmt="podcast")
+            self.assertGreater(deep_score["visual_score"], vivid_score["visual_score"])
+            self.assertGreater(vivid_score["saturation"], deep_score["saturation"])
+            self.assertEqual(deep_score["selection_profile"], "podcast_topic_relevant_deep_frame")
+
     def test_podcast_identity_and_depth_profile_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -53,7 +65,7 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertEqual(PROGRAM_NAME, "خارج النص")
             self.assertEqual(report["channel_name"], CHANNEL_NAME)
             self.assertEqual(CHANNEL_NAME, "نداء اليقظة")
-            self.assertEqual(report["tone_profile"], "deep_neutral")
+            self.assertEqual(report["tone_profile"], "channel_deep_neutral_v2")
 
     def test_short_and_film_profiles_render_expected_sizes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
