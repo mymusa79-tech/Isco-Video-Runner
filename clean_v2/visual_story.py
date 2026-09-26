@@ -15,6 +15,8 @@ VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
     "bright lifestyle advertising",
     "generic stock-happy imagery",
+    "generic productivity desk or writing imagery unless it is the exact semantic action",
+    "repetitive stationery, notebooks, sticky notes, or typing across consecutive beats",
     "gloomy or depressive treatment",
 )
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
