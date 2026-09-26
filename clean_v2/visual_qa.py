@@ -205,6 +205,30 @@ def _apply_cultural_islamic_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
 
 
 
+def _apply_ai_image_only_policy(
+    audit: Mapping[str, Any],
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed on generated text/UI artifacts without adding OCR or provider calls."""
+    result = dict(audit)
+    if str(row.get("source_actual") or "").strip() != "ai_still":
+        result["ai_image_only_policy"] = "not_applicable"
+        return result
+
+    violation = bool(
+        result.get("obvious_synthetic_or_visual_artifact")
+        or result.get("prominent_logo_or_brand")
+    )
+    result["ai_image_only_policy"] = "block" if violation else "pass"
+    if violation:
+        prior = " ".join(str(result.get("reason") or "").split()).strip()
+        result["status"] = "block"
+        result["reason"] = "ai_image_only_text_ui_artifact" + (
+            f"; {prior}" if prior else ""
+        )
+    return result
+
+
 def _sha256_media(path: Path) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -544,11 +568,19 @@ def run_final_cut_visual_qa(
             if recovery
             else ""
         )
+        review_intended_visual = intended_visual
+        if str(row.get("source_actual") or "").strip() == "ai_still":
+            review_intended_visual = (
+                review_intended_visual
+                + " IMAGE-ONLY CONTRACT: no rendered or generated text, pseudo-text, "
+                "letters, captions, buttons, CTA, SUBSCRIBE/LIKE graphics, UI, logos, "
+                "or watermarks may appear anywhere in the frame."
+            ).strip()
         canonical_evidence = build_canonical_visual_evidence(
             clip,
             evidence_root / f"{index:02d}-{section_id}-c{clip_position:02d}{suffix}",
             narration_context=narration_context,
-            intended_visual=intended_visual,
+            intended_visual=review_intended_visual,
         )
         task_suffix = (
             f"_RECOVERY_{max(1, int(recovery_candidate_index or 1)):02d}"
@@ -576,7 +608,7 @@ def run_final_cut_visual_qa(
                 clip,
                 canonical_evidence=canonical_evidence,
                 narration_context=narration_context,
-                intended_visual=intended_visual,
+                intended_visual=review_intended_visual,
                 model=model,
             )
         except Exception as exc:
@@ -634,6 +666,7 @@ def run_final_cut_visual_qa(
 
         audit = _apply_no_face_policy(audit)
         audit = _apply_cultural_islamic_policy(audit)
+        audit = _apply_ai_image_only_policy(audit, row)
         floor = semantic_floor(audit)
         audit.update(
             {
@@ -643,7 +676,7 @@ def run_final_cut_visual_qa(
                 "provider": str(row.get("provider") or ""),
                 "candidate_id": row.get("asset_id"),
                 "from_cache": False,
-                "intended_visual": intended_visual,
+                "intended_visual": review_intended_visual,
                 "fit_score_10": round(floor * 10.0, 3),
                 "review_origin": (
                     "clean_v2_semantic_recovery_cloud_visual_qa"
