@@ -737,11 +737,12 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         tts_model: str = "gemini-3.1-flash-tts-preview",
         nabra: Any | None = None,
     ) -> None:
-        from .nabra_voice import NabraVoiceSynthesizer
+        from .nabra_voice import NabraVoiceSynthesizer, NABRA_REFERENCE_PROFILE
 
         self.api_key = str(api_key or "").strip()
         self.tts_model = str(tts_model or "").strip() or "gemini-3.1-flash-tts-preview"
         self.nabra = nabra if nabra is not None else NabraVoiceSynthesizer()
+        self._nabra_reference_profile = NABRA_REFERENCE_PROFILE
         self.last_provider: str | None = None
         self.fallback_used: bool | None = None
         self.charon_attempts = 0
@@ -779,8 +780,50 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.voice_approval_status = (
             "user_selected_primary" if self._nabra_primary else "human_approved_fallback"
         )
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
         print("Clean V2 voice provider selected: nabra:af_msa")
+        return result
+
+    @property
+    def nabra_continuous_ready(self) -> bool:
+        return self._route_lock == "nabra"
+
+    def synthesize_nabra_continuous(
+        self,
+        parts: list[dict[str, Any]],
+        output_path: Path,
+    ) -> dict[str, Any]:
+        """Run the approved Nabra profile once for the complete narration pass."""
+        if self._route_lock != "nabra":
+            raise RuntimeError("nabra_continuous_requires_nabra_route_lock")
+        joined = "\n".join(str(item.get("text") or "") for item in parts)
+        if _spoken_voice_roles(joined).get("mode") == "dialogue_qa":
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason="dialogue_charon_unavailable",
+                secondary_reason="nabra_single_narrator_only",
+                piper_fallback_allowed=False,
+            )
+        try:
+            result = self.nabra.synthesize_continuous(parts, output_path)
+        except Exception as exc:
+            output_path.unlink(missing_ok=True)
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason=(
+                    "not_attempted_nabra_primary" if self._nabra_primary else "charon_unavailable"
+                ),
+                secondary_reason=f"nabra_{_tts_failure_reason(exc, missing='unavailable')}"[:120],
+                piper_fallback_allowed=False,
+            ) from None
+        self.last_provider = "nabra:af_msa"
+        self.fallback_used = not self._nabra_primary
+        self.voice_approval_status = (
+            "user_selected_primary" if self._nabra_primary else "human_approved_fallback"
+        )
+        self.voice_reference_profile = self._nabra_reference_profile
+        self.voice_roles = {"mode": "single_narrator", "narrator": "nabra:af_msa"}
+        print("Clean V2 voice provider selected: nabra:af_msa (continuous native pauses)")
         return result
 
     def activate_full_run_nabra_fallback(self) -> None:
@@ -790,7 +833,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.last_provider = None
         self.fallback_used = True
         self.voice_approval_status = "human_approved_fallback"
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
 
     def activate_full_run_nabra_primary(self) -> None:
         """Lock the whole run to local Nabra without attempting any cloud voice."""
@@ -799,7 +842,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.last_provider = None
         self.fallback_used = False
         self.voice_approval_status = "user_selected_primary"
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        self.voice_reference_profile = self._nabra_reference_profile
 
     def synthesize(
         self,
