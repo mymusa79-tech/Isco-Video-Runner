@@ -339,7 +339,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
             self.assertEqual(result["source_media"], "final.mp4")
             self.assertEqual(
                 result["identity_event_kinds"],
-                ["hook", "intro", "prayer", "channel_identity", "topic", "outro", "final_silence"],
+                ["hook", "intro", "prayer", "channel_identity", "pre_topic_silence", "topic", "outro", "final_silence"],
             )
             updated = json.loads(
                 (root / "final-cut-visual-qa.json").read_text(encoding="utf-8")
