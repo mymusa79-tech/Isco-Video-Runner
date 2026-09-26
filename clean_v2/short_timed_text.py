@@ -23,7 +23,7 @@ PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&HA8000000"  # soft transparent black
-BODY_FONT = "Noto Kufi Arabic"
+BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 108
 FOCUS_FONT_SIZE = 154
@@ -357,9 +357,9 @@ def _ass_escape(text: str) -> str:
 
 
 def _rtl_row(words: Sequence[str]) -> str:
-    """Render one independent Arabic RTL row with visible breathing between words."""
+    """Keep authored logical Arabic order; libass/FriBidi owns RTL shaping."""
     escaped = [_ass_escape(word) for word in words if _clean(word)]
-    return "\u202B" + ARABIC_WORD_GAP.join(escaped) + "\u202C"
+    return ARABIC_WORD_GAP.join(escaped)
 
 
 def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
@@ -727,7 +727,7 @@ def render_progressive_text(
         "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
         "word_highlight_count": len(validated),
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
-        "rtl_policy": "per_line_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
+        "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "full_phrase_static_rtl_fade_150_200ms_scale_99_to_100",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
