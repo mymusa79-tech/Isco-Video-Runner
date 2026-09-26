@@ -253,9 +253,15 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(len(final), 1)
         self.assertEqual(intro[0]["provider"], "deterministic_silence")
         self.assertEqual(pre_topic[0]["provider"], "deterministic_silence")
-        self.assertEqual(final[0]["provider"], "nabra_native_pause")
+        self.assertEqual(final[0]["provider"], "nabra_native_pause_padded")
+        self.assertEqual(result["external_silence_insertions"], 3)
         self.assertEqual(result["structural_silence_seconds"]["after_hook"], 0.60)
         self.assertEqual(result["structural_silence_seconds"]["before_topic"], 0.35)
+        self.assertEqual(result["structural_silence_seconds"]["final_outro_minimum"], 1.25)
+        self.assertGreater(
+            result["structural_silence_seconds"]["final_outro_padding_added"],
+            1.0,
+        )
 
     def _patch_identity(self):
         return mock.patch.multiple(
