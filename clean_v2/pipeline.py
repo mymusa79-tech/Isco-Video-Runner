@@ -479,8 +479,11 @@ def _synthesize_continuous_nabra_voice(
                 getattr(voice_synthesizer, "fallback_used", False)
             ),
             "role": role,
-            "native_pause": provider == "nabra_native_pause",
-            "structural_silence": provider == "deterministic_silence",
+            "native_pause": provider.startswith("nabra_native_pause"),
+            "structural_silence": provider in {
+                "deterministic_silence",
+                "nabra_native_pause_padded",
+            },
         }
         chunk_rows_by_section.setdefault(section_id, []).append(row)
         chunk_paths_by_section.setdefault(section_id, []).append(path)
@@ -526,6 +529,52 @@ def _synthesize_continuous_nabra_voice(
             role=role,
             path=path,
             provider="deterministic_silence",
+            chars=0,
+        )
+
+    final_pause_padding_seconds = 0.0
+
+    def add_final_silence(
+        *,
+        section_id: str,
+        start: float,
+        end: float,
+        minimum_seconds: float,
+    ) -> None:
+        """Preserve Nabra's native terminal breath, padding only the missing outro room."""
+        nonlocal global_chunk, final_pause_padding_seconds
+        native_seconds = max(0.001, end - start)
+        target_seconds = max(native_seconds, float(minimum_seconds))
+        padding_seconds = max(0.0, target_seconds - native_seconds)
+        global_chunk += 1
+        path = unit_dir / f"{global_chunk:03d}-final_silence.wav"
+        native_part = unit_dir / ".native-final-silence.wav"
+        padding_part = unit_dir / ".final-silence-padding.wav"
+        try:
+            _write_wav_slice(
+                native_source,
+                native_part,
+                start_seconds=start,
+                end_seconds=end,
+            )
+            if padding_seconds > 1e-6:
+                _write_silence_like(native_source, padding_part, padding_seconds)
+                concat_wav_parts([native_part, padding_part], path)
+                provider = "nabra_native_pause_padded"
+                final_pause_padding_seconds = padding_seconds
+            else:
+                shutil.copyfile(native_part, path)
+                provider = "nabra_native_pause"
+            if not path.is_file() or path.stat().st_size < 1024:
+                raise RuntimeError("nabra_final_silence_build_failed")
+        finally:
+            native_part.unlink(missing_ok=True)
+            padding_part.unlink(missing_ok=True)
+        register_path(
+            section_id=section_id,
+            role="final_silence",
+            path=path,
+            provider=provider,
             chars=0,
         )
 
@@ -577,12 +626,15 @@ def _synthesize_continuous_nabra_voice(
                 end=speech_end,
                 provider="nabra:af_msa",
             )
-            add_slice(
+            add_final_silence(
                 section_id=section_id,
-                role="final_silence",
                 start=speech_end,
                 end=pause_end,
-                provider="nabra_native_pause",
+                minimum_seconds=(
+                    timing["final_silence_seconds"]
+                    if timing is not None
+                    else pause_end - speech_end
+                ),
             )
         else:
             # Ordinary sentence breathing remains exactly Nabra's native punctuation.
@@ -657,11 +709,17 @@ def _synthesize_continuous_nabra_voice(
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
-        "external_silence_insertions": 2 if timing is not None else 0,
+        "external_silence_insertions": (
+            (2 + int(final_pause_padding_seconds > 1e-6))
+            if timing is not None
+            else 0
+        ),
         "structural_silence_seconds": (
             {
                 "after_hook": timing["intro_silence_seconds"],
                 "before_topic": timing["pre_topic_silence_seconds"],
+                "final_outro_minimum": timing["final_silence_seconds"],
+                "final_outro_padding_added": round(final_pause_padding_seconds, 3),
             }
             if timing is not None
             else {}
