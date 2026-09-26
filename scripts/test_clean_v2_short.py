@@ -1512,7 +1512,7 @@ class ShortAudioPolishTests(unittest.TestCase):
                 minimum_relative_db=MUSIC_MIN_REL_DB,
                 maximum_relative_db=MUSIC_MAX_REL_DB,
             )
-            self.assertEqual((MUSIC_MIN_REL_DB, MUSIC_TARGET_REL_DB, MUSIC_MAX_REL_DB), (-25.0, -22.0, -20.0))
+            self.assertEqual((MUSIC_MIN_REL_DB, MUSIC_TARGET_REL_DB, MUSIC_MAX_REL_DB), (-21.0, -19.0, -17.0))
             self.assertGreaterEqual(music_report["relative_to_narration_db"], MUSIC_MIN_REL_DB)
             self.assertLessEqual(music_report["relative_to_narration_db"], MUSIC_MAX_REL_DB)
             with self.assertRaisesRegex(RuntimeError, "procedural_noise_music_disabled"):
