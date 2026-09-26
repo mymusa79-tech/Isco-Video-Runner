@@ -17,6 +17,7 @@ from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
 from clean_v2.nabra_voice import NabraVoiceSynthesizer
 from clean_v2.pipeline import (
     CleanV2Pipeline,
+    _factuality_repair_prompt,
     _isolate_podcast_promo_unit,
     _planning_prompt,
     _run_podcast_derived_short_lite,
@@ -168,6 +169,19 @@ class PodcastFormatTests(unittest.TestCase):
             **kwargs,
         )
         self.assertNotIn("fix progression semantically, not cosmetically", film_prompt)
+
+        podcast_factuality = _factuality_repair_prompt(
+            brief=podcast_brief,
+            **kwargs,
+        )
+        film_factuality = _factuality_repair_prompt(
+            brief={**podcast_brief, "format": "film"},
+            **kwargs,
+        )
+        for repair_prompt in (podcast_factuality, film_factuality):
+            self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", repair_prompt)
+            self.assertIn("minimal diacritics", repair_prompt)
+            self.assertIn("comfortable to say in one breath", repair_prompt)
 
     def test_podcast_reuses_long_identity_without_a_new_identity_system(self) -> None:
         sections = [
