@@ -94,6 +94,18 @@ def _planning_value(fmt: str = "film") -> dict:
 
 
 class UnifiedVisualStoryPlanningTests(unittest.TestCase):
+    def test_hook_stop_power_and_semantic_variety_apply_to_every_format_without_extra_stage(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                prompt = " ".join(_planning_prompt(_brief(fmt)).split())
+                self.assertIn("HOOK VISUAL STOP-POWER", prompt)
+                self.assertIn("MUST NOT be a calm mood-only establishing image", prompt)
+                self.assertIn("understood with sound off in the first frame", prompt)
+                self.assertIn("Avoid unrelated shock", prompt)
+                self.assertIn("VISUAL VARIETY is semantic, not cosmetic", prompt)
+                self.assertIn("Do not place the same dominant action family in consecutive beats", prompt)
+                self.assertIn("stuck -> choosing -> moving -> completed", prompt)
+
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
         planned = _validate_plan_for_brief(_planning_value("film"), brief)
