@@ -9,9 +9,17 @@ from typing import Any, Mapping
 
 from .music_library import select_music_track
 
-MUSIC_TARGET_REL_DB = -22.0
-MUSIC_MIN_REL_DB = -25.0
-MUSIC_MAX_REL_DB = -20.0
+# Format-aware music presence. Shorts can carry a more audible bed; long-form
+# stays progressively quieter so narration remains the unquestioned authority.
+MUSIC_TARGET_REL_DB = -19.0
+MUSIC_MIN_REL_DB = -21.0
+MUSIC_MAX_REL_DB = -17.0
+MUSIC_LEVELS_REL_DB = {
+    "short": (-19.0, -21.0, -17.0),
+    "film": (-20.0, -22.0, -18.0),
+    "podcast": (-21.0, -23.0, -19.0),
+}
+POST_MIX_LIMITER_LINEAR = 0.84
 LEVEL_TOLERANCE_DB = 1.0
 
 # Compatibility constants. Generated SFX are intentionally disabled.
@@ -150,7 +158,7 @@ def _mix_music_into_video(
         (
             f"[1:a]adelay={delay_ms}|{delay_ms}[music];"
             "[0:a][music]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
-            "alimiter=limit=0.95:level=disabled[mix]"
+            f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
         ),
         "-map", "0:v:0", "-map", "[mix]",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
@@ -177,6 +185,7 @@ def apply_topic_audio_polish(
     temp_dir = output_dir / ".topic-audio-polish"
     temp_dir.mkdir(parents=True, exist_ok=True)
     narration_mean_db = _measure_mean_db(narration_path)
+    target_relative_db, minimum_relative_db, maximum_relative_db = MUSIC_LEVELS_REL_DB[fmt]
 
     diagnosis = {
         "status": "confirmed" if fmt == "short" else "not_applicable_prior_short_only",
@@ -209,9 +218,9 @@ def apply_topic_audio_polish(
             src=raw_bed,
             dest=adjusted,
             narration_mean_db=narration_mean_db,
-            target_relative_db=MUSIC_TARGET_REL_DB,
-            minimum_relative_db=MUSIC_MIN_REL_DB,
-            maximum_relative_db=MUSIC_MAX_REL_DB,
+            target_relative_db=target_relative_db,
+            minimum_relative_db=minimum_relative_db,
+            maximum_relative_db=maximum_relative_db,
         )
         component = {
             "status": "ready",
@@ -250,8 +259,9 @@ def apply_topic_audio_polish(
         "external_download_required": bool(library_report.get("allow_download", False)),
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
-        "music_target_relative_db": MUSIC_TARGET_REL_DB,
-        "music_allowed_relative_db": [MUSIC_MIN_REL_DB, MUSIC_MAX_REL_DB],
+        "music_target_relative_db": target_relative_db,
+        "music_allowed_relative_db": [minimum_relative_db, maximum_relative_db],
+        "post_mix_limiter_linear": POST_MIX_LIMITER_LINEAR,
         "music_window": (
             {"start": topic_start, "end": topic_end}
             if topic_start is not None and topic_end is not None
