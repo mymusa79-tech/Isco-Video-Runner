@@ -3824,12 +3824,15 @@ the narration actually depends on them. Prefer a progression of observable state
 (e.g. stuck -> choosing -> moving -> completing) so each new shot adds information rather than
 showing another angle of the same behavior.
 
-Choose source_preference=stock_motion for observable real-world movement in the body. The first
-hook beat and final payoff beat MUST both use source_preference=ai_still: they are two views of the
-same controlled new environment, and the payoff must return to the hook's recurring motif in a
-visibly changed state. Do not use ai_still on any middle beat, so the whole video has exactly two AI
-anchor beats. AI stills remain free-only and fail safely to quality-gated stock when unavailable;
-no beat may bypass the same no-face, cultural, advertiser-safety, and final semantic-quality gates.
+Choose source_preference=stock_motion for observable real-world movement whenever stock can prove
+the idea cleanly. The first hook beat and final payoff beat MUST both use source_preference=ai_still:
+they are two views of the same controlled environment, and the payoff must return to the hook's
+recurring motif in a visibly changed state. You MAY mark at most ONE middle beat as ai_still only
+when the exact meaning is difficult to show honestly with stock footage (for example an internal
+contrast, visual metaphor, impossible transition, or controlled before/after state). Never use AI
+merely for decoration when stock can show the action. The whole video therefore uses at most THREE
+AI stills. AI stills remain free-only and fail safely to quality-gated stock when unavailable; no
+beat may bypass the same no-face, cultural, advertiser-safety, and final semantic-quality gates.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
