@@ -2323,7 +2323,11 @@ def _tone_repair_prompt(
         "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
         "too shallow. The final section must answer or deepen the exact opening tension with an earned "
         "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
-        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries."
+        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
+        "Preserve the Nabra performance contract during every changed phrase: keep intentional minimal "
+        "diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
+        "wording when two unvowelled readings are plausible. "
+        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
@@ -3834,6 +3838,22 @@ Return one JSON object with exactly this useful shape:
 
 
 
+PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
+NABRA PERFORMANCE / PRONUNCIATION CONTRACT (podcast only):
+- Write normal readable Modern Standard Arabic, not fully vocalized textbook Arabic.
+- Prefer clear syntax and common spoken-MSA wording. If an unvowelled word could reasonably be read
+  in two different ways, prefer an unambiguous synonym when meaning is preserved.
+- When ambiguity cannot be avoided (including proper names or a key technical/religious term), add
+  ONLY the minimum Arabic diacritic marks needed to force the intended pronunciation. Do not add
+  decorative full tashkeel, tanwin, or case endings just for formality.
+- Preserve meaningful diacritics already present in approved fixed lines; never strip them during repair.
+- Use punctuation as performance notation: commas for a light breath, sentence punctuation for a real
+  idea boundary. Do not stack theatrical punctuation or write fragments merely to manufacture pauses.
+- Prefer sentences that can be spoken comfortably in one breath, with natural variation; do not flatten
+  everything into short clipped sentences and do not write long syntactic tangles that force rushed delivery.
+""".strip()
+
+
 def _script_prompt(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
@@ -3868,7 +3888,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed."
+            "than rushed.\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4004,7 +4024,9 @@ def _narrative_identity_prompt(
     podcast_voice_guidance = (
         "For podcast only, both anchors are spoken by a neutral female Arabic narrator. "
         "Keep them speaker-neutral or grammatically compatible with a female narrator; "
-        "do not identify her as Mousa, use male self-reference, or invent personal experience."
+        "do not identify her as Mousa, use male self-reference, or invent personal experience. "
+        "Apply the same Nabra pronunciation/performance contract to opener, closer, and transitions: "
+        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
