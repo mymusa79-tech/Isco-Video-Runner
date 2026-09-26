@@ -11,7 +11,7 @@ VISUAL_WORLD_DEFAULT = (
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
-MAX_AI_STILL_BEATS = 2
+MAX_AI_STILL_BEATS = 3
 
 
 def _beat_role(index: int, total: int) -> str:
@@ -203,12 +203,13 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 beat_in_section=per_section.get(section_id, 0),
                 shot_intent=shot_intent,
             )
+        requested_source = str(raw.get("source_preference") or "").strip()
         source_preference = (
             "ai_still"
             if explicit_retention_contract and index in {1, len(raw_beats)}
-            else "stock_motion"
+            else (requested_source or "stock_motion")
             if explicit_retention_contract
-            else str(raw.get("source_preference") or "").strip()
+            else requested_source
         )
 
         if not beat_id or beat_id in seen_ids:
@@ -316,6 +317,14 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         ):
             raise ValueError(
                 "visual_story fresh hook and payoff beats must be ai_still anchors"
+            )
+        middle_ai = sum(
+            beat["source_preference"] == "ai_still"
+            for beat in beats[1:-1]
+        )
+        if middle_ai > 1:
+            raise ValueError(
+                "visual_story permits at most one semantic-gap AI still in the body"
             )
 
     return {

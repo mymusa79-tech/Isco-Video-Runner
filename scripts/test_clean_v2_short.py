@@ -1220,20 +1220,37 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
-        self.assertIn(r"\fscx98\fscy98", ass)
-        self.assertIn("\u202B", ass)
-        self.assertGreater(ass.count("Dialogue:"), len(events) * 3)
+        self.assertIn(r"\fad(150,200)", ass)
+        self.assertNotIn(r"\bord5", ass)
+        self.assertIn(r"\fscx99\fscy99", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertNotIn("\u202C", ass)
+        self.assertIn("\u2009\u2009", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(549,1411)", ass)
+        self.assertIn(r"\pos(544,1405)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
+
+    def test_complete_arabic_caption_keeps_every_authored_word_in_two_lines(self) -> None:
+        text = "هذه الجملة العربية الكاملة يجب أن تظهر بوضوح دون حذف أي كلمة منها"
+        events = [
+            {"start": 0.0, "end": 4.0, "text": text, "role": "hook"},
+            {"start": 4.0, "end": 5.5, "text": "المعنى يصل كاملًا", "role": "payoff"},
+        ]
+        ass = build_rich_ass(events)
+        for word in text.split():
+            self.assertIn(word, ass)
+        self.assertEqual(ass.count(r"\N"), 3)
+        self.assertNotIn("\u202B", ass)
+        self.assertIn("\u2009\u2009", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
@@ -1252,17 +1269,42 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreater(len(events), 3)
+        self.assertGreaterEqual(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
         self.assertEqual(events[-1]["role"], "payoff")
         self.assertEqual(events[0]["section_id"], "s1")
         self.assertEqual(events[-1]["section_id"], "s3")
+        authored = " ".join(section["narration"] for section in script["sections"])
         for event in events:
-            words = len(str(event["text"]).split())
-            self.assertLessEqual(words, CAPTION_MAX_WORDS)
-            self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
+            self.assertIn(str(event["text"]), authored)
+            self.assertGreaterEqual(len(str(event["text"]).split()), CAPTION_MIN_WORDS)
+
+    def test_caption_preserves_complete_arabic_clause_and_static_rtl_focus(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "ابدأ بالمهمة الأصغر، ثم دع الزخم يكمل الطريق."},
+                {"id": "s2", "narration": "الوضوح يقلل التردد."},
+                {"id": "s3", "narration": "خطوة واحدة جيدة تكفي."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 5.0},
+                {"section_id": "s2", "start": 5.0, "end": 10.0},
+                {"section_id": "s3", "start": 10.0, "end": 15.0},
+            ],
+        }
+        events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
+        self.assertIn("ابدأ بالمهمة الأصغر،", [item["text"] for item in events])
+        self.assertIn("ثم دع الزخم يكمل الطريق.", [item["text"] for item in events])
+        ass = build_rich_ass(events)
+        self.assertIn("\u2009\u2009", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertNotIn("\u202C", ass)
+        self.assertNotIn("deterministic_phrase_weighted_approximation", ass)
 
     def test_local_composition_uses_one_planning_owned_safe_zone_without_provider_calls(self) -> None:
         events = [
@@ -1391,9 +1433,17 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertGreaterEqual(len(events), 4)
-            for event in events:
-                self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
+            self.assertEqual(len(events), 3)
+            self.assertEqual(
+                [str(event["text"]) for event in events],
+                [
+                    "قد يختفي الدافع فجأة.",
+                    "لكن البداية لا تحتاج انتظارًا طويلًا.",
+                    "ابدأ بخطوة صغيرة الآن.",
+                ],
+            )
+            # Complete authored Arabic clauses are preserved even when they
+            # exceed the old 4-word display fragment cap.
 
 
 class ShortAudioPolishTests(unittest.TestCase):

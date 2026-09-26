@@ -36,8 +36,6 @@ def render_identity_composition(
         raise RuntimeError("timeline voice duration missing")
 
     width, height = ((1080, 1920) if fmt == "short" else (1920, 1080))
-    card_width = 760 if fmt == "short" else 600
-
     def bounds(kind: str) -> tuple[float, float]:
         row = _event(timeline, kind)
         start = float(row.get("start") or 0.0)
@@ -58,7 +56,8 @@ def render_identity_composition(
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
         f"trim=duration={intro_end - intro_start:.3f},"
         f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-        f"[2:v]scale={card_width}:-1,format=rgba,"
+        f"[2:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
         f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
         f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
@@ -66,7 +65,7 @@ def render_identity_composition(
         f"tpad=stop_mode=clone:stop_duration={freeze_duration:.3f},"
         f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
         f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
-        f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
+        f"[v1][prayer]overlay=0:0:"
         f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
         f"[v2][outro]overlay=0:0:"
         f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"

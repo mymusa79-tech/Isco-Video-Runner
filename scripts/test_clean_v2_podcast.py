@@ -325,6 +325,81 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertIn("&H005BA8D7", ass)
         self.assertNotIn("drawbox", ass)
 
+    def test_sparse_key_text_never_splits_sentence_at_arabic_comma(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "ابدأ بخطوة صغيرة، لأن الاستمرار أهم من الكمال."},
+                {"id": "s2", "narration": "الوضوح يصنع الفرق."},
+                {"id": "s3", "narration": "وهنا تصل الفكرة إلى نهايتها."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 40.0},
+                {"section_id": "s2", "start": 40.0, "end": 80.0},
+                {"section_id": "s3", "start": 80.0, "end": 120.0},
+            ],
+            "identity_events": [],
+        }
+        events = build_podcast_key_text_events(
+            script=script,
+            timeline=timeline,
+            fmt="film",
+        )
+        texts = [str(item["text"]) for item in events]
+        self.assertIn("ابدأ بخطوة صغيرة، لأن الاستمرار أهم من الكمال.", texts)
+        self.assertNotIn("ابدأ بخطوة صغيرة", texts)
+        ass = build_podcast_key_text_ass(events, fmt="film")
+        self.assertNotIn(r"\h", ass)
+        self.assertIn("\u2009\u2009", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertNotIn(r"\bord5", ass)
+
+    def test_film_key_text_is_sparse_large_and_separated_by_clean_gaps(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "ابدأ قبل أن تصبح الخطة عبئًا. هذه بداية التغيير."},
+                {"id": "s2", "narration": "المشكلة أن كثرة الخيارات تستهلك الانتباه. خطوة واحدة تكفي."},
+                {"id": "s3", "narration": "وهنا يظهر الفرق الحقيقي. الوضوح يسبق السرعة دائمًا."},
+                {"id": "s4", "narration": "لهذا يصبح التنفيذ أبسط. القرار الصغير يفتح الطريق."},
+                {"id": "s5", "narration": "في النهاية لا تحتاج خطة مثالية. تحتاج بداية قابلة للاستمرار."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 60.0},
+                {"section_id": "s2", "start": 60.0, "end": 120.0},
+                {"section_id": "s3", "start": 120.0, "end": 180.0},
+                {"section_id": "s4", "start": 180.0, "end": 240.0},
+                {"section_id": "s5", "start": 240.0, "end": 300.0},
+            ],
+            "identity_events": [
+                {"kind": "topic", "start": 20.0, "end": 293.4},
+                {"kind": "pre_outro_silence", "start": 293.4, "end": 294.0},
+                {"kind": "outro", "start": 294.0, "end": 299.0},
+            ],
+        }
+        events = build_podcast_key_text_events(
+            script=script,
+            timeline=timeline,
+            fmt="film",
+        )
+        self.assertGreaterEqual(len(events), 3)
+        self.assertLessEqual(len(events), 5)
+        for item in events:
+            self.assertLessEqual(len(str(item["text"]).split()), 10)
+            self.assertLessEqual(float(item["end"]) - float(item["start"]), 5.0)
+        for previous, current in zip(events, events[1:]):
+            self.assertGreaterEqual(float(current["start"]) - float(previous["end"]), 12.0)
+        self.assertLessEqual(float(events[-1]["end"]), 293.4)
+        ass = build_podcast_key_text_ass(events, fmt="film")
+        self.assertIn("PlayResX: 1920", ass)
+        self.assertIn(r"\fscx99\fscy99", ass)
+        self.assertNotIn("drawbox", ass)
+        self.assertNotIn(r"\bord5", ass)
+
     def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:
         script = {
             "sections": [

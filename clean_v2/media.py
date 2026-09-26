@@ -1122,7 +1122,7 @@ def _render_ai_still(source: Path, destination: Path, *, fmt: str) -> Path:
     """Turn one generated still into a restrained clip for the shared renderer."""
     if fmt == "short":
         width, height = 1080, 1920
-    elif fmt == "film":
+    elif fmt in {"film", "podcast"}:
         width, height = 1920, 1080
     else:
         raise RuntimeError("ai_still_render_format_unsupported")
@@ -1276,6 +1276,92 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+_VISUAL_ACTION_FAMILIES = {
+    "writing": frozenset({
+        "write", "writing", "written", "pen", "pencil", "notebook", "journal",
+        "journaling", "note", "notes", "sticky", "checklist", "planner", "planning",
+    }),
+    "screen": frozenset({
+        "laptop", "computer", "keyboard", "typing", "screen", "monitor", "desktop",
+    }),
+    "reading": frozenset({"book", "books", "reading", "read", "pages", "library"}),
+    "coffee": frozenset({"coffee", "tea", "cup", "mug", "cafe"}),
+    "phone": frozenset({"phone", "smartphone", "mobile", "scrolling", "notification"}),
+    "walking": frozenset({"walk", "walking", "steps", "street", "path", "stair", "stairs"}),
+    "movement": frozenset({"exercise", "running", "run", "training", "stretch", "gym", "movement"}),
+    "organizing": frozenset({"organize", "organizing", "sorting", "arranging", "declutter", "tidy"}),
+    "completion": frozenset({"finish", "finished", "complete", "completed", "done", "progress", "result"}),
+}
+_GENERIC_VISUAL_QUERY_TOKENS = frozenset({
+    "warm", "cinematic", "natural", "light", "lighting", "soft", "neutral",
+    "hands", "hand", "only", "face", "faces", "close", "closeup", "shot",
+    "view", "background", "foreground", "indoor", "outdoor", "person",
+})
+
+
+def _query_tokens(value: object) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(value or "").lower())
+        if len(token) > 2 and token not in _GENERIC_VISUAL_QUERY_TOKENS
+    }
+
+
+def _visual_action_family(query: object) -> str:
+    tokens = _query_tokens(query)
+    best_family = ""
+    best_hits = 0
+    for family, vocabulary in _VISUAL_ACTION_FAMILIES.items():
+        hits = len(tokens.intersection(vocabulary))
+        if hits > best_hits:
+            best_family = family
+            best_hits = hits
+    return best_family
+
+
+def _semantic_query_overlap(query: object, metadata: object) -> float:
+    wanted = _query_tokens(query)
+    if not wanted:
+        return 0.0
+    available = _query_tokens(metadata)
+    if not available:
+        return 0.0
+    return len(wanted.intersection(available)) / float(len(wanted))
+
+
+def _choose_diverse_stock_query(
+    primary: str,
+    alternatives: list[str],
+    *,
+    previous_family: str,
+    family_counts: Mapping[str, int],
+) -> tuple[str, str, bool]:
+    """Prefer an already-authored query from a different visual-action family.
+
+    No provider/model call is added. If no truly different authored query exists,
+    preserve the original query rather than inventing unrelated imagery.
+    """
+    candidates: list[str] = []
+    for raw in [primary, *alternatives]:
+        value = " ".join(str(raw or "").split()).strip()
+        if value and value not in candidates:
+            candidates.append(value)
+    if not candidates:
+        return "", "", False
+
+    primary_family = _visual_action_family(candidates[0])
+    for candidate in candidates:
+        family = _visual_action_family(candidate)
+        if not family:
+            continue
+        if family == previous_family:
+            continue
+        if int(family_counts.get(family, 0)) >= 2:
+            continue
+        return candidate, family, candidate != candidates[0]
+    return candidates[0], primary_family, False
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -1284,18 +1370,21 @@ def _stock_local_rank_score(
     height: int,
     duration: float,
     portrait: bool,
+    semantic_match: float = 0.0,
 ) -> float:
-    """Legacy-inspired local ranking over results already returned by one search."""
+    """Rank the same provider result page; no extra request or model call."""
     count = max(1, int(count))
     relevance = 1.0 - (max(0, int(index)) / count)
     orientation_ok = (height > width) if portrait else (width >= height)
     pixels = min(max(0, width * height), 1920 * 1080) / float(1920 * 1080)
     duration_fit = min(1.0, max(0.0, float(duration)) / 4.0)
+    semantic = min(1.0, max(0.0, float(semantic_match)))
     return (
-        relevance * 0.55
+        relevance * 0.47
         + (1.0 if orientation_ok else 0.0) * 0.20
-        + pixels * 0.15
-        + duration_fit * 0.10
+        + pixels * 0.13
+        + duration_fit * 0.08
+        + semantic * 0.12
     )
 
 
@@ -1355,6 +1444,129 @@ def _timeline_hook_end_seconds(output_dir: Path) -> float:
             except (TypeError, ValueError):
                 return 0.0
     return 0.0
+
+
+HOOK_MONTAGE_PROFILES = {
+    # Hook only: the normal body keeps its slower scene pacing.
+    "short": {"preferred_shot_seconds": 1.9, "min_shot_seconds": 1.5, "max_shot_seconds": 2.5, "max_shots": 3},
+    "film": {"preferred_shot_seconds": 2.4, "min_shot_seconds": 2.0, "max_shot_seconds": 3.0, "max_shots": 7},
+    "podcast": {"preferred_shot_seconds": 2.8, "min_shot_seconds": 2.5, "max_shot_seconds": 3.0, "max_shots": 5},
+}
+
+
+def _hook_montage_target(fmt: str, *, hook_seconds: float, available: int) -> int:
+    """Derive hook shot count from measured hook audio, never from a quota."""
+    profile = HOOK_MONTAGE_PROFILES.get(fmt)
+    if profile is None or available <= 1 or hook_seconds <= 0:
+        return min(available, 1)
+
+    preferred = float(profile["preferred_shot_seconds"])
+    minimum = float(profile["min_shot_seconds"])
+    maximum = float(profile["max_shot_seconds"])
+    max_shots = int(profile["max_shots"])
+
+    # Nearest natural cadence first, then keep the average shot inside the
+    # requested hook window when the available approved visuals allow it.
+    requested = max(1, int(round(hook_seconds / preferred)))
+    requested = min(max_shots, available, requested)
+    while requested < min(max_shots, available) and hook_seconds / requested > maximum:
+        requested += 1
+    while requested > 1 and hook_seconds / requested < minimum:
+        requested -= 1
+    return max(1, requested)
+
+
+def _even_story_indices(count: int, target: int) -> list[int]:
+    if count <= 0 or target <= 0:
+        return []
+    if target >= count:
+        return list(range(count))
+    if target == 1:
+        return [0]
+    return sorted({
+        int(round(position * (count - 1) / (target - 1)))
+        for position in range(target)
+    })
+
+
+def _inject_hook_cold_open(
+    paths: list[Path],
+    durations: list[float],
+    section_ids: list[str] | None,
+    *,
+    fmt: str,
+    hook_seconds: float,
+) -> tuple[list[Path], list[float], list[str] | None]:
+    """Build a zero-provider cold-open montage from already approved story visuals.
+
+    Shot count follows measured hook duration: Short aims for 1.5-2.5s shots,
+    Film 2-3s, and Podcast a calmer 2.5-3s. Film can reach 6-7 shots only when
+    the spoken hook is long enough. The original timeline resumes exactly at
+    hook_seconds, so narration-owned total duration never changes. Unique hook
+    group ids force clean hard cuts instead of dissolves; body pacing is unchanged.
+    """
+    if (
+        fmt not in {"short", "film", "podcast"}
+        or not paths
+        or len(paths) != len(durations)
+        or hook_seconds <= 0.0
+    ):
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    total = sum(max(0.0, float(item)) for item in durations)
+    hook = min(max(0.0, float(hook_seconds)), total)
+    if hook <= 0.25:
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    unique_paths: list[Path] = []
+    for path in paths:
+        if path not in unique_paths:
+            unique_paths.append(path)
+    target = _hook_montage_target(fmt, hook_seconds=hook, available=len(unique_paths))
+    if target <= 1:
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    montage_paths = [unique_paths[index] for index in _even_story_indices(len(unique_paths), target)]
+    target = len(montage_paths)
+    per_shot = hook / target
+    montage_durations = [per_shot] * target
+    montage_durations[-1] = hook - sum(montage_durations[:-1])
+
+    remainder_paths: list[Path] = []
+    remainder_durations: list[float] = []
+    remainder_ids: list[str] | None = [] if section_ids is not None else None
+    cursor = 0.0
+    for index, (path, seconds) in enumerate(zip(paths, durations)):
+        seconds = max(0.0, float(seconds))
+        end = cursor + seconds
+        if end <= hook + 1e-6:
+            cursor = end
+            continue
+        if cursor < hook < end:
+            kept = end - hook
+        else:
+            kept = seconds
+        if kept > 0.01:
+            remainder_paths.append(path)
+            remainder_durations.append(kept)
+            if remainder_ids is not None:
+                remainder_ids.append(section_ids[index])
+        cursor = end
+
+    result_ids: list[str] | None
+    if section_ids is None:
+        result_ids = None
+    else:
+        result_ids = [
+            f"hook-montage-{index + 1}"
+            for index in range(target)
+        ] + (remainder_ids or [])
+
+    return (
+        [*montage_paths, *remainder_paths],
+        [*montage_durations, *remainder_durations],
+        result_ids,
+    )
 
 
 def _enforce_short_hook_shot_cap(
@@ -1488,6 +1700,10 @@ class StockVisualSource:
                         height=height,
                         duration=duration,
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            video.get("url") or "",
+                        ),
                     ),
                     video,
                     selected,
@@ -1559,6 +1775,10 @@ class StockVisualSource:
                         height=int(item.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            hit.get("tags") or "",
+                        ),
                     ),
                 )
                 ranked.append((
@@ -1569,6 +1789,10 @@ class StockVisualSource:
                         height=int(selected.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            hit.get("tags") or "",
+                        ),
                     ),
                     hit,
                     selected,
@@ -1679,6 +1903,8 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "section_visual_query_en": primary_query,
+                    "section_visual_query_alt_en": alternate_query,
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
@@ -1892,6 +2118,10 @@ class StockVisualSource:
                     beat.get("source_preference") or "stock_motion"
                 )
                 candidate["source_actual"] = "stock_motion"
+                candidate["visual_action_family"] = beat.get("visual_action_family")
+                candidate["query_diversity_rewritten"] = bool(
+                    beat.get("query_diversity_rewritten")
+                )
                 if auxiliary:
                     # Keep this compatibility flag because existing render/opening
                     # code uses it to distinguish the first section visual. Its cause
@@ -1904,16 +2134,37 @@ class StockVisualSource:
             return False
 
         seen_sections: set[str] = set()
-        for beat in beats:
+        previous_visual_family = ""
+        visual_family_counts: dict[str, int] = {}
+        for raw_beat in beats:
+            beat = dict(raw_beat)
             section_id = str(beat.get("section_id") or "")
-            query = str(beat.get("stock_query_en") or "").strip()
+            primary_query = str(beat.get("stock_query_en") or "").strip()
+            shot_intent = str(beat.get("shot_intent") or "").strip()
+            alternatives = [
+                str(beat.get("section_visual_query_alt_en") or "").strip(),
+                str(beat.get("section_visual_query_en") or "").strip(),
+            ]
+            if shot_intent.isascii() and any(char.isalpha() for char in shot_intent):
+                alternatives.append(shot_intent)
+            query, family, rewritten = _choose_diverse_stock_query(
+                primary_query,
+                alternatives,
+                previous_family=previous_visual_family,
+                family_counts=visual_family_counts,
+            )
             if not query:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+            beat["query_diversity_rewritten"] = rewritten
+            beat["visual_action_family"] = family or None
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
+                if family:
+                    visual_family_counts[family] = visual_family_counts.get(family, 0) + 1
+                    previous_visual_family = family
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
@@ -3237,12 +3488,14 @@ def render_video(
         paths = [Path(item) for item in visual_paths]
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
-    if fmt == "short":
-        short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
-        paths, durations = _enforce_short_hook_shot_cap(
+    body_section_ids_override: list[str] | None = None
+    if not opening_enabled and fmt in {"short", "film", "podcast"}:
+        current_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
+        paths, durations, body_section_ids_override = _inject_hook_cold_open(
             paths,
             durations,
-            short_section_ids,
+            current_section_ids,
+            fmt=fmt,
             hook_seconds=_timeline_hook_end_seconds(Path(output_path).parent),
         )
 
@@ -3263,7 +3516,11 @@ def render_video(
         shutil.rmtree(work_dir, ignore_errors=True)
     try:
         if body_paths_for_render:
-            body_section_ids = _pacing_section_ids(output_dir, body_paths_for_render)
+            body_section_ids = (
+                body_section_ids_override
+                if body_section_ids_override is not None and opening_count == 0
+                else _pacing_section_ids(output_dir, body_paths_for_render)
+            )
             body_segments = _build_section_body_segments(
                 work_dir,
                 body_paths_for_render,
