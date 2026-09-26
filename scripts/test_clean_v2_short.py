@@ -1232,13 +1232,16 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn("\u202B", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(549,1411)", ass)
+        self.assertIn(r"\pos(544,1405)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
     def test_complete_arabic_caption_keeps_every_authored_word_in_two_lines(self) -> None:
         text = "هذه الجملة العربية الكاملة يجب أن تظهر بوضوح دون حذف أي كلمة منها"
-        events = [{"start": 0.0, "end": 4.0, "text": text, "role": "hook"}]
+        events = [
+            {"start": 0.0, "end": 4.0, "text": text, "role": "hook"},
+            {"start": 4.0, "end": 5.5, "text": "المعنى يصل كاملًا", "role": "payoff"},
+        ]
         ass = build_rich_ass(events)
         for word in text.split():
             self.assertIn(word, ass)
