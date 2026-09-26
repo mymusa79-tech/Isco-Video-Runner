@@ -196,6 +196,25 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("glossy, airy lifestyle-ad bright", prompt)
             self.assertIn("generic coffee/laptop mood shots", prompt)
 
+    def test_each_format_has_distinct_visual_grammar_inside_one_channel_identity(self) -> None:
+        short_prompt = " ".join(_planning_prompt(_brief("short")).split())
+        film_prompt = " ".join(_planning_prompt(_brief("film")).split())
+        podcast_prompt = " ".join(_planning_prompt(_brief("podcast")).split())
+
+        for prompt in (short_prompt, film_prompt, podcast_prompt):
+            self.assertIn("Use mature brightness rather than glow", prompt)
+            self.assertIn("avoid a permanent golden-hour wash", prompt)
+            self.assertIn("warm gold appear as a controlled accent", prompt)
+
+        self.assertIn("FORMAT VISUAL PROFILE — SHORT", short_prompt)
+        self.assertIn("quicker visible state changes", short_prompt)
+        self.assertIn("FORMAT VISUAL PROFILE — FILM", film_prompt)
+        self.assertIn("wider lived-in environments", film_prompt)
+        self.assertIn("FORMAT VISUAL PROFILE — PODCAST", podcast_prompt)
+        self.assertIn("thoughtful room around the voice", podcast_prompt)
+        self.assertNotIn("FORMAT VISUAL PROFILE — PODCAST", short_prompt)
+        self.assertNotIn("FORMAT VISUAL PROFILE — SHORT", podcast_prompt)
+
     def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
         prompt = " ".join(_planning_prompt(_brief("podcast")).split())
         self.assertIn("credible contemporary Arab/Middle-Eastern environment", prompt)
