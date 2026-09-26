@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -55,6 +56,21 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         )
         (out / "run-manifest.json").write_text(
             json.dumps({"status": "pass", "topic": "موضوع الاختبار"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (out / "cover.jpg").write_bytes(b"cover-bytes")
+        (out / "plan.json").write_text(
+            json.dumps(
+                {
+                    "title": "عنوان الاختبار",
+                    "promise": "وعد واضح ومفيد",
+                    "sections": [
+                        {"id": "s1", "heading": "البداية", "cover_text": "ابدأ هنا"},
+                        {"id": "s2", "heading": "التحول", "cover_text": "الفكرة الأهم"},
+                    ],
+                },
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
         return out
