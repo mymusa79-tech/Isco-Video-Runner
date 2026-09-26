@@ -1122,7 +1122,7 @@ def _render_ai_still(source: Path, destination: Path, *, fmt: str) -> Path:
     """Turn one generated still into a restrained clip for the shared renderer."""
     if fmt == "short":
         width, height = 1080, 1920
-    elif fmt == "film":
+    elif fmt in {"film", "podcast"}:
         width, height = 1920, 1080
     else:
         raise RuntimeError("ai_still_render_format_unsupported")
