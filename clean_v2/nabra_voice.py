@@ -13,7 +13,14 @@ NABRA_ONSET_FADE_MS = 25
 # Kokoro raw-phoneme inference is bounded below its 510-character model limit.
 NABRA_MAX_INFER_CHARS = 500
 NABRA_FRAGMENT_TARGET_CHARS = 440
-NABRA_REFERENCE_PROFILE = "nabra-82m-v0.1:af_msa:0.87:native-pauses-v1"
+# Exact listener reference supplied again on 2026-09-27.
+# The WAV itself is not required at runtime; these constants make the intended
+# acoustic target reviewable and regression-testable without adding a new layer.
+NABRA_REFERENCE_PROFILE = "nabra-82m-v0.1:af_msa:0.87:reference-01-v2"
+NABRA_REFERENCE_SHA256 = "d367a96f13ebffa1162a446241a8bc56475ec1fac6f54b126ecefe903e3e5554"
+NABRA_REFERENCE_DURATION_SECONDS = 13.95
+NABRA_REFERENCE_INTEGRATED_LUFS = -17.04
+NABRA_REFERENCE_TRUE_PEAK_DBTP = -1.50
 
 _PUNCTUATION_CHARS = set(",.;:!?،؛؟…—")
 _TASHKEEL_RE = re.compile("[ً-ْٰ]")
@@ -40,7 +47,9 @@ def _diacritize_preserving_explicit_marks(frontend: Any, text: str) -> str:
     if not has_explicit:
         return candidate
     if len(source_tokens) != len(candidate_tokens):
-        return source
+        # Never fall back to sparsely-vowelled source text. Full contextual MSA
+        # diacritization is safer and closer to the approved Nabra reference.
+        return candidate
 
     merged = [
         original if _TASHKEEL_RE.search(original) else generated
@@ -55,19 +64,31 @@ def _lexical_only(value: str) -> str:
     )
 
 
-def _native_pause_marker(role: str, *, final: bool) -> str:
-    """Return only model-native Kokoro punctuation; never external silence.
+def _native_pause_marker(text: str, *, final: bool) -> str:
+    """Keep pause timing writer-owned and model-native.
 
-    The listener-approved 0.87 probe used a stronger structural beat at major
-    idea boundaries while keeping prayer/identity transitions short and fluid.
+    The approved reference breathes from ordinary punctuation, not from
+    role-specific dramatic markers. Preserve the terminal mark when present;
+    otherwise use only a light comma between units and a normal period at end.
     """
-    if final:
+    source = str(text or "").rstrip()
+    if source.endswith("…"):
         return "…"
-    if role == "hook":
-        return "… —"
-    if role in {"prayer", "channel_identity"}:
-        return ","
-    return "…"
+    if source:
+        marker = {
+            "،": ",",
+            ",": ",",
+            "؛": ";",
+            ";": ";",
+            ":": ",",
+            ".": ".",
+            "؟": "?",
+            "?": "?",
+            "!": "!",
+        }.get(source[-1])
+        if marker:
+            return marker
+    return "." if final else ","
 
 
 def _strip_terminal_model_punctuation(phonemes: str) -> str:
@@ -114,7 +135,7 @@ class NabraVoiceSynthesizer:
     Contract:
     - af_msa at native model speed 0.87;
     - one inference when the narration fits Kokoro; otherwise the fewest bounded passes;
-    - model-native punctuation pauses only (no inserted waveform silence);
+    - writer-owned, model-native punctuation pauses only (no inserted waveform silence);
     - one global 25 ms onset fade, never one fade per sentence/chunk;
     - no EQ/compressor/tempo/pitch processing here.
     """
@@ -311,7 +332,7 @@ class NabraVoiceSynthesizer:
                 is_part_final = fragment_index == len(split_fragments) - 1
                 marker = (
                     _native_pause_marker(
-                        item["role"],
+                        item["text"],
                         final=part_index == len(normalized) - 1,
                     )
                     if is_part_final
@@ -618,6 +639,10 @@ class NabraVoiceSynthesizer:
         return {
             "path": output_path,
             "profile": NABRA_REFERENCE_PROFILE,
+            "reference_sha256": NABRA_REFERENCE_SHA256,
+            "reference_duration_seconds": NABRA_REFERENCE_DURATION_SECONDS,
+            "reference_integrated_lufs": NABRA_REFERENCE_INTEGRATED_LUFS,
+            "reference_true_peak_dbtp": NABRA_REFERENCE_TRUE_PEAK_DBTP,
             "voice": NABRA_VOICE,
             "speed": NABRA_SPEED,
             "sample_rate": NABRA_SAMPLE_RATE,
@@ -629,6 +654,7 @@ class NabraVoiceSynthesizer:
             "external_silence_insertions": 0,
             "tempo_or_pitch_change": False,
             "native_pause_tokens": True,
+            "writer_owned_pause_punctuation": True,
             "msa_diacritizer": "camel-tools:calima-msa-r13",
             "msa_diacritizer_available": bool(self._msa_diacritizer_available),
             "sparse_writer_tashkeel_preserved": True,
