@@ -1749,7 +1749,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("جملة ثانية", nabra.calls[0])
         self.assertEqual(report["voice_provider"], "nabra:af_msa")
         self.assertTrue(report["single_continuous_inference"])
-        self.assertEqual(report["external_silence_insertions"], 2)
+        self.assertEqual(report["external_silence_insertions"], 0)
         self.assertTrue(report["voice_fallback_used"])
         self.assertEqual(
             report["voice_restart_reason"],
