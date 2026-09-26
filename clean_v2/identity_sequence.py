@@ -19,9 +19,24 @@ _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
-    "short": {"intro_silence_seconds": 1.0, "final_silence_seconds": 0.75},
-    "film": {"intro_silence_seconds": 1.25, "final_silence_seconds": 1.0},
-    "podcast": {"intro_silence_seconds": 1.25, "final_silence_seconds": 1.0},
+    "short": {
+        "intro_silence_seconds": 1.0,
+        "pre_outro_silence_seconds": 0.45,
+        "outro_silence_seconds": 2.0,
+        "final_silence_seconds": 0.75,
+    },
+    "film": {
+        "intro_silence_seconds": 1.25,
+        "pre_outro_silence_seconds": 0.60,
+        "outro_silence_seconds": 3.0,
+        "final_silence_seconds": 1.0,
+    },
+    "podcast": {
+        "intro_silence_seconds": 1.25,
+        "pre_outro_silence_seconds": 0.60,
+        "outro_silence_seconds": 3.0,
+        "final_silence_seconds": 1.0,
+    },
 }
 
 
