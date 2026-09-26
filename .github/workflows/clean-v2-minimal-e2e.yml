@@ -25,6 +25,7 @@ on:
       - "scripts/test_clean_v2_podcast.py"
       - "scripts/test_clean_v2_ai_still.py"
       - "scripts/test_clean_v2_timeline_first.py"
+      - "scripts/test_cover_lite.py"
       - "scripts/test_director_layout_tightening_v1.py"
       - "scripts/telegram_clean_v2_notify.py"
       - "scripts/test_telegram_clean_v2_notify.py"
@@ -92,6 +93,7 @@ jobs:
             scripts.test_clean_v2_podcast \
             scripts.test_clean_v2_ai_still \
             scripts.test_clean_v2_timeline_first \
+            scripts.test_cover_lite \
             scripts.test_director_layout_tightening_v1 \
             scripts.test_telegram_clean_v2_notify \
             scripts.test_telegram_clean_v2_control \
