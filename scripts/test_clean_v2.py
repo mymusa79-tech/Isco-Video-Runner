@@ -205,7 +205,8 @@ class PlanningCardinalityTests(unittest.TestCase):
         self.assertIn("Do not mix obvious neon/night/cold-blue looks", prompt)
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
-        self.assertIn("avoid empty walls, flat generic desks", prompt)
+        self.assertIn("avoid empty walls", prompt)
+        self.assertIn("flat generic desks", prompt)
         self.assertIn("left or lower-left", prompt)
         self.assertIn("upper-right for", prompt)
 
