@@ -19,13 +19,24 @@ _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
-    # Charon has no model timing metadata, so these are only small visual breathing
-    # gaps between independently synthesized identity units. Keep them short enough
-    # to feel like natural punctuation, not inserted silence. Nabra does not use
-    # these values; its pause duration is model-native and measured from pred_dur.
-    "short": {"intro_silence_seconds": 0.35, "final_silence_seconds": 0.35},
-    "film": {"intro_silence_seconds": 0.45, "final_silence_seconds": 0.45},
-    "podcast": {"intro_silence_seconds": 0.45, "final_silence_seconds": 0.45},
+    # Structural breathing is deliberate and provider-independent. It is inserted
+    # only at major opening boundaries, never inside ordinary Nabra/Charon speech.
+    # Long-form gets slightly more room than Shorts without becoming sluggish.
+    "short": {
+        "intro_silence_seconds": 0.60,
+        "pre_topic_silence_seconds": 0.35,
+        "final_silence_seconds": 0.35,
+    },
+    "film": {
+        "intro_silence_seconds": 0.70,
+        "pre_topic_silence_seconds": 0.45,
+        "final_silence_seconds": 0.45,
+    },
+    "podcast": {
+        "intro_silence_seconds": 0.70,
+        "pre_topic_silence_seconds": 0.45,
+        "final_silence_seconds": 0.45,
+    },
 }
 
 

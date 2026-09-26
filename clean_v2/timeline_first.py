@@ -200,10 +200,13 @@ def _identity_events(
     identity = _one_role(units, "channel_identity")
     outro = _one_role(units, "outro")
     intro_silence = _one_role(units, "intro_silence")
+    pre_topic_silence = _one_role(units, "pre_topic_silence")
     final_silence = _one_role(units, "final_silence")
 
     identity_missing_silence = fmt in {"short", "film", "podcast"} and (
-        intro_silence is None or final_silence is None
+        intro_silence is None
+        or pre_topic_silence is None
+        or final_silence is None
     )
     if require_identity and (
         hook is None
@@ -216,14 +219,16 @@ def _identity_events(
             "TIMELINE_FIRST_IDENTITY_AUDIO_BOUNDS_MISSING "
             f"hook={hook is not None} prayer={prayer is not None} "
             f"identity={identity is not None} outro={outro is not None} "
-            f"intro_silence={intro_silence is not None} final_silence={final_silence is not None}"
+            f"intro_silence={intro_silence is not None} "
+            f"pre_topic_silence={pre_topic_silence is not None} "
+            f"final_silence={final_silence is not None}"
         )
     if prayer is None or identity is None:
         return []
 
     intro_start = float(intro_silence["start"])
     intro_end = float(intro_silence["end"])
-    topic_start = float(identity["end"])
+    topic_start = float(pre_topic_silence["end"])
     final_silence_start = (
         float(final_silence["start"])
         if fmt in {"short", "film", "podcast"} and final_silence is not None
@@ -266,6 +271,12 @@ def _identity_events(
                 "source": "measured_voice_chunk",
                 "start": float(identity["start"]),
                 "end": float(identity["end"]),
+            },
+            {
+                "kind": "pre_topic_silence",
+                "source": "measured_structural_silence",
+                "start": float(pre_topic_silence["start"]),
+                "end": float(pre_topic_silence["end"]),
             },
         ]
     )

@@ -416,7 +416,7 @@ def _synthesize_continuous_nabra_voice(
     identity_closer: str,
     podcast_promo: Mapping[str, str] | None,
 ) -> dict[str, Any]:
-    """One Nabra inference for the full narration, with native pause timing only."""
+    """Keep Nabra speech continuous, adding silence only at major identity boundaries."""
     synthesize_continuous = getattr(
         voice_synthesizer,
         "synthesize_nabra_continuous",
@@ -443,6 +443,11 @@ def _synthesize_continuous_nabra_voice(
     if not isinstance(marks, list) or len(marks) != len(units):
         raise RuntimeError("nabra_continuous_timing_marks_invalid")
 
+    timing = identity_timing_profile(fmt) if fmt in IDENTITY_TIMELINE_FORMATS else None
+    native_source = narration_path.with_name(".narration-nabra-native.wav")
+    native_source.unlink(missing_ok=True)
+    shutil.copyfile(narration_path, native_source)
+
     audio_dir = narration_path.parent / "audio"
     shutil.rmtree(audio_dir, ignore_errors=True)
     audio_dir.mkdir(parents=True, exist_ok=True)
@@ -450,9 +455,36 @@ def _synthesize_continuous_nabra_voice(
     unit_dir.mkdir(parents=True, exist_ok=True)
 
     chunk_rows_by_section: dict[str, list[dict[str, Any]]] = {}
-    section_bounds: dict[str, list[float]] = {}
+    chunk_paths_by_section: dict[str, list[Path]] = {}
+    ordered_chunk_paths: list[Path] = []
     global_chunk = 0
     last_index = len(units) - 1
+
+    def register_path(
+        *,
+        section_id: str,
+        role: str,
+        path: Path,
+        provider: str,
+        chars: int,
+    ) -> None:
+        nonlocal global_chunk
+        row = {
+            "chunk": global_chunk,
+            "file": str(path.relative_to(narration_path.parent)),
+            "chars": chars,
+            "provider": provider,
+            "charon_attempts": 0,
+            "fallback_used": bool(
+                getattr(voice_synthesizer, "fallback_used", False)
+            ),
+            "role": role,
+            "native_pause": provider == "nabra_native_pause",
+            "structural_silence": provider == "deterministic_silence",
+        }
+        chunk_rows_by_section.setdefault(section_id, []).append(row)
+        chunk_paths_by_section.setdefault(section_id, []).append(path)
+        ordered_chunk_paths.append(path)
 
     def add_slice(
         *,
@@ -466,27 +498,36 @@ def _synthesize_continuous_nabra_voice(
         global_chunk += 1
         path = unit_dir / f"{global_chunk:03d}-{role}.wav"
         _write_wav_slice(
-            narration_path,
+            native_source,
             path,
             start_seconds=start,
             end_seconds=end,
         )
-        row = {
-            "chunk": global_chunk,
-            "file": str(path.relative_to(narration_path.parent)),
-            "chars": 0 if role in {"intro_silence", "final_silence"} else 1,
-            "provider": provider,
-            "charon_attempts": 0,
-            "fallback_used": bool(
-                getattr(voice_synthesizer, "fallback_used", False)
-            ),
-            "role": role,
-            "native_pause": provider == "nabra_native_pause",
-        }
-        chunk_rows_by_section.setdefault(section_id, []).append(row)
-        bounds = section_bounds.setdefault(section_id, [start, end])
-        bounds[0] = min(bounds[0], start)
-        bounds[1] = max(bounds[1], end)
+        register_path(
+            section_id=section_id,
+            role=role,
+            path=path,
+            provider=provider,
+            chars=0 if role in {"intro_silence", "pre_topic_silence", "final_silence"} else 1,
+        )
+
+    def add_silence(
+        *,
+        section_id: str,
+        role: str,
+        seconds: float,
+    ) -> None:
+        nonlocal global_chunk
+        global_chunk += 1
+        path = unit_dir / f"{global_chunk:03d}-{role}.wav"
+        _write_silence_like(native_source, path, seconds)
+        register_path(
+            section_id=section_id,
+            role=role,
+            path=path,
+            provider="deterministic_silence",
+            chars=0,
+        )
 
     for index, (unit, mark) in enumerate(zip(units, marks)):
         if not isinstance(mark, Mapping):
@@ -502,7 +543,7 @@ def _synthesize_continuous_nabra_voice(
 
         section_id = unit["section_id"]
         role = unit["role"]
-        if role == "hook":
+        if role == "hook" and timing is not None:
             add_slice(
                 section_id=section_id,
                 role="hook",
@@ -510,12 +551,23 @@ def _synthesize_continuous_nabra_voice(
                 end=speech_end,
                 provider="nabra:af_msa",
             )
-            add_slice(
+            add_silence(
                 section_id=section_id,
                 role="intro_silence",
-                start=speech_end,
-                end=pause_end,
-                provider="nabra_native_pause",
+                seconds=timing["intro_silence_seconds"],
+            )
+        elif role == "channel_identity" and timing is not None:
+            add_slice(
+                section_id=section_id,
+                role=role,
+                start=start,
+                end=speech_end,
+                provider="nabra:af_msa",
+            )
+            add_silence(
+                section_id=section_id,
+                role="pre_topic_silence",
+                seconds=timing["pre_topic_silence_seconds"],
             )
         elif index == last_index:
             add_slice(
@@ -533,7 +585,7 @@ def _synthesize_continuous_nabra_voice(
                 provider="nabra_native_pause",
             )
         else:
-            # Keep each ordinary native pause attached to the spoken unit.
+            # Ordinary sentence breathing remains exactly Nabra's native punctuation.
             add_slice(
                 section_id=section_id,
                 role=role,
@@ -546,18 +598,17 @@ def _synthesize_continuous_nabra_voice(
     section_ids = [str(item.get("id") or f"s{i}") for i, item in enumerate(sections, 1)]
     for section_index, section_id in enumerate(section_ids, start=1):
         rows = chunk_rows_by_section.get(section_id) or []
-        bounds = section_bounds.get(section_id)
-        if not rows or bounds is None:
+        paths = chunk_paths_by_section.get(section_id) or []
+        if not rows or not paths:
             raise RuntimeError(
                 f"nabra_continuous_section_timing_missing:{section_id}"
             )
         section_path = audio_dir / f"{section_index:02d}.wav"
-        _write_wav_slice(
-            narration_path,
-            section_path,
-            start_seconds=bounds[0],
-            end_seconds=bounds[1],
-        )
+        concat_wav_parts(paths, section_path)
+        if not section_path.is_file() or section_path.stat().st_size < 1024:
+            raise RuntimeError(
+                f"nabra_continuous_section_concat_failed:{section_id}"
+            )
         reports.append(
             {
                 "id": section_id,
@@ -572,6 +623,14 @@ def _synthesize_continuous_nabra_voice(
             }
         )
 
+    assembled = narration_path.with_name(".narration-structural-breaths.wav")
+    assembled.unlink(missing_ok=True)
+    concat_wav_parts(ordered_chunk_paths, assembled)
+    if not assembled.is_file() or assembled.stat().st_size < 1024:
+        raise RuntimeError("nabra_structural_breaths_concat_failed")
+    os.replace(assembled, narration_path)
+    native_source.unlink(missing_ok=True)
+
     continuous_report = {
         "voice_provider": "nabra:af_msa",
         "voice_fallback_used": bool(
@@ -581,7 +640,7 @@ def _synthesize_continuous_nabra_voice(
             getattr(voice_synthesizer, "charon_attempts", 0) or 0
         ),
         "voice_roles": {
-            "mode": "continuous_nabra_native_pauses",
+            "mode": "continuous_nabra_structural_breaths",
             "sections": reports,
         },
         "voice_approval_status": getattr(
@@ -593,22 +652,28 @@ def _synthesize_continuous_nabra_voice(
         "single_continuous_inference": bool(
             result.get("single_continuous_inference", False)
         ),
-        "continuous_narration_stream": bool(
-            result.get("continuous_narration_stream", True)
-        ),
+        "continuous_narration_stream": True,
         "inference_passes": int(result.get("inference_passes", 1) or 1),
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
-        "external_silence_insertions": 0,
+        "external_silence_insertions": 2 if timing is not None else 0,
+        "structural_silence_seconds": (
+            {
+                "after_hook": timing["intro_silence_seconds"],
+                "before_topic": timing["pre_topic_silence_seconds"],
+            }
+            if timing is not None
+            else {}
+        ),
         "tempo_or_pitch_change": False,
         "sections": reports,
     }
     atomic_write_json(
         narration_path.parent / "voice-sections.json",
         {
-            "schema_version": 2,
-            "source": "clean-v2-continuous-nabra-native-pauses",
+            "schema_version": 3,
+            "source": "clean-v2-continuous-nabra-structural-breaths",
             "status": "pass",
             **continuous_report,
         },
@@ -917,6 +982,30 @@ def _synthesize_sectioned_voice(
                         "charon_attempts": 0,
                         "fallback_used": False,
                         "role": "intro_silence",
+                    }
+                )
+            elif (
+                fmt in IDENTITY_TIMELINE_FORMATS
+                and index == 1
+                and role == "channel_identity"
+            ):
+                timing = identity_timing_profile(fmt)
+                silence_path = chunk_path.parent / "pre-topic-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    silence_path,
+                    timing["pre_topic_silence_seconds"],
+                )
+                chunk_paths.append(silence_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "pre_topic_silence",
                     }
                 )
 
@@ -3428,6 +3517,7 @@ def _run_audio_mastering_stage(
                 "intro_silence_with_fully_opaque_intro",
                 "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
+                "pre_topic_structural_silence",
                 "topic_music_window",
                 "outro_no_music_fully_opaque",
                 "final_silence_freeze",

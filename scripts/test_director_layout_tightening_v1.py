@@ -329,7 +329,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             {"calm-sketch-piano", "acoustic-shifter", "wonder-flow"},
         )
         self.assertEqual(repeated_report["catalog_track_count"], 9)
-        self.assertEqual((audio_module.MUSIC_MIN_REL_DB, audio_module.MUSIC_TARGET_REL_DB, audio_module.MUSIC_MAX_REL_DB), (-25.0, -22.0, -20.0))
+        self.assertEqual((audio_module.MUSIC_MIN_REL_DB, audio_module.MUSIC_TARGET_REL_DB, audio_module.MUSIC_MAX_REL_DB), (-21.0, -19.0, -17.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["film"], (-20.0, -22.0, -18.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-21.0, -23.0, -19.0))
+        self.assertEqual(audio_module.POST_MIX_LIMITER_LINEAR, 0.84)
 
     def test_rule_8b_music_studio_has_distinct_format_pools_without_provider_calls(self) -> None:
         catalog = load_catalog()
@@ -365,7 +368,8 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                             {"kind": "hook", "start": 0.0, "end": 4.0},
                             {"kind": "intro", "start": 4.0, "end": 5.0},
                             {"kind": "prayer", "start": 5.0, "end": 7.0},
-                            {"kind": "channel_identity", "start": 7.0, "end": 10.0},
+                            {"kind": "channel_identity", "start": 7.0, "end": 9.65},
+                            {"kind": "pre_topic_silence", "start": 9.65, "end": 10.0},
                             {"kind": "topic", "start": 10.0, "end": 28.0},
                             {"kind": "outro", "start": 28.0, "end": 30.0},
                             {"kind": "final_silence", "start": 30.0, "end": 30.75},
