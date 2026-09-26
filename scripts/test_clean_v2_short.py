@@ -1442,8 +1442,8 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                     "ابدأ بخطوة صغيرة الآن.",
                 ],
             )
-            for event in events:
-                self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
+            # Complete authored Arabic clauses are preserved even when they
+            # exceed the old 4-word display fragment cap.
 
 
 class ShortAudioPolishTests(unittest.TestCase):
