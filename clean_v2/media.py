@@ -1446,16 +1446,34 @@ def _timeline_hook_end_seconds(output_dir: Path) -> float:
     return 0.0
 
 
+HOOK_MONTAGE_PROFILES = {
+    # Hook only: the normal body keeps its slower scene pacing.
+    "short": {"preferred_shot_seconds": 1.9, "min_shot_seconds": 1.5, "max_shot_seconds": 2.5, "max_shots": 3},
+    "film": {"preferred_shot_seconds": 2.4, "min_shot_seconds": 2.0, "max_shot_seconds": 3.0, "max_shots": 7},
+    "podcast": {"preferred_shot_seconds": 2.8, "min_shot_seconds": 2.5, "max_shot_seconds": 3.0, "max_shots": 5},
+}
+
+
 def _hook_montage_target(fmt: str, *, hook_seconds: float, available: int) -> int:
-    if available <= 1 or hook_seconds <= 0:
+    """Derive hook shot count from measured hook audio, never from a quota."""
+    profile = HOOK_MONTAGE_PROFILES.get(fmt)
+    if profile is None or available <= 1 or hook_seconds <= 0:
         return min(available, 1)
-    if fmt == "short":
-        requested = 3 if hook_seconds >= 4.2 else 2
-    elif fmt == "film":
-        requested = 7 if hook_seconds >= 6.0 else 6
-    else:
-        return 1
-    return max(1, min(requested, available))
+
+    preferred = float(profile["preferred_shot_seconds"])
+    minimum = float(profile["min_shot_seconds"])
+    maximum = float(profile["max_shot_seconds"])
+    max_shots = int(profile["max_shots"])
+
+    # Nearest natural cadence first, then keep the average shot inside the
+    # requested hook window when the available approved visuals allow it.
+    requested = max(1, int(round(hook_seconds / preferred)))
+    requested = min(max_shots, available, requested)
+    while requested < min(max_shots, available) and hook_seconds / requested > maximum:
+        requested += 1
+    while requested > 1 and hook_seconds / requested < minimum:
+        requested -= 1
+    return max(1, requested)
 
 
 def _even_story_indices(count: int, target: int) -> list[int]:
@@ -1481,13 +1499,14 @@ def _inject_hook_cold_open(
 ) -> tuple[list[Path], list[float], list[str] | None]:
     """Build a zero-provider cold-open montage from already approved story visuals.
 
-    Short uses 2-3 quick story teasers; Film uses up to 6-7. The original
-    timeline resumes exactly at hook_seconds, so narration-owned total duration
-    never changes. Unique hook group ids force clean hard cuts instead of
-    dissolves, while the body keeps its normal section transitions.
+    Shot count follows measured hook duration: Short aims for 1.5-2.5s shots,
+    Film 2-3s, and Podcast a calmer 2.5-3s. Film can reach 6-7 shots only when
+    the spoken hook is long enough. The original timeline resumes exactly at
+    hook_seconds, so narration-owned total duration never changes. Unique hook
+    group ids force clean hard cuts instead of dissolves; body pacing is unchanged.
     """
     if (
-        fmt not in {"short", "film"}
+        fmt not in {"short", "film", "podcast"}
         or not paths
         or len(paths) != len(durations)
         or hook_seconds <= 0.0
@@ -3470,7 +3489,7 @@ def render_video(
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     body_section_ids_override: list[str] | None = None
-    if not opening_enabled and fmt in {"short", "film"}:
+    if not opening_enabled and fmt in {"short", "film", "podcast"}:
         current_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
         paths, durations, body_section_ids_override = _inject_hook_cold_open(
             paths,
