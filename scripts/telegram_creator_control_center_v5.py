@@ -33,18 +33,18 @@ def _main_keyboard() -> list[list[dict[str, Any]]]:
     ]
 
 
+
 def _menu_text() -> str:
     return (
-        "🏠 نداء اليقظة — مركز التحكم\n\n"
-        "اختر ما تريد إنجازه الآن:\n"
-        "🔎 بحث — فرص جديدة للحلقة أو الشورت.\n"
-        "📚 المواضيع — المحفوظة والمستعملة.\n"
-        "🎁 آخر إنتاج — أحدث حزم التسليم.\n"
-        "📈 الإحصائيات — أداء القناة وأحدث المحتوى.\n"
-        "🧭 الحالة — ماذا يحدث الآن وهل يلزمك إجراء.\n\n"
-        "🔐 اعتماد الفكرة لا يبدأ Production؛ التشغيل يحتاج تأكيدًا نصيًا صريحًا."
+        "🏠 نداء اليقظة\n\n"
+        "اختر ما تريد:\n"
+        "🔎 البحث — أفكار جديدة.\n"
+        "📚 المواضيع — محفوظة أو استُخدمت.\n"
+        "🎁 آخر إنتاج — أحدث ملف جاهز.\n"
+        "📈 الإحصائيات — أداء القناة.\n"
+        "🧭 الحالة — ما الذي يحدث الآن؟\n\n"
+        "الاختيار وحده لا يبدأ الإنتاج."
     )
-
 
 def _search_keyboard() -> list[list[dict[str, Any]]]:
     return [
@@ -64,18 +64,15 @@ def _search_text() -> str:
     )
 
 
+
 def _library_overview(state: dict[str, Any]) -> tuple[str, list[list[dict[str, Any]]]]:
     saved = active._available_saved(state)
     used = active._used_topics(state)
-    saved_long = sum(1 for item in saved if str(item.get("kind") or "") == "long")
-    saved_short = sum(1 for item in saved if str(item.get("kind") or "") == "short")
-    used_long = sum(1 for item in used if str(item.get("kind") or "") == "long")
-    used_short = sum(1 for item in used if str(item.get("kind") or "") == "short")
     text = (
-        "📚 مكتبة المواضيع\n\n"
-        f"📥 محفوظة: {len(saved)}  ·  🎬 {saved_long} حلقات  ·  ⚡ {saved_short} Shorts\n"
-        f"✅ مستعملة: {len(used)}  ·  🎬 {used_long} حلقات  ·  ⚡ {used_short} Shorts\n\n"
-        "افتح القسم الذي تحتاجه؛ كل نوع يبقى في قائمة مستقلة."
+        "📚 المواضيع\n\n"
+        f"📥 محفوظة: {len(saved)}\n"
+        f"✅ استُخدمت: {len(used)}\n\n"
+        "اختر القائمة التي تريد فتحها."
     )
     rows = [
         [
@@ -85,7 +82,6 @@ def _library_overview(state: dict[str, Any]) -> tuple[str, list[list[dict[str, A
         [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
     ]
     return text, rows
-
 
 def _stats_keyboard() -> list[list[dict[str, Any]]]:
     return [
@@ -102,13 +98,13 @@ def _stats_keyboard() -> list[list[dict[str, Any]]]:
     ]
 
 
+
 def _stats_text() -> str:
     return (
-        "📈 أداء القناة\n\n"
-        "ابدأ بالنظرة العامة، أو افتح أحدث فيديو/Short، أو حركة اليوم والأسبوع.\n"
-        "CTR والاحتفاظ ومدة المشاهدة التفصيلية تبقى في YouTube Studio."
+        "📈 الإحصائيات\n\n"
+        "اختر نظرة عامة، أحدث فيديو/Short، أو أداء اليوم والأسبوع.\n"
+        "التفاصيل الدقيقة مثل CTR والاحتفاظ تبقى في YouTube Studio."
     )
-
 
 def _release_rows(release: dict[str, Any] | None, *, short: bool) -> list[dict[str, Any]]:
     if not isinstance(release, dict):
@@ -219,6 +215,7 @@ def _ready_research_session(state: dict[str, Any]) -> dict[str, Any] | None:
     return session
 
 
+
 def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[dict[str, Any]]]]:
     pending = research_status.pending_research(state)
     target = active._current_target(state)
@@ -228,67 +225,59 @@ def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[di
 
     if pending is not None:
         kind = "الحلقة" if str(pending.get("kind") or "") == "long" else "الشورت"
-        attempts = int(pending.get("attempts", 0) or 0)
-        now = f"🔎 بحث {kind} قيد التنفيذ أو الانتظار."
-        if attempts:
-            now += f"\nالمحاولة المنفذة: {attempts}/3."
-        action = "لا شيء الآن — نفس بطاقة البحث ستتحدث عند النجاح أو إعادة المحاولة."
+        now = f"🔎 بحث {kind} جارٍ."
+        action = "لا يلزمك شيء الآن — نفس بطاقة البحث ستتحدث عند اكتماله."
     elif active_production is not None:
-        status = str(active_production.get("status") or "")
-        if status == "pending_dispatch":
-            now = "🚀 تم تأكيد Production وهو ينتظر الحجز داخل مسار V4 المحمي."
-        elif status == "dispatch_reserved":
-            now = "🔐 حُجز تفويض Production لمرة واحدة ويجري تسليمه إلى V4."
-        else:
-            now = "🎬 Production يعمل الآن داخل V4 الموحد."
-            run_id = str(active_production.get("workflow_run_id") or "").strip()
-            if run_id:
-                now += f"\nRun ID: {run_id}"
-        action = "لا شيء الآن — لا تكرر «تأكيد الإنتاج»."
+        now = "🎬 الإنتاج يعمل الآن."
+        action = "لا تكرر تأكيد الإنتاج."
     elif target is not None and active._production_enabled():
         request = state.get("requests", {}).get(target["request_id"], {}) if isinstance(state.get("requests"), dict) else {}
         topic = _clip(request.get("approved_topic"), 90)
-        now = "✅ لديك موضوع معتمد ينتظر قرار التشغيل." + (f"\n🎯 {topic}" if topic else "")
-        action = f"إذا كان القرار نهائيًا، أرسل حرفيًا: {CONFIRM_TEXT}"
+        now = "✅ لديك موضوع معتمد." + (f"\n🎯 {topic}" if topic else "")
+        action = f"لبدء الإنتاج أرسل حرفيًا: {CONFIRM_TEXT}"
     elif ready_session is not None:
         session_id = str(ready_session.get("session_id") or "").strip()
-        kind = "الحلقة" if str(ready_session.get("kind") or "") == "long" else "الشورت"
-        now = f"✅ بحث {kind} مكتمل و3 خيارات جاهزة للمراجعة."
-        action = "افتح الخيارات واختر ما تريد؛ الاختيار لا يبدأ Production."
+        candidates = ready_session.get("candidates")
+        count = len(candidates) if isinstance(candidates, list) else 0
+        if count == 1:
+            ready = "خيار واحد جاهز للمراجعة"
+        elif count == 2:
+            ready = "خياران جاهزان للمراجعة"
+        else:
+            ready = f"{count} خيارات جاهزة للمراجعة"
+        now = f"✅ البحث مكتمل: {ready}."
+        action = "افتح الخيارات واختر ما يناسبك."
         if session_id:
-            extra_rows.append([{"text": "📋 فتح الخيارات الجاهزة", "callback_data": f"cmd:choices-{session_id}"}])
+            extra_rows.append([{"text": "📋 فتح الخيارات", "callback_data": f"cmd:choices-{session_id}"}])
     else:
         last_research = state.get("last_research_result")
         if isinstance(last_research, dict) and last_research.get("status") == "failed":
-            kind = "الحلقة" if str(last_research.get("kind") or "") == "long" else "الشورت"
-            now = f"⚠️ آخر بحث {kind} لم يكتمل بعد استنفاد المحاولات."
-            action = "يمكنك بدء بحث جديد عندما تريد."
+            now = "⚠️ آخر بحث لم يجد نتيجة مناسبة."
+            action = "ابدأ بحثًا جديدًا إذا أردت."
         else:
-            now = "🟢 لا توجد مهمة معلقة تحتاج تدخلك الآن."
+            now = "🟢 لا توجد مهمة معلقة."
             action = "لا يوجد إجراء مطلوب."
 
     long_release, short_release = _production_releases(releases)
     lines = [
-        "🧭 الحالة — ماذا يحدث الآن؟",
+        "🧭 الحالة",
         "",
-        "الآن",
         now,
         "",
-        "مطلوب منك",
+        "مطلوب منك:",
         action,
         "",
-        "آخر نتائج جاهزة",
+        "آخر إنتاج:",
         f"🎬 {_release_name(long_release, 'لا توجد حلقة جاهزة')}",
         f"⚡ {_release_name(short_release, 'لا يوجد Short جاهز')}",
     ]
     rows = [
         *extra_rows,
-        [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
+        [{"text": "🔄 تحديث", "callback_data": "cmd:status"}],
         [{"text": "📋 تفاصيل النظام", "callback_data": "cmd:system_status"}],
         [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
     ]
     return "\n".join(lines), rows
-
 
 def _system_status(state: dict[str, Any], releases) -> tuple[str, list[list[dict[str, Any]]]]:
     renderer = getattr(panel, "_ISCO_V5_BASE_STATUS_TEXT", None)

@@ -25,7 +25,7 @@ class TelegramScopeFirstModernTests(unittest.TestCase):
             ["cmd:topic_bundle", "cmd:topic_long", "cmd:short"],
         )
         self.assertEqual(callbacks[-1], "cmd:menu")
-        self.assertIn("لا يبدأ Production", scope_first._scoped_search_text())
+        self.assertIn("البحث وحده لا يبدأ الإنتاج", scope_first._scoped_search_text())
 
     def test_scope_binds_only_to_new_pending_long_action(self) -> None:
         state = {

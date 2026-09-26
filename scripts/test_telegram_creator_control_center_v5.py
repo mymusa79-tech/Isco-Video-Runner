@@ -46,7 +46,8 @@ class CreatorControlCenterV5Tests(unittest.TestCase):
         self.assertEqual([button["callback_data"] for button in rows[1]], ["cmd:last_delivery", "cmd:stats_menu"])
         callbacks = [button.get("callback_data") for row in rows for button in row]
         self.assertNotIn("cmd:produce_latest", callbacks)
-        self.assertIn("مركز التحكم", v5._menu_text())
+        self.assertIn("🏠 نداء اليقظة", v5._menu_text())
+        self.assertIn("الاختيار وحده لا يبدأ الإنتاج", v5._menu_text())
 
     def test_library_overview_separates_long_and_short_counts(self):
         state = {
@@ -59,8 +60,8 @@ class CreatorControlCenterV5Tests(unittest.TestCase):
             ],
         }
         text, rows = v5._library_overview(state)
-        self.assertIn("🎬 1 حلقات", text)
-        self.assertIn("⚡ 1 Shorts", text)
+        self.assertIn("📥 محفوظة: 2", text)
+        self.assertIn("✅ استُخدمت: 1", text)
         self.assertIn("✅ المستعملة (1)", rows[0][1]["text"])
 
     def test_candidate_panel_is_decision_card_not_debug_dump(self):
