@@ -1227,6 +1227,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(ACCENT_ASS, ass)
+        self.assertIn(r"\kf", ass)
+        self.assertEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
         self.assertIn(r"\fscx99\fscy99", ass)
         self.assertNotIn("\u202B", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
