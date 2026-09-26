@@ -1229,7 +1229,9 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
         self.assertIn(r"\fscx99\fscy99", ass)
-        self.assertIn("\u202B", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertNotIn("\u202C", ass)
+        self.assertIn("\u2009\u2009", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
         self.assertIn(r"\pos(540,1400)", ass)
         self.assertIn(r"\pos(544,1405)", ass)
@@ -1246,7 +1248,8 @@ class ShortTimedTextTests(unittest.TestCase):
         for word in text.split():
             self.assertIn(word, ass)
         self.assertEqual(ass.count(r"\N"), 3)
-        self.assertIn("\u202B", ass)
+        self.assertNotIn("\u202B", ass)
+        self.assertIn("\u2009\u2009", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
