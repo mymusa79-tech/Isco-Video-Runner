@@ -239,22 +239,23 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(route.calls, 1)
         self.assertEqual(result["voice_provider"], "nabra:af_msa")
         self.assertTrue(result["single_continuous_inference"])
-        self.assertEqual(result["external_silence_insertions"], 0)
+        self.assertEqual(result["external_silence_insertions"], 2)
         chunks = [
             chunk
             for section in report["sections"]
             for chunk in section["chunks"]
         ]
         intro = [item for item in chunks if item["role"] == "intro_silence"]
+        pre_topic = [item for item in chunks if item["role"] == "pre_topic_silence"]
         final = [item for item in chunks if item["role"] == "final_silence"]
         self.assertEqual(len(intro), 1)
+        self.assertEqual(len(pre_topic), 1)
         self.assertEqual(len(final), 1)
-        self.assertEqual(intro[0]["provider"], "nabra_native_pause")
+        self.assertEqual(intro[0]["provider"], "deterministic_silence")
+        self.assertEqual(pre_topic[0]["provider"], "deterministic_silence")
         self.assertEqual(final[0]["provider"], "nabra_native_pause")
-        self.assertNotIn(
-            "deterministic_silence",
-            {str(item.get("provider") or "") for item in chunks},
-        )
+        self.assertEqual(result["structural_silence_seconds"]["after_hook"], 0.60)
+        self.assertEqual(result["structural_silence_seconds"]["before_topic"], 0.35)
 
     def _patch_identity(self):
         return mock.patch.multiple(
