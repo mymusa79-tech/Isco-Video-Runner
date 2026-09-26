@@ -18,33 +18,44 @@ from clean_v2.visual_story import contextual_intent, validate_visual_story
 
 
 class DirectorLayoutTighteningV1Tests(unittest.TestCase):
-    def test_rule_1_hook_uses_zero_cost_cold_open_montage(self) -> None:
+    def test_rule_1_hook_montage_uses_format_specific_human_pacing(self) -> None:
         paths = [Path(f"shot-{index}.mp4") for index in range(1, 9)]
         durations = [5.0] * len(paths)
         section_ids = [f"s{index}" for index in range(1, 9)]
 
-        short_paths, short_durations, short_ids = media_module._inject_hook_cold_open(
-            paths,
-            durations,
-            section_ids,
-            fmt="short",
-            hook_seconds=5.0,
+        cases = (
+            ("short", 5.0, 3, 1.5, 2.5),
+            ("film", 14.0, 6, 2.0, 3.0),
+            ("podcast", 8.4, 3, 2.5, 3.0),
         )
-        self.assertEqual(len(short_paths[:3]), 3)
-        self.assertAlmostEqual(sum(short_durations), sum(durations))
-        self.assertEqual(short_ids[:3], ["hook-montage-1", "hook-montage-2", "hook-montage-3"])
+        for fmt, hook_seconds, expected_count, low, high in cases:
+            with self.subTest(fmt=fmt):
+                result_paths, result_durations, result_ids = media_module._inject_hook_cold_open(
+                    paths,
+                    durations,
+                    section_ids,
+                    fmt=fmt,
+                    hook_seconds=hook_seconds,
+                )
+                montage_ids = [
+                    item for item in (result_ids or [])
+                    if str(item).startswith("hook-montage-")
+                ]
+                self.assertEqual(len(montage_ids), expected_count)
+                self.assertEqual(len(result_paths[:expected_count]), expected_count)
+                self.assertAlmostEqual(sum(result_durations), sum(durations))
+                for seconds in result_durations[:expected_count]:
+                    self.assertGreaterEqual(seconds, low)
+                    self.assertLessEqual(seconds, high)
 
-        film_paths, film_durations, film_ids = media_module._inject_hook_cold_open(
-            paths,
-            durations,
-            section_ids,
-            fmt="film",
-            hook_seconds=7.0,
+        self.assertEqual(
+            media_module._hook_montage_target("film", hook_seconds=7.0, available=8),
+            3,
         )
-        self.assertEqual(len(film_paths[:7]), 7)
-        self.assertAlmostEqual(sum(film_durations), sum(durations))
-        self.assertEqual(film_ids[:2], ["hook-montage-1", "hook-montage-2"])
-        self.assertLessEqual(max(film_durations[:7]), 1.01)
+        self.assertEqual(
+            media_module._hook_montage_target("film", hook_seconds=16.0, available=8),
+            7,
+        )
 
     def test_rule_2_and_7_all_formats_are_fully_opaque_and_final_frame_freezes(self) -> None:
         for fmt in ("short", "film", "podcast"):
