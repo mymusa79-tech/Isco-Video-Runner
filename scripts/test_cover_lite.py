@@ -103,13 +103,38 @@ class CoverLiteTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            source, report = select_cover_source(root, section_id="s2")
-            self.assertEqual(source.name, "body.mp4")
-            self.assertEqual(report["section_id"], "s2")
+            with mock.patch(
+                "clean_v2.cover_studio.rank_cover_candidates",
+                side_effect=lambda rows, fmt: (
+                    max(rows, key=lambda item: item[0])[1],
+                    max(rows, key=lambda item: item[0])[2],
+                    {
+                        "combined_score": max(rows, key=lambda item: item[0])[0],
+                        "visual_score": 1.0,
+                        "luma": 96.0,
+                        "contrast": 32.0,
+                        "quiet_side": "right",
+                        "quiet_delta": 12.0,
+                        "candidate_count_evaluated": len(rows),
+                        "tone_target": "deep_neutral",
+                    },
+                ),
+            ):
+                source, report = select_cover_source(root, fmt="short", section_id="s2")
+                self.assertEqual(source.name, "body.mp4")
+                self.assertEqual(report["section_id"], "s2")
 
-            source, report = select_cover_source(root)
-            self.assertEqual(source.name, "hook.mp4")
-            self.assertEqual(report["role"], "hook")
+                source, report = select_cover_source(root, fmt="short")
+                self.assertEqual(source.name, "hook.mp4")
+                self.assertEqual(report["role"], "hook")
+
+                source, report = select_cover_source(
+                    root,
+                    fmt="short",
+                    exclude_source_files=("hook.mp4",),
+                )
+                self.assertEqual(source.name, "body.mp4")
+                self.assertTrue(report["source_exclusion_applied"])
 
     def test_landscape_source_gets_safe_vertical_reframe_for_short(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -162,6 +187,7 @@ class CoverLiteTests(unittest.TestCase):
         self.assertIn("run_cover_lite_fail_soft", pipeline_source)
         self.assertIn('output_name="podcast-short-cover.jpg"', pipeline_source)
         self.assertIn('output_name="long-short-cover.jpg"', pipeline_source)
+        self.assertIn("exclude_source_files=", pipeline_source)
 
 
 if __name__ == "__main__":
