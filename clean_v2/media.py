@@ -3092,7 +3092,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Channel Deep Warm Neutral v2"',
+        'TITLE "Isco Wakeful Depth v3"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
