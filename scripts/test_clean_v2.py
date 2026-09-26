@@ -1710,7 +1710,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(len(silence_chunks), 3)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
-                {"intro_silence", "final_silence"},
+                {"intro_silence", "pre_topic_silence", "final_silence"},
             )
             self.assertTrue(
                 all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)
