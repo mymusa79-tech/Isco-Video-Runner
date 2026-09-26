@@ -105,6 +105,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("VISUAL VARIETY is semantic, not cosmetic", prompt)
                 self.assertIn("Do not place the same dominant action family in consecutive beats", prompt)
                 self.assertIn("stuck -> choosing -> moving -> completed", prompt)
+                self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
+                self.assertIn("specific enough to search directly", prompt)
 
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
