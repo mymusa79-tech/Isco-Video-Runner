@@ -1251,6 +1251,7 @@ def _ai_still_prompt(
         "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
     )
     mandatory_tail = (
+        "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, UI, or logo. "
         "No identifiable faces; hands, back view, objects, or environment only. "
         "No readable text, letters, logos, watermarks, UI, collage, split screen, fantasy glow, "
         "or exaggerated advertising look."
@@ -1782,7 +1783,7 @@ class StockVisualSource:
                     }
                 )
 
-        ai_reference: Path | None = None
+        ai_hook_reference: Path | None = None
         ai_route_available = True
 
         def _acquire_one(
@@ -1792,7 +1793,7 @@ class StockVisualSource:
             *,
             auxiliary: bool,
         ) -> bool:
-            nonlocal ai_reference, ai_route_available
+            nonlocal ai_hook_reference, ai_route_available
             wants_ai = str(beat.get("source_preference") or "") == "ai_still"
             if wants_ai and ai_route_available:
                 # AI is an optional visual anchor, never a required dependency.
@@ -1810,14 +1811,21 @@ class StockVisualSource:
                     raw_story if isinstance(raw_story, Mapping) else {},
                     beat,
                     fmt=fmt,
-                    with_reference=ai_reference is not None,
+                    with_reference=(
+                        str(beat.get("role") or "") == "payoff"
+                        and ai_hook_reference is not None
+                    ),
                 )
                 try:
                     provenance = generate_cloudflare_ai_still(
                         prompt=prompt,
                         destination=still,
                         fmt=fmt,
-                        reference=ai_reference,
+                        reference=(
+                            ai_hook_reference
+                            if str(beat.get("role") or "") == "payoff"
+                            else None
+                        ),
                     )
                     _render_ai_still(still, destination, fmt=fmt)
                     if self.media_preflight is not None:
@@ -1840,14 +1848,17 @@ class StockVisualSource:
                             )
                     if self.media_transform is not None:
                         destination = Path(self.media_transform(destination))
-                    next_reference = ai_reference
-                    if next_reference is None:
-                        next_reference = _prepare_ai_reference(
-                            still, still_dir / "continuity-reference.jpg"
+                    next_hook_reference = ai_hook_reference
+                    if (
+                        str(beat.get("role") or "") == "hook"
+                        and next_hook_reference is None
+                    ):
+                        next_hook_reference = _prepare_ai_reference(
+                            still, still_dir / "hook-continuity-reference.jpg"
                         )
                 except Exception as exc:
-                    # Keep the two bookends coherent: if the opening anchor cannot be
-                    # completed, skip the matching AI payoff and use stock for both.
+                    # One unavailable free AI route must never block production.
+                    # Disable later AI attempts for this run and fall back to stock.
                     ai_route_available = False
                     destination.unlink(missing_ok=True)
                     still.unlink(missing_ok=True)
@@ -1870,7 +1881,7 @@ class StockVisualSource:
                         reason=reason[:120],
                     )
                 else:
-                    ai_reference = next_reference
+                    ai_hook_reference = next_hook_reference
                     candidate = {
                         "provider": "cloudflare_workers_ai",
                         "asset_id": (
@@ -1886,6 +1897,7 @@ class StockVisualSource:
                         "beat_id": beat_id,
                         "viewer_intent": str(beat.get("viewer_intent") or ""),
                         "shot_intent": str(beat.get("shot_intent") or query),
+                        "display_text_ar": str(beat.get("display_text_ar") or ""),
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
                         "source_actual": "ai_still",
@@ -1910,7 +1922,7 @@ class StockVisualSource:
                     query,
                     "fallback_to_stock",
                     wire_attempted=False,
-                    reason="ai_anchor_pair_disabled",
+                    reason="ai_route_disabled_after_prior_failure",
                 )
 
             for finder in (self._pexels, self._pixabay):
@@ -1968,6 +1980,7 @@ class StockVisualSource:
                 candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
                 candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
                 candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(
                     beat.get("source_preference") or "stock_motion"
@@ -2660,6 +2673,34 @@ def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None
     return section_ids
 
 
+def _exact_section_seconds_from_timeline(
+    output_dir: Path,
+) -> dict[str, float] | None:
+    """Read measured section durations so visual beats follow the voice timeline."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    rows = payload.get("section_events") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list) or not rows:
+        return None
+    result: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            return None
+        section_id = str(row.get("section_id") or "").strip()
+        try:
+            start = float(row.get("start"))
+            end = float(row.get("end"))
+        except (TypeError, ValueError):
+            return None
+        if not section_id or end <= start:
+            return None
+        result[section_id] = end - start
+    return result or None
+
+
 def _section_estimated_seconds_from_manifest(
     output_dir: Path,
 ) -> dict[str, float] | None:
@@ -2709,7 +2750,12 @@ def _section_slot_durations(
             order.append(section_id)
         counts[section_id] = counts.get(section_id, 0) + 1
 
-    estimated = _section_estimated_seconds_from_manifest(output_dir)
+    exact = _exact_section_seconds_from_timeline(output_dir)
+    estimated = (
+        exact
+        if exact is not None and all(section_id in exact for section_id in order)
+        else _section_estimated_seconds_from_manifest(output_dir)
+    )
     if estimated is not None and all(section_id in estimated for section_id in order):
         raw_shares = {section_id: max(0.0, estimated[section_id]) for section_id in order}
         raw_total = sum(raw_shares.values())
