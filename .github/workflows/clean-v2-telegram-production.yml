@@ -131,6 +131,7 @@ jobs:
             tesseract-ocr-ara \
             espeak-ng \
             libsndfile1
+          python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
           python -m pip install --disable-pip-version-check \
