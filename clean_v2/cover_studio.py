@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -10,9 +12,32 @@ from .media import _run
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
-FONT_BLACK = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Black.ttf"
-FONT_BOLD = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Bold.ttf"
-FONT_MEDIUM = "/usr/share/fonts/truetype/noto/NotoKufiArabic-Medium.ttf"
+FONT_BLACK = "black"
+FONT_BOLD = "bold"
+FONT_MEDIUM = "medium"
+
+_FONT_NAMES = {
+    "black": (
+        "NotoKufiArabic-Black.ttf",
+        "NotoKufiArabic-ExtraBold.ttf",
+        "NotoKufiArabic-Bold.ttf",
+        "NotoKufiArabic-Regular.ttf",
+    ),
+    "bold": (
+        "NotoKufiArabic-Bold.ttf",
+        "NotoKufiArabic-SemiBold.ttf",
+        "NotoKufiArabic-Regular.ttf",
+    ),
+    "medium": (
+        "NotoKufiArabic-Medium.ttf",
+        "NotoKufiArabic-Regular.ttf",
+    ),
+}
+_FONT_DIRS = (
+    Path("/usr/share/fonts/truetype/noto"),
+    Path("/usr/share/fonts/opentype/noto"),
+    Path("/usr/share/fonts"),
+)
 
 WHITE_TOP = (255, 255, 255, 255)
 WHITE_BOTTOM = (224, 226, 229, 255)
@@ -33,14 +58,49 @@ _STOPWORDS = {
 }
 
 
+@lru_cache(maxsize=3)
+def _resolve_font(kind: str) -> str:
+    names = _FONT_NAMES.get(kind)
+    if not names:
+        raise RuntimeError(f"cover_studio_font_kind_invalid:{kind}")
+    for directory in _FONT_DIRS:
+        if not directory.exists():
+            continue
+        for name in names:
+            direct = directory / name
+            if direct.is_file():
+                return str(direct)
+            matches = list(directory.rglob(name))
+            if matches:
+                return str(matches[0])
+
+    # Fontconfig is more portable across Ubuntu runner images than hard-coding
+    # one package layout. It remains fully local and adds no provider call.
+    family = "Noto Kufi Arabic"
+    style = "Bold" if kind in {"black", "bold"} else "Regular"
+    try:
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}\\n", f"{family}:style={style}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        candidate = Path(result.stdout.splitlines()[0].strip()) if result.stdout.strip() else None
+    except (OSError, subprocess.SubprocessError, IndexError):
+        candidate = None
+    if candidate is not None and candidate.is_file():
+        return str(candidate)
+    raise RuntimeError(f"cover_studio_font_missing:{kind}")
+
+
 def _pil() -> tuple[Any, ...]:
     from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageStat, features
 
     if not features.check_feature("raqm"):
         raise RuntimeError("cover_studio_raqm_unavailable")
-    for font in (FONT_BLACK, FONT_BOLD, FONT_MEDIUM):
-        if not Path(font).is_file():
-            raise RuntimeError(f"cover_studio_font_missing:{Path(font).name}")
+    for kind in (FONT_BLACK, FONT_BOLD, FONT_MEDIUM):
+        _resolve_font(kind)
     return Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageStat
 
 
@@ -144,7 +204,8 @@ def rank_cover_candidates(
 
 def _font(path: str, size: int):
     _, _, _, _, ImageFont, _ = _pil()
-    return ImageFont.truetype(path, size=size, layout_engine=ImageFont.Layout.RAQM)
+    resolved = _resolve_font(path) if path in _FONT_NAMES else path
+    return ImageFont.truetype(resolved, size=size, layout_engine=ImageFont.Layout.RAQM)
 
 
 def _fit_font(text: str, *, max_width: int, start: int, minimum: int, font_path: str):
