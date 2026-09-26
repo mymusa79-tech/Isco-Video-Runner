@@ -13,7 +13,7 @@ NABRA_ONSET_FADE_MS = 25
 # Kokoro raw-phoneme inference is bounded below its 510-character model limit.
 NABRA_MAX_INFER_CHARS = 500
 NABRA_FRAGMENT_TARGET_CHARS = 440
-NABRA_REFERENCE_PROFILE = "nabra-82m-v0.1:af_msa:0.87:native-pauses-v1"
+NABRA_REFERENCE_PROFILE = "nabra-82m-v0.1:af_msa:0.87:native-punctuation-v2"
 
 _PUNCTUATION_CHARS = set(",.;:!?،؛؟…—")
 _TASHKEEL_RE = re.compile("[ً-ْٰ]")
@@ -55,19 +55,31 @@ def _lexical_only(value: str) -> str:
     )
 
 
-def _native_pause_marker(role: str, *, final: bool) -> str:
-    """Return only model-native Kokoro punctuation; never external silence.
+def _native_pause_marker(role: str, *, text: str, final: bool) -> str:
+    """Use the writer's punctuation as Nabra's native pause authority.
 
-    The listener-approved 0.87 probe used a stronger structural beat at major
-    idea boundaries while keeping prayer/identity transitions short and fluid.
+    The approved reference sounds natural because punctuation creates the
+    breathing; semantic unit boundaries must not replace a period with an
+    ellipsis/em-dash or inject waveform silence. When a unit has no terminal
+    punctuation, prayer/identity stay fluid with a comma and ordinary narration
+    receives one normal sentence stop.
     """
-    if final:
-        return "…"
-    if role == "hook":
-        return "… —"
+    source = str(text or "").rstrip()
+    match = re.search(r"([.!?؟…،,؛;:]+)$", source)
+    if match:
+        terminal = match.group(1)
+        if "?" in terminal or "؟" in terminal:
+            return "?"
+        if "!" in terminal:
+            return "!"
+        if "…" in terminal:
+            return "…"
+        if "." in terminal:
+            return "."
+        return ","
     if role in {"prayer", "channel_identity"}:
         return ","
-    return "…"
+    return "." if final or role in {"hook", "topic", "outro"} else ","
 
 
 def _strip_terminal_model_punctuation(phonemes: str) -> str:
@@ -312,6 +324,7 @@ class NabraVoiceSynthesizer:
                 marker = (
                     _native_pause_marker(
                         item["role"],
+                        text=item["text"],
                         final=part_index == len(normalized) - 1,
                     )
                     if is_part_final
