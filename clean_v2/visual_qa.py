@@ -13,6 +13,7 @@ from clean_v2.visual_story import contextual_intent, fallback_visual_story, vali
 STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
 MAX_RETENTION_QUALITY_FLOOR_DROP = 0.08
+BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR = 0.70
 
 
 class CleanV2VisualQABlock(RuntimeError):
@@ -1000,6 +1001,38 @@ def run_final_cut_visual_qa(
                             cleanup_path = Path(cleanup_clip)
                             cleanup_path.unlink(missing_ok=True)
                             cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
+
+                        # Restore the previously designed "best safe primary" rule
+                        # from PR #865, adapted to the current Phase-B candidate set:
+                        # if Vision itself marked the original PASS, it is at least
+                        # 0.70 semantic fit, and none of the bounded recoveries is
+                        # actually better, failing the entire video buys no quality.
+                        # BLOCK/unsafe/low-fit primaries still fail closed unchanged.
+                        primary_is_safe_best_available = (
+                            str(primary_audit.get("status") or "").lower() == "pass"
+                            and primary_floor >= BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
+                            and best_recovery_floor <= primary_floor
+                        )
+                        if primary_is_safe_best_available:
+                            primary_audit["final_cut_readiness"] = "best_available_primary"
+                            primary_audit["best_available_primary"] = True
+                            recovery_record.update(
+                                {
+                                    "status": "retained_primary",
+                                    "reason": "no_recovery_candidate_better_than_safe_primary",
+                                    "recovery_floor": round(best_recovery_floor, 6),
+                                    "retained_primary_floor": round(primary_floor, 6),
+                                    "candidate_review_count": len(candidate_reviews),
+                                    "candidate_reviews": candidate_reviews,
+                                }
+                            )
+                            _write_json(output_dir / "visual-audit.json", audits)
+                            _write_json(
+                                output_dir / "visual-query-recovery.json",
+                                recovery_records,
+                            )
+                            continue
+
                         recovery_record.update(
                             {
                                 "status": "rejected",
@@ -1117,6 +1150,10 @@ def run_final_cut_visual_qa(
         "semantic_recovery_count": sum(
             1 for item in recovery_records if item.get("status") == "recovered"
         ),
+        "best_available_primary_count": sum(
+            1 for item in recovery_records if item.get("status") == "retained_primary"
+        ),
+        "best_available_primary_semantic_floor": BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR,
         "section_count": len(expected_ids),
         "audited_selected_clip_count": audited_selected_clip_count,
         "visual_audit_count": len(audits),

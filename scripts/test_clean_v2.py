@@ -2891,6 +2891,8 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         *,
         recovery_relevance: float | None = None,
         recovery_relevances: list[float] | None = None,
+        primary_relevance: float = 0.40,
+        primary_status: str = "block",
     ):
         scores = list(
             recovery_relevances
@@ -2973,9 +2975,9 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             evidence = kwargs["canonical_evidence"]
             if audit_counter["n"] == 1:
                 return self._audit(
-                    relevance=0.40,
+                    relevance=primary_relevance,
                     quality=0.95,
-                    status="block",
+                    status=primary_status,
                     evidence=evidence,
                 )
             score_index = min(audit_counter["n"] - 2, len(scores) - 1)
@@ -3083,7 +3085,12 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
                 clear=False,
             ):
-                if any(score >= 0.85 for score in scores):
+                safe_primary_wins = (
+                    primary_status == "pass"
+                    and primary_relevance >= 0.70
+                    and max(scores, default=0.0) <= primary_relevance
+                )
+                if any(score >= 0.85 for score in scores) or safe_primary_wins:
                     result = visual_qa_module.run_final_cut_visual_qa(
                         output_dir=output,
                         plan=plan,
@@ -3169,6 +3176,51 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 
+
+    def test_safe_primary_is_retained_when_recovery_regresses_or_only_ties(self) -> None:
+        for recovery_scores in ([0.35, 0.20, 0.35], [0.80, 0.70, 0.65]):
+            with self.subTest(recovery_scores=recovery_scores):
+                primary = 0.70 if recovery_scores[0] == 0.35 else 0.80
+                outcome = self._run_case(
+                    primary_relevance=primary,
+                    primary_status="pass",
+                    recovery_relevances=list(recovery_scores),
+                )
+                self.assertIsNone(outcome["error"])
+                self.assertEqual(outcome["commit_calls"], 0)
+                self.assertEqual(outcome["audit_calls"], 4)
+                self.assertEqual(outcome["result"]["status"], "pass")
+                self.assertEqual(outcome["result"]["semantic_recovery_count"], 0)
+                self.assertEqual(outcome["result"]["best_available_primary_count"], 1)
+                self.assertEqual(
+                    outcome["result"]["best_available_primary_semantic_floor"],
+                    0.70,
+                )
+                self.assertEqual(outcome["recovery"][0]["status"], "retained_primary")
+                self.assertEqual(
+                    outcome["recovery"][0]["retained_primary_floor"],
+                    primary,
+                )
+                self.assertTrue(outcome["audits"][0]["is_selected"])
+                self.assertTrue(outcome["audits"][0]["best_available_primary"])
+                self.assertEqual(
+                    outcome["audits"][0]["final_cut_readiness"],
+                    "best_available_primary",
+                )
+                self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
+                self.assertEqual(outcome["final_bytes"], b"O" * 4096)
+
+    def test_best_primary_fallback_stays_fail_closed_for_blocked_or_low_fit_primary(self) -> None:
+        for primary_relevance, primary_status in ((0.80, "block"), (0.69, "pass")):
+            with self.subTest(primary_relevance=primary_relevance, primary_status=primary_status):
+                outcome = self._run_case(
+                    primary_relevance=primary_relevance,
+                    primary_status=primary_status,
+                    recovery_relevances=[0.35, 0.20, 0.30],
+                )
+                self.assertIsNotNone(outcome["error"])
+                self.assertEqual(outcome["recovery"][0]["status"], "rejected")
+                self.assertEqual(outcome["commit_calls"], 0)
 
     def test_three_candidates_are_context_reviewed_before_best_is_selected(self) -> None:
         # Candidate 1 already clears the 0.85 readiness floor. Phase B must
