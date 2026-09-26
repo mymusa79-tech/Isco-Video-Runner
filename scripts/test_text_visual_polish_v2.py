@@ -46,6 +46,43 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
 
+    def test_short_karaoke_sweep_tracks_phrase_locally_without_provider_alignment(self) -> None:
+        item = text_module.TimedTextEvent(
+            start=1.0,
+            end=5.0,
+            text="ابدأ بخطوة صغيرة ثم واصل بهدوء",
+            role="hook",
+        )
+        windows = text_module._word_highlight_windows(item)
+        centiseconds = text_module._karaoke_centiseconds(item)
+        words = item.text.split()
+
+        self.assertEqual(len(windows), len(words))
+        self.assertEqual(len(centiseconds), len(words))
+        self.assertEqual(sum(centiseconds), 400)
+        self.assertTrue(all(value >= 1 for value in centiseconds))
+
+        face = text_module._karaoke_caption(
+            item,
+            body_size=108,
+            focus_size=132,
+        )
+        self.assertEqual(face.count(r"\kf"), len(words))
+        self.assertIn(text_module.ACCENT_ASS, face)
+        self.assertIn(text_module.PRIMARY_ASS, face)
+        for word in words:
+            self.assertIn(word, face)
+
+        events = [
+            {"start": 0.0, "end": 4.0, "text": item.text, "role": "hook"},
+            {"start": 4.0, "end": 8.0, "text": "الفكرة تصبح أوضح عندما تبدأ فعلا", "role": "beat"},
+            {"start": 8.0, "end": 12.0, "text": "الاستمرار الصغير يصنع الفرق", "role": "payoff"},
+        ]
+        ass = text_module.build_rich_ass(events)
+        self.assertGreaterEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertNotIn("\u202B", ass)
+
     def test_film_key_text_is_sparse_complete_and_breathes(self) -> None:
         script = {
             "sections": [
