@@ -1446,6 +1446,110 @@ def _timeline_hook_end_seconds(output_dir: Path) -> float:
     return 0.0
 
 
+def _hook_montage_target(fmt: str, *, hook_seconds: float, available: int) -> int:
+    if available <= 1 or hook_seconds <= 0:
+        return min(available, 1)
+    if fmt == "short":
+        requested = 3 if hook_seconds >= 4.2 else 2
+    elif fmt == "film":
+        requested = 7 if hook_seconds >= 6.0 else 6
+    else:
+        return 1
+    return max(1, min(requested, available))
+
+
+def _even_story_indices(count: int, target: int) -> list[int]:
+    if count <= 0 or target <= 0:
+        return []
+    if target >= count:
+        return list(range(count))
+    if target == 1:
+        return [0]
+    return sorted({
+        int(round(position * (count - 1) / (target - 1)))
+        for position in range(target)
+    })
+
+
+def _inject_hook_cold_open(
+    paths: list[Path],
+    durations: list[float],
+    section_ids: list[str] | None,
+    *,
+    fmt: str,
+    hook_seconds: float,
+) -> tuple[list[Path], list[float], list[str] | None]:
+    """Build a zero-provider cold-open montage from already approved story visuals.
+
+    Short uses 2-3 quick story teasers; Film uses up to 6-7. The original
+    timeline resumes exactly at hook_seconds, so narration-owned total duration
+    never changes. Unique hook group ids force clean hard cuts instead of
+    dissolves, while the body keeps its normal section transitions.
+    """
+    if (
+        fmt not in {"short", "film"}
+        or not paths
+        or len(paths) != len(durations)
+        or hook_seconds <= 0.0
+    ):
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    total = sum(max(0.0, float(item)) for item in durations)
+    hook = min(max(0.0, float(hook_seconds)), total)
+    if hook <= 0.25:
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    unique_paths: list[Path] = []
+    for path in paths:
+        if path not in unique_paths:
+            unique_paths.append(path)
+    target = _hook_montage_target(fmt, hook_seconds=hook, available=len(unique_paths))
+    if target <= 1:
+        return list(paths), list(durations), list(section_ids) if section_ids is not None else None
+
+    montage_paths = [unique_paths[index] for index in _even_story_indices(len(unique_paths), target)]
+    target = len(montage_paths)
+    per_shot = hook / target
+    montage_durations = [per_shot] * target
+    montage_durations[-1] = hook - sum(montage_durations[:-1])
+
+    remainder_paths: list[Path] = []
+    remainder_durations: list[float] = []
+    remainder_ids: list[str] | None = [] if section_ids is not None else None
+    cursor = 0.0
+    for index, (path, seconds) in enumerate(zip(paths, durations)):
+        seconds = max(0.0, float(seconds))
+        end = cursor + seconds
+        if end <= hook + 1e-6:
+            cursor = end
+            continue
+        if cursor < hook < end:
+            kept = end - hook
+        else:
+            kept = seconds
+        if kept > 0.01:
+            remainder_paths.append(path)
+            remainder_durations.append(kept)
+            if remainder_ids is not None:
+                remainder_ids.append(section_ids[index])
+        cursor = end
+
+    result_ids: list[str] | None
+    if section_ids is None:
+        result_ids = None
+    else:
+        result_ids = [
+            f"hook-montage-{index + 1}"
+            for index in range(target)
+        ] + (remainder_ids or [])
+
+    return (
+        [*montage_paths, *remainder_paths],
+        [*montage_durations, *remainder_durations],
+        result_ids,
+    )
+
+
 def _enforce_short_hook_shot_cap(
     paths: list[Path],
     durations: list[float],
@@ -3365,12 +3469,14 @@ def render_video(
         paths = [Path(item) for item in visual_paths]
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
-    if fmt == "short":
-        short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
-        paths, durations = _enforce_short_hook_shot_cap(
+    body_section_ids_override: list[str] | None = None
+    if not opening_enabled and fmt in {"short", "film"}:
+        current_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
+        paths, durations, body_section_ids_override = _inject_hook_cold_open(
             paths,
             durations,
-            short_section_ids,
+            current_section_ids,
+            fmt=fmt,
             hook_seconds=_timeline_hook_end_seconds(Path(output_path).parent),
         )
 
@@ -3391,7 +3497,11 @@ def render_video(
         shutil.rmtree(work_dir, ignore_errors=True)
     try:
         if body_paths_for_render:
-            body_section_ids = _pacing_section_ids(output_dir, body_paths_for_render)
+            body_section_ids = (
+                body_section_ids_override
+                if body_section_ids_override is not None and opening_count == 0
+                else _pacing_section_ids(output_dir, body_paths_for_render)
+            )
             body_segments = _build_section_body_segments(
                 work_dir,
                 body_paths_for_render,
