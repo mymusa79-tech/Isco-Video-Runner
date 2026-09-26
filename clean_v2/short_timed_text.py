@@ -283,6 +283,81 @@ def build_events_from_section_audio(
     return events
 
 
+def _visual_asset_text_events(
+    *,
+    output_dir: Path,
+    timeline_report: Mapping[str, Any],
+) -> list[dict[str, object]]:
+    """Bind renderer-owned Arabic text to the exact semantic asset beat.
+
+    This is local metadata only: no provider, ASR, or word-alignment call.
+    If any required mapping is missing, return [] so legacy narration captions
+    remain the compatibility fallback.
+    """
+    manifest_path = Path(output_dir) / "rights-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    assets = manifest.get("assets") if isinstance(manifest, Mapping) else None
+    section_events = timeline_report.get("section_events")
+    if not isinstance(assets, list) or not isinstance(section_events, list):
+        return []
+
+    by_section: dict[str, list[Mapping[str, Any]]] = {}
+    for row in assets:
+        if not isinstance(row, Mapping):
+            continue
+        section_id = str(row.get("section_id") or "").strip()
+        beat_id = str(row.get("beat_id") or "").strip()
+        display = _clean(row.get("display_text_ar"))
+        if not section_id or not beat_id or not display:
+            continue
+        by_section.setdefault(section_id, []).append(row)
+
+    events: list[dict[str, object]] = []
+    for section_index, timing in enumerate(section_events):
+        if not isinstance(timing, Mapping):
+            return []
+        section_id = str(timing.get("section_id") or "").strip()
+        rows = by_section.get(section_id) or []
+        if not rows:
+            return []
+        start = _seconds(timing.get("start"), "start")
+        end = _seconds(timing.get("end"), "end")
+        if end <= start:
+            return []
+        slot = (end - start) / len(rows)
+        for row_index, row in enumerate(rows):
+            item_start = start + (slot * row_index)
+            item_end = end if row_index == len(rows) - 1 else start + (slot * (row_index + 1))
+            raw_role = str(row.get("role") or "").strip()
+            role = "hook" if raw_role == "hook" else ("payoff" if raw_role == "payoff" else "beat")
+            events.append(
+                {
+                    "start": round(item_start, 3),
+                    "end": round(item_end, 3),
+                    "text": _clean(row.get("display_text_ar")),
+                    "role": role,
+                    "section_id": section_id,
+                    "beat_id": str(row.get("beat_id") or ""),
+                    "text_source": "visual_beat_display_text_ar",
+                }
+            )
+
+    if not events:
+        return []
+    # The Short contract still owns a hook first and payoff last even when
+    # middle assets vary in count.
+    events[0]["role"] = "hook"
+    events[-1]["role"] = "payoff"
+    try:
+        validate_progressive_text(events)
+    except ShortTimedTextError:
+        return []
+    return events
+
+
 def build_events_from_voice_timeline(
     *,
     script: Mapping[str, Any],
@@ -869,7 +944,7 @@ def render_progressive_text(
         "word_highlight_count": 0,
         "karaoke_mode": "continuous_rtl_white_to_gold_clip_wipe_no_word_steps",
         "karaoke_provider_calls": 0,
-        "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
+        "text_source_policy": "visual_beat_display_text_ar_when_available_else_verbatim_final_script",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_continuous_right_to_left_gold_wipe",
@@ -894,10 +969,15 @@ def apply_short_timed_text(
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid") from exc
         if not isinstance(timeline_report, Mapping):
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
-        events = build_events_from_voice_timeline(
-            script=script,
+        events = _visual_asset_text_events(
+            output_dir=Path(output_dir),
             timeline_report=timeline_report,
         )
+        if not events:
+            events = build_events_from_voice_timeline(
+                script=script,
+                timeline_report=timeline_report,
+            )
     else:
         # Compatibility for older artifacts/tests that predate the explicit
         # Voice-Owned Timeline certificate.
