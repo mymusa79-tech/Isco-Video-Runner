@@ -4,10 +4,14 @@ import re
 from typing import Any, Mapping
 
 
-VISUAL_WORLD_DEFAULT = (
-    "Grounded, hopeful cinematic realism; soft natural light; warm neutral colors; "
-    "environments, hands, objects, routines and wide shots; no identifiable faces."
+CHANNEL_VISUAL_IDENTITY = (
+    "Grounded cinematic realism with quiet depth; restrained warm-neutral palette; "
+    "moderate-to-deep natural exposure; practical directional light; tactile real environments; "
+    "hope shown through progress, effort and earned small wins rather than glossy lifestyle brightness "
+    "or forced melancholy; environments, hands, objects, routines, back views and wide shots; "
+    "no identifiable faces."
 )
+VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
