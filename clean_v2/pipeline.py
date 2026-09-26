@@ -980,6 +980,30 @@ def _synthesize_sectioned_voice(
                         "role": "intro_silence",
                     }
                 )
+            elif (
+                fmt in IDENTITY_TIMELINE_FORMATS
+                and index == 1
+                and role == "channel_identity"
+            ):
+                timing = identity_timing_profile(fmt)
+                silence_path = chunk_path.parent / "pre-topic-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    silence_path,
+                    timing["pre_topic_silence_seconds"],
+                )
+                chunk_paths.append(silence_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "pre_topic_silence",
+                    }
+                )
 
         if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
             timing = identity_timing_profile(fmt)
@@ -3489,6 +3513,7 @@ def _run_audio_mastering_stage(
                 "intro_silence_with_fully_opaque_intro",
                 "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
+                "pre_topic_structural_silence",
                 "topic_music_window",
                 "outro_no_music_fully_opaque",
                 "final_silence_freeze",
