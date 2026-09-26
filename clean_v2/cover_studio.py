@@ -50,6 +50,7 @@ SHADOW = (0, 0, 0, 145)
 PROGRAM_NAME = "خارج النص"
 CHANNEL_NAME = "نداء اليقظة"
 TONE_PROFILE = "deep_neutral"
+CHANNEL_COVER_VIBE = "grounded_depth_earned_progress"
 
 _STOPWORDS = {
     "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
@@ -158,14 +159,16 @@ def score_cover_candidate(path: Path, *, fmt: str) -> dict[str, Any]:
     contrast = float(stat.stddev[0])
     side, quiet_delta = _quiet_side(image)
 
-    # The channel target is not bright lifestyle imagery. Prefer moderate,
-    # dimensional exposure with enough contrast and a usable quiet text zone.
-    exposure_score = max(0.0, 24.0 - abs(luma - 96.0) * 0.22)
-    contrast_score = min(18.0, contrast * 0.45)
+    # One shared channel world, with only a small format-specific exposure
+    # target. Short remains readable; Film and Podcast lean progressively deeper.
+    luma_target = {"short": 92.0, "film": 88.0, "podcast": 82.0}.get(fmt, 88.0)
+    bright_threshold = {"short": 138.0, "film": 132.0, "podcast": 126.0}.get(fmt, 132.0)
+    exposure_score = max(0.0, 26.0 - abs(luma - luma_target) * 0.24)
+    contrast_score = min(20.0, contrast * 0.50)
     quiet_score = min(16.0, quiet_delta * 0.70)
-    bright_penalty = max(0.0, (luma - 145.0) * 0.22)
-    dark_penalty = max(0.0, (42.0 - luma) * 0.25)
-    podcast_depth_bonus = 4.0 if fmt == "podcast" and luma <= 118.0 else 0.0
+    bright_penalty = max(0.0, (luma - bright_threshold) * 0.30)
+    dark_penalty = max(0.0, (40.0 - luma) * 0.24)
+    podcast_depth_bonus = 5.0 if fmt == "podcast" and luma <= 112.0 else 0.0
 
     visual_score = exposure_score + contrast_score + quiet_score + podcast_depth_bonus
     visual_score -= bright_penalty + dark_penalty
@@ -184,7 +187,7 @@ def rank_cover_candidates(
     *,
     fmt: str,
 ) -> tuple[Path, Mapping[str, Any], dict[str, Any]]:
-    rows = list(candidates)[:3]
+    rows = list(candidates)[:5]
     if not rows:
         raise RuntimeError("cover_studio_no_candidates")
 
@@ -316,13 +319,13 @@ def _vignette(image):
 
 def _deep_grade(image):
     Image, _, ImageEnhance, _, _, ImageStat = _pil()
-    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(1.08)
-    image = ImageEnhance.Color(image).enhance(0.94)
+    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(1.10)
+    image = ImageEnhance.Color(image).enhance(0.91)
     mean = float(ImageStat.Stat(image.convert("L").resize((64, 64))).mean[0])
-    brightness = 0.86 if mean > 145 else 0.90 if mean > 118 else 0.95
+    brightness = 0.82 if mean > 145 else 0.88 if mean > 118 else 0.93
     image = ImageEnhance.Brightness(image).enhance(brightness)
-    warm = Image.new("RGB", image.size, (212, 145, 76))
-    image = Image.blend(image, warm, 0.018)
+    warm = Image.new("RGB", image.size, (205, 143, 78))
+    image = Image.blend(image, warm, 0.014)
     return _vignette(image.convert("RGBA"))
 
 
@@ -598,6 +601,7 @@ def render_cover_studio(
         "layout_family": layout,
         "text_side": side,
         "tone_profile": TONE_PROFILE,
+        "channel_cover_vibe": CHANNEL_COVER_VIBE,
         "podcast_program": PROGRAM_NAME if fmt == "podcast" else None,
         "channel_name": CHANNEL_NAME if fmt == "podcast" else None,
         "width": width,
