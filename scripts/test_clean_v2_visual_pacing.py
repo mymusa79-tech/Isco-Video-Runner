@@ -1181,6 +1181,18 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
             "middle.mp4",
         )
 
+    def test_channel_stock_query_adds_one_shared_vibe_without_overwriting_semantics(self) -> None:
+        core = "hand closes laptop after finishing one task"
+        styled = media_module._channel_stock_query(core)
+        self.assertTrue(styled.startswith(core))
+        self.assertTrue(styled.endswith("warm neutral cinematic"))
+        self.assertLessEqual(len(styled), 96)
+        long_query = "specific observable action " + ("detail " * 20)
+        self.assertEqual(
+            media_module._channel_stock_query(long_query),
+            " ".join(long_query.split()),
+        )
+
     def test_reference_match_filter_is_bounded_and_clip_constant(self) -> None:
         source = media_module._RgbStats(70, 180, 90, 12, 80, 18)
         reference = media_module._RgbStats(130, 120, 115, 60, 30, 45)
@@ -1223,7 +1235,7 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = media_module._write_master_look_lut(Path(root) / "look.cube")
             lines = path.read_text(encoding="ascii").splitlines()
-        self.assertEqual(lines[0], 'TITLE "Isco Warm Neutral Master v1"')
+        self.assertEqual(lines[0], 'TITLE "Isco Channel Deep Warm Neutral v2"')
         self.assertEqual(lines[1], f"LUT_3D_SIZE {media_module.MASTER_LOOK_LUT_SIZE}")
         self.assertEqual(
             len(lines),
@@ -1234,7 +1246,7 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
         fragment = media_module.CINEMATIC_FINISH_FILTER
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-cinematic-finish-v1",
+            "clean-v2-channel-depth-finish-v2",
         )
         self.assertIn("eq=contrast=", fragment)
         self.assertIn("unsharp=", fragment)
