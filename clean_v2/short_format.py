@@ -512,6 +512,32 @@ def _sentence_begins_with_direct_action(sentence: object) -> bool:
     return _practical_action_base(first) is not None
 
 
+def _salvage_safe_payoff_clause(sentence: object) -> str:
+    """Keep only a clearly separated safe descriptive clause from payoff prose."""
+    compact = _clean(sentence)
+    if not compact or not _contains_forbidden_action_family(compact):
+        return ""
+    terminal = compact[-1] if compact[-1] in ".!?؟" else "."
+    clauses = [
+        item.strip(" .!?؟")
+        for item in re.split(r"\s*[،,؛;:]\s*", compact)
+        if item.strip(" .!?؟")
+    ]
+    safe = [
+        item
+        for item in clauses
+        if _word_count(item) >= 3
+        and _practical_action_marker_count(item) == 0
+        and not _contains_forbidden_action_family(item)
+    ]
+    if not safe:
+        return ""
+    candidate = "، ".join(safe).strip()
+    if not candidate or _contains_forbidden_action_family(candidate):
+        return ""
+    return candidate + terminal
+
+
 def _first_sentence(text: object) -> str:
     compact = _clean(text)
     if not compact:
@@ -798,13 +824,29 @@ def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
             for index, sentence in enumerate(sentences)
             if index != action_index and not _contains_forbidden_action_family(sentence)
         ]
-        if not forbidden_payoff_indexes or not safe_payoff_indexes:
+        if not forbidden_payoff_indexes:
             return False
-        repaired = [
-            sentence
-            for index, sentence in enumerate(sentences)
-            if index not in forbidden_payoff_indexes
-        ]
+        if safe_payoff_indexes:
+            repaired = [
+                sentence
+                for index, sentence in enumerate(sentences)
+                if index not in forbidden_payoff_indexes
+            ]
+        else:
+            salvaged_by_index = {
+                index: _salvage_safe_payoff_clause(sentences[index])
+                for index in forbidden_payoff_indexes
+            }
+            if not any(salvaged_by_index.values()):
+                return False
+            repaired = []
+            for index, sentence in enumerate(sentences):
+                if index in forbidden_payoff_indexes:
+                    safe_clause = salvaged_by_index.get(index) or ""
+                    if safe_clause:
+                        repaired.append(safe_clause)
+                    continue
+                repaired.append(sentence)
     else:
         return False
 
