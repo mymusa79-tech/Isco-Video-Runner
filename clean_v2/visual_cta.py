@@ -244,25 +244,22 @@ def _events(
     authored_mode: str,
 ) -> list[VisualCtaEvent]:
     if fmt == "short":
-        # Approved Short rule: never more than two overlays. Keep both away from
-        # the opening hook and the final payoff/outro seam.
-        count = 2 if duration >= 28.0 else 1
-        starts = [max(7.0, duration * 0.48)]
-        if count == 2:
-            starts.append(min(duration - 4.0, duration * 0.74))
-        modes = [_short_first_mode(script), "subscribe_combo"]
+        # One light in-body CTA only. Subscription belongs to the terminal identity
+        # outro after the full payoff, so it never interrupts the value delivery.
+        start = max(7.0, duration * 0.56)
+        mode = _short_first_mode(script)
+        if start >= duration - 3.0:
+            return []
         return [
             VisualCtaEvent(
-                mode=modes[index],
+                mode=mode,
                 start_seconds=round(start, 3),
-                end_seconds=round(min(duration - 1.2, start + (2.6 if modes[index] == "subscribe_combo" else 1.35)), 3),
-                x=(160 if modes[index] == "subscribe_combo" else 465),
+                end_seconds=round(min(duration - 2.0, start + 1.35), 3),
+                x=465,
                 y=SHORT_CTA_Y,
-                asset="subscribe_bell_reference.mp4" if modes[index] == "subscribe_combo" else _ICON_BY_MODE[modes[index]].name,
+                asset=_ICON_BY_MODE[mode].name,
             )
-            for index, start in enumerate(starts)
-            if start < duration - 2.0
-        ][:2]
+        ]
 
     if fmt not in {"film", "podcast"}:
         return []
@@ -281,11 +278,11 @@ def _events(
     primary = authored_mode if authored_mode in {"like", "comment", "share"} else "comment"
     palette = ["like", primary, "share", "subscribe_combo"]
     if len(points) == 1:
-        palette = ["subscribe_combo"]
+        palette = [primary]
     elif len(points) == 2:
-        palette = [primary, "subscribe_combo"]
+        palette = [primary, "share" if primary != "share" else "like"]
     elif len(points) == 3:
-        palette = ["like" if primary != "like" else "comment", primary, "subscribe_combo"]
+        palette = ["like" if primary != "like" else "comment", primary, "share"]
 
     events: list[VisualCtaEvent] = []
     last_mode = ""
@@ -475,12 +472,13 @@ def apply_visual_cta_assets(
         "format": fmt,
         "events": [asdict(item) for item in events],
         "event_count": len(events),
-        "short_max_two": fmt != "short" or len(events) <= 2,
+        "short_max_two": fmt != "short" or len(events) <= 1,
         "short_combo_max_seconds": 2.6 if fmt == "short" else None,
         "short_combo_palette": "warm_gold_dark_harmonized" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": True,
         "semantic_separation": True,
+        "subscribe_delivery": "terminal_identity_outro_after_spoken_payoff",
         "semantic_separation_policy": "CTA action must differ from current narration/scene action family",
         "semantic_decisions": semantic_decisions,
         "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
