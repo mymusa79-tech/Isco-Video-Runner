@@ -7,6 +7,7 @@ from pathlib import Path
 
 from clean_v2 import short_timed_text as text_module
 from clean_v2 import visual_cta as cta_module
+from clean_v2 import podcast_key_text as podcast_text_module
 from clean_v2.podcast_key_text import (
     FILM_MAX_EVENTS,
     FILM_MIN_GAP_SECONDS,
@@ -42,9 +43,100 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 6.0, "end": 9.0, "text": "الخطوة الصغيرة تصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
+
+    def test_continuous_gold_wipe_moves_from_right_to_left_without_word_steps(self) -> None:
+        tag = text_module._rtl_gold_wipe_tag(
+            x=540,
+            y=1400,
+            duration_seconds=4.0,
+        )
+        self.assertIn(r"\clip(1040,1100,1040,1700)", tag)
+        self.assertIn(r"\t(0,4000,\clip(40,1100,1040,1700))", tag)
+        self.assertNotIn(r"\kf", tag)
+
+        events = [
+            {"start": 0.0, "end": 4.0, "text": "أمسكت بالقلم فوق الصفحة الفارغة", "role": "hook"},
+            {"start": 4.0, "end": 8.0, "text": "ثم بدأت الفكرة تتغير أمامي", "role": "beat"},
+            {"start": 8.0, "end": 12.0, "text": "الخطوة الصغيرة فتحت الطريق", "role": "payoff"},
+        ]
+        ass = text_module.build_rich_ass(events)
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn("أمسكت", ass)
+        self.assertIn("الفارغة", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+
+    def test_short_visual_text_uses_same_beat_metadata_as_selected_images(self) -> None:
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 6.0},
+                {"section_id": "s2", "start": 6.0, "end": 12.0},
+                {"section_id": "s3", "start": 12.0, "end": 18.0},
+            ],
+        }
+        manifest = {
+            "assets": [
+                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "لحظة التردد"},
+                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "بداية التحول"},
+                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "خطوة واضحة"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "rights-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            events = text_module._visual_asset_text_events(
+                output_dir=Path(root),
+                timeline_report=timeline,
+            )
+        self.assertEqual([event["beat_id"] for event in events], ["b1", "b2", "b3"])
+        self.assertEqual(
+            [event["text"] for event in events],
+            ["لحظة التردد", "بداية التحول", "خطوة واضحة"],
+        )
+        self.assertEqual([event["role"] for event in events], ["hook", "beat", "payoff"])
+
+    def test_film_and_podcast_sparse_text_can_come_from_same_visual_beats(self) -> None:
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 20.0},
+                {"section_id": "s2", "start": 20.0, "end": 40.0},
+                {"section_id": "s3", "start": 40.0, "end": 60.0},
+            ],
+        }
+        manifest = {
+            "assets": [
+                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "توتر البداية"},
+                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "تغير صغير"},
+                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "النتيجة ظهرت"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "rights-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            podcast_events = podcast_text_module._visual_beat_text_events(
+                output_dir=Path(root),
+                timeline=timeline,
+                fmt="podcast",
+            )
+            film_events = podcast_text_module._visual_beat_text_events(
+                output_dir=Path(root),
+                timeline=timeline,
+                fmt="film",
+            )
+        self.assertEqual(
+            [event["text"] for event in podcast_events],
+            ["توتر البداية", "تغير صغير", "النتيجة ظهرت"],
+        )
+        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in podcast_events))
+        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in film_events))
 
     def test_short_karaoke_sweep_tracks_phrase_locally_without_provider_alignment(self) -> None:
         item = text_module.TimedTextEvent(
@@ -79,8 +171,12 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 8.0, "end": 12.0, "text": "الاستمرار الصغير يصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertGreaterEqual(ass.count(r"\kf"), sum(len(event["text"].split()) for event in events))
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertNotIn(r"\kf", ass)
+        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertIn(text_module.PRIMARY_ASS, ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+        self.assertIn(r"\clip(", ass)
+        self.assertIn(r"\t(0,", ass)
         self.assertNotIn("\u202B", ass)
 
     def test_film_key_text_is_sparse_complete_and_breathes(self) -> None:

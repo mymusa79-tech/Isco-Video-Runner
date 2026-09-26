@@ -61,6 +61,62 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
+class HookVisualStopPowerTests(unittest.TestCase):
+    def test_ai_hook_prompt_is_stronger_than_body_without_clickbait(self) -> None:
+        story = {
+            "visual_world": "warm neutral coherent world",
+            "retention_thread": {"visual_motif": "notebook"},
+        }
+        hook = media_module._ai_still_prompt(
+            story,
+            {
+                "role": "hook",
+                "viewer_intent": "see the hesitation",
+                "meaning_target": "hand stops before opening notebook",
+                "shot_intent": "hand frozen above closed notebook",
+            },
+            fmt="short",
+            with_reference=False,
+        )
+        body = media_module._ai_still_prompt(
+            story,
+            {
+                "role": "body",
+                "viewer_intent": "understand the next step",
+                "meaning_target": "one task written",
+                "shot_intent": "hand writes one task",
+            },
+            fmt="short",
+            with_reference=False,
+        )
+        self.assertIn("HOOK FRAME:", hook)
+        self.assertIn("visually arresting but truthful", hook)
+        self.assertIn("stronger local subject contrast", hook)
+        self.assertNotIn("HOOK FRAME:", body)
+        self.assertIn("exaggerated advertising look", hook)
+
+    def test_hook_stock_query_is_strengthened_locally_only(self) -> None:
+        base = "closed notebook beside hand warm room"
+        hook = media_module._hook_stock_retrieval_query(base, {"role": "hook"})
+        body = media_module._hook_stock_retrieval_query(base, {"role": "body"})
+        self.assertIn("close", hook)
+        self.assertIn("decisive", hook)
+        self.assertIn("contrast", hook)
+        self.assertEqual(body, base)
+        self.assertLessEqual(len(hook), 260)
+
+    def test_specific_beat_intent_is_compacted_locally_without_new_call(self) -> None:
+        query = media_module._specific_beat_stock_query(
+            "cinematic warm hand freezes above unopened planner while phone notifications pile up"
+        )
+        self.assertEqual(
+            query,
+            "hand freezes above unopened planner while phone notifications pile up",
+        )
+        self.assertEqual(media_module._specific_beat_stock_query("يد فوق دفتر"), "")
+        self.assertEqual(media_module._specific_beat_stock_query("warm cinematic lighting"), "")
+
+
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     def test_ai_prompt_keeps_safety_rules_when_story_fields_are_maximal(self) -> None:
         prompt = media_module._ai_still_prompt(
@@ -77,6 +133,8 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             with_reference=False,
         )
         self.assertLessEqual(len(prompt), 2048)
+        self.assertIn("IMAGE ONLY", prompt)
+        self.assertIn("do not render any caption", prompt)
         self.assertIn("No identifiable faces", prompt)
         self.assertIn("No readable text", prompt)
         self.assertTrue(prompt.endswith("exaggerated advertising look."))
@@ -329,12 +387,108 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
 
         self.assertIsNone(references[0])
         self.assertIsNotNone(references[1])
-        self.assertEqual(references[1].name, "continuity-reference.jpg")
+        self.assertEqual(references[1].name, "hook-continuity-reference.jpg")
         self.assertEqual([row["source_actual"] for row in rights], ["ai_still"] * 2)
         pexels.assert_not_called()
         pixabay.assert_not_called()
 
-    def test_stock_search_uses_per_beat_english_query_not_semantic_shot_intent(self) -> None:
+    def test_body_ai_does_not_inherit_hook_reference(self) -> None:
+        hook = self._beat("b1", "s1", "closed notebook in warm room")
+        body = self._beat("b2", "s1", "hand moves phone away from notebook")
+        hook["source_preference"] = "ai_still"
+        body.update({"source_preference": "ai_still", "role": "body"})
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(hook, body)
+        source = media_module.StockVisualSource()
+        references: list[Path | None] = []
+
+        def fake_generate(*, prompt, destination, fmt, reference):
+            del prompt, fmt
+            references.append(reference)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"\xff\xd8\xff" + b"I" * 2048)
+            return {
+                "provider": "cloudflare_workers_ai",
+                "model": ai_still_module.CLOUDFLARE_IMAGE_MODEL,
+                "prompt_sha256": "b" * 64,
+                "source_url": "https://developers.cloudflare.com/workers-ai/",
+                "ai_generated": True,
+            }
+
+        def fake_render(_source, destination, *, fmt):
+            del fmt
+            Path(destination).write_bytes(b"V" * 4096)
+            return Path(destination)
+
+        def fake_reference(_source, destination):
+            Path(destination).write_bytes(b"R" * 2048)
+            return Path(destination)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch(
+            "clean_v2.ai_still.generate_cloudflare_ai_still",
+            side_effect=fake_generate,
+        ), mock.patch.object(
+            media_module, "_render_ai_still", side_effect=fake_render
+        ), mock.patch.object(
+            media_module, "_prepare_ai_reference", side_effect=fake_reference
+        ), mock.patch.object(source, "_pexels") as pexels, mock.patch.object(
+            source, "_pixabay"
+        ) as pixabay:
+            _clips, rights = source.acquire(plan, Path(root), "film", 5)
+
+        self.assertEqual(references, [None, None])
+        self.assertEqual([row["source_actual"] for row in rights], ["ai_still", "ai_still"])
+        pexels.assert_not_called()
+        pixabay.assert_not_called()
+
+    def test_english_beat_shot_intent_drives_same_stock_request(self) -> None:
+        seen_queries: list[str] = []
+        source = media_module.StockVisualSource(
+            query_normalizer=lambda query: seen_queries.append(query) or query
+        )
+        candidate = _candidate("pexels", "p-specific")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        shot_intent = (
+            "hand freezes above unopened planner while phone notifications pile up"
+        )
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(
+            self._beat(
+                "b1",
+                "s1",
+                shot_intent,
+                stock_query_en="generic productivity desk planning",
+            )
+        )
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", return_value=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "film",
+                5,
+                section_estimated_seconds={"s1": 20.0},
+            )
+
+        expected = media_module._hook_stock_retrieval_query(
+            media_module._specific_beat_stock_query(shot_intent),
+            {"role": "hook"},
+        )
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(seen_queries, [expected])
+        self.assertNotIn("generic productivity desk planning", seen_queries[0])
+        self.assertEqual(rights[0]["shot_intent"], shot_intent)
+
+    def test_non_english_beat_intent_falls_back_to_dedicated_stock_query(self) -> None:
         seen_queries: list[str] = []
         source = media_module.StockVisualSource(
             query_normalizer=lambda query: seen_queries.append(query) or query
@@ -372,7 +526,12 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 1)
         self.assertEqual(
             seen_queries,
-            ["paused hand above notebook warm morning window"],
+            [
+                media_module._hook_stock_retrieval_query(
+                    "paused hand above notebook warm morning window",
+                    {"role": "hook"},
+                )
+            ],
         )
         self.assertEqual(
             rights[0]["shot_intent"],
@@ -410,7 +569,15 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             )
 
         self.assertEqual(len(clips), 1)
-        self.assertEqual(seen_queries, ["quiet desk notebook wide shot"])
+        self.assertEqual(
+            seen_queries,
+            [
+                media_module._hook_stock_retrieval_query(
+                    "quiet desk notebook wide shot",
+                    {"role": "hook"},
+                )
+            ],
+        )
         self.assertEqual(rights[0]["shot_intent"], "يد تكتب مهمة واحدة في دفتر")
 
     def test_short_non_ascii_successive_beats_use_primary_then_alternate_query(self) -> None:
@@ -455,9 +622,52 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 2)
         self.assertEqual(
             seen_queries,
-            ["quiet desk notebook wide shot", "hand circles one task on paper"],
+            [
+                media_module._hook_stock_retrieval_query(
+                    "quiet desk notebook wide shot",
+                    {"role": "hook"},
+                ),
+                "hand circles one task on paper",
+            ],
         )
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
+
+
+class ExactVisualSectionTimingTests(unittest.TestCase):
+    def test_visual_slot_durations_prefer_measured_voice_section_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root)
+            (output / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s2"},
+                        ],
+                        "estimated_section_seconds": {"s1": 50.0, "s2": 50.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (output / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "section_events": [
+                            {"section_id": "s1", "start": 0.0, "end": 3.0},
+                            {"section_id": "s2", "start": 3.0, "end": 9.0},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            durations = media_module._section_slot_durations(
+                output,
+                [Path("a.mp4"), Path("b.mp4")],
+                9.0,
+                pad=0.0,
+            )
+        self.assertAlmostEqual(durations[0], 3.0, places=3)
+        self.assertAlmostEqual(durations[1], 6.0, places=3)
 
 
 class SectionDurationEstimationTests(unittest.TestCase):
@@ -1235,18 +1445,24 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = media_module._write_master_look_lut(Path(root) / "look.cube")
             lines = path.read_text(encoding="ascii").splitlines()
-        self.assertEqual(lines[0], 'TITLE "Isco Channel Deep Warm Neutral v2"')
+        self.assertEqual(lines[0], 'TITLE "Isco Wakeful Depth v3"')
         self.assertEqual(lines[1], f"LUT_3D_SIZE {media_module.MASTER_LOOK_LUT_SIZE}")
         self.assertEqual(
             len(lines),
             4 + (media_module.MASTER_LOOK_LUT_SIZE ** 3),
         )
 
+    def test_wakeful_depth_reduces_ad_like_saturation_without_network(self) -> None:
+        self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.92)
+        self.assertGreater(media_module.MASTER_LOOK_CONTRAST, 1.035)
+        self.assertIn("saturation=0.995", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("brightness=-0.014", media_module.CINEMATIC_FINISH_FILTER)
+
     def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
         fragment = media_module.CINEMATIC_FINISH_FILTER
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-channel-depth-finish-v2",
+            "clean-v2-wakeful-depth-finish-v3",
         )
         self.assertIn("eq=contrast=", fragment)
         self.assertIn("unsharp=", fragment)

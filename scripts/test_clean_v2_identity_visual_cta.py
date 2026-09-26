@@ -42,7 +42,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             first,
         )
 
-    def test_short_visual_cta_never_exceeds_two(self) -> None:
+    def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
         script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
         events = _events(
             fmt="short",
@@ -50,9 +50,9 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             script=script,
             authored_mode="none",
         )
-        self.assertEqual(len(events), 2)
+        self.assertEqual(len(events), 1)
         self.assertEqual(events[0].mode, "comment")
-        self.assertEqual(events[1].mode, "subscribe_combo")
+        self.assertNotEqual(events[0].mode, "subscribe_combo")
         self.assertGreaterEqual(events[0].start_seconds, 7.0)
         self.assertLess(events[-1].end_seconds, 36.0)
 
