@@ -7,6 +7,7 @@ from pathlib import Path
 
 from clean_v2 import short_timed_text as text_module
 from clean_v2 import visual_cta as cta_module
+from clean_v2 import podcast_key_text as podcast_text_module
 from clean_v2.podcast_key_text import (
     FILM_MAX_EVENTS,
     FILM_MIN_GAP_SECONDS,
@@ -66,6 +67,76 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertIn("أمسكت", ass)
         self.assertIn("الفارغة", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+
+    def test_short_visual_text_uses_same_beat_metadata_as_selected_images(self) -> None:
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 6.0},
+                {"section_id": "s2", "start": 6.0, "end": 12.0},
+                {"section_id": "s3", "start": 12.0, "end": 18.0},
+            ],
+        }
+        manifest = {
+            "assets": [
+                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "لحظة التردد"},
+                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "بداية التحول"},
+                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "خطوة واضحة"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "rights-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            events = text_module._visual_asset_text_events(
+                output_dir=Path(root),
+                timeline_report=timeline,
+            )
+        self.assertEqual([event["beat_id"] for event in events], ["b1", "b2", "b3"])
+        self.assertEqual(
+            [event["text"] for event in events],
+            ["لحظة التردد", "بداية التحول", "خطوة واضحة"],
+        )
+        self.assertEqual([event["role"] for event in events], ["hook", "beat", "payoff"])
+
+    def test_film_and_podcast_sparse_text_can_come_from_same_visual_beats(self) -> None:
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 20.0},
+                {"section_id": "s2", "start": 20.0, "end": 40.0},
+                {"section_id": "s3", "start": 40.0, "end": 60.0},
+            ],
+        }
+        manifest = {
+            "assets": [
+                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "توتر البداية"},
+                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "تغير صغير"},
+                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "النتيجة ظهرت"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "rights-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            podcast_events = podcast_text_module._visual_beat_text_events(
+                output_dir=Path(root),
+                timeline=timeline,
+                fmt="podcast",
+            )
+            film_events = podcast_text_module._visual_beat_text_events(
+                output_dir=Path(root),
+                timeline=timeline,
+                fmt="film",
+            )
+        self.assertEqual(
+            [event["text"] for event in podcast_events],
+            ["توتر البداية", "تغير صغير", "النتيجة ظهرت"],
+        )
+        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in podcast_events))
+        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in film_events))
 
     def test_short_karaoke_sweep_tracks_phrase_locally_without_provider_alignment(self) -> None:
         item = text_module.TimedTextEvent(
