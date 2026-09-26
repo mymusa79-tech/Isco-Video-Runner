@@ -42,7 +42,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 6.0, "end": 9.0, "text": "الخطوة الصغيرة تصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 3)
+        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
         self.assertIn(r"\fad(150,200)", ass)
         self.assertNotIn(r"\bord5", ass)
 
