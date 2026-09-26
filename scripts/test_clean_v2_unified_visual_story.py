@@ -93,6 +93,14 @@ def _planning_value(fmt: str = "film") -> dict:
 
 
 class UnifiedVisualStoryPlanningTests(unittest.TestCase):
+    def test_planning_prompt_requires_first_beat_visual_stop_power_only(self) -> None:
+        prompt = _planning_prompt(_brief("short"))
+        self.assertIn("HOOK VISUAL STOP-POWER", prompt)
+        self.assertIn("MUST NOT be a calm mood-only establishing image", prompt)
+        self.assertIn("understood with sound off in the first frame", prompt)
+        self.assertIn("After the hook, return to", prompt)
+        self.assertIn("Avoid unrelated shock", prompt)
+
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
         planned = _validate_plan_for_brief(_planning_value("film"), brief)
