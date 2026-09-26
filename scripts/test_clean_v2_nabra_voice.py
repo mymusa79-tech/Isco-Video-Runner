@@ -21,6 +21,7 @@ from clean_v2.nabra_voice import (
     NABRA_REFERENCE_PROFILE,
     NABRA_SPEED,
     NABRA_VOICE,
+    _g2p_preserving_breath_punctuation,
 )
 from clean_v2.pipeline import _synthesize_sectioned_voice
 
@@ -88,6 +89,34 @@ class NabraRouteTests(unittest.TestCase):
             NABRA_REFERENCE_PROFILE,
             "nabra-82m-v0.1:af_msa:0.87:native-pauses-v1",
         )
+
+    def test_g2p_preserves_writer_breath_marks_and_intentional_tashkeel(self) -> None:
+        class FakePipeline:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def g2p(self, text: str):
+                self.calls.append(text)
+                return f"<{text}>", None
+
+        pipeline = FakePipeline()
+        phonemes = _g2p_preserving_breath_punctuation(
+            pipeline,
+            "لا تُحمِّل العبارة، ثم قُلها بوضوح؛ ولا تُسرِع.",
+        )
+
+        self.assertEqual(
+            pipeline.calls,
+            [
+                "لا تُحمِّل العبارة",
+                "ثم قُلها بوضوح",
+                "ولا تُسرِع.",
+            ],
+        )
+        self.assertEqual(phonemes.count(","), 2)
+        self.assertIn("تُحمِّل", phonemes)
+        self.assertIn("قُلها", phonemes)
+        self.assertIn("تُسرِع", phonemes)
 
     def test_nabra_mastering_is_neutral_and_charon_filter_is_not_reused(self) -> None:
         self.assertEqual(NABRA_MASTERING_PROFILE, "nabra-loudness-only-v1")
