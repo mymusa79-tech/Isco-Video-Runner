@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 6
-RICH_RENDERER_VERSION = "clean-v2-short-phrase-focus-3d-lite-v6"
+SCHEMA_VERSION = 7
+RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-line-hierarchy-v7"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
@@ -23,12 +23,13 @@ PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = "&H00231A12"  # dark warm side face
 SHADOW_ASS = "&HA8000000"  # soft transparent black
-BODY_FONT = "Noto Sans Arabic"
+BODY_FONT = "Noto Kufi Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 108
 FOCUS_FONT_SIZE = 154
 FOCUS_SCALE = 1.22
 BODY_WRAP_WORDS = 6
+ARABIC_WORD_GAP = "\u2009\u2009"
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
@@ -355,6 +356,12 @@ def _ass_escape(text: str) -> str:
     return _clean(text).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
 
 
+def _rtl_row(words: Sequence[str]) -> str:
+    """Render one independent Arabic RTL row with visible breathing between words."""
+    escaped = [_ass_escape(word) for word in words if _clean(word)]
+    return "\u202B" + ARABIC_WORD_GAP.join(escaped) + "\u202C"
+
+
 def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
     words = _clean(text).split()
     if not words:
@@ -366,10 +373,7 @@ def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
     else:
         split_at = (len(words) + 1) // 2
         rows = [words[:split_at], words[split_at:]]
-    lines = [
-        r"\h\h".join(_ass_escape(word) for word in row)
-        for row in rows
-    ]
+    lines = [_rtl_row(row) for row in rows]
     return r"\N".join(lines)
 
 
@@ -469,7 +473,7 @@ def _accent_caption(
         use_gold = row_index == 1 or (len(rows) == 1 and role == "payoff")
         color = ACCENT_ASS if use_gold else PRIMARY_ASS
         size = focus_size if use_gold and len(rows) > 1 else body_size
-        row_text = r"\h\h".join(_ass_escape(word) for word in row)
+        row_text = _rtl_row(row)
         rendered.append(
             "{\\fs"
             + str(size)
@@ -478,7 +482,7 @@ def _accent_caption(
             + "}"
             + row_text
         )
-    return "\u202B" + r"\N".join(rendered) + "\u202C"
+    return r"\N".join(rendered)
 
 
 def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
@@ -501,8 +505,8 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
 
 
 def _plain_caption(text: str) -> str:
-    """One shaping-safe RTL copy with deterministic breathing between Arabic words."""
-    return "\u202B" + _ass_wrap_words(text) + "\u202C"
+    """Shaping-safe Arabic copy: every visual row owns its RTL direction."""
+    return _ass_wrap_words(text)
 
 
 def _font_size_for_event(item: TimedTextEvent) -> int:
@@ -723,9 +727,9 @@ def render_progressive_text(
         "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
         "word_highlight_count": len(validated),
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
-        "rtl_policy": "explicit_rtl_balanced_two_line_full_phrase_double_hard_word_spacing",
+        "rtl_policy": "per_line_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "full_phrase_fade_150_200ms_scale_99_to_100",
+        "caption_motion": "full_phrase_static_rtl_fade_150_200ms_scale_99_to_100",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 
