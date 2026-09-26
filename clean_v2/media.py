@@ -1186,6 +1186,106 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+_VISUAL_ACTION_FAMILIES = {
+    "writing": frozenset({
+        "write", "writing", "written", "pen", "pencil", "notebook", "journal",
+        "journaling", "note", "notes", "sticky", "checklist", "planner", "planning",
+    }),
+    "screen": frozenset({
+        "laptop", "computer", "keyboard", "typing", "screen", "monitor", "desktop",
+    }),
+    "reading": frozenset({
+        "book", "books", "reading", "read", "pages", "library",
+    }),
+    "coffee": frozenset({
+        "coffee", "tea", "cup", "mug", "cafe",
+    }),
+    "phone": frozenset({
+        "phone", "smartphone", "mobile", "scrolling", "notification",
+    }),
+    "walking": frozenset({
+        "walk", "walking", "steps", "street", "path", "stair", "stairs",
+    }),
+    "movement": frozenset({
+        "exercise", "running", "run", "training", "stretch", "gym", "movement",
+    }),
+    "organizing": frozenset({
+        "organize", "organizing", "sorting", "arranging", "declutter", "tidy",
+    }),
+    "completion": frozenset({
+        "finish", "finished", "complete", "completed", "done", "progress", "result",
+    }),
+}
+_GENERIC_VISUAL_QUERY_TOKENS = frozenset({
+    "warm", "cinematic", "natural", "light", "lighting", "soft", "neutral",
+    "hands", "hand", "only", "face", "faces", "close", "closeup", "close-up",
+    "shot", "view", "background", "foreground", "indoor", "outdoor", "person",
+})
+
+
+def _query_tokens(value: object) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(value or "").lower())
+        if len(token) > 2 and token not in _GENERIC_VISUAL_QUERY_TOKENS
+    }
+
+
+def _visual_action_family(query: object) -> str:
+    tokens = _query_tokens(query)
+    best_family = ""
+    best_hits = 0
+    for family, vocabulary in _VISUAL_ACTION_FAMILIES.items():
+        hits = len(tokens.intersection(vocabulary))
+        if hits > best_hits:
+            best_family = family
+            best_hits = hits
+    return best_family
+
+
+def _semantic_query_overlap(query: object, metadata: object) -> float:
+    wanted = _query_tokens(query)
+    if not wanted:
+        return 0.0
+    available = _query_tokens(metadata)
+    if not available:
+        return 0.0
+    return len(wanted.intersection(available)) / float(len(wanted))
+
+
+def _choose_diverse_stock_query(
+    primary: str,
+    alternatives: list[str],
+    *,
+    previous_family: str,
+    family_counts: Mapping[str, int],
+) -> tuple[str, str, bool]:
+    """Prefer an already-authored query from a different visual-action family.
+
+    This is a local deterministic tie-breaker only: no provider/model call is added,
+    and if no genuinely different authored query exists the original query is kept.
+    """
+    candidates: list[str] = []
+    for raw in [primary, *alternatives]:
+        value = " ".join(str(raw or "").split()).strip()
+        if value and value not in candidates:
+            candidates.append(value)
+    if not candidates:
+        return "", "", False
+
+    primary_family = _visual_action_family(candidates[0])
+    for candidate in candidates:
+        family = _visual_action_family(candidate)
+        if not family:
+            continue
+        if family == previous_family:
+            continue
+        if int(family_counts.get(family, 0)) >= 2:
+            continue
+        return candidate, family, candidate != candidates[0]
+    return candidates[0], primary_family, False
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -1194,18 +1294,21 @@ def _stock_local_rank_score(
     height: int,
     duration: float,
     portrait: bool,
+    semantic_match: float = 0.0,
 ) -> float:
-    """Legacy-inspired local ranking over results already returned by one search."""
+    """Local ranking over the same provider result page; no extra request."""
     count = max(1, int(count))
     relevance = 1.0 - (max(0, int(index)) / count)
     orientation_ok = (height > width) if portrait else (width >= height)
     pixels = min(max(0, width * height), 1920 * 1080) / float(1920 * 1080)
     duration_fit = min(1.0, max(0.0, float(duration)) / 4.0)
+    semantic = min(1.0, max(0.0, float(semantic_match)))
     return (
-        relevance * 0.55
+        relevance * 0.47
         + (1.0 if orientation_ok else 0.0) * 0.20
-        + pixels * 0.15
-        + duration_fit * 0.10
+        + pixels * 0.13
+        + duration_fit * 0.08
+        + semantic * 0.12
     )
 
 
@@ -1398,6 +1501,10 @@ class StockVisualSource:
                         height=height,
                         duration=duration,
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            video.get("url") or "",
+                        ),
                     ),
                     video,
                     selected,
@@ -1469,6 +1576,10 @@ class StockVisualSource:
                         height=int(item.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            hit.get("tags") or "",
+                        ),
                     ),
                 )
                 ranked.append((
@@ -1479,6 +1590,10 @@ class StockVisualSource:
                         height=int(selected.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        semantic_match=_semantic_query_overlap(
+                            query,
+                            hit.get("tags") or "",
+                        ),
                     ),
                     hit,
                     selected,
@@ -1589,6 +1704,8 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "section_visual_query_en": primary_query,
+                    "section_visual_query_alt_en": alternate_query,
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
@@ -1802,6 +1919,10 @@ class StockVisualSource:
                     beat.get("source_preference") or "stock_motion"
                 )
                 candidate["source_actual"] = "stock_motion"
+                candidate["visual_action_family"] = beat.get("visual_action_family")
+                candidate["query_diversity_rewritten"] = bool(
+                    beat.get("query_diversity_rewritten")
+                )
                 if auxiliary:
                     # Keep this compatibility flag because existing render/opening
                     # code uses it to distinguish the first section visual. Its cause
@@ -1814,16 +1935,37 @@ class StockVisualSource:
             return False
 
         seen_sections: set[str] = set()
-        for beat in beats:
+        previous_visual_family = ""
+        visual_family_counts: dict[str, int] = {}
+        for raw_beat in beats:
+            beat = dict(raw_beat)
             section_id = str(beat.get("section_id") or "")
-            query = str(beat.get("stock_query_en") or "").strip()
+            primary_query = str(beat.get("stock_query_en") or "").strip()
+            shot_intent = str(beat.get("shot_intent") or "").strip()
+            alternatives = [
+                str(beat.get("section_visual_query_alt_en") or "").strip(),
+                str(beat.get("section_visual_query_en") or "").strip(),
+            ]
+            if shot_intent.isascii() and any(char.isalpha() for char in shot_intent):
+                alternatives.append(shot_intent)
+            query, family, rewritten = _choose_diverse_stock_query(
+                primary_query,
+                alternatives,
+                previous_family=previous_visual_family,
+                family_counts=visual_family_counts,
+            )
             if not query:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+            beat["query_diversity_rewritten"] = rewritten
+            beat["visual_action_family"] = family or None
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
+                if family:
+                    visual_family_counts[family] = visual_family_counts.get(family, 0) + 1
+                    previous_visual_family = family
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
