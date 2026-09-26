@@ -138,6 +138,10 @@ def build_events(
     identity = [item for item in raw_identity if isinstance(item, Mapping)] if isinstance(raw_identity, list) else []
     hook_window = next((item for item in identity if str(item.get("kind") or "") == "hook"), None)
     topic_window = next((item for item in identity if str(item.get("kind") or "") == "topic"), None)
+    pre_outro_window = next(
+        (item for item in identity if str(item.get("kind") or "") == "pre_outro_silence"),
+        None,
+    )
     outro_window = next((item for item in identity if str(item.get("kind") or "") == "outro"), None)
 
     if fmt == "podcast":
@@ -190,8 +194,15 @@ def build_events(
         if fmt == "podcast" and role == "hook" and isinstance(hook_window, Mapping):
             start_seconds = _seconds(hook_window.get("start"), "hook_start")
             end_seconds = min(_seconds(hook_window.get("end"), "hook_end"), start_seconds + display_seconds)
-        elif role == "payoff" and isinstance(outro_window, Mapping):
-            end_seconds = max(section_start, _seconds(outro_window.get("start"), "outro_start") - 0.35)
+        elif role == "payoff" and (
+            isinstance(pre_outro_window, Mapping) or isinstance(outro_window, Mapping)
+        ):
+            boundary = (
+                _seconds(pre_outro_window.get("start"), "pre_outro_start")
+                if isinstance(pre_outro_window, Mapping)
+                else _seconds(outro_window.get("start"), "outro_start") - 0.35
+            )
+            end_seconds = max(section_start, min(section_end, boundary))
             start_seconds = max(section_start, end_seconds - display_seconds)
         else:
             start_seconds = section_start + min(1.2, max(0.0, (section_end - section_start) * 0.22))
