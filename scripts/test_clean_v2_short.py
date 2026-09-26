@@ -58,6 +58,7 @@ from clean_v2.short_audio_polish import (
 )
 from clean_v2.short_timed_text import (
     ACCENT_ASS,
+    PRIMARY_ASS,
     BODY_FONT,
     BODY_FONT_SIZE,
     CAPTION_MAX_WORDS,
