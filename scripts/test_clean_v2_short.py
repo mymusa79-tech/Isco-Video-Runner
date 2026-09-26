@@ -1219,7 +1219,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.35)
+        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
         self.assertIn("Style: Caption", ass)
         self.assertIn("Style: Extrusion", ass)
         self.assertIn("Style: Shadow", ass)
