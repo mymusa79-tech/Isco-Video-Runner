@@ -1236,7 +1236,7 @@ def _ai_still_prompt(
         if with_reference
         else "Establish one distinctive coherent environment that can be reused later. "
     )
-    prompt = (
+    core = (
         f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
         f"Visual world: {visual_world}. "
         f"Recurring motif: {motif}. "
@@ -1248,12 +1248,17 @@ def _ai_still_prompt(
         f"{reference_rule}"
         "Lived-in foreground, midground and background depth, warm-neutral practical light, "
         "one clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
-        "local subject contrast and a more immediate decisive composition; body/payoff stay restrained. "
-        "No identifiable faces; "
-        "hands, back view, objects, or environment only. No readable text, letters, logos, "
-        "watermarks, UI, collage, split screen, fantasy glow, or exaggerated advertising look."
+        "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
     )
-    return " ".join(prompt.split())[:2048]
+    mandatory_tail = (
+        "No identifiable faces; hands, back view, objects, or environment only. "
+        "No readable text, letters, logos, watermarks, UI, collage, split screen, fantasy glow, "
+        "or exaggerated advertising look."
+    )
+    core = " ".join(core.split())
+    mandatory_tail = " ".join(mandatory_tail.split())
+    core_budget = max(0, 2048 - len(mandatory_tail) - 1)
+    return (core[:core_budget].rstrip() + " " + mandatory_tail).strip()
 
 
 def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, Any] | None:
