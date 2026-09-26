@@ -47,7 +47,7 @@ _CTA_SEMANTIC_FAMILIES = {
     ),
 }
 
-_CTA_FALLBACK_ORDER = ("like", "share", "subscribe_combo", "comment")
+_CTA_FALLBACK_ORDER = ("like", "share", "comment")
 
 _SECRET_NAMES = {
     "GEMINI_API_KEY",
@@ -276,7 +276,7 @@ def _events(
         points = [0.22, 0.44, 0.65, 0.84]
 
     primary = authored_mode if authored_mode in {"like", "comment", "share"} else "comment"
-    palette = ["like", primary, "share", "subscribe_combo"]
+    palette = ["like", primary, "share", "comment"]
     if len(points) == 1:
         palette = [primary]
     elif len(points) == 2:
