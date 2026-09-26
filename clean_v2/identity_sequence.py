@@ -19,9 +19,13 @@ _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
-    "short": {"intro_silence_seconds": 1.0, "final_silence_seconds": 0.75},
-    "film": {"intro_silence_seconds": 1.25, "final_silence_seconds": 1.0},
-    "podcast": {"intro_silence_seconds": 1.25, "final_silence_seconds": 1.0},
+    # Charon has no model timing metadata, so these are only small visual breathing
+    # gaps between independently synthesized identity units. Keep them short enough
+    # to feel like natural punctuation, not inserted silence. Nabra does not use
+    # these values; its pause duration is model-native and measured from pred_dur.
+    "short": {"intro_silence_seconds": 0.35, "final_silence_seconds": 0.35},
+    "film": {"intro_silence_seconds": 0.45, "final_silence_seconds": 0.45},
+    "podcast": {"intro_silence_seconds": 0.45, "final_silence_seconds": 0.45},
 }
 
 
