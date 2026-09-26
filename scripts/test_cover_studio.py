@@ -48,6 +48,21 @@ class CoverStudioV2Tests(unittest.TestCase):
                 self.assertGreater(medium_score, score_cover_candidate(bright, fmt=fmt)["visual_score"])
                 self.assertGreater(medium_score, score_cover_candidate(very_dark, fmt=fmt)["visual_score"])
 
+    def test_podcast_scoring_rejects_bright_saturated_lifestyle_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            vivid = Image.new("RGB", (1280, 720), (245, 190, 55))
+            vivid.save(root / "vivid.jpg", quality=95)
+            deep = self._image(root / "deep.jpg", value=92, accent=True)
+            vivid_score = score_cover_candidate(root / "vivid.jpg", fmt="podcast")
+            deep_score = score_cover_candidate(deep, fmt="podcast")
+            self.assertGreater(deep_score["visual_score"], vivid_score["visual_score"])
+            self.assertGreater(vivid_score["saturation"], deep_score["saturation"])
+            self.assertEqual(
+                deep_score["selection_profile"],
+                "podcast_topic_relevant_channel_depth",
+            )
+
     def test_podcast_identity_and_depth_profile_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
