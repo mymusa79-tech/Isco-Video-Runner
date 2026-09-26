@@ -173,7 +173,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("Create a new beat ONLY when the idea", prompt)
             self.assertIn("NEVER invent extra beats to hit a", prompt)
             self.assertIn("exactly two AI anchor beats", prompt)
-            self.assertIn("stock_query_en is a separate, distinct", prompt)
+            self.assertIn("stock_query_en remains a separate English retrieval fallback", prompt)
             self.assertIn("6-14 useful search words", prompt)
             self.assertIn("hands only, back view, or objects only", prompt)
             if fmt == "short":
