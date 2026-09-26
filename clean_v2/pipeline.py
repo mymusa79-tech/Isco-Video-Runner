@@ -3196,6 +3196,7 @@ def _run_podcast_derived_short_lite(
         report = {
             **base,
             "status": "pass",
+            "section_id": str(promo[0].get("section_id") or ""),
             "duration_seconds": qc.get("final_duration_seconds", round(duration, 3)),
             "width": (stream or {}).get("width"),
             "height": (stream or {}).get("height"),
@@ -3384,6 +3385,15 @@ from real voice-unit boundaries before final render. They never add or remove ru
 definition, and first topic line as one continuous opening beat, not disconnected modules. Do not plan
 any greeting, prayer, channel introduction, extra preamble, or duplicate identity material.
 
+COVER_LITE is metadata inside this SAME Planning response, never a new stage or model call.
+Write cover_text as a distinctive, truthful Arabic cover phrase of 2-5 words that opens one clear
+curiosity/tension from THIS exact episode and is fully repaid by the plan. It must read naturally in
+Arabic, avoid generic motivation, clickbait, emojis, hashtags, logos, and punctuation-heavy copy.
+Every section must also have its own 2-5 word cover_text describing that section's specific tension
+or payoff; this lets an already-derived Short reuse the same approved plan without another AI call.
+The visual hook beat should remain cover-aware: one clear focal object/action, one visible tension,
+and usable negative space for large Arabic type. Do not create a separate thumbnail concept or shot.
+
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
 delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
@@ -3397,12 +3407,14 @@ Return one JSON object with exactly this useful shape:
 {{
   "title": "Arabic title",
   "promise": "Arabic one-sentence viewer promise",
+  "cover_text": "distinctive truthful Arabic cover phrase, 2-5 words",
   "cta": "one natural Arabic CTA, or empty only for moment",
   "sections": [
     {{
       "id": "s1",
       "heading": "Arabic internal heading",
       "purpose": "Arabic description of what this section must accomplish",
+      "cover_text": "section-specific Arabic cover phrase, 2-5 words",
       "visual_query_en": "concrete English stock footage query"{short_visual_query_shape}
     }}
   ],
@@ -4651,6 +4663,19 @@ class CleanV2Pipeline:
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
             )
 
+            # Cover Lite is a local fail-soft sidecar, not a production stage:
+            # no provider call, no retry, no quality gate, and never blocks final.mp4.
+            from clean_v2.cover_lite import run_cover_lite_fail_soft
+
+            cover_report = run_cover_lite_fail_soft(
+                output_dir=output_dir,
+                plan=plan,
+                fmt=str(brief["format"]),
+                final_path=final_path,
+                output_name="cover.jpg",
+                report_name="cover-lite.json",
+            )
+
             podcast_short_report = (
                 _run_podcast_derived_short_lite(
                     output_dir=output_dir,
@@ -4660,6 +4685,20 @@ class CleanV2Pipeline:
                 if str(brief["format"]) == "podcast"
                 else {"status": "not_applicable"}
             )
+            podcast_short_cover_report = (
+                run_cover_lite_fail_soft(
+                    output_dir=output_dir,
+                    plan=plan,
+                    fmt="short",
+                    final_path=output_dir / "podcast-short.mp4",
+                    output_name="podcast-short-cover.jpg",
+                    report_name="podcast-short-cover.json",
+                    section_id=str(podcast_short_report.get("section_id") or ""),
+                )
+                if podcast_short_report.get("status") == "pass"
+                else {"status": "not_applicable"}
+            )
+
             long_short_report = (
                 _run_film_derived_short_lite(
                     output_dir=output_dir,
@@ -4669,6 +4708,19 @@ class CleanV2Pipeline:
                     final_master_qc=self.final_master_qc,
                 )
                 if str(brief["format"]) == "film"
+                else {"status": "not_applicable"}
+            )
+            long_short_cover_report = (
+                run_cover_lite_fail_soft(
+                    output_dir=output_dir,
+                    plan=plan,
+                    fmt="short",
+                    final_path=output_dir / "long-short.mp4",
+                    output_name="long-short-cover.jpg",
+                    report_name="long-short-cover.json",
+                    section_id=str(long_short_report.get("section_id") or ""),
+                )
+                if long_short_report.get("status") == "pass"
                 else {"status": "not_applicable"}
             )
 
@@ -4684,8 +4736,11 @@ class CleanV2Pipeline:
                 cinematic_v2_status=cinematic_report.get("status"),
                 identity_media_status=identity_media_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
+                cover_lite_status=cover_report.get("status"),
                 podcast_short_status=podcast_short_report.get("status"),
+                podcast_short_cover_status=podcast_short_cover_report.get("status"),
                 long_short_status=long_short_report.get("status"),
+                long_short_cover_status=long_short_cover_report.get("status"),
                 provider_wire_attempts=sum(
                     1
                     for item in getattr(self.router, "events", [])
@@ -4704,8 +4759,11 @@ class CleanV2Pipeline:
                 "opening_director_status": opening_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
+                "cover_lite_status": cover_report.get("status"),
                 "podcast_short_status": podcast_short_report.get("status"),
+                "podcast_short_cover_status": podcast_short_cover_report.get("status"),
                 "long_short_status": long_short_report.get("status"),
+                "long_short_cover_status": long_short_cover_report.get("status"),
             }
         except Exception:
             self._write_runtime_events(output_dir)
