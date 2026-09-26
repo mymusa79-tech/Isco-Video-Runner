@@ -1276,6 +1276,28 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+CHANNEL_STOCK_QUERY_SUFFIX = "warm neutral cinematic"
+
+
+def _channel_stock_query(query: str) -> str:
+    """Add one compact channel-style cue without changing search count or semantics."""
+    base = " ".join(str(query or "").split()).strip()
+    if not base:
+        return ""
+    lowered = base.lower()
+    missing = [
+        token
+        for token in CHANNEL_STOCK_QUERY_SUFFIX.split()
+        if token not in lowered
+    ]
+    if not missing:
+        return base
+    candidate = f"{base} {' '.join(missing)}".strip()
+    # Pixabay truncates at 100 chars; never sacrifice the semantic query just to
+    # force the style suffix into an unusually long search phrase.
+    return candidate if len(candidate) <= 96 else base
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -1911,6 +1933,7 @@ class StockVisualSource:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+            query = _channel_stock_query(query)
             auxiliary = section_id in seen_sections
             if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
                 seen_sections.add(section_id)
@@ -2132,6 +2155,7 @@ class StockVisualSource:
         normalized_query = str(query or "").strip()
         if self.query_normalizer is not None and normalized_query:
             normalized_query = self.query_normalizer(normalized_query)
+        normalized_query = _channel_stock_query(normalized_query)
         if not normalized_query:
             return []
 
@@ -2265,6 +2289,7 @@ class StockVisualSource:
         normalized_query = str(query or "").strip()
         if self.query_normalizer is not None and normalized_query:
             normalized_query = self.query_normalizer(normalized_query)
+        normalized_query = _channel_stock_query(normalized_query)
         if not normalized_query:
             return None
 
@@ -2673,19 +2698,19 @@ COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.025
-MASTER_LOOK_SATURATION = 0.94
-MASTER_LOOK_WARM_R = 0.006
-MASTER_LOOK_WARM_G = 0.002
-MASTER_LOOK_WARM_B = -0.006
+MASTER_LOOK_CONTRAST = 1.035
+MASTER_LOOK_SATURATION = 0.92
+MASTER_LOOK_WARM_R = 0.004
+MASTER_LOOK_WARM_G = 0.001
+MASTER_LOOK_WARM_B = -0.005
 
-# One restrained local finishing pass after the existing warm-neutral LUT.
+# One restrained local finishing pass after the shared deep warm-neutral LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-cinematic-finish-v1"
+CINEMATIC_FINISH_VERSION = "clean-v2-channel-depth-finish-v2"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.050:brightness=-0.008:saturation=1.030:gamma=0.990,"
-    "unsharp=5:5:0.45:5:5:0.0,"
+    "eq=contrast=1.045:brightness=-0.010:saturation=1.015:gamma=0.990,"
+    "unsharp=5:5:0.42:5:5:0.0,"
     "vignette=PI/12"
 )
 
@@ -2875,7 +2900,7 @@ def _build_reference_color_plan(
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
         "method": "bounded_rgb_mean_std_reference_match_v1",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "warm_neutral_cube_v1",
+        "master_look": "channel_deep_warm_neutral_v2",
         "measured_clip_count": len(measured),
         "failures": failures,
     }
@@ -2960,7 +2985,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Warm Neutral Master v1"',
+        'TITLE "Isco Channel Deep Warm Neutral v2"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
