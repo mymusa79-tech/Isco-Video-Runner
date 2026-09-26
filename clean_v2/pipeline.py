@@ -3932,7 +3932,7 @@ Return one JSON object with exactly this useful shape:
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
-        "source_preference": "stock_motion or ai_still according to this beat"
+        "source_preference": "stock_motion"
       }}
     ]
   }}
