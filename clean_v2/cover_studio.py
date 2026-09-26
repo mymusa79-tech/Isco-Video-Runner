@@ -162,9 +162,11 @@ def score_cover_candidate(path: Path, *, fmt: str) -> dict[str, Any]:
     # One shared channel world, with only a small format-specific exposure
     # target. Short remains readable; Film and Podcast lean progressively deeper.
     luma_target = {"short": 92.0, "film": 88.0, "podcast": 82.0}.get(fmt, 88.0)
-    bright_threshold = {"short": 138.0, "film": 132.0, "podcast": 126.0}.get(fmt, 132.0)
+    bright_threshold = {"short": 132.0, "film": 126.0, "podcast": 120.0}.get(fmt, 126.0)
     exposure_score = max(0.0, 26.0 - abs(luma - luma_target) * 0.24)
-    contrast_score = min(20.0, contrast * 0.50)
+    # Contrast adds depth, but must not let a bright lifestyle frame win only
+    # because it has one dark object against an otherwise over-bright scene.
+    contrast_score = min(16.0, contrast * 0.40)
     quiet_score = min(16.0, quiet_delta * 0.70)
     bright_penalty = max(0.0, (luma - bright_threshold) * 0.30)
     dark_penalty = max(0.0, (40.0 - luma) * 0.24)
