@@ -213,9 +213,11 @@ def select_music_track(
 
     # Lazy materialization: only the small candidate pool is verified/downloaded.
     # Expanding the catalog therefore does not expand first-run network work.
-    report = ensure_music_library(
-        allow_download=allow_download,
-        track_ids=candidates,
+    report = dict(
+        ensure_music_library(
+            allow_download=allow_download,
+            track_ids=candidates,
+        )
     )
     ready = [item for item in report["ready"] if isinstance(item, Mapping)]
     by_id = {str(item.get("id") or ""): item for item in ready}
