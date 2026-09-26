@@ -15,6 +15,7 @@ from clean_v2.pipeline import (
     _validate_plan_for_brief,
 )
 from clean_v2.visual_story import (
+    CHANNEL_VISUAL_IDENTITY,
     contextual_intent,
     fallback_visual_story,
     validate_visual_story,
@@ -165,6 +166,18 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
+
+    def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
+        self.assertIn("quiet depth", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("restrained warm-neutral", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("earned small wins", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("glossy lifestyle brightness", CHANNEL_VISUAL_IDENTITY)
+        for fmt in ("short", "film", "podcast"):
+            prompt = " ".join(_planning_prompt(_brief(fmt)).split())
+            self.assertIn("grounded upward movement", prompt)
+            self.assertIn("moderate-to-deep exposure", prompt)
+            self.assertIn("glossy, airy lifestyle-ad bright", prompt)
+            self.assertIn("generic coffee/laptop mood shots", prompt)
 
     def test_planning_and_recovery_keep_arab_muslim_visual_suitability_without_stereotypes(self) -> None:
         prompt = " ".join(_planning_prompt(_brief("podcast")).split())
