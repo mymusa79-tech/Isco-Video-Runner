@@ -478,7 +478,15 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             )
 
         self.assertEqual(len(clips), 1)
-        self.assertEqual(seen_queries, ["quiet desk notebook wide shot"])
+        self.assertEqual(
+            seen_queries,
+            [
+                media_module._hook_stock_retrieval_query(
+                    "quiet desk notebook wide shot",
+                    {"role": "hook"},
+                )
+            ],
+        )
         self.assertEqual(rights[0]["shot_intent"], "يد تكتب مهمة واحدة في دفتر")
 
     def test_short_non_ascii_successive_beats_use_primary_then_alternate_query(self) -> None:
@@ -523,7 +531,13 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         self.assertEqual(len(clips), 2)
         self.assertEqual(
             seen_queries,
-            ["quiet desk notebook wide shot", "hand circles one task on paper"],
+            [
+                media_module._hook_stock_retrieval_query(
+                    "quiet desk notebook wide shot",
+                    {"role": "hook"},
+                ),
+                "hand circles one task on paper",
+            ],
         )
         self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
