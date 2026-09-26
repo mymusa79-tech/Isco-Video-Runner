@@ -93,6 +93,7 @@ from clean_v2.short_format import (
     ShortFormatError,
     TEMPLATE_VISUAL_QUERY_DIRECTIVES,
     apply_safe_short_s3_action_prefix_trim,
+    apply_safe_short_s3_locked_payoff_fallback,
     apply_safe_short_s3_single_action_trim,
     normalize_short_script_candidate,
     select_short_template,
@@ -559,6 +560,72 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(only_forbidden_payoff)
 
+    def test_locked_planning_payoff_repairs_only_all_forbidden_payoff_prose(self) -> None:
+        script = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد تتعطل خطتك حين تبدو البداية أكبر من طاقتك."},
+                {"id": "s2", "narration": "تصغير الاحتكاك يجعل الاستمرار أقرب وأوضح."},
+                {
+                    "id": "s3",
+                    "narration": "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        self.assertTrue(
+            apply_safe_short_s3_locked_payoff_fallback(
+                script,
+                "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة.",
+            )
+        )
+        self.assertEqual(
+            script["sections"][2]["narration"],
+            "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(script)
+
+        unsafe = json.loads(json.dumps(script, ensure_ascii=False))
+        unsafe["sections"][2]["narration"] = (
+            "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن."
+        )
+        self.assertFalse(
+            apply_safe_short_s3_locked_payoff_fallback(
+                unsafe,
+                "ابدأ بخطوة أصغر وستشعر بالقدرة.",
+            )
+        )
+
+    def test_pipeline_short_validator_uses_locked_visual_story_payoff_without_ai_retry(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "الاحتكاك العالي يجعل المهمة أثقل من حجمها الحقيقي."},
+                {
+                    "id": "s3",
+                    "narration": "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        visual_story = {
+            "retention_thread": {
+                "payoff_answer": "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة."
+            }
+        }
+        accepted = _validate_script_for_brief(
+            candidate,
+            plan,
+            brief,
+            visual_story,
+        )
+        self.assertEqual(
+            accepted["sections"][2]["narration"],
+            "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(accepted)
+
     def test_canonical_short_gate_trims_safe_discourse_prefix_before_action(self) -> None:
         script = {
             "title": "شورت",
@@ -609,6 +676,7 @@ class ShortContractTests(unittest.TestCase):
                 "hook_trimmed": False,
                 "s3_action_prefix_trimmed": False,
                 "s3_trimmed": False,
+                "s3_locked_payoff_fallback": False,
             },
         )
         validate_short_script(script)
@@ -619,7 +687,7 @@ class ShortContractTests(unittest.TestCase):
             "# A successful bounded repair mutates script.json in place.",
             1,
         )[1].split("identity_runtime =", 1)[0]
-        normalize_index = post_repair.index("normalize_short_script_candidate(script)")
+        normalize_index = post_repair.index("normalize_short_script_candidate(")
         validate_index = post_repair.index("validate_short_script(script)")
         self.assertLess(normalize_index, validate_index)
 

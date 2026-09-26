@@ -550,6 +550,64 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
+def apply_safe_short_s3_locked_payoff_fallback(
+    script: dict[str, Any],
+    payoff_answer: object,
+) -> bool:
+    """Replace only an unusable payoff with the already-locked descriptive answer."""
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    fallback = _clean(payoff_answer)
+    if (
+        _word_count(fallback) < 3
+        or _practical_action_marker_count(fallback) != 0
+        or _contains_forbidden_action_family(fallback)
+        or _SOCIAL_CTA_RE.search(fallback)
+        or _DIALOGUE_LABEL_RE.search(fallback)
+    ):
+        return False
+    fallback = re.sub(r"[.!؟!]+$", "", fallback).strip() + "."
+
+    original = sections[2].get("narration")
+    s3 = _clean(original)
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", s3)
+        if item.strip()
+    ]
+    counts = [_practical_action_marker_count(item) for item in sentences]
+    action_indexes = [index for index, count in enumerate(counts) if count]
+    if (
+        len(action_indexes) != 1
+        or counts[action_indexes[0]] != 1
+        or not _sentence_begins_with_direct_action(sentences[action_indexes[0]])
+    ):
+        return False
+
+    action_index = action_indexes[0]
+    payoff_sentences = [
+        sentence for index, sentence in enumerate(sentences) if index != action_index
+    ]
+    if not payoff_sentences:
+        return False
+    if any(not _contains_forbidden_action_family(sentence) for sentence in payoff_sentences):
+        return False
+
+    sections[2]["narration"] = f"{fallback} {sentences[action_index]}".strip()
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return True
+
+
 _SAFE_HOOK_TRIM_MAX_OVERRUN = 3
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
@@ -714,11 +772,19 @@ def apply_safe_short_s3_action_prefix_trim(script: dict[str, Any]) -> bool:
     return True
 
 
-def normalize_short_script_candidate(script: dict[str, Any]) -> dict[str, bool]:
+def normalize_short_script_candidate(
+    script: dict[str, Any],
+    *,
+    locked_payoff_answer: object = "",
+) -> dict[str, bool]:
     """Canonical deterministic Short normalization used at every script boundary."""
     hook_trimmed = apply_safe_short_hook_trim(script)
     action_prefix_trimmed = apply_safe_short_s3_action_prefix_trim(script)
     s3_trimmed = apply_safe_short_s3_single_action_trim(script)
+    locked_payoff_fallback = apply_safe_short_s3_locked_payoff_fallback(
+        script,
+        locked_payoff_answer,
+    )
     action_prefix_trimmed_after_s3 = apply_safe_short_s3_action_prefix_trim(script)
     return {
         "hook_trimmed": bool(hook_trimmed),
@@ -726,6 +792,7 @@ def normalize_short_script_candidate(script: dict[str, Any]) -> dict[str, bool]:
             action_prefix_trimmed or action_prefix_trimmed_after_s3
         ),
         "s3_trimmed": bool(s3_trimmed),
+        "s3_locked_payoff_fallback": bool(locked_payoff_fallback),
     }
 
 
