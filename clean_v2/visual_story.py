@@ -22,7 +22,7 @@ CHANNEL_VISUAL_AVOID = (
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
-MAX_AI_STILL_BEATS = 2
+MAX_AI_STILL_BEATS = 4
 
 
 def _beat_role(index: int, total: int) -> str:
@@ -87,11 +87,8 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "shot_intent": str(section.get("visual_query_en") or "").strip(),
                 "role": _beat_role(index - 1, len(sections)),
                 "stock_query_en": str(section.get("visual_query_en") or "").strip(),
-                "source_preference": (
-                    "ai_still"
-                    if index == 1 or index == len(sections)
-                    else "stock_motion"
-                ),
+                "display_text_ar": str(section.get("cover_text") or "").strip(),
+                "source_preference": "stock_motion",
             }
         )
     if len(beats) == 1:
@@ -113,7 +110,8 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "shot_intent": (purpose[:220].rstrip() + "؛ حالة النتيجة المرئية").strip(),
                 "role": "payoff",
                 "stock_query_en": payoff_query,
-                "source_preference": "ai_still",
+                "display_text_ar": str(section.get("cover_text") or "").strip(),
+                "source_preference": "stock_motion",
             }
         )
     return {
@@ -220,13 +218,17 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 beat_in_section=per_section.get(section_id, 0),
                 shot_intent=shot_intent,
             )
-        source_preference = (
-            "ai_still"
-            if explicit_retention_contract and index in {1, len(raw_beats)}
-            else "stock_motion"
-            if explicit_retention_contract
-            else str(raw.get("source_preference") or "").strip()
-        )
+        source_preference = str(
+            raw.get("source_preference") or "stock_motion"
+        ).strip()
+        display_text_ar = " ".join(
+            str(raw.get("display_text_ar") or "").split()
+        ).strip()
+        if not display_text_ar:
+            section = section_by_id.get(section_id) or {}
+            display_text_ar = " ".join(
+                str(section.get("cover_text") or "").split()
+            ).strip()
 
         if not beat_id or beat_id in seen_ids:
             raise ValueError("visual_story beat ids must be unique and non-empty")
@@ -238,6 +240,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(
                 f"visual_story beat {beat_id} requires viewer_intent, meaning_target, "
                 "shot_intent, and stock_query_en"
+            )
+        if len(display_text_ar.split()) > 10:
+            raise ValueError(
+                f"visual_story beat {beat_id} display_text_ar must stay concise"
             )
         if len(viewer_intent) > 600 or len(shot_intent) > 260:
             raise ValueError(f"visual_story beat {beat_id} is too verbose")
@@ -299,6 +305,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 "shot_intent": shot_intent,
                 "role": role,
                 "stock_query_en": stock_query_en,
+                "display_text_ar": display_text_ar,
                 "source_preference": source_preference,
             }
         )
@@ -327,13 +334,6 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError("visual_story final beat role must be payoff")
         if any(beat["role"] != "body" for beat in beats[1:-1]):
             raise ValueError("visual_story middle beat roles must be body")
-        if (
-            beats[0]["source_preference"] != "ai_still"
-            or beats[-1]["source_preference"] != "ai_still"
-        ):
-            raise ValueError(
-                "visual_story fresh hook and payoff beats must be ai_still anchors"
-            )
 
     return {
         "schema_version": 2,
