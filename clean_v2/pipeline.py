@@ -255,6 +255,367 @@ def _isolate_podcast_promo_unit(
     return [*voice_units[:first], *replacement, *voice_units[last + 1 :]]
 
 
+
+def _nabra_continuous_voice_units(
+    sections: list[dict[str, Any]],
+    *,
+    fmt: str,
+    identity_definition: str,
+    identity_closer: str,
+    podcast_promo: Mapping[str, str] | None,
+) -> list[dict[str, str]]:
+    """Build the same semantic voice units without synthesizing them separately."""
+    units: list[dict[str, str]] = []
+    for index, item in enumerate(sections, start=1):
+        section_id = str(item.get("id") or f"s{index}")
+        section_text = str(item.get("narration") or "").strip()
+        if not section_text:
+            raise RuntimeError(
+                f"Clean V2 Nabra voice found empty narration: section={section_id}"
+            )
+
+        voice_units: list[tuple[str, str]] = []
+        if fmt in {"short", "film", "podcast"} and index == 1:
+            prayer_pos = section_text.find(PRAYER_SENTENCE)
+            definition = " ".join(str(identity_definition or "").split()).strip()
+            definition_pos = section_text.find(definition) if definition else -1
+            if prayer_pos <= 0 or definition_pos <= prayer_pos:
+                raise RuntimeError(
+                    "Timeline First requires explicit hook/prayer/identity voice units"
+                )
+            hook_text = section_text[:prayer_pos].strip()
+            after_definition = section_text[
+                definition_pos + len(definition):
+            ].strip()
+            voice_units.extend(
+                [
+                    ("hook", hook_text),
+                    ("prayer", PRAYER_SENTENCE),
+                    ("channel_identity", definition),
+                ]
+            )
+            voice_units.extend(
+                ("topic", chunk)
+                for chunk in _bounded_voice_chunks(after_definition)
+            )
+        else:
+            remaining = section_text
+            closer = " ".join(str(identity_closer or "").split()).strip()
+            if (
+                fmt in {"film", "podcast"}
+                and index == len(sections)
+                and closer
+                and remaining.endswith(closer)
+            ):
+                topic_text = remaining[: -len(closer)].strip()
+                voice_units.extend(
+                    ("topic", chunk)
+                    for chunk in _bounded_voice_chunks(topic_text)
+                )
+                voice_units.append(("outro", closer))
+            elif fmt in {"short", "film", "podcast"} and index == len(sections):
+                sentences = [
+                    candidate.strip()
+                    for candidate in re.split(r"(?<=[.!؟!])\s+", remaining)
+                    if candidate.strip()
+                ]
+                if len(sentences) >= 2:
+                    topic_text = " ".join(sentences[:-1]).strip()
+                    voice_units.extend(
+                        ("topic", chunk)
+                        for chunk in _bounded_voice_chunks(topic_text)
+                    )
+                    voice_units.append(("outro", sentences[-1]))
+                else:
+                    voice_units.append(("outro", remaining))
+            else:
+                voice_units.extend(
+                    ("topic", chunk)
+                    for chunk in _bounded_voice_chunks(remaining)
+                )
+
+        if (
+            fmt == "podcast"
+            and isinstance(podcast_promo, Mapping)
+            and str(podcast_promo.get("section_id") or "") == section_id
+        ):
+            voice_units = _isolate_podcast_promo_unit(
+                voice_units,
+                str(podcast_promo.get("text") or ""),
+            )
+
+        chunks = [text for _role, text in voice_units if text]
+        if " ".join(" ".join(chunks).split()) != " ".join(section_text.split()):
+            raise RuntimeError(
+                f"Timeline First Nabra voice-unit split changed narration: section={section_id}"
+            )
+        if not chunks:
+            raise RuntimeError(
+                f"Clean V2 Nabra voice found no narration chunks: section={section_id}"
+            )
+        for role, text in voice_units:
+            if text:
+                units.append(
+                    {
+                        "section_id": section_id,
+                        "role": role,
+                        "text": text,
+                    }
+                )
+    if not units:
+        raise RuntimeError("Clean V2 Nabra continuous voice has no units")
+    return units
+
+
+def _write_wav_slice(
+    reference: Path,
+    destination: Path,
+    *,
+    start_seconds: float,
+    end_seconds: float,
+) -> Path:
+    """Write a timing-evidence slice; never used to rebuild final narration."""
+    if end_seconds <= start_seconds:
+        raise RuntimeError("Nabra timing slice must have positive duration")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(reference), "rb") as source:
+        channels = source.getnchannels()
+        sample_width = source.getsampwidth()
+        sample_rate = source.getframerate()
+        compression = source.getcomptype()
+        compression_name = source.getcompname()
+        total_frames = source.getnframes()
+        start_frame = max(
+            0,
+            min(total_frames - 1, int(round(start_seconds * sample_rate))),
+        )
+        end_frame = max(
+            start_frame + 1,
+            min(total_frames, int(round(end_seconds * sample_rate))),
+        )
+        source.setpos(start_frame)
+        payload = source.readframes(end_frame - start_frame)
+    with wave.open(str(destination), "wb") as target:
+        target.setnchannels(channels)
+        target.setsampwidth(sample_width)
+        target.setframerate(sample_rate)
+        target.setcomptype(compression, compression_name)
+        target.writeframes(payload)
+    if not destination.is_file() or destination.stat().st_size <= 44:
+        raise RuntimeError("Nabra timing slice is empty")
+    return destination
+
+
+def _synthesize_continuous_nabra_voice(
+    voice_synthesizer: Any,
+    sections: list[dict[str, Any]],
+    narration_path: Path,
+    *,
+    fmt: str,
+    identity_definition: str,
+    identity_closer: str,
+    podcast_promo: Mapping[str, str] | None,
+) -> dict[str, Any]:
+    """One Nabra inference for the full narration, with native pause timing only."""
+    synthesize_continuous = getattr(
+        voice_synthesizer,
+        "synthesize_nabra_continuous",
+        None,
+    )
+    if not callable(synthesize_continuous):
+        raise RuntimeError("nabra_continuous_route_missing")
+
+    units = _nabra_continuous_voice_units(
+        sections,
+        fmt=fmt,
+        identity_definition=identity_definition,
+        identity_closer=identity_closer,
+        podcast_promo=podcast_promo,
+    )
+    result = synthesize_continuous(
+        [
+            {"role": item["role"], "text": item["text"]}
+            for item in units
+        ],
+        narration_path,
+    )
+    marks = result.get("parts") if isinstance(result, Mapping) else None
+    if not isinstance(marks, list) or len(marks) != len(units):
+        raise RuntimeError("nabra_continuous_timing_marks_invalid")
+
+    audio_dir = narration_path.parent / "audio"
+    shutil.rmtree(audio_dir, ignore_errors=True)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    unit_dir = audio_dir / "nabra-units"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+
+    chunk_rows_by_section: dict[str, list[dict[str, Any]]] = {}
+    section_bounds: dict[str, list[float]] = {}
+    global_chunk = 0
+    last_index = len(units) - 1
+
+    def add_slice(
+        *,
+        section_id: str,
+        role: str,
+        start: float,
+        end: float,
+        provider: str,
+    ) -> None:
+        nonlocal global_chunk
+        global_chunk += 1
+        path = unit_dir / f"{global_chunk:03d}-{role}.wav"
+        _write_wav_slice(
+            narration_path,
+            path,
+            start_seconds=start,
+            end_seconds=end,
+        )
+        row = {
+            "chunk": global_chunk,
+            "file": str(path.relative_to(narration_path.parent)),
+            "chars": 0 if role in {"intro_silence", "final_silence"} else 1,
+            "provider": provider,
+            "charon_attempts": 0,
+            "fallback_used": bool(
+                getattr(voice_synthesizer, "fallback_used", False)
+            ),
+            "role": role,
+            "native_pause": provider == "nabra_native_pause",
+        }
+        chunk_rows_by_section.setdefault(section_id, []).append(row)
+        bounds = section_bounds.setdefault(section_id, [start, end])
+        bounds[0] = min(bounds[0], start)
+        bounds[1] = max(bounds[1], end)
+
+    for index, (unit, mark) in enumerate(zip(units, marks)):
+        if not isinstance(mark, Mapping):
+            raise RuntimeError("nabra_continuous_timing_mark_invalid")
+        start = float(mark.get("start_seconds") or 0.0)
+        speech_end = float(mark.get("speech_end_seconds") or 0.0)
+        pause_end = float(mark.get("pause_end_seconds") or 0.0)
+        if speech_end <= start or pause_end <= speech_end:
+            raise RuntimeError(
+                "nabra_continuous_native_pause_bounds_invalid "
+                f"role={unit['role']}"
+            )
+
+        section_id = unit["section_id"]
+        role = unit["role"]
+        if role == "hook":
+            add_slice(
+                section_id=section_id,
+                role="hook",
+                start=start,
+                end=speech_end,
+                provider="nabra:af_msa",
+            )
+            add_slice(
+                section_id=section_id,
+                role="intro_silence",
+                start=speech_end,
+                end=pause_end,
+                provider="nabra_native_pause",
+            )
+        elif index == last_index:
+            add_slice(
+                section_id=section_id,
+                role=role,
+                start=start,
+                end=speech_end,
+                provider="nabra:af_msa",
+            )
+            add_slice(
+                section_id=section_id,
+                role="final_silence",
+                start=speech_end,
+                end=pause_end,
+                provider="nabra_native_pause",
+            )
+        else:
+            # Keep each ordinary native pause attached to the spoken unit.
+            add_slice(
+                section_id=section_id,
+                role=role,
+                start=start,
+                end=pause_end,
+                provider="nabra:af_msa",
+            )
+
+    reports: list[dict[str, Any]] = []
+    section_ids = [str(item.get("id") or f"s{i}") for i, item in enumerate(sections, 1)]
+    for section_index, section_id in enumerate(section_ids, start=1):
+        rows = chunk_rows_by_section.get(section_id) or []
+        bounds = section_bounds.get(section_id)
+        if not rows or bounds is None:
+            raise RuntimeError(
+                f"nabra_continuous_section_timing_missing:{section_id}"
+            )
+        section_path = audio_dir / f"{section_index:02d}.wav"
+        _write_wav_slice(
+            narration_path,
+            section_path,
+            start_seconds=bounds[0],
+            end_seconds=bounds[1],
+        )
+        reports.append(
+            {
+                "id": section_id,
+                "file": str(section_path.relative_to(narration_path.parent)),
+                "provider": "nabra:af_msa",
+                "charon_attempts": 0,
+                "fallback_used": bool(
+                    getattr(voice_synthesizer, "fallback_used", False)
+                ),
+                "chunk_count": len(rows),
+                "chunks": rows,
+            }
+        )
+
+    continuous_report = {
+        "voice_provider": "nabra:af_msa",
+        "voice_fallback_used": bool(
+            getattr(voice_synthesizer, "fallback_used", False)
+        ),
+        "charon_tts_attempts": int(
+            getattr(voice_synthesizer, "charon_attempts", 0) or 0
+        ),
+        "voice_roles": {
+            "mode": "continuous_nabra_native_pauses",
+            "sections": reports,
+        },
+        "voice_approval_status": getattr(
+            voice_synthesizer, "voice_approval_status", None
+        ),
+        "voice_reference_profile": getattr(
+            voice_synthesizer, "voice_reference_profile", None
+        ),
+        "single_continuous_inference": bool(
+            result.get("single_continuous_inference", False)
+        ),
+        "continuous_narration_stream": bool(
+            result.get("continuous_narration_stream", True)
+        ),
+        "inference_passes": int(result.get("inference_passes", 1) or 1),
+        "bounded_inference": bool(result.get("bounded_inference", False)),
+        "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
+        "native_pause_tokens": True,
+        "external_silence_insertions": 0,
+        "tempo_or_pitch_change": False,
+        "sections": reports,
+    }
+    atomic_write_json(
+        narration_path.parent / "voice-sections.json",
+        {
+            "schema_version": 2,
+            "source": "clean-v2-continuous-nabra-native-pauses",
+            "status": "pass",
+            **continuous_report,
+        },
+    )
+    return continuous_report
+
+
 def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
@@ -287,6 +648,17 @@ def _synthesize_sectioned_voice(
     reference_profile: str | None = None
     role_reports: list[dict[str, Any]] = []
     report_path = narration_path.parent / "voice-sections.json"
+
+    if bool(getattr(voice_synthesizer, "nabra_continuous_ready", False)):
+        return _synthesize_continuous_nabra_voice(
+            voice_synthesizer,
+            sections,
+            narration_path,
+            fmt=fmt,
+            identity_definition=identity_definition,
+            identity_closer=identity_closer,
+            podcast_promo=podcast_promo,
+        )
 
     for index, item in enumerate(sections, start=1):
         section_id = str(item.get("id") or f"s{index}")
@@ -459,6 +831,24 @@ def _synthesize_sectioned_voice(
                 raise RuntimeError(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
                     f"actual={provider}"
+                )
+            if (
+                provider == "nabra:af_msa"
+                and index == 1
+                and chunk_index == 1
+                and bool(getattr(voice_synthesizer, "nabra_continuous_ready", False))
+            ):
+                shutil.rmtree(audio_dir, ignore_errors=True)
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                narration_path.unlink(missing_ok=True)
+                return _synthesize_continuous_nabra_voice(
+                    voice_synthesizer,
+                    sections,
+                    narration_path,
+                    fmt=fmt,
+                    identity_definition=identity_definition,
+                    identity_closer=identity_closer,
+                    podcast_promo=podcast_promo,
                 )
             if section_provider is None:
                 section_provider = provider
@@ -1932,6 +2322,13 @@ def _tone_repair_prompt(
         )
     else:
         hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
+    nabra_safe_repair_guidance = (
+        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+        "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
+        "wording when two unvowelled readings are plausible. " + NABRA_SAFE_WRITING_GUIDANCE
+        if str(brief.get("format") or "") in {"short", "film", "podcast"}
+        else ""
+    )
     podcast_progression_repair_guidance = (
         "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
         "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
@@ -1941,7 +2338,8 @@ def _tone_repair_prompt(
         "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
         "too shallow. The final section must answer or deepen the exact opening tension with an earned "
         "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
-        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries."
+        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
+        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
@@ -1975,6 +2373,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {podcast_progression_repair_guidance}
+{nabra_safe_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -2156,6 +2555,14 @@ def _factuality_repair_prompt(
         allowed_patch_section_ids = _repair_target_section_ids(
             script, revision_note, cta_plan
         )
+    nabra_safe_repair_guidance = (
+        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+        "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
+        "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
+        "comfortable to say in one breath.\n" + NABRA_SAFE_WRITING_GUIDANCE
+        if str(brief.get("format") or "") in {"short", "film", "podcast"}
+        else ""
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -2177,6 +2584,8 @@ ALLOWED_PATCH_SECTION_IDS:
 {research_boundaries}
 
 {targeted_structural}
+
+{nabra_safe_repair_guidance}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Fix EVERY concrete factuality, tone/naturalness, and structural problem listed in REVISION_NOTE,
@@ -2507,8 +2916,22 @@ def _run_audio_loudness_mastering(
 ) -> dict[str, Any]:
     from clean_v2.audio_mastering import master_narration_loudness
 
+    voice_provider = ""
+    manifest_path = output_dir / "run-manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        if isinstance(manifest, Mapping):
+            voice_provider = str(manifest.get("voice_provider") or "").strip()
+
     mastered_path = output_dir / "narration-mastered.wav"
-    result = master_narration_loudness(narration_path, mastered_path)
+    result = master_narration_loudness(
+        narration_path,
+        mastered_path,
+        voice_provider=voice_provider,
+    )
     report = {
         "schema_version": 1,
         "source": "clean-v2-audio-loudness-mastering",
@@ -2901,7 +3324,7 @@ def _run_short_duration_gate(
         "status": "pass" if passed else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
-        "timeline_owner": "measured_charon_voice",
+        "timeline_owner": "measured_voice",
         "editorial_target_seconds": None,
         "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
         "provider_calls_added": 0,
@@ -2953,7 +3376,7 @@ def _run_audio_mastering_stage(
                 "status": "pass",
                 "phase": "post_audio_mastering_pre_visuals",
                 "duration_seconds": voice_timeline["voice_seconds_measured"],
-                "timeline_owner": "measured_charon_voice",
+                "timeline_owner": voice_timeline["timeline_owner"],
                 "editorial_target_seconds": None,
                 "safety_maximum_seconds": voice_timeline["safety_maximum_seconds"],
                 "provider_calls_added": 0,
@@ -3246,7 +3669,7 @@ def _inspect_final_with_short_gate(
                 "duration_delta_seconds": round(duration - voice_seconds, 3),
                 "width": width,
                 "height": height,
-                "timeline_owner": "measured_charon_voice",
+                "timeline_owner": timeline["timeline_owner"],
                 "editorial_target_seconds": None,
                 "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
                 "provider_calls_added": 0,
@@ -3450,6 +3873,28 @@ Return one JSON object with exactly this useful shape:
 
 
 
+NABRA_SAFE_WRITING_GUIDANCE = """
+NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, required for Nabra fallback):
+- Write normal readable Modern Standard Arabic, not fully vocalized textbook Arabic.
+- Prefer clear syntax and common spoken-MSA wording. If an unvowelled word could reasonably be read
+  in two different ways, prefer an unambiguous synonym when meaning is preserved.
+- When ambiguity cannot be avoided (including proper names or a key technical/religious term), add
+  ONLY the minimum Arabic diacritic marks needed to force the intended pronunciation. Do not add
+  decorative full tashkeel, tanwin, or case endings just for formality.
+- Preserve meaningful diacritics already present in approved fixed lines; never strip them during repair.
+- Use punctuation as performance notation: commas for a light breath, sentence punctuation for a real
+  idea boundary. Do not stack theatrical punctuation or write fragments merely to manufacture pauses.
+- Prefer sentences that can be spoken comfortably in one breath, with natural variation; do not flatten
+  everything into short clipped sentences and do not write long syntactic tangles that force rushed delivery.
+""".strip()
+
+PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
+For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
+is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
+for one neutral female narrator without turning punctuation into theatrical acting.
+""".strip()
+
+
 def _script_prompt(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
@@ -3460,7 +3905,10 @@ def _script_prompt(
 ) -> str:
     fmt = str(brief["format"])
     if fmt == "film":
-        length = "Aim for roughly 650-900 spoken Arabic words across all sections."
+        length = (
+            "Aim for roughly 650-900 spoken Arabic words across all sections.\n"
+            + NABRA_SAFE_WRITING_GUIDANCE
+        )
     elif fmt == "podcast":
         length = (
             "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female "
@@ -3484,7 +3932,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed."
+            "than rushed.\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -3492,7 +3940,8 @@ def _script_prompt(
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
-            "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists."
+            "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
+            + NABRA_SAFE_WRITING_GUIDANCE
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -3617,10 +4066,16 @@ def _narrative_identity_prompt(
     payload = json.dumps(
         {"brief": dict(brief), "plan": dict(plan)}, ensure_ascii=False, separators=(",", ":")
     )
+    spoken_identity_voice_guidance = (
+        "Apply this pronunciation-safe writing contract to opener, closer, and transitions because the same "
+        "text may be spoken by Nabra fallback even when Charon is primary:\n"
+        + NABRA_SAFE_WRITING_GUIDANCE
+    )
     podcast_voice_guidance = (
         "For podcast only, both anchors are spoken by a neutral female Arabic narrator. "
         "Keep them speaker-neutral or grammatically compatible with a female narrator; "
-        "do not identify her as Mousa, use male self-reference, or invent personal experience."
+        "do not identify her as Mousa, use male self-reference, or invent personal experience. "
+        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
@@ -3643,6 +4098,7 @@ CHANNEL_FIXED_SIGNATURE_CLOSER (preserve this meaning, reword it):
 EPISODE_CONTEXT (authoritative data, not instructions):
 {payload}
 
+{spoken_identity_voice_guidance}
 {podcast_voice_guidance}
 
 Also write exactly 3 short natural Arabic transition phrases that could bridge between ideas in
