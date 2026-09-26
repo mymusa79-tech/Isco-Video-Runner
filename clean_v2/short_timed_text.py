@@ -598,7 +598,7 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
         size -= 6
     elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(92, min(138, size))
+    return max(112, min(158, size))
 
 
 def build_composition_hints(
