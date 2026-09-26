@@ -199,8 +199,9 @@ class PlanningCardinalityTests(unittest.TestCase):
 
     def test_planning_keeps_stock_queries_in_one_lighting_world(self) -> None:
         prompt = _planning_prompt(_brief())
-        self.assertIn("warm natural morning/daylight", prompt)
-        self.assertIn("neutral-warm tones", prompt)
+        self.assertIn("natural practical light", prompt)
+        self.assertIn("moderate-to-deep exposure", prompt)
+        self.assertIn("restrained warm-neutral tones", prompt)
         self.assertIn("do not mix obvious neon/night/cold-blue looks", prompt)
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
