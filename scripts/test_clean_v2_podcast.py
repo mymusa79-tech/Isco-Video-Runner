@@ -14,6 +14,7 @@ from clean_v2.identity_sequence import (
     inject_spoken_identity,
 )
 from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
+from clean_v2.nabra_voice import NabraVoiceSynthesizer
 from clean_v2.pipeline import (
     CleanV2Pipeline,
     _isolate_podcast_promo_unit,
@@ -106,6 +107,12 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("s2 must add a mechanism, cause, or distinction", script)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", script)
         self.assertIn("generic advice and synonymous restatement are not progression", script)
+        self.assertIn("NABRA PERFORMANCE / PRONUNCIATION CONTRACT", script)
+        self.assertIn("not fully vocalized textbook Arabic", script)
+        self.assertIn("ONLY the minimum Arabic diacritic marks", script)
+        self.assertIn("Preserve meaningful diacritics", script)
+        self.assertIn("punctuation as performance notation", script)
+        self.assertIn("spoken comfortably in one breath", script)
         self.assertNotIn("HARD maximum of 18 Arabic words", script)
 
     def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
@@ -137,6 +144,8 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("s2 must add a mechanism, cause, or distinction", podcast_prompt)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", podcast_prompt)
         self.assertIn("generic advice or paraphrase is not a payoff", podcast_prompt)
+        self.assertIn("NABRA PERFORMANCE / PRONUNCIATION CONTRACT", podcast_prompt)
+        self.assertIn("keep intentional minimal", podcast_prompt)
 
         film_prompt = _tone_repair_prompt(
             brief={**podcast_brief, "format": "film"},
@@ -159,6 +168,20 @@ class PodcastFormatTests(unittest.TestCase):
 
 
 class PodcastNabraRoutingTests(unittest.TestCase):
+    def test_nabra_text_normalization_preserves_intentional_minimal_tashkeel(self) -> None:
+        parts = NabraVoiceSynthesizer._normalize_parts(
+            [
+                {
+                    "role": "topic",
+                    "text": "لا تُحمِّل كلمةً ملتبسةً أكثر مما تحتمل، وقلها بوضوح.",
+                }
+            ]
+        )
+        self.assertEqual(
+            parts[0]["text"],
+            "لا تُحمِّل كلمةً ملتبسةً أكثر مما تحتمل، وقلها بوضوح.",
+        )
+
     def test_podcast_primary_lock_never_attempts_charon_and_is_not_fallback(self) -> None:
         fake = _FakeNabra()
         synth = GeminiPrimaryNabraFallbackSynthesizer("", nabra=fake)
@@ -176,6 +199,8 @@ class PodcastNabraRoutingTests(unittest.TestCase):
         self.assertFalse(synth.fallback_used)
         self.assertEqual(synth.charon_attempts, 0)
         self.assertEqual(synth.voice_approval_status, "user_selected_primary")
+        self.assertTrue(synth.nabra_continuous_ready)
+        self.assertIn("native-pauses-v1", str(synth.voice_reference_profile))
 
 
 class PodcastTelegramTests(unittest.TestCase):
