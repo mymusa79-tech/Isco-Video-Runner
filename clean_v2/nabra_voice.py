@@ -170,7 +170,7 @@ class NabraVoiceSynthesizer:
 
         phonemes = " ".join(pieces).strip()
         with torch.inference_mode():
-            result = pipeline.infer(
+            result = type(pipeline).infer(
                 model,
                 phonemes,
                 voice.to(model.device),
