@@ -6,7 +6,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "music"
 CATALOG_PATH = _ASSET_DIR / "library.json"
@@ -100,17 +100,29 @@ def _download(track: Mapping[str, Any], destination: Path) -> Path:
     return destination
 
 
-def ensure_music_library(*, allow_download: bool | None = None) -> dict[str, Any]:
+def ensure_music_library(
+    *,
+    allow_download: bool | None = None,
+    track_ids: Sequence[str] | None = None,
+) -> dict[str, Any]:
     catalog = load_catalog()
     allowed = _truthy("CLEAN_V2_MUSIC_ALLOW_DOWNLOAD") if allow_download is None else bool(allow_download)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     ready: list[dict[str, Any]] = []
     unavailable: list[dict[str, str]] = []
+    requested_ids = {
+        str(item).strip()
+        for item in (track_ids or ())
+        if str(item).strip()
+    }
 
     for raw in catalog["tracks"]:
         if not isinstance(raw, Mapping):
             continue
         track = dict(raw)
+        track_id = str(track.get("id") or "").strip()
+        if requested_ids and track_id not in requested_ids:
+            continue
         path = CACHE_DIR / str(track.get("filename") or "")
         expected = str(track.get("git_blob_sha1") or "")
         if _verified(path, expected):
@@ -138,6 +150,8 @@ def ensure_music_library(*, allow_download: bool | None = None) -> dict[str, Any
         "ready": ready,
         "unavailable": unavailable,
         "allow_download": allowed,
+        "requested_track_ids": sorted(requested_ids),
+        "catalog_track_count": len(catalog["tracks"]),
     }
 
 
@@ -173,9 +187,6 @@ def select_music_track(
     fmt: str | None = None,
     allow_download: bool | None = None,
 ) -> tuple[Path | None, dict[str, Any]]:
-    report = ensure_music_library(allow_download=allow_download)
-    ready = [item for item in report["ready"] if isinstance(item, Mapping)]
-    by_id = {str(item.get("id") or ""): item for item in ready}
     text = _script_text(script)
     family, reason = _topic_family(text)
 
@@ -200,17 +211,21 @@ def select_music_track(
             seed_text=f"{selection_format}|{family}|{text}",
         )
 
+    # Lazy materialization: only the small candidate pool is verified/downloaded.
+    # Expanding the catalog therefore does not expand first-run network work.
+    report = ensure_music_library(
+        allow_download=allow_download,
+        track_ids=candidates,
+    )
+    ready = [item for item in report["ready"] if isinstance(item, Mapping)]
+    by_id = {str(item.get("id") or ""): item for item in ready}
     chosen = next((by_id[item_id] for item_id in candidates if item_id in by_id), None)
-    if chosen is None and ready:
-        chosen = sorted(ready, key=lambda item: str(item.get("id") or ""))[0]
-        reason += "_fallback_available"
 
-    report["selection_reason"] = reason
+    report["selection_reason"] = reason if chosen is not None else reason + "_candidate_pool_unavailable"
     report["selection_family"] = family
     report["selection_format"] = selection_format
     report["selection_candidates"] = candidates
     report["selection_rotation_index"] = rotation_index
-    report["catalog_track_count"] = len(load_catalog()["tracks"])
     report["selected_id"] = str(chosen.get("id") or "") if chosen else None
     report["selected_title"] = str(chosen.get("title") or "") if chosen else None
     return (Path(str(chosen["path"])), report) if chosen else (None, report)
