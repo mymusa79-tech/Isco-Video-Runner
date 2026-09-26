@@ -4,9 +4,18 @@ import re
 from typing import Any, Mapping
 
 
-VISUAL_WORLD_DEFAULT = (
-    "Grounded, hopeful cinematic realism; soft natural light; warm neutral colors; "
-    "environments, hands, objects, routines and wide shots; no identifiable faces."
+CHANNEL_VISUAL_IDENTITY = (
+    "Grounded cinematic realism with quiet depth; restrained warm-neutral palette; "
+    "moderate-to-deep natural exposure; practical directional light; tactile real environments; "
+    "hope shown through progress, effort and earned small wins rather than glossy lifestyle brightness "
+    "or forced melancholy; environments, hands, objects, routines, back views and wide shots; "
+    "no identifiable faces."
+)
+VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
+CHANNEL_VISUAL_AVOID = (
+    "bright lifestyle advertising",
+    "generic stock-happy imagery",
+    "gloomy or depressive treatment",
 )
 SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
@@ -69,7 +78,10 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "viewer_intent": f"{purpose}؛ المرحلة {index}".strip("؛ "),
                 "meaning_target": purpose or str(section.get("visual_query_en") or "").strip(),
                 "semantic_must_have": [str(section.get("visual_query_en") or "").strip()],
-                "semantic_should_avoid": ["generic mood-only productivity imagery"],
+                "semantic_should_avoid": [
+                    "generic mood-only productivity imagery",
+                    *CHANNEL_VISUAL_AVOID,
+                ][:4],
                 "shot_intent": str(section.get("visual_query_en") or "").strip(),
                 "role": _beat_role(index - 1, len(sections)),
                 "stock_query_en": str(section.get("visual_query_en") or "").strip(),
@@ -189,6 +201,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             for item in (raw.get("semantic_should_avoid") or [])
             if " ".join(str(item).split()).strip()
         ][:4]
+        for default_avoid in CHANNEL_VISUAL_AVOID:
+            if default_avoid not in semantic_should_avoid and len(semantic_should_avoid) < 4:
+                semantic_should_avoid.append(default_avoid)
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
         role = (
             _beat_role(index - 1, len(raw_beats))

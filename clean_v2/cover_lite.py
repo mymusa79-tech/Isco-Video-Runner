@@ -82,10 +82,15 @@ def select_cover_source(
         score = float(max(0, 14 - index))
         if section_id and str(row.get("section_id") or "") == str(section_id):
             score += 100.0
-        # Hook matters, but no longer dominates source choice. Coverability and
-        # depth are allowed to beat a generic hook frame.
-        if str(row.get("role") or "") == "hook":
-            score += 14.0
+        # Format-aware editorial role: Short may keep hook energy, while Film
+        # and especially Podcast prefer a topic/payoff frame with more depth.
+        role = str(row.get("role") or "")
+        role_bonus = {
+            "short": {"hook": 10.0, "body": 5.0, "payoff": 7.0},
+            "film": {"hook": 3.0, "body": 7.0, "payoff": 8.0},
+            "podcast": {"hook": 1.0, "body": 9.0, "payoff": 10.0},
+        }.get(fmt, {})
+        score += float(role_bonus.get(role, 0.0))
         if str(row.get("source_actual") or "") == "ai_still":
             score += 8.0
         if not row.get("pacing_auxiliary"):
@@ -95,8 +100,10 @@ def select_cover_source(
 
     pool = ranked or deferred
     if pool:
-        # Local visual scoring inspects at most three already-approved assets.
-        candidates = sorted(pool, key=lambda item: item[0], reverse=True)[:3]
+        # Local visual scoring inspects a small bounded pool of already-approved
+        # assets. Five gives Cover Studio more room to find channel-fit depth
+        # without any extra stock search or provider call.
+        candidates = sorted(pool, key=lambda item: item[0], reverse=True)[:5]
         try:
             from .cover_studio import rank_cover_candidates
 
@@ -111,10 +118,12 @@ def select_cover_source(
                 "source_visual_score": studio.get("visual_score"),
                 "source_luma": studio.get("luma"),
                 "source_contrast": studio.get("contrast"),
+                "source_saturation": studio.get("saturation"),
                 "source_quiet_side": studio.get("quiet_side"),
                 "source_quiet_delta": studio.get("quiet_delta"),
                 "candidate_count_evaluated": studio.get("candidate_count_evaluated"),
                 "tone_target": studio.get("tone_target"),
+                "source_selection_profile": studio.get("selection_profile"),
                 "source_exclusion_applied": bool(excluded),
             }
         except Exception as exc:

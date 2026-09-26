@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image, features
 
 from clean_v2.cover_studio import (
+    CHANNEL_COVER_VIBE,
     CHANNEL_NAME,
     PROGRAM_NAME,
     TONE_PROFILE,
@@ -36,6 +37,32 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertGreater(deep_score["visual_score"], bright_score["visual_score"])
             self.assertEqual(deep_score["tone_target"], TONE_PROFILE)
 
+    def test_format_scoring_targets_deeper_exposure_without_crushing_dark_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bright = self._image(root / "bright.jpg", value=165, accent=True)
+            medium = self._image(root / "medium.jpg", value=90, accent=True)
+            very_dark = self._image(root / "very-dark.jpg", value=24, accent=True)
+            for fmt in ("short", "film", "podcast"):
+                medium_score = score_cover_candidate(medium, fmt=fmt)["visual_score"]
+                self.assertGreater(medium_score, score_cover_candidate(bright, fmt=fmt)["visual_score"])
+                self.assertGreater(medium_score, score_cover_candidate(very_dark, fmt=fmt)["visual_score"])
+
+    def test_podcast_scoring_rejects_bright_saturated_lifestyle_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            vivid = Image.new("RGB", (1280, 720), (245, 190, 55))
+            vivid.save(root / "vivid.jpg", quality=95)
+            deep = self._image(root / "deep.jpg", value=92, accent=True)
+            vivid_score = score_cover_candidate(root / "vivid.jpg", fmt="podcast")
+            deep_score = score_cover_candidate(deep, fmt="podcast")
+            self.assertGreater(deep_score["visual_score"], vivid_score["visual_score"])
+            self.assertGreater(vivid_score["saturation"], deep_score["saturation"])
+            self.assertEqual(
+                deep_score["selection_profile"],
+                "podcast_topic_relevant_channel_depth",
+            )
+
     def test_podcast_identity_and_depth_profile_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -54,6 +81,8 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertEqual(report["channel_name"], CHANNEL_NAME)
             self.assertEqual(CHANNEL_NAME, "نداء اليقظة")
             self.assertEqual(report["tone_profile"], "deep_neutral")
+            self.assertEqual(report["channel_cover_vibe"], CHANNEL_COVER_VIBE)
+            self.assertEqual(CHANNEL_COVER_VIBE, "grounded_depth_earned_progress")
 
     def test_short_and_film_profiles_render_expected_sizes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

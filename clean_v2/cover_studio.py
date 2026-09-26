@@ -50,6 +50,7 @@ SHADOW = (0, 0, 0, 145)
 PROGRAM_NAME = "خارج النص"
 CHANNEL_NAME = "نداء اليقظة"
 TONE_PROFILE = "deep_neutral"
+CHANNEL_COVER_VIBE = "grounded_depth_earned_progress"
 
 _STOPWORDS = {
     "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
@@ -156,26 +157,39 @@ def score_cover_candidate(path: Path, *, fmt: str) -> dict[str, Any]:
     stat = ImageStat.Stat(sample)
     luma = float(stat.mean[0])
     contrast = float(stat.stddev[0])
+    saturation = float(
+        ImageStat.Stat(image.convert("HSV").getchannel("S").resize((128, 96))).mean[0]
+    )
     side, quiet_delta = _quiet_side(image)
 
-    # The channel target is not bright lifestyle imagery. Prefer moderate,
-    # dimensional exposure with enough contrast and a usable quiet text zone.
-    exposure_score = max(0.0, 24.0 - abs(luma - 96.0) * 0.22)
-    contrast_score = min(18.0, contrast * 0.45)
+    # One shared channel world, with only a small format-specific exposure
+    # target. Short remains readable; Film and Podcast lean progressively deeper.
+    luma_target = {"short": 92.0, "film": 88.0, "podcast": 82.0}.get(fmt, 88.0)
+    bright_threshold = {"short": 126.0, "film": 122.0, "podcast": 116.0}.get(fmt, 122.0)
+    saturation_limit = {"short": 118.0, "film": 104.0, "podcast": 88.0}.get(fmt, 104.0)
+    exposure_score = max(0.0, 26.0 - abs(luma - luma_target) * 0.24)
+    # Contrast adds depth, but must not let a bright lifestyle frame win only
+    # because it has one dark object against an otherwise over-bright scene.
+    contrast_score = min(14.0, contrast * 0.36)
     quiet_score = min(16.0, quiet_delta * 0.70)
-    bright_penalty = max(0.0, (luma - 145.0) * 0.22)
-    dark_penalty = max(0.0, (42.0 - luma) * 0.25)
-    podcast_depth_bonus = 4.0 if fmt == "podcast" and luma <= 118.0 else 0.0
+    bright_penalty = max(0.0, (luma - bright_threshold) * 0.58)
+    saturation_penalty = max(0.0, (saturation - saturation_limit) * 0.10)
+    dark_penalty = max(0.0, (40.0 - luma) * 0.24)
+    podcast_depth_bonus = (
+        6.0 if fmt == "podcast" and 62.0 <= luma <= 112.0 and contrast >= 18.0 else 0.0
+    )
 
     visual_score = exposure_score + contrast_score + quiet_score + podcast_depth_bonus
-    visual_score -= bright_penalty + dark_penalty
+    visual_score -= bright_penalty + saturation_penalty + dark_penalty
     return {
         "visual_score": round(visual_score, 3),
         "luma": round(luma, 3),
         "contrast": round(contrast, 3),
+        "saturation": round(saturation, 3),
         "quiet_side": side,
         "quiet_delta": round(quiet_delta, 3),
         "tone_target": TONE_PROFILE,
+        "selection_profile": f"{fmt}_topic_relevant_channel_depth",
     }
 
 
@@ -184,7 +198,7 @@ def rank_cover_candidates(
     *,
     fmt: str,
 ) -> tuple[Path, Mapping[str, Any], dict[str, Any]]:
-    rows = list(candidates)[:3]
+    rows = list(candidates)[:5]
     if not rows:
         raise RuntimeError("cover_studio_no_candidates")
 
@@ -298,7 +312,7 @@ def _crop(image, width: int, height: int):
     return image.resize((width, height), Image.Resampling.LANCZOS)
 
 
-def _vignette(image):
+def _vignette(image, *, strength: int = 82):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     width, height = image.size
     mask = Image.new("L", (width, height), 0)
@@ -310,33 +324,45 @@ def _vignette(image):
         fill=210,
     )
     mask = mask.filter(ImageFilter.GaussianBlur(max(80, int(min(width, height) * 0.16))))
-    shade = Image.new("RGBA", image.size, (0, 0, 0, 82))
+    shade = Image.new("RGBA", image.size, (0, 0, 0, max(0, min(150, int(strength)))))
     return Image.composite(image, shade, mask)
 
 
-def _deep_grade(image):
+def _deep_grade(image, *, fmt: str):
     Image, _, ImageEnhance, _, _, ImageStat = _pil()
-    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(1.08)
-    image = ImageEnhance.Color(image).enhance(0.94)
+    if fmt == "podcast":
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.10, 0.88, 0.82, 0.88, 0.94, 0.010, 98
+        )
+    elif fmt == "film":
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.09, 0.91, 0.84, 0.89, 0.94, 0.012, 90
+        )
+    else:
+        contrast, color, high, mid, low, warm_mix, vignette = (
+            1.07, 0.94, 0.87, 0.91, 0.95, 0.014, 82
+        )
+    image = ImageEnhance.Contrast(image.convert("RGB")).enhance(contrast)
+    image = ImageEnhance.Color(image).enhance(color)
     mean = float(ImageStat.Stat(image.convert("L").resize((64, 64))).mean[0])
-    brightness = 0.86 if mean > 145 else 0.90 if mean > 118 else 0.95
+    brightness = high if mean > 145 else mid if mean > 118 else low
     image = ImageEnhance.Brightness(image).enhance(brightness)
-    warm = Image.new("RGB", image.size, (212, 145, 76))
-    image = Image.blend(image, warm, 0.018)
-    return _vignette(image.convert("RGBA"))
+    warm = Image.new("RGB", image.size, (205, 143, 78))
+    image = Image.blend(image, warm, warm_mix)
+    return _vignette(image.convert("RGBA"), strength=vignette)
 
 
 def _prepare_canvas(source: Path, *, fmt: str):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     frame = _extract_frame(source)
     if fmt == "short":
-        return _deep_grade(_crop(frame, 1080, 1920))
+        return _deep_grade(_crop(frame, 1080, 1920), fmt=fmt)
 
     if frame.width / max(1, frame.height) >= 1.35:
-        return _deep_grade(_crop(frame, 1280, 720))
+        return _deep_grade(_crop(frame, 1280, 720), fmt=fmt)
 
-    background = _deep_grade(_crop(frame, 1280, 720)).filter(ImageFilter.GaussianBlur(15))
-    foreground = _deep_grade(frame.resize((520, 720), Image.Resampling.LANCZOS))
+    background = _deep_grade(_crop(frame, 1280, 720), fmt=fmt).filter(ImageFilter.GaussianBlur(15))
+    foreground = _deep_grade(frame.resize((520, 720), Image.Resampling.LANCZOS), fmt=fmt)
     mask = Image.new("L", (520, 720), 255)
     mask_draw = ImageDraw.Draw(mask)
     for x in range(390, 520):
@@ -598,6 +624,7 @@ def render_cover_studio(
         "layout_family": layout,
         "text_side": side,
         "tone_profile": TONE_PROFILE,
+        "channel_cover_vibe": CHANNEL_COVER_VIBE,
         "podcast_program": PROGRAM_NAME if fmt == "podcast" else None,
         "channel_name": CHANNEL_NAME if fmt == "podcast" else None,
         "width": width,
