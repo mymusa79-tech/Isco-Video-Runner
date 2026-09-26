@@ -3768,6 +3768,26 @@ visual motif remains supportive and non-essential to a listener with the screen 
         if fmt == "short"
         else ""
     )
+    format_visual_profile = {
+        "short": (
+            "FORMAT VISUAL PROFILE — SHORT: favor close/medium no-face framing, one immediately readable "
+            "action/state per beat, quicker visible state changes, stronger local focal contrast, and clean "
+            "negative space for Arabic text. Use AI stills only when they make the exact moment more specific. "
+            "Do not make every frame golden-hour, glossy, or lifestyle-ad polished."
+        ),
+        "film": (
+            "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
+            "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
+            "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
+            "or turning the whole film into a scenic motivational montage."
+        ),
+        "podcast": (
+            "FORMAT VISUAL PROFILE — PODCAST: favor calm contained compositions, steady medium/wide framing, "
+            "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
+            "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
+            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad."
+        ),
+    }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -3787,7 +3807,11 @@ and keep each visual query concise and at most 260 characters. Keep the whole
 video's stock searches inside one restrained channel lighting world where semantically appropriate:
 natural practical light, moderate-to-deep exposure, soft directional contrast, and restrained warm-neutral tones.
 The channel mood is grounded upward movement: clarity, effort, recovery, small wins and earned hope.
-Do not make the world glossy, airy lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
+Use mature brightness rather than glow: preserve highlight detail, avoid blown sun/window highlights, avoid a
+permanent golden-hour wash, keep saturation restrained, let warm gold appear as a controlled accent, and preserve
+richer midtone depth so the image feels lived-in rather than commercial. Do not make the world glossy, airy
+lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
+{format_visual_profile}
 Do not mix obvious neon/night/cold-blue looks unless the topic itself requires them. Prefer environments,
 hands, objects, routines, back views, and wide shots without identifiable faces. When the scene permits it,
 make the search describe a lived-in cinematic environment with visible foreground/midground/background depth,
