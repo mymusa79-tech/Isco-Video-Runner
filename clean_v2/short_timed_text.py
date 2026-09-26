@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 7
-RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-line-hierarchy-v7"
+SCHEMA_VERSION = 8
+RICH_RENDERER_VERSION = "clean-v2-short-arabic-kufi-karaoke-sweep-lite-v8"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
@@ -504,6 +504,82 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
     return windows
 
 
+def _karaoke_centiseconds(item: TimedTextEvent) -> list[int]:
+    """Quantize local word windows to ASS centiseconds while preserving event length."""
+    windows = _word_highlight_windows(item)
+    if not windows:
+        return []
+    total_cs = max(len(windows), int(round((item.end - item.start) * 100)))
+    raw = [max(0.0, (end - start) * 100.0) for start, end, _index in windows]
+    values = [max(1, int(math.floor(value))) for value in raw]
+    delta = total_cs - sum(values)
+
+    if delta > 0:
+        order = sorted(
+            range(len(values)),
+            key=lambda index: (raw[index] - math.floor(raw[index]), -index),
+            reverse=True,
+        )
+        for offset in range(delta):
+            values[order[offset % len(order)]] += 1
+    elif delta < 0:
+        order = sorted(
+            range(len(values)),
+            key=lambda index: (raw[index] - math.floor(raw[index]), index),
+        )
+        cursor = 0
+        while delta < 0 and any(value > 1 for value in values):
+            index = order[cursor % len(order)]
+            if values[index] > 1:
+                values[index] -= 1
+                delta += 1
+            cursor += 1
+
+    return values
+
+
+def _karaoke_caption(
+    item: TimedTextEvent,
+    *,
+    body_size: int,
+    focus_size: int,
+) -> str:
+    """Show the full Arabic phrase, then sweep white -> gold with local ASS karaoke."""
+    words = _clean(item.text).split()
+    if not words:
+        return ""
+    durations = _karaoke_centiseconds(item)
+    if len(durations) != len(words):
+        raise ShortTimedTextError("short_timed_text_karaoke_word_count_mismatch")
+
+    if len(words) <= BODY_WRAP_WORDS:
+        rows = [words]
+    else:
+        split_at = (len(words) + 1) // 2
+        rows = [words[:split_at], words[split_at:]]
+
+    rendered: list[str] = []
+    cursor = 0
+    for row_index, row in enumerate(rows):
+        size = focus_size if row_index == 1 and len(rows) > 1 else body_size
+        tagged: list[str] = []
+        for word in row:
+            duration_cs = durations[cursor]
+            cursor += 1
+            tagged.append(rf"{{\kf{duration_cs}}}{_ass_escape(word)}")
+        rendered.append(
+            "{\fs"
+            + str(size)
+            + "\bord3\shad0\1c"
+            + ACCENT_ASS
+            + "\2c"
+            + PRIMARY_ASS
+            + "}"
+            + ARABIC_WORD_GAP.join(tagged)
+        )
+    return r"\N".join(rendered)
+
+
 def _plain_caption(text: str) -> str:
     """Shaping-safe Arabic copy: every visual row owns its RTL direction."""
     return _ass_wrap_words(text)
@@ -576,7 +652,7 @@ def build_rich_ass(
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
         f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1",
         f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,70,70,0,1",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{ACCENT_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -588,17 +664,14 @@ def build_rich_ass(
         x = int(hint.get("x") or CAPTION_X)
         y = int(hint.get("y") or CAPTION_Y)
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
-        focus_index = _accent_word_index(item.text)
         focus_size = max(
             font_size + 18,
             min(160, int(round(font_size * FOCUS_SCALE))),
         )
-        caption = _accent_caption(
-            item.text,
-            focus_index,
+        caption = _karaoke_caption(
+            item,
             body_size=font_size,
             focus_size=focus_size,
-            role=item.role,
         )
         start = _ass_time(item.start)
         end = _ass_time(item.end)
@@ -724,12 +797,14 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "static_rtl_line_hierarchy_no_word_sweep",
-        "word_highlight_count": len(validated),
+        "word_highlight_timing": "voice_owned_event_local_weighted_ass_kf_sweep",
+        "word_highlight_count": sum(len(_clean(item.text).split()) for item in validated),
+        "karaoke_mode": "full_phrase_visible_white_to_gold_smooth_fill",
+        "karaoke_provider_calls": 0,
         "text_source_policy": "verbatim_final_script_clause_no_word_rewrite",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "full_phrase_static_rtl_fade_150_200ms_scale_99_to_100",
+        "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_local_kf_white_to_gold_sweep",
         "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
     }
 
