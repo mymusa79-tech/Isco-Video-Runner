@@ -38,6 +38,8 @@ from .media import (
     probe_duration,
     render_derived_short,
     render_video,
+    soften_pcm_wav_edges_in_place,
+    trim_legacy_gemini_tail_silence_in_place,
 )
 from .structural_ai import structural_ai_flags
 from .short_format import (
@@ -819,6 +821,29 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
+
+            # The pinned Engine adds a macro-section zero tail after every Gemini
+            # request. Clean V2 deliberately splits some semantic sections into
+            # retry-safe chunks, so retain that tail only at a true intermediate
+            # section boundary. Internal unit/chunk tails and the final-section
+            # tail are removed because Timeline First already owns the explicit
+            # final silence. This prevents 0.65-0.90s robotic gaps from stacking.
+            engine_tail_trimmed = False
+            edge_softened = False
+            is_last_chunk = chunk_index == len(chunks)
+            is_final_section = index == len(sections)
+            if provider == "gemini:Charon":
+                should_trim_engine_tail = (not is_last_chunk) or is_final_section
+                if should_trim_engine_tail:
+                    engine_tail_trimmed = trim_legacy_gemini_tail_silence_in_place(
+                        chunk_path,
+                        chunk_text,
+                    )
+                    edge_softened = soften_pcm_wav_edges_in_place(
+                        chunk_path,
+                        fade_in_ms=0.0 if (index == 1 and chunk_index == 1) else 4.0,
+                        fade_out_ms=4.0,
+                    )
             if require_charon_only and provider not in {"gemini:Charon", "nabra:af_msa"}:
                 raise RuntimeError(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
@@ -888,6 +913,8 @@ def _synthesize_sectioned_voice(
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
                     "role": role,
+                    "engine_tail_trimmed": engine_tail_trimmed,
+                    "edge_softened": edge_softened,
                 }
             )
 
