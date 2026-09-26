@@ -290,7 +290,8 @@ class PodcastVisualIdentityTests(unittest.TestCase):
                 {"section_id": "s5", "start": 240.0, "end": 300.0},
             ],
             "identity_events": [
-                {"kind": "topic", "start": 20.0, "end": 294.0},
+                {"kind": "topic", "start": 20.0, "end": 293.4},
+                {"kind": "pre_outro_silence", "start": 293.4, "end": 294.0},
                 {"kind": "outro", "start": 294.0, "end": 299.0},
             ],
         }
@@ -306,6 +307,7 @@ class PodcastVisualIdentityTests(unittest.TestCase):
             self.assertLessEqual(float(item["end"]) - float(item["start"]), 5.0)
         for previous, current in zip(events, events[1:]):
             self.assertGreaterEqual(float(current["start"]) - float(previous["end"]), 12.0)
+        self.assertLessEqual(float(events[-1]["end"]), 293.4)
         ass = build_podcast_key_text_ass(events, fmt="film")
         self.assertIn("PlayResX: 1920", ass)
         self.assertIn(r"\fscx99\fscy99", ass)
@@ -338,7 +340,9 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertIn("ابدأ بخطوة صغيرة، لأن الاستمرار أهم من الكمال.", texts)
         self.assertNotIn("ابدأ بخطوة صغيرة", texts)
         ass = build_podcast_key_text_ass(events, fmt="film")
-        self.assertIn(r"\h", ass)
+        self.assertNotIn(r"\h", ass)
+        self.assertIn("\u2009\u2009", ass)
+        self.assertNotIn("\u202B", ass)
         self.assertNotIn(r"\bord5", ass)
 
     def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:
