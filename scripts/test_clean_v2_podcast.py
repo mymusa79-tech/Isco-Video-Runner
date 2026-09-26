@@ -107,13 +107,22 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("s2 must add a mechanism, cause, or distinction", script)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", script)
         self.assertIn("generic advice and synonymous restatement are not progression", script)
-        self.assertIn("NABRA PERFORMANCE / PRONUNCIATION CONTRACT", script)
+        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", script)
         self.assertIn("not fully vocalized textbook Arabic", script)
         self.assertIn("ONLY the minimum Arabic diacritic marks", script)
         self.assertIn("Preserve meaningful diacritics", script)
         self.assertIn("punctuation as performance notation", script)
         self.assertIn("spoken comfortably in one breath", script)
         self.assertNotIn("HARD maximum of 18 Arabic words", script)
+
+        film_script = _script_prompt(
+            {**brief, "format": "film"},
+            self._plan(5),
+        )
+        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", film_script)
+        self.assertIn("ONLY the minimum Arabic diacritic marks", film_script)
+        self.assertIn("punctuation as performance notation", film_script)
+        self.assertIn("harmless for Charon, required for Nabra fallback", film_script)
 
     def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
         podcast_brief = {
@@ -144,8 +153,15 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("s2 must add a mechanism, cause, or distinction", podcast_prompt)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", podcast_prompt)
         self.assertIn("generic advice or paraphrase is not a payoff", podcast_prompt)
-        self.assertIn("NABRA PERFORMANCE / PRONUNCIATION CONTRACT", podcast_prompt)
+        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", podcast_prompt)
         self.assertIn("keep intentional minimal", podcast_prompt)
+
+        film_repair_prompt = _tone_repair_prompt(
+            brief={**podcast_brief, "format": "film"},
+            **kwargs,
+        )
+        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", film_repair_prompt)
+        self.assertIn("keep intentional minimal", film_repair_prompt)
 
         film_prompt = _tone_repair_prompt(
             brief={**podcast_brief, "format": "film"},
