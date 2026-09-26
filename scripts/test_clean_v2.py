@@ -202,7 +202,7 @@ class PlanningCardinalityTests(unittest.TestCase):
         self.assertIn("natural practical light", prompt)
         self.assertIn("moderate-to-deep exposure", prompt)
         self.assertIn("restrained warm-neutral tones", prompt)
-        self.assertIn("do not mix obvious neon/night/cold-blue looks", prompt)
+        self.assertIn("Do not mix obvious neon/night/cold-blue looks", prompt)
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
         self.assertIn("avoid empty walls, flat generic desks", prompt)
