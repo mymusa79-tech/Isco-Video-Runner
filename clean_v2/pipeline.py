@@ -76,7 +76,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 5
+RESUME_CONTRACT_VERSION = 6
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -99,7 +99,7 @@ STAGES = (
 )
 
 
-VOICE_CHUNK_MAX_CHARS = 550
+VOICE_CHUNK_MAX_CHARS = 5600
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 
 
@@ -177,6 +177,53 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
     if any(len(chunk) > max_chars for chunk in chunks):
         raise RuntimeError("Clean V2 voice chunk exceeds local bound")
     return chunks
+
+
+
+LONGFORM_VOICE_DURATION_BANDS_SECONDS = {
+    "film": (3 * 60.0, 20 * 60.0),
+    "podcast": (10 * 60.0, 30 * 60.0),
+}
+
+
+def _enforce_longform_voice_duration(
+    output_dir: Path,
+    narration_path: Path,
+    *,
+    fmt: str,
+) -> dict[str, Any] | None:
+    """Apply the user-owned runtime bands to measured Gemini narration only.
+
+    Voice remains the timeline authority: nothing is time-stretched, padded, or
+    truncated to hit the band. If the naturally synthesized narration lands
+    outside the requested range, the production fails closed and must be
+    regenerated editorially.
+    """
+    band = LONGFORM_VOICE_DURATION_BANDS_SECONDS.get(str(fmt or ""))
+    if band is None:
+        return None
+    seconds = float(probe_duration(narration_path))
+    minimum, maximum = band
+    passed = minimum <= seconds <= maximum
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-measured-gemini-voice",
+        "format": fmt,
+        "duration_seconds": round(seconds, 3),
+        "minimum_seconds": minimum,
+        "maximum_seconds": maximum,
+        "status": "pass" if passed else "fail",
+        "voice_is_timeline_authority": True,
+        "forced_time_fit": False,
+    }
+    atomic_write_json(output_dir / "longform-duration.json", report)
+    if not passed:
+        raise RuntimeError(
+            "Clean V2 long-form voice duration outside requested band: "
+            f"format={fmt} duration={seconds:.3f}s "
+            f"allowed={minimum:.0f}-{maximum:.0f}s"
+        )
+    return report
 
 
 _PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
@@ -968,7 +1015,7 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if require_charon_only and provider not in {"gemini:Charon", "nabra:af_msa"}:
+            if require_charon_only and provider != "gemini:Charon":
                 raise RuntimeError(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
                     f"actual={provider}"
@@ -2571,7 +2618,7 @@ def _tone_repair_prompt(
     nabra_safe_repair_guidance = (
         "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
-        "wording when two unvowelled readings are plausible. " + NABRA_SAFE_WRITING_GUIDANCE
+        "wording when two unvowelled readings are plausible. " + GEMINI_TTS_WRITING_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
@@ -2596,7 +2643,7 @@ def _tone_repair_prompt(
             "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
             "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
             + (
-                PODCAST_NABRA_PERFORMANCE_GUIDANCE
+                PODCAST_GEMINI38_PERFORMANCE_GUIDANCE
                 if str(brief.get("format") or "") == "podcast"
                 else ""
             )
@@ -2821,7 +2868,7 @@ def _factuality_repair_prompt(
         "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
         "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
-        "comfortable to say in one breath.\n" + NABRA_SAFE_WRITING_GUIDANCE
+        "comfortable to say in one breath.\n" + GEMINI_TTS_WRITING_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
@@ -3456,13 +3503,10 @@ def _write_resume_checkpoint(
         "artifacts": artifacts,
     }
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
-        if voice_provider not in {
-            "gemini:Charon",
-            "nabra:af_msa",
-        }:
-            raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
-        if not isinstance(voice_fallback_used, bool):
-            raise RuntimeError("Clean V2 checkpoint voice fallback state is invalid")
+        if voice_provider != "gemini:Charon":
+            raise RuntimeError("Clean V2 checkpoint requires Gemini 3.8 Charon")
+        if voice_fallback_used is not False:
+            raise RuntimeError("Clean V2 checkpoint forbids voice fallback")
         payload["voice_provider"] = voice_provider
         payload["voice_fallback_used"] = voice_fallback_used
     atomic_write_json(output_dir / "resume-checkpoint.json", payload)
@@ -4269,8 +4313,8 @@ Return one JSON object with exactly this useful shape:
 
 
 
-NABRA_SAFE_WRITING_GUIDANCE = """
-NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, required for Nabra fallback):
+GEMINI_TTS_WRITING_GUIDANCE = """
+GEMINI 3.8 TTS ARABIC WRITING CONTRACT (all spoken formats):
 - Write normal readable Modern Standard Arabic, not fully vocalized textbook Arabic.
 - Prefer clear syntax and common spoken-MSA wording. If an unvowelled word could reasonably be read
   in two different ways, prefer an unambiguous synonym when meaning is preserved.
@@ -4337,10 +4381,11 @@ LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before retu
 - Return a first-pass script ready to satisfy the existing Tone/Naturalness checks; do not assume a later repair will rescue semantic drift.
 """.strip()
 
-PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
-For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
-is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
-for one neutral female narrator without turning punctuation into theatrical acting.
+PODCAST_GEMINI38_PERFORMANCE_GUIDANCE = """
+For podcast / خارج النص, write for the same fixed Gemini 3.8 main narrator used by the channel.
+Keep the delivery simple-deep and conversational. In dialogue_qa, A is the concise intelligent
+questioner and B is the fixed main narrator; never write speaker labels as prose or invent host/guest
+pleasantries. Punctuation should create natural breathing without theatrical acting.
 """.strip()
 
 
@@ -4357,13 +4402,15 @@ def _script_prompt(
         length = (
             "For film, do not write toward a word-count target. Continue only while each section adds a new "
             "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
-            "runtime natural rather than padding a long-form label with filler.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            "runtime natural rather than padding a long-form label with filler. Aim naturally for about 5-10 "
+            "minutes by default, while the measured accepted range is 3-20 minutes. Add only supported depth, "
+            "examples and distinctions; never repeat ideas to stretch runtime.\n"
+            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_TTS_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
-            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female "
-            "narrator (local Nabra af_msa). The idea may be carefully planned, but the prose must NOT sound "
+            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for the fixed Gemini 3.8 "
+            "channel narrator. The idea may be carefully planned, but the prose must NOT sound "
             "like an article, lecture, news script, motivational speech, or over-rehearsed monologue. Write "
             "as if one thoughtful person understood the subject deeply and is now speaking simply to one "
             "listener. Use simple vocabulary with deep meaning, natural sentence-length variation, and "
@@ -4372,7 +4419,7 @@ def _script_prompt(
             "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
             "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
             "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
-            "write toward a word-count or duration target: continue only while each paragraph adds a new "
+            "write filler merely to hit a clock: continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
             "been answered fully. PODCAST HOOK QUALITY: the first spoken sentence must be specific to THIS approved episode, honest about what the episode will actually repay, and non-generic. Name or clearly imply one concrete topic-specific tension, behavior, consequence, contradiction, or question supported by the approved brief/plan. Reject and rewrite the hook if it could fit many unrelated episodes (hook_genericness), if it promises a stronger or different payoff than the body can earn (hook_honesty), or if it lacks a concrete topic-specific anchor (hook_specificity). Calm curiosity is acceptable; forced shock and clickbait are not. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
             "s2 must add a mechanism, cause, or distinction already supported by the approved brief/plan that "
@@ -4382,8 +4429,10 @@ def _script_prompt(
             "the other without losing a new explanatory step, rewrite the later section. The final section must "
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
-            "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "work as audio alone. The default editorial target is roughly 12-18 minutes, with a hard accepted "
+            "measured voice range of 10-30 minutes. Build enough supported mechanisms, examples, distinctions, "
+            "tension and resolution to earn that depth; never pad with repetition. Let punctuation create natural "
+            "breathing for Gemini 3.8.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_TTS_WRITING_GUIDANCE + "\n" + PODCAST_GEMINI38_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4392,7 +4441,7 @@ def _script_prompt(
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
             "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + GEMINI_TTS_WRITING_GUIDANCE
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -4526,15 +4575,14 @@ def _narrative_identity_prompt(
         {"brief": dict(brief), "plan": dict(plan)}, ensure_ascii=False, separators=(",", ":")
     )
     spoken_identity_voice_guidance = (
-        "Apply this pronunciation-safe writing contract to opener, closer, and transitions because the same "
-        "text may be spoken by Nabra fallback even when Charon is primary:\n"
-        + NABRA_SAFE_WRITING_GUIDANCE
+        "Apply this pronunciation-safe writing contract to opener, closer, and transitions because every "
+        "spoken format now uses the same fixed Gemini 3.8 voice route:\n"
+        + GEMINI_TTS_WRITING_GUIDANCE
     )
     podcast_voice_guidance = (
-        "For podcast only, both anchors are spoken by a neutral female Arabic narrator. "
-        "Keep them speaker-neutral or grammatically compatible with a female narrator; "
-        "do not identify her as Mousa, use male self-reference, or invent personal experience. "
-        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+        "For podcast only, keep identity anchors compatible with the fixed Gemini main narrator and do not "
+        "invent personal experience, credentials, or a different host identity. "
+        + PODCAST_GEMINI38_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
@@ -5179,31 +5227,15 @@ class CleanV2Pipeline:
                         _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
-                if voice_provider not in {
-                    "gemini:Charon",
-                    "nabra:af_msa",
-                } or not isinstance(voice_fallback_used, bool):
-                    raise RuntimeError("Clean V2 resume voice metadata is invalid")
+                if voice_provider != "gemini:Charon" or voice_fallback_used is not False:
+                    raise RuntimeError(
+                        "Clean V2 resume requires Gemini 3.8 voice with fallback disabled"
+                    )
                 journal.reuse("voice")
-                if str(brief["format"]) == "podcast":
-                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
-                        raise RuntimeError(
-                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
-                            f"provider={voice_provider} fallback={voice_fallback_used}"
-                        )
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
                 journal._write()
             else:
-                if str(brief["format"]) == "podcast":
-                    activate_nabra_primary = getattr(
-                        self.voice_synthesizer, "activate_full_run_nabra_primary", None
-                    )
-                    if not callable(activate_nabra_primary):
-                        raise RuntimeError(
-                            "PODCAST_NABRA_PRIMARY_UNAVAILABLE"
-                        )
-                    activate_nabra_primary()
                 podcast_promo = (
                     _select_podcast_promo_excerpt(
                         list(script["sections"]),
@@ -5231,12 +5263,11 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
-                if str(brief["format"]) == "podcast":
-                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
-                        raise RuntimeError(
-                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
-                            f"provider={voice_provider} fallback={voice_fallback_used}"
-                        )
+                if voice_provider != "gemini:Charon" or voice_fallback_used is not False:
+                    raise RuntimeError(
+                        "GEMINI_ONLY_VOICE_CONTRACT "
+                        f"provider={voice_provider} fallback={voice_fallback_used}"
+                    )
                 if voice_provider is not None:
                     journal.payload["voice_provider"] = str(voice_provider)
                     journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -5255,6 +5286,11 @@ class CleanV2Pipeline:
                     if isinstance(reference_profile, str) and reference_profile:
                         journal.payload["voice_reference_profile"] = reference_profile
                     journal._write()
+            _enforce_longform_voice_duration(
+                output_dir,
+                narration_path,
+                fmt=str(brief["format"]),
+            )
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="voice",
