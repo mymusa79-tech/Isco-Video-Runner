@@ -91,9 +91,11 @@ class HookVisualStopPowerTests(unittest.TestCase):
             with_reference=False,
         )
         self.assertIn("HOOK FRAME:", hook)
-        self.assertIn("Writer-bound spoken anchor (Arabic):", hook)
-        self.assertIn("يدك ما زالت مترددة", hook)
+        self.assertNotIn("Writer-bound spoken anchor", hook)
+        self.assertNotIn("يدك ما زالت مترددة", hook)
         self.assertIn("visually arresting but truthful", hook)
+        self.assertIn("IMAGE ONLY", hook)
+        self.assertIn("do not render any caption", hook)
         self.assertIn("stronger local subject contrast", hook)
         self.assertNotIn("HOOK FRAME:", body)
         self.assertIn("exaggerated advertising look", hook)
