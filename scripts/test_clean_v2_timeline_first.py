@@ -344,7 +344,8 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                             {"kind": "hook", "start": 0.0, "end": 3.0},
                             {"kind": "intro", "start": 3.0, "end": 8.0},
                             {"kind": "prayer", "start": 3.0, "end": 5.0},
-                            {"kind": "channel_identity", "start": 5.0, "end": 7.65},
+                            {"kind": "post_prayer_silence", "start": 5.0, "end": 5.35},
+                            {"kind": "channel_identity", "start": 5.35, "end": 7.65},
                             {"kind": "pre_topic_silence", "start": 7.65, "end": 8.0},
                             {"kind": "topic", "start": 8.0, "end": 31.0},
                             {"kind": "outro", "start": 31.0, "end": 33.25},
@@ -383,7 +384,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
             self.assertEqual(result["source_media"], "final.mp4")
             self.assertEqual(
                 result["identity_event_kinds"],
-                ["hook", "intro", "prayer", "channel_identity", "pre_topic_silence", "topic", "outro", "final_silence"],
+                ["hook", "intro", "prayer", "post_prayer_silence", "channel_identity", "pre_topic_silence", "topic", "outro", "final_silence"],
             )
             updated = json.loads(
                 (root / "final-cut-visual-qa.json").read_text(encoding="utf-8")
