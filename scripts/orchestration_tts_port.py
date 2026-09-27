@@ -59,7 +59,7 @@ def install_tts_runtime_port() -> TTSRuntimePortEvidence:
     """Install the certified TTS layers exactly once behind one stable entrypoint.
 
     Existing implementation owners remain unchanged:
-    - Voice Mesh owns Gemini/Piper provider selection and provider retry certification.
+    - Voice Mesh owns Gemini-only synthesis and provider retry certification.
     - TTS durable cache owns semantic reuse and current-hit revalidation.
     - Voice Identity Observer remains observe-only and wraps the final section boundary.
     - Audio Semantic Integrity remains outside this seam at the produce() scope.
@@ -72,7 +72,7 @@ def install_tts_runtime_port() -> TTSRuntimePortEvidence:
     if orchestrator.synthesize_wav is not voice_mesh.synthesize:
         raise TTSRuntimePortError("Voice Mesh cloud boundary was not installed")
     if orchestrator.synthesize_local_wav is not voice_mesh.synthesize_local_wav:
-        raise TTSRuntimePortError("Voice Mesh local fallback boundary was not installed")
+        raise TTSRuntimePortError("Voice Mesh fail-closed compatibility boundary was not installed")
 
     tts_durable_cache.install_tts_durable_cache()
     cache_boundary = orchestrator._synthesize_tts_section
