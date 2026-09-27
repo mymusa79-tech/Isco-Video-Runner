@@ -1118,6 +1118,7 @@ def run_final_cut_visual_qa(
                         "beat_id",
                         "viewer_intent",
                         "shot_intent",
+                        "writer_anchor_ar",
                         "role",
                         "source_preference",
                         "pacing_auxiliary",
