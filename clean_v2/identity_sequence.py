@@ -25,18 +25,21 @@ _TIMING_PROFILES = {
     "short": {
         "post_hook_silence_seconds": 1.15,
         "intro_silence_seconds": 1.15,
+        "post_prayer_silence_seconds": 0.35,
         "pre_topic_silence_seconds": 0.65,
         "final_silence_seconds": 2.20,
     },
     "film": {
         "post_hook_silence_seconds": 1.15,
         "intro_silence_seconds": 2.20,
+        "post_prayer_silence_seconds": 0.45,
         "pre_topic_silence_seconds": 0.85,
         "final_silence_seconds": 3.50,
     },
     "podcast": {
         "post_hook_silence_seconds": 1.15,
         "intro_silence_seconds": 2.20,
+        "post_prayer_silence_seconds": 0.45,
         "pre_topic_silence_seconds": 0.95,
         "final_silence_seconds": 3.75,
     },
