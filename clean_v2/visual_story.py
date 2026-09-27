@@ -51,7 +51,15 @@ _AI_IMAGE_TEXT_AVOID = (
     "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
 )
 _ACTION_FAMILY_TERMS = {
-    "writing": ("write", "writing", "written", "pen", "notebook", "journal", "typing", "keyboard", "note"),
+    # Treat visually interchangeable productivity props as ONE scene family.
+    # This closes the real #143 failure: notebook -> sticky notes -> notebook
+    # looked repetitive even though the authored search strings were different.
+    "stationery": (
+        "write", "writing", "written", "pen", "pencil", "notebook", "journal",
+        "note", "notes", "sticky", "paper", "page", "planner", "checklist",
+        "worksheet", "tasklist",
+    ),
+    "typing": ("type", "typing", "keyboard", "laptop", "computer"),
     "walking": ("walk", "walking", "steps", "corridor", "path"),
     "phone": ("phone", "smartphone", "screen", "notification", "scroll", "scrolling"),
     "door": ("door", "doorway", "handle", "threshold"),
@@ -551,7 +559,10 @@ def bind_visual_story_to_script(
                 section = section_by_id.get(section_id) or {}
                 alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
                 alternate_family = _visual_action_family(alternate)
-                if alternate and alternate_family and alternate_family != current_family:
+                if alternate and alternate_family != current_family:
+                    # An unclassified alternate is still useful diversity. Requiring a
+                    # second named family caused obviously different scenes (for example
+                    # bookshelf/environment) to be ignored in favor of repeated stationery.
                     beat["shot_intent"] = alternate
                     beat["stock_query_en"] = alternate
                     current_family = alternate_family
@@ -587,7 +598,9 @@ def bind_visual_story_to_script(
                 avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
             beat["semantic_should_avoid"] = avoids[:4]
             beat["writer_anchor_ar"] = anchor
-            prior_action_family = current_family or prior_action_family
+            # Track the scene that will actually be searched. An unclassified but
+            # genuinely different alternate must break the prior-family chain.
+            prior_action_family = current_family
 
     return story
 
@@ -633,6 +646,15 @@ def contextual_intent(
         28,
     )
     current_beat = beats[current_index]
+    role = str(current_beat.get("role") or "").strip() or "body"
+    current_family = _visual_action_family(
+        current_beat.get("shot_intent") or fallback_intent
+    )
+    previous_family = (
+        _visual_action_family(beats[current_index - 1].get("shot_intent"))
+        if current_index > 0
+        else ""
+    )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
@@ -650,10 +672,22 @@ def contextual_intent(
         "generic mood",
         17,
     )
+    family_rule = (
+        " Adjacent same-family repetition fails unless it is the intentional "
+        "hook/payoff motif in a visibly changed state."
+        if current_family and current_family == previous_family
+        else ""
+    )
+    hook_rule = (
+        " Hook must show an unresolved observable tension/consequence, not merely "
+        "a generic activity or matching prop."
+        if role == "hook"
+        else ""
+    )
     context = (
-        f"Current: {current}. Previous: {previous}. Next: {following}. "
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        "Judge specific meaning before mood. "
-        "Same hook-to-payoff arc: judge continuity."
+        f"Role:{role}. Family:{current_family or 'other'} PrevFamily:{previous_family or 'none'}. "
+        f"Current:{current}. Previous:{previous}. Next:{following}. "
+        f"Meaning:{meaning}. Must:{must_have}. Avoid:{should_avoid}."
+        f"{family_rule}{hook_rule} Judge specific meaning before mood and keep the same hook-to-payoff arc."
     )
     return context[:300].rstrip()
