@@ -7,7 +7,7 @@ from scripts import provider_preflight
 
 
 CANONICAL_CONTENT_MODEL = "gemini-3.7-flash"
-CANONICAL_TTS_MODEL = "gemini-3.1-flash-tts-preview"
+CANONICAL_TTS_MODEL = "gemini-3.8-flash-tts"
 
 
 def _required_env(name: str) -> str:
