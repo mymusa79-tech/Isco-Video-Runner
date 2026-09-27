@@ -4342,7 +4342,8 @@ def _script_prompt(
         separators=(",", ":"),
     )
     short_context = short_prompt_context(brief) if fmt == "short" else ""
-    length += "\nDo not optimize for a fixed word count or duration."
+    if fmt != "short":
+        length += "\nDo not optimize for a fixed word count or duration."
     hook_length_guidance = (
         "For short, the complete first sentence has a hard maximum of 18 Arabic words; "
         "count it before returning JSON. Do not shorten by breaking grammar or removing "
