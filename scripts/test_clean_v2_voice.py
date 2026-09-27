@@ -822,19 +822,39 @@ class Gemini38OnlyVoiceTests(unittest.TestCase):
     def test_gemini38_dialogue_uses_structured_speaker_metadata(self) -> None:
         captured: dict[str, object] = {}
 
-        class FakeInteractions:
-            def create(self, **kwargs):
-                captured.update(kwargs)
-                audio = type("Audio", (), {"data": base64.b64encode(_wav_bytes()).decode("ascii")})()
-                return type("Interaction", (), {"output_audio": audio})()
+        class FakeResponse:
+            def __enter__(self):
+                return self
 
-        class FakeClient:
-            def __init__(self, *_args, **_kwargs) -> None:
-                self.interactions = FakeInteractions()
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit: int) -> bytes:
+                return json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "type": "model_output",
+                                "content": [
+                                    {
+                                        "type": "audio",
+                                        "data": base64.b64encode(_wav_bytes()).decode("ascii"),
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout=0):
+            captured["timeout"] = timeout
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            captured["headers"] = dict(request.header_items())
+            return FakeResponse()
 
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "dialogue.wav"
-            with patch("google.genai.Client", FakeClient):
+            with patch("clean_v2.media.urllib.request.urlopen", side_effect=fake_urlopen):
                 from clean_v2.media import _gemini38_synthesize
 
                 _gemini38_synthesize(
@@ -847,7 +867,8 @@ class Gemini38OnlyVoiceTests(unittest.TestCase):
                     style="calm and natural",
                 )
 
-        speech = captured["generation_config"]["speech_config"]
+        payload = captured["payload"]
+        speech = payload["generation_config"]["speech_config"]
         self.assertEqual(speech["mode"], "conversational")
         self.assertEqual(
             speech["speakers"],
@@ -856,13 +877,14 @@ class Gemini38OnlyVoiceTests(unittest.TestCase):
                 {"speaker": "B", "voice": "Charon"},
             ],
         )
-        content = captured["input"][0]["content"]
+        content = payload["input"][0]["content"]
         self.assertEqual([item["annotations"][0]["speaker"] for item in content], ["A", "B"])
-        self.assertEqual([item["text"] for item in content], [
-            "لماذا يحدث هذا؟",
-            "لأن الخطة لا تعيش وحدها.",
-        ])
-
+        self.assertEqual(
+            [item["text"] for item in content],
+            ["لماذا يحدث هذا؟", "لأن الخطة لا تعيش وحدها."],
+        )
+        self.assertEqual(captured["timeout"], 180)
+        self.assertTrue(output.is_file())
 
 
 if __name__ == "__main__":
