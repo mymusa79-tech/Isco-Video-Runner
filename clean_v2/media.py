@@ -481,13 +481,14 @@ def _tts_failure_reason(exc: BaseException | None, *, missing: str) -> str:
 
 
 def _spoken_voice_roles(transcript: str) -> dict[str, str]:
-    """Bind every supported narration shape to the fixed channel voice roster."""
-    speakers = set(_DIALOGUE_LABEL_RE.findall(transcript))
-    if speakers and speakers != {"A", "B"}:
-        raise RuntimeError(
-            "Clean V2 dialogue voice contract requires both A: and B: turns"
-        )
-    if speakers == {"A", "B"}:
+    """Bind each TTS unit to the fixed Gemini voice roster.
+
+    A long dialogue can be split across several provider calls, so an individual
+    unit may legitimately contain only A or only B. The complete script contract
+    owns the requirement that dialogue_qa uses both roles overall.
+    """
+    speakers = set(_DIALOGUE_LABEL_RE.findall(str(transcript or "")))
+    if speakers:
         return {
             "mode": "dialogue_qa",
             "questioner": "Orus",
