@@ -3869,7 +3869,7 @@ def _script_prompt(
             "the other without losing a new explanatory step, rewrite the later section. The final section must "
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
-            "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
+            "work as audio alone. Let punctuation create natural conversational breathing room for Gemini 3.8 TTS rather "
             "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE + "\n" + PODCAST_GEMINI_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
