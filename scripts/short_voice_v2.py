@@ -259,8 +259,8 @@ def apply_short_voice_v2(
     gemini = secret("GEMINI_API_KEY")
     if not gemini:
         raise RuntimeError("Short Voice V2 requires Gemini key for Voice Mesh primary")
-    model = env("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview") or "gemini-3.1-flash-tts-preview"
-    voice = env("GEMINI_TTS_VOICE", "Gacrux") or "Gacrux"
+    model = env("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts") or "gemini-3.8-flash-tts"
+    voice = env("GEMINI_TTS_VOICE", "Charon") or "Charon"
     voice_path = root / "short-voice-v2.wav"
     orchestrator._synthesize_tts_section(
         ledger,
@@ -285,6 +285,10 @@ def apply_short_voice_v2(
 
     provider = str(provenance.get("provider") or "unknown")
     fallback_used = provenance.get("fallback_used")
+    if fallback_used is not False:
+        raise RuntimeError(
+            "Short Voice V2 requires Gemini-only voice with fallback disabled"
+        )
 
     # Only the immutable Telegram/control request with kind=short activates the new
     # finishing layer. Unit callers and non-control compatibility paths retain the
@@ -324,7 +328,7 @@ def apply_short_voice_v2(
             "voice_planning_budget_seconds": projection.get("planning_budget_seconds"),
             "voice_runtime_max_speed_unchanged": projection.get("runtime_max_speed_unchanged"),
             "gemini_provider_attempt_cap": 1,
-            "piper_local_fallback": True,
+            "voice_fallback_disabled": True,
             "extra_text_ai_calls": 0,
             "existing_audio_preserved": True,
             "quality_final_refreshed_after_voice": True,
