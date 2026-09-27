@@ -638,15 +638,9 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             profile["profiles"]["questioner"]["voice_name"], "Orus"
         )
 
-    def test_fallback_acceptance_workflow_requires_manual_human_approval(self) -> None:
-        workflow = Path(
-            ".github/workflows/voice-fallback-acceptance.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn('"human_approval_required": True', workflow)
-        self.assertIn("CLEAN_V2_AZURE_TTS_VOICE_APPROVED=true", workflow)
-        self.assertIn("no audible local dialect", workflow)
-        self.assertNotIn("PiperVoiceSynthesizer", workflow)
+    def test_retired_fallback_workflows_are_absent(self) -> None:
+        self.assertFalse(Path(".github/workflows/voice-fallback-acceptance.yml").exists())
+        self.assertFalse(Path(".github/workflows/piper-isolation.yml").exists())
 
     def test_narrative_voice_roles_keep_charon_and_add_orus_only_for_dialogue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
