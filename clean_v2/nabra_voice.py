@@ -10,6 +10,12 @@ NABRA_VOICE = "af_msa"
 NABRA_SPEED = 0.87
 NABRA_SAMPLE_RATE = 24000
 NABRA_ONSET_FADE_MS = 25
+# Multi-pass long narration cannot be one Kokoro inference. Mask unavoidable
+# model resets with one tiny sentence-safe breath and micro-fades at technical
+# batch seams. This is shared by Short/Film/Podcast whenever more than one pass
+# is required; single-pass clips remain byte-for-byte unaffected by the seam path.
+NABRA_BATCH_SEAM_BREATH_MS = 120
+NABRA_BATCH_SEAM_FADE_MS = 8
 # Kokoro raw-phoneme inference is bounded below its 510-character model limit.
 NABRA_MAX_INFER_CHARS = 500
 NABRA_FRAGMENT_TARGET_CHARS = 440
@@ -126,7 +132,8 @@ class NabraVoiceSynthesizer:
     Contract:
     - af_msa at native model speed 0.87;
     - one inference when the narration fits Kokoro; otherwise the fewest bounded passes;
-    - model-native punctuation pauses only (no inserted waveform silence);
+    - model-native punctuation remains the semantic pause authority;
+    - unavoidable multi-pass seams receive only a 120 ms technical breath plus 8 ms edge fades;
     - one global 25 ms onset fade, never one fade per sentence/chunk;
     - no EQ/compressor/tempo/pitch processing here.
     """
@@ -266,13 +273,15 @@ class NabraVoiceSynthesizer:
         parts: list[dict[str, Any]],
         output_path: Path,
     ) -> dict[str, Any]:
-        """Synthesize one continuous narration stream with bounded Nabra inference.
+        """Synthesize one narration stream with the fewest bounded Nabra passes.
 
         Short narration normally fits in one Kokoro inference. Long film/podcast
         narration is packed into the fewest possible <=500-character phoneme
-        batches, split only at safe punctuation/whitespace boundaries. The final
-        WAV is one uninterrupted PCM stream: no external silence, no per-sentence
-        fade, no tempo/pitch processing, and only one global onset fade.
+        batches, split only at safe punctuation/whitespace boundaries. When more
+        than one pass is technically unavoidable, mask the model reset with a tiny
+        120 ms breath at the safe boundary and 8 ms edge fades. There are no
+        sentence-level fades, no tempo/pitch processing, and only one global onset
+        fade for the complete narration.
         """
         normalized = self._normalize_parts(parts)
         pipeline, voice, torch, model = self._load()
@@ -521,8 +530,38 @@ class NabraVoiceSynthesizer:
                         }
                     )
 
+                if len(batches) > 1:
+                    seam_fade_samples = max(
+                        1,
+                        int(round(NABRA_SAMPLE_RATE * NABRA_BATCH_SEAM_FADE_MS / 1000.0)),
+                    )
+                    if batch_index > 1:
+                        fade = min(seam_fade_samples, int(batch_audio.size))
+                        if fade > 1:
+                            batch_audio = batch_audio.copy()
+                            batch_audio[:fade] *= np.linspace(
+                                0.0, 1.0, fade, dtype=np.float32
+                            )
+                    if batch_index < len(batches):
+                        fade = min(seam_fade_samples, int(batch_audio.size))
+                        if fade > 1:
+                            batch_audio = batch_audio.copy()
+                            batch_audio[-fade:] *= np.linspace(
+                                1.0, 0.0, fade, dtype=np.float32
+                            )
+
                 audio_batches.append(batch_audio)
                 global_sample_offset += int(batch_audio.size)
+                if batch_index < len(batches):
+                    seam_samples = max(
+                        1,
+                        int(round(NABRA_SAMPLE_RATE * NABRA_BATCH_SEAM_BREATH_MS / 1000.0)),
+                    )
+                    audio_batches.append(np.zeros(seam_samples, dtype=np.float32))
+                    # Attribute the technical breath to the previous safe pause so
+                    # downstream timing slices preserve it instead of cutting it out.
+                    fragment_marks[-1]["pause_end_sample"] += seam_samples
+                    global_sample_offset += seam_samples
 
         audio = (
             audio_batches[0].copy()
@@ -639,7 +678,13 @@ class NabraVoiceSynthesizer:
             "inference_passes": len(batches),
             "bounded_inference": len(batches) > 1,
             "max_infer_chars": NABRA_MAX_INFER_CHARS,
-            "external_silence_insertions": 0,
+            "external_silence_insertions": max(0, len(batches) - 1),
+            "technical_batch_seam_breath_ms": (
+                NABRA_BATCH_SEAM_BREATH_MS if len(batches) > 1 else 0
+            ),
+            "technical_batch_seam_fade_ms": (
+                NABRA_BATCH_SEAM_FADE_MS if len(batches) > 1 else 0
+            ),
             "tempo_or_pitch_change": False,
             "native_pause_tokens": True,
             "msa_diacritizer": "camel-tools:calima-msa-r13",
