@@ -1041,7 +1041,8 @@ def run_final_cut_visual_qa(
                         # not just the broad topic. BLOCK/unsafe/low-fit primaries
                         # still fail closed unchanged.
                         primary_is_safe_best_available = (
-                            str(primary_audit.get("status") or "").lower() == "pass"
+                            not retention_quality_enabled
+                            and str(primary_audit.get("status") or "").lower() == "pass"
                             and primary_floor >= BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
                             and best_recovery_floor <= primary_floor
                         )
