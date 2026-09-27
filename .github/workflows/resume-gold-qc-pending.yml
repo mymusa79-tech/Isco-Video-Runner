@@ -347,7 +347,7 @@ jobs:
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
-          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          GEMINI_TTS_MODEL: gemini-3.8-flash-tts
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
