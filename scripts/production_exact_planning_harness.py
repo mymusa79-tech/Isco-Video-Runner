@@ -16,10 +16,12 @@ propagates unchanged and the harness fails closed.
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
 from scripts import run_v3_voice as production
+from scripts import task_level_planner_router as planning_router
 
 
 REPORT_NAME = "production-exact-planning-harness.json"
@@ -88,6 +90,22 @@ def _validate_boundary(output_dir: Path) -> dict[str, Any]:
             f"observed format={fmt or 'missing'}"
         )
 
+    planning_telemetry_path = planning_router.write_planning_telemetry(root)
+    planning_telemetry = json.loads(planning_telemetry_path.read_text(encoding="utf-8"))
+    attempts = planning_telemetry.get("attempts", []) if isinstance(planning_telemetry, dict) else []
+    planning_providers = sorted({str(item.get("provider") or "") for item in attempts if isinstance(item, dict) and item.get("wire_attempted")})
+    non_gemini = [name for name in planning_providers if name and name != "gemini"]
+    if str(os.environ.get("ISCO_GEMINI_AB_GEMINI_ONLY") or "").strip() == "1" and non_gemini:
+        raise RuntimeError(
+            "PRODUCTION_EXACT_PLANNING_HARNESS Gemini-only A/B boundary violated: "
+            + ",".join(non_gemini)
+        )
+
+    audit_statuses: dict[str, str] = {}
+    for audit_name in ("factuality-audit.json", "content-quality-audit.json", "tone-quality-audit.json", "quality-precheck.json"):
+        payload = json.loads((root / audit_name).read_text(encoding="utf-8"))
+        audit_statuses[audit_name] = str(payload.get("status") or payload.get("result") or "unknown") if isinstance(payload, dict) else "invalid"
+
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": "pass",
@@ -97,6 +115,11 @@ def _validate_boundary(output_dir: Path) -> dict[str, Any]:
         "production_entrypoint": "scripts.run_v3_voice.main",
         "required_planning_artifacts": list(_REQUIRED_PLANNING_ARTIFACTS),
         "media_artifacts_observed": media,
+        "content_model": str(os.environ.get("GEMINI_CONTENT_MODEL") or ""),
+        "planning_providers": planning_providers,
+        "planning_wire_attempts": sum(1 for item in attempts if isinstance(item, dict) and item.get("wire_attempted")),
+        "planning_attempts": attempts,
+        "audit_statuses": audit_statuses,
     }
     (root / REPORT_NAME).write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True),
@@ -123,6 +146,7 @@ def run_production_exact_planning_harness() -> Path:
             "_observe_director_phase_a boundary is unavailable"
         )
 
+    started = time.monotonic()
     previous_marker = os.environ.get(_MARKER_ENV)
     os.environ[_MARKER_ENV] = "1"
     orchestrator._observe_director_phase_a = _planning_complete_stop
@@ -130,7 +154,13 @@ def run_production_exact_planning_harness() -> Path:
         try:
             production.main()
         except _PlanningBoundaryReached as reached:
-            _validate_boundary(reached.output_dir)
+            report = _validate_boundary(reached.output_dir)
+            report["duration_seconds"] = round(time.monotonic() - started, 3)
+            report["experiment_attempt"] = str(os.environ.get("ISCO_GEMINI_AB_ATTEMPT") or "")
+            (reached.output_dir / REPORT_NAME).write_text(
+                json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             print(
                 "PRODUCTION_EXACT_PLANNING_HARNESS PASS: "
                 f"output={reached.output_dir} media_started=false"
