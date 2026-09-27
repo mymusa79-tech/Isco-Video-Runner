@@ -252,7 +252,7 @@ def generate_cloudflare_ai_still(
         raise CloudflareAIStillUnavailable("cloudflare_image_prompt_invalid")
     if fmt == "short":
         width, height = 720, 1280
-    elif fmt == "film":
+    elif fmt in {"film", "podcast"}:
         width, height = 1280, 720
     else:
         raise CloudflareAIStillUnavailable("cloudflare_image_format_unsupported")
