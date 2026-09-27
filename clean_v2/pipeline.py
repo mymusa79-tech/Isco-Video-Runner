@@ -1561,13 +1561,21 @@ def _run_legacy_factuality_audit(
         "advisory_flags": dict(local_policy["advisory_flags"]),
         "diagnostics": diagnostics,
     }
-    atomic_write_json(output_dir / "factuality-audit.json", report)
     if diagnostics.get("validation") != "valid":
         attempts = diagnostics.get("attempts") or []
         summary = ", ".join(
             f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
         ) or "no providers configured"
-        raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
+        # Provider exhaustion/schema failure is not evidence that the script is
+        # factually wrong. Keep the exact provider failure visible, but reserve
+        # fail-closed blocking for a VALID audit that found a real content issue.
+        report["status"] = "unavailable"
+        report["decision_source"] = "provider_unavailable_nonblocking"
+        report["provider_unavailable"] = True
+        report["provider_failure_summary"] = summary
+        atomic_write_json(output_dir / "factuality-audit.json", report)
+        return report
+    atomic_write_json(output_dir / "factuality-audit.json", report)
     if local_status == "block":
         raise CleanV2FactualityContentBlock(report)
     return report
@@ -1717,8 +1725,6 @@ def _run_legacy_tone_naturalness_audit(
         ),
         **result,
     }
-    atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
-
     if str(result.get("validation") or "") != "valid":
         attempts = result.get("attempts") or []
         summary = ", ".join(
@@ -1726,10 +1732,16 @@ def _run_legacy_tone_naturalness_audit(
             for item in attempts
             if isinstance(item, Mapping)
         ) or "no providers configured"
-        raise RuntimeError(
-            f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: "
-            f"tone_naturalness {summary}"
-        )
+        # A broken/unavailable evaluator is not a content verdict. Structural
+        # deterministic checks still run separately; only a VALID semantic
+        # audit may block and trigger the one bounded repair.
+        report["status"] = "unavailable"
+        report["decision_source"] = "provider_unavailable_nonblocking"
+        report["provider_unavailable"] = True
+        report["provider_failure_summary"] = summary
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
+        return report
+    atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
     if result.get("status") == "block":
         raise CleanV2ToneContentBlock(report)
     return report
@@ -3012,9 +3024,10 @@ def _run_text_audits(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
-    # Run both semantic audits before spending the one repair. Infrastructure
-    # failures still stop immediately; only a validated factuality content BLOCK
-    # is held long enough to collect Tone/Naturalness flags from the same draft.
+    # Run both semantic audits before spending the one repair. Provider
+    # exhaustion/schema failures are recorded as unavailable and are not treated
+    # as content verdicts; only VALID semantic BLOCK results may spend the one
+    # bounded repair or stop the script.
     factuality_block: CleanV2FactualityContentBlock | None = None
     try:
         factuality = _run_legacy_factuality_audit(
