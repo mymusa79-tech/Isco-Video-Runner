@@ -41,6 +41,12 @@ FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
 FILM_MIN_GAP_SECONDS = 12.0
 TRANSITION_MARKERS = ("لكن", "المشكلة", "الحقيقة", "ربما", "وهنا", "لأن", "لهذا")
+_PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+
+def _contains_prayer_text(value: object) -> bool:
+    compact = _clean(value)
+    return all(marker in compact for marker in _PRAYER_TEXT_MARKERS)
 
 
 class PodcastKeyTextError(RuntimeError):
@@ -55,7 +61,11 @@ def _sentences(value: object) -> list[str]:
     text = _clean(value)
     if not text:
         return []
-    return [part.strip() for part in re.split(r"(?<=[.!؟!])\s+", text) if part.strip()] or [text]
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[.!؟!])\s+", text)
+        if part.strip() and not _contains_prayer_text(part)
+    ]
 
 
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
@@ -343,7 +353,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
     common = r"\an5\fad(180,240)"
     for item in events[:max_events]:
         text = _clean(item.get("text"))
-        if not text:
+        if not text or _contains_prayer_text(text):
             continue
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
