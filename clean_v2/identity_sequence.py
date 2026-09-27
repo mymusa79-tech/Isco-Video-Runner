@@ -23,19 +23,19 @@ _TIMING_PROFILES = {
     # only at major opening boundaries, never inside ordinary Nabra/Charon speech.
     # Long-form gets slightly more room than Shorts without becoming sluggish.
     "short": {
-        "intro_silence_seconds": 0.60,
-        "pre_topic_silence_seconds": 0.35,
-        "final_silence_seconds": 1.25,
+        "intro_silence_seconds": 1.15,
+        "pre_topic_silence_seconds": 0.65,
+        "final_silence_seconds": 1.60,
     },
     "film": {
-        "intro_silence_seconds": 0.70,
-        "pre_topic_silence_seconds": 0.45,
-        "final_silence_seconds": 1.50,
+        "intro_silence_seconds": 2.20,
+        "pre_topic_silence_seconds": 0.85,
+        "final_silence_seconds": 3.50,
     },
     "podcast": {
-        "intro_silence_seconds": 0.70,
-        "pre_topic_silence_seconds": 0.45,
-        "final_silence_seconds": 1.60,
+        "intro_silence_seconds": 2.20,
+        "pre_topic_silence_seconds": 0.95,
+        "final_silence_seconds": 3.75,
     },
 }
 
