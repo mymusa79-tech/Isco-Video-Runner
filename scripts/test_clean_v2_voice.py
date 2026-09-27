@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 from clean_v2.media import (
     AzureF0NeuralVoiceSynthesizer,
+    GeminiOnlyVoiceSynthesizer,
     GeminiPrimaryPiperFallbackSynthesizer,
     TtsProviderError,
     VoiceInfrastructureError,
@@ -216,7 +218,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
                 "طبيعية من دون تغيير أي كلمة في النص المنطوق."
             )
             long_text = " ".join([sentence] * 9)
-            chunks = _bounded_voice_chunks(long_text)
+            chunks = _bounded_voice_chunks(long_text, max_chars=550)
             self.assertEqual(len(chunks), 2)
             self.assertTrue(all(len(chunk) <= 550 for chunk in chunks))
             self.assertEqual(
@@ -764,6 +766,103 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
                 journal.payload["stages"][-1]["failure_classification"],
                 "infrastructure",
             )
+
+
+class Gemini38OnlyVoiceTests(unittest.TestCase):
+    def test_success_uses_gemini38_charon_and_never_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "narration.wav"
+            synth = GeminiOnlyVoiceSynthesizer(
+                "gemini-test-key",
+                tts_model="gemini-3.8-flash-tts",
+            )
+
+            def fake_tts(api_key, transcript, target, **kwargs):
+                self.assertEqual(api_key, "gemini-test-key")
+                self.assertEqual(transcript, "هذا صوت القناة الثابت.")
+                self.assertEqual(kwargs["model"], "gemini-3.8-flash-tts")
+                self.assertEqual(kwargs["voice"], "Charon")
+                self.assertEqual(kwargs["questioner_voice"], "Orus")
+                return _write_audio(Path(target))
+
+            with patch("clean_v2.media._gemini38_synthesize", side_effect=fake_tts):
+                result = synth.synthesize("هذا صوت القناة الثابت.", output)
+
+            self.assertEqual(result, output)
+            self.assertEqual(synth.last_provider, "gemini:Charon")
+            self.assertFalse(synth.fallback_used)
+            self.assertEqual(synth.charon_attempts, 1)
+
+    def test_persistent_gemini38_failure_is_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            synth = GeminiOnlyVoiceSynthesizer(
+                "gemini-test-key",
+                tts_model="gemini-3.8-flash-tts",
+            )
+            with patch(
+                "clean_v2.media._gemini38_synthesize",
+                side_effect=RuntimeError("synthetic Gemini 3.8 outage"),
+            ) as tts, patch("clean_v2.media.time.sleep"):
+                with self.assertRaises(VoiceInfrastructureError) as raised:
+                    synth.synthesize(
+                        "لا نبدّل الصوت عند فشل جمناي.",
+                        root / "narration.wav",
+                    )
+
+            self.assertEqual(tts.call_count, 3)
+            self.assertEqual(
+                raised.exception.secondary_reason,
+                "gemini_only_fail_closed",
+            )
+            self.assertFalse(raised.exception.piper_fallback_allowed)
+            self.assertIsNone(synth.last_provider)
+
+    def test_gemini38_dialogue_uses_structured_speaker_metadata(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeInteractions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                audio = type("Audio", (), {"data": base64.b64encode(_wav_bytes()).decode("ascii")})()
+                return type("Interaction", (), {"output_audio": audio})()
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.interactions = FakeInteractions()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "dialogue.wav"
+            with patch("google.genai.Client", FakeClient):
+                from clean_v2.media import _gemini38_synthesize
+
+                _gemini38_synthesize(
+                    "gemini-test-key",
+                    "A: لماذا يحدث هذا؟ B: لأن الخطة لا تعيش وحدها.",
+                    output,
+                    model="gemini-3.8-flash-tts",
+                    voice="Charon",
+                    questioner_voice="Orus",
+                    style="calm and natural",
+                )
+
+        speech = captured["generation_config"]["speech_config"]
+        self.assertEqual(speech["mode"], "conversational")
+        self.assertEqual(
+            speech["speakers"],
+            [
+                {"speaker": "A", "voice": "Orus"},
+                {"speaker": "B", "voice": "Charon"},
+            ],
+        )
+        content = captured["input"][0]["content"]
+        self.assertEqual([item["annotations"][0]["speaker"] for item in content], ["A", "B"])
+        self.assertEqual([item["text"] for item in content], [
+            "لماذا يحدث هذا؟",
+            "لأن الخطة لا تعيش وحدها.",
+        ])
+
 
 
 if __name__ == "__main__":
