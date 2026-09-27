@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from clean_v2.identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
+    assert_spoken_identity,
     inject_spoken_identity,
 )
 from clean_v2.visual_cta import _events
@@ -41,6 +42,21 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION} حين تتوقف قليلًا",
             first,
         )
+
+    def test_short_spoken_order_normalizes_punctuationless_hook_boundary(self) -> None:
+        sections = [
+            {"id": "s1", "narration": "قد لا تكون المشكلة في الوقت"},
+            {"id": "s2", "narration": "ابدأ بخطوة واحدة واضحة الآن."},
+            {"id": "s3", "narration": "ثم راقب ما يتغير."},
+        ]
+        inject_spoken_identity(sections, fmt="short")
+        assert_spoken_identity(sections, fmt="short")
+
+        first = sections[0]["narration"]
+        self.assertTrue(first.startswith("قد لا تكون المشكلة في الوقت. "))
+        self.assertIn(f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION}", first)
+        self.assertEqual(first.count(PRAYER_SENTENCE), 1)
+        self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
 
     def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
         script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
