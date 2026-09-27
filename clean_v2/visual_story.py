@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Mapping
 
@@ -41,7 +42,9 @@ _WRITER_INTENT_DROP_TOKENS = frozenset({
 _EMBEDDED_TEXT_REQUEST_RE = re.compile(
     r"\b(?:with|showing|displaying|containing)\s+(?:readable\s+)?(?:arabic\s+)?"
     r"(?:text|words|caption|captions|title|subtitle|lettering|typography|quote|label)\b.*$"
-    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading|showing|displaying)\b.*$",
+    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading|showing|displaying)\b.*$"
+    r"|(?:^|\s)(?:arabic\s+)?(?:text|words|caption|captions|title|subtitle|quote|label)"
+    r"\s+(?:saying|reading|showing|displaying)\b.*$",
     re.IGNORECASE,
 )
 _AI_IMAGE_TEXT_AVOID = (
@@ -484,7 +487,10 @@ def bind_visual_story_to_script(
     turns vague/stylistic shot_intent text into the same concrete English boundary
     consumed by Stock/AI. It adds no stage, provider, retry loop, or quality gate.
     """
-    story = validate_visual_story(visual_story, plan)
+    # Planning already validated and persisted this exact story. The Writer binder
+    # is a deterministic enrichment step, not a second Planning gate: re-validating
+    # here would incorrectly apply fresh-output rules to compatibility/fallback stories.
+    story = copy.deepcopy(dict(visual_story))
     raw_sections = [
         item for item in (script.get("sections") or []) if isinstance(item, Mapping)
     ]
@@ -583,7 +589,7 @@ def bind_visual_story_to_script(
             beat["writer_anchor_ar"] = anchor
             prior_action_family = current_family or prior_action_family
 
-    return validate_visual_story(story, plan)
+    return story
 
 def _context_fragment(value: object, fallback: str, limit: int) -> str:
     text = " ".join(str(value or "").split()).strip() or fallback
