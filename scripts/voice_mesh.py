@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import math
 import os
 import re
@@ -10,27 +9,23 @@ from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.media.audio_pacing import add_tail_silence_in_place, section_tail_seconds
-from isco_video_agent.media.ffmpeg import concat_audio, duration
-from isco_video_agent.providers.gemini import synthesize_wav as gemini_synthesize
+from isco_video_agent.media.ffmpeg import duration
 
-_piper = None
+from clean_v2.media import (
+    GEMINI38_PRIMARY_VOICE,
+    GEMINI38_QUESTIONER_VOICE,
+    GEMINI38_TTS_MODEL,
+    _gemini38_synthesize,
+)
+
 _voice_provenance: dict[str, dict] = {}
 
-# Human-approved Voice Roster V1. Fixed, never randomized per video.
-DIALOGUE_QUESTIONER_VOICE = "Orus"
-DIALOGUE_RESPONDER_VOICE = "Charon"
+# Compatibility seam for the legacy V4 orchestrator. The provider contract is now
+# identical to Clean V2: Gemini 3.8 only, fixed Charon/Orus roster, fail closed.
+DIALOGUE_QUESTIONER_VOICE = GEMINI38_QUESTIONER_VOICE
+DIALOGUE_RESPONDER_VOICE = GEMINI38_PRIMARY_VOICE
 _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
 
-# Local fallback must stay bounded on low-memory runners. Long Film sections are split
-# at natural Arabic/Latin sentence boundaries before Piper, then concatenated locally.
-# This adds no provider calls and does not change cloud retry ownership.
-PIPER_MAX_CHARS_PER_CHUNK = 420
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?؟!؛])\s+|\n+")
-
-# Acoustic QA scans the whole synthesized WAV in bounded one-second windows. The
-# historical first-15s sample could miss a truncated/silent tail after Piper chunk
-# concatenation. Keep the existing RMS floor and allow ordinary rhetorical pauses,
-# while failing closed on a sustained five-second acoustic dropout anywhere in-file.
 VOICE_QA_RMS_FLOOR = 25.0
 VOICE_QA_MAX_CONSECUTIVE_SILENT_WINDOWS = 5
 
@@ -50,12 +45,10 @@ def _record_voice_provenance(output: Path, *, provider: str, fallback_used: bool
 
 
 def record_voice_provenance(output: Path, *, provider: str, fallback_used: bool) -> None:
-    """Record trusted TTS provenance for downstream observers and durable-cache hits."""
     _record_voice_provenance(Path(output), provider=provider, fallback_used=fallback_used)
 
 
 def peek_voice_provenance(output: Path) -> dict:
-    """Return current provenance without consuming it."""
     return dict(
         _voice_provenance.get(
             _output_key(Path(output)),
@@ -65,7 +58,6 @@ def peek_voice_provenance(output: Path) -> dict:
 
 
 def consume_voice_provenance(output: Path) -> dict:
-    """Return actual final TTS provenance once, for the post-synthesis observer."""
     return _voice_provenance.pop(
         _output_key(output),
         {"provider": "unknown", "fallback_used": None},
@@ -84,10 +76,6 @@ def _qa(path: Path, text: str) -> None:
         width = w.getsampwidth()
         if rate < 16000 or width != 2:
             raise RuntimeError("voice_qa_format")
-
-        # Stream the complete WAV rather than materializing long Film audio in memory.
-        # One-second windows are only for dropout detection; the overall RMS below is
-        # still computed across every PCM sample in the file.
         while True:
             raw = w.readframes(rate)
             if not raw:
@@ -114,188 +102,21 @@ def _qa(path: Path, text: str) -> None:
         raise RuntimeError("voice_qa_duration")
     if total_samples <= 0:
         raise RuntimeError("voice_qa_samples")
-    rms = math.sqrt(total_square / total_samples)
-    if rms < VOICE_QA_RMS_FLOOR:
+    if math.sqrt(total_square / total_samples) < VOICE_QA_RMS_FLOOR:
         raise RuntimeError("voice_qa_silence")
 
 
 def qa_voice_output(path: Path, transcript: str) -> None:
-    """Run the same final acoustic QA used by live Voice Mesh on a restored WAV."""
     text = _DIALOGUE_LABEL.sub("", transcript) if os.environ.get("ISCO_DIALOGUE_QA") == "1" else transcript
     _qa(Path(path), text)
 
 
-def _local_voice():
-    global _piper
-    if _piper is None:
-        from piper import PiperVoice
-        model = Path(os.environ["PIPER_MODEL_PATH"])
-        _piper = PiperVoice.load(str(model), config_path=str(model) + ".json")
-    return _piper
-
-
-def _split_long_piece(piece: str, max_chars: int) -> list[str]:
-    words = piece.split()
-    if not words:
-        return []
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for word in words:
-        added = len(word) if not current else len(word) + 1
-        if current and current_len + added > max_chars:
-            chunks.append(" ".join(current))
-            current = [word]
-            current_len = len(word)
-        else:
-            current.append(word)
-            current_len += added
-    if current:
-        chunks.append(" ".join(current))
-    return chunks
-
-
-def _piper_chunks(text: str, max_chars: int = PIPER_MAX_CHARS_PER_CHUNK) -> list[str]:
-    """Deterministic natural-boundary chunks for the local Piper fallback.
-
-    Prefer sentence boundaries. If one sentence itself exceeds the limit, fall back to
-    word-boundary splitting. No text is dropped or paraphrased; whitespace is merely
-    normalized between words/chunks.
-    """
-    normalized = str(text or "").strip()
-    if not normalized:
-        return []
-    if len(normalized) <= max_chars:
-        return [normalized]
-
-    chunks: list[str] = []
-    current = ""
-    for piece in [x.strip() for x in _SENTENCE_BOUNDARY.split(normalized) if x.strip()]:
-        if len(piece) > max_chars:
-            if current:
-                chunks.append(current)
-                current = ""
-            chunks.extend(_split_long_piece(piece, max_chars))
-            continue
-        candidate = piece if not current else current + " " + piece
-        if len(candidate) <= max_chars:
-            current = candidate
-        else:
-            chunks.append(current)
-            current = piece
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def _synthesize_piper_piece(text: str, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(output), "wb") as wav:
-        _local_voice().synthesize_wav(text, wav)
-    return output
-
-
-def _local(text: str, output: Path) -> Path:
-    chunks = _piper_chunks(text)
-    if not chunks:
-        raise RuntimeError("voice_local_empty_transcript")
-    if len(chunks) == 1:
-        return _synthesize_piper_piece(chunks[0], output)
-
-    parts: list[Path] = []
-    try:
-        for index, chunk in enumerate(chunks, 1):
-            part = output.with_name(f"{output.stem}-piper-chunk-{index:02d}.wav")
-            _synthesize_piper_piece(chunk, part)
-            parts.append(part)
-        concat_audio(parts, output)
-    finally:
-        for part in parts:
-            part.unlink(missing_ok=True)
-    print(f"Piper local fallback chunked safely: chunks={len(chunks)}")
-    return output
-
-
-def _dialogue_turns(transcript: str) -> list[tuple[str, str]]:
-    matches = list(_DIALOGUE_LABEL.finditer(transcript))
-    turns: list[tuple[str, str]] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(transcript)
-        text = transcript[match.end():end].strip()
-        if text:
-            turns.append((match.group(1), text))
-    roles = {role for role, _ in turns}
-    if len(turns) < 2 or roles != {"السائل", "المجيب"}:
-        raise RuntimeError("dialogue_voice_contract_invalid")
-    return turns
-
-
-def _single_attempt_gemini_client(api_key: str):
-    """Create a Gemini client with SDK retries disabled.
-
-    P0-2 retry ownership: the Engine ledger/TTS budget owns retry/fallback decisions.
-    One call through this client must therefore represent exactly one provider attempt,
-    including the dialogue path that bypasses Engine providers.gemini._client().
-    """
-    from google import genai
-    from google.genai import types as genai_types
-
-    return genai.Client(
-        api_key=api_key,
-        http_options=genai_types.HttpOptions(
-            retry_options=genai_types.HttpRetryOptions(attempts=1),
-        ),
-    )
-
-
-def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str, style: str) -> Path:
-    turns = _dialogue_turns(transcript)
-    spoken = "\n".join(f"{role}: {text}" for role, text in turns)
-    prompt = (
-        "Synthesize this Arabic two-person conversation exactly as written. Do not read these directions aloud. "
-        "Use clear contemporary Modern Standard Arabic. The questioner is curious, concise and grounded; the responder "
-        "is the channel's warm, mature, thoughtful main voice. Keep the exchange natural, intelligent and understated. "
-        "Do not add, remove, paraphrase, sing, or exaggerate. Do not race through sentence endings. "
-        "Let completed thoughts breathe, give rhetorical questions a perceptible natural pause when earned, and never make all pauses identical. "
-        + style
-        + "\n\n### TRANSCRIPT\n"
-        + spoken
-    )
-    client = _single_attempt_gemini_client(api_key)
-    interaction = client.interactions.create(
-        model=model,
-        input=prompt,
-        response_format={"type": "audio"},
-        generation_config={
-            "speech_config": [
-                {"speaker": "السائل", "voice": DIALOGUE_QUESTIONER_VOICE},
-                {"speaker": "المجيب", "voice": DIALOGUE_RESPONDER_VOICE},
-            ]
-        },
-    )
-    pcm = base64.b64decode(interaction.output_audio.data)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(output), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(24000)
-        wf.writeframes(pcm)
-    return output
-
-
-def _local_dialogue(transcript: str, output: Path) -> Path:
-    """Fail-soft local fallback: preserve turns but keep Piper's single licensed Arabic speaker."""
-    turns = _dialogue_turns(transcript)
-    parts: list[Path] = []
-    for index, (_, text) in enumerate(turns, 1):
-        part = output.with_name(f"{output.stem}-turn-{index:02d}.wav")
-        _local(text, part)
-        parts.append(part)
-    concat_audio(parts, output)
-    for part in parts:
-        part.unlink(missing_ok=True)
-    print("Dialogue fallback degraded safely: Piper Arabic has one speaker; turn separation preserved")
-    return output
+def _legacy_dialogue_to_ab(transcript: str) -> str:
+    """Translate the old Arabic labels to the fixed Gemini 3.8 A/B metadata seam."""
+    source = str(transcript or "")
+    source = re.sub(r"(?m)^\s*السائل\s*:\s*", "A: ", source)
+    source = re.sub(r"(?m)^\s*المجيب\s*:\s*", "B: ", source)
+    return source.strip()
 
 
 def synthesize(
@@ -308,77 +129,59 @@ def synthesize(
     style: str = "",
     attempts: int = 1,
 ) -> Path:
-    # Retry ownership is outside this provider boundary. Engine orchestrator's
-    # TtsBudget/TtsCircuit decides whether one transient failure earns one extra cloud
-    # attempt or falls back to Piper. Never allow a caller to reactivate the provider's
-    # historical blind multi-attempt loop through this Runner surface.
+    del voice, style
     if attempts != 1:
         raise RuntimeError(
             f"voice_mesh_retry_owner_violation attempts={attempts} expected=1"
         )
+    if str(model or "") != GEMINI38_TTS_MODEL:
+        raise RuntimeError(
+            f"voice_mesh_model_drift expected={GEMINI38_TTS_MODEL} actual={model}"
+        )
+
     dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
+    spoken = _legacy_dialogue_to_ab(transcript) if dialogue else str(transcript or "").strip()
+    if not spoken:
+        raise RuntimeError("voice_mesh_empty_transcript")
+
+    _gemini38_synthesize(
+        api_key,
+        spoken,
+        output,
+        model=GEMINI38_TTS_MODEL,
+        primary_voice=DIALOGUE_RESPONDER_VOICE,
+        questioner_voice=DIALOGUE_QUESTIONER_VOICE,
+    )
     if dialogue:
-        _gemini_dialogue(api_key, transcript, output, model=model, style=style)
         add_tail_silence_in_place(output, section_tail_seconds(transcript))
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-        _record_voice_provenance(output, provider="gemini-multispeaker", fallback_used=False)
-        print(
-            "Voice provider selected: gemini-multispeaker "
-            f"(questioner={DIALOGUE_QUESTIONER_VOICE} responder={DIALOGUE_RESPONDER_VOICE})"
-        )
+        provider = "gemini-3.8:Charon+Orus"
     else:
-        # Engine gemini_synthesize() owns the cinematic pacing tail for this path.
-        gemini_synthesize(
-            api_key,
-            transcript,
-            output,
-            model=model,
-            voice=voice,
-            style=style,
-            attempts=1,
-        )
         _qa(output, transcript)
-        _record_voice_provenance(output, provider="gemini", fallback_used=False)
-        print("Voice provider selected: gemini")
+        provider = "gemini-3.8:Charon"
+    _record_voice_provenance(output, provider=provider, fallback_used=False)
+    print(f"Voice provider selected: {provider} fallback=false")
     return output
 
 
 def synthesize_local_wav(transcript: str, output: Path) -> Path:
-    dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
-    if dialogue:
-        _local_dialogue(transcript, output)
-        add_tail_silence_in_place(output, section_tail_seconds(transcript))
-        _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-        _record_voice_provenance(output, provider="piper-local-dialogue-single-speaker", fallback_used=True)
-        print("Voice provider selected: piper-local-dialogue-single-speaker")
-    else:
-        _local(transcript, output)
-        add_tail_silence_in_place(output, section_tail_seconds(transcript))
-        _qa(output, transcript)
-        _record_voice_provenance(output, provider="piper-local", fallback_used=True)
-        print("Voice provider selected: piper-local")
-    return output
+    del transcript, output
+    raise RuntimeError(
+        "voice_local_fallback_retired: Gemini 3.8 is the only approved production voice"
+    )
 
 
 def install_voice_mesh() -> None:
-    # Capture whatever is currently installed before overwriting, matching every other
-    # install_* seam in this codebase (m8_live_binding, m10_live_binding, cta_live_binding,
-    # ...). Voice Mesh is the certified base TTS provider layer and intentionally does not
-    # compose with a prior value here - but recording the reference (even unused) keeps
-    # this function honest about the fact that it is replacing something, and gives any
-    # future caller a safe seam to compose through instead of overwriting blind.
-    current = orchestrator.synthesize_wav  # noqa: F841 - preserved for future composition, not consumed here
-    current_local = orchestrator.synthesize_local_wav  # noqa: F841
+    # Keep the legacy Engine seam callable without retaining a second provider family.
+    # If the Engine asks for its historical local fallback, synthesize_local_wav fails
+    # closed instead of changing narrator/provider.
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
-    # This certification runs only after the final TTS boundary has been installed,
-    # but still before orchestrator.produce() makes any provider request.
     from scripts.provider_retry_ownership import certify_provider_retry_ownership
 
     certify_provider_retry_ownership()
     print(
-        "Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices "
-        f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}; provider_attempts=1"
+        "Voice Mesh compatibility seam installed: Gemini 3.8 only; "
+        f"voices={DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}; "
+        "local_fallback=retired provider_attempts=1"
     )
-
-# Production trigger only: Agent pin afa2f08416ac2c0f85edb1b73f1ed17518990a93
