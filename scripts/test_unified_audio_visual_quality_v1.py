@@ -26,6 +26,7 @@ from clean_v2.visual_story import CHANNEL_VISUAL_IDENTITY
 def _brief(fmt: str) -> dict:
     return {
         "format": fmt,
+        "approved_topic": "لماذا نفشل في تنفيذ ما نخطط له",
         "topic": "لماذا نفشل في تنفيذ ما نخطط له",
         "audience": "جمهور عربي عام",
         "goal": "فهم الفكرة وتطبيق خطوة عملية",
