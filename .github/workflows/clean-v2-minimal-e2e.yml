@@ -139,6 +139,139 @@ jobs:
             scripts.test_clean_v2_release_delivery \
             -v
 
+  dialogue-sample:
+    name: Generate Gemini 3.8 dialogue samples
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Generate Charon and Orus Arabic dialogue samples
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          mkdir -p "$RUNNER_TEMP/dialogue-samples"
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          api_key = os.environ["GEMINI_API_KEY"]
+          out = Path(os.environ["RUNNER_TEMP"]) / "dialogue-samples"
+
+          samples = [
+              (
+                  "01-calm-analysis.wav",
+                  [
+                      ("A", "هل المشكلة أننا لا نعرف ما الذي يجب أن نفعله؟"),
+                      ("B", "غالبًا لا. أحيانًا نعرف الخطوة بوضوح، لكننا نبني لها خطة لا تشبه يومنا الحقيقي."),
+                      ("A", "إذن أين يبدأ التغيير؟"),
+                      ("B", "يبدأ عندما نجعل الخطة تخدم حياتنا، بدل أن نطلب من حياتنا أن تنحني للخطة."),
+                  ],
+              ),
+              (
+                  "02-outside-text.wav",
+                  [
+                      ("A", "لماذا نعود إلى عادة نعرف أنها لا تساعدنا؟"),
+                      ("B", "لأن المعرفة وحدها لا تغيّر ما تمنحه لنا العادة في اللحظة نفسها. قد نرفض نتيجتها، لكننا ما زلنا نبحث عن الوظيفة التي تؤديها."),
+                      ("A", "يعني أن السؤال ليس كيف أمنعها فقط؟"),
+                      ("B", "بالضبط. السؤال الأعمق هو: ما الذي أطلبه منها، وكيف أجد له طريقًا أفضل؟"),
+                  ],
+              ),
+              (
+                  "03-practical-contrast.wav",
+                  [
+                      ("A", "هل الانضباط يعني أن أضغط على نفسي أكثر؟"),
+                      ("B", "ليس بالضرورة. الانضباط الجيد يقلل عدد المرات التي تحتاج فيها إلى معركة مع نفسك."),
+                      ("A", "وكيف يحدث ذلك؟"),
+                      ("B", "بقرار صغير واضح يتكرر بسهولة، لا بخطة مثالية تحتاج نسخة مثالية منك كل يوم."),
+                  ],
+              ),
+          ]
+
+          for filename, turns in samples:
+              content = []
+              for speaker, text in turns:
+                  content.append(
+                      {
+                          "type": "text",
+                          "text": text,
+                          "annotations": [
+                              {
+                                  "type": "speech_metadata",
+                                  "speaker": speaker,
+                                  "style": (
+                                      "Firm, concise, curious, natural Modern Standard Arabic; never harsh."
+                                      if speaker == "A"
+                                      else
+                                      "Warm, calm, thoughtful, confident, natural Modern Standard Arabic; conversational, not announcer-like."
+                                  ),
+                              }
+                          ],
+                      }
+                  )
+              payload = {
+                  "model": "gemini-3.8-flash-tts",
+                  "input": [{"type": "user_input", "content": content}],
+                  "response_format": {"type": "audio"},
+                  "generation_config": {
+                      "speech_config": {
+                          "mode": "conversational",
+                          "speakers": [
+                              {"speaker": "A", "voice": "Orus"},
+                              {"speaker": "B", "voice": "Charon"},
+                          ],
+                      }
+                  },
+              }
+              request = urllib.request.Request(
+                  "https://generativelanguage.googleapis.com/v1beta/interactions",
+                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "x-goog-api-key": api_key,
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  result = json.loads(response.read())
+              data = None
+              for step in reversed(result.get("steps", [])):
+                  if step.get("type") != "model_output":
+                      continue
+                  for block in reversed(step.get("content", [])):
+                      if block.get("type") == "audio" and block.get("data"):
+                          data = block["data"]
+                          break
+                  if data:
+                      break
+              if not data:
+                  raise RuntimeError(f"no audio returned for {filename}")
+              audio = base64.b64decode(data)
+              if not audio.startswith(b"RIFF"):
+                  raise RuntimeError(f"invalid WAV returned for {filename}")
+              (out / filename).write_bytes(audio)
+          PY
+
+      - name: Upload dialogue samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gemini38-charon-orus-dialogue-samples
+          path: ${{ runner.temp }}/dialogue-samples/*.wav
+          if-no-files-found: error
+          retention-days: 1
+
   produce:
     permissions:
       contents: write
