@@ -25,6 +25,31 @@ class RetiredVoiceAbsenceTests(unittest.TestCase):
                 offenders.append(path.as_posix())
         self.assertEqual(offenders, [], f"retired voice references remain: {offenders}")
 
+    def test_retired_local_voice_dependencies_are_absent_from_workflows(self) -> None:
+        retired = (
+            "espeak-ng",
+            "libsndfile1",
+            "kokoro",
+            "camel-tools",
+            "camel_data",
+            "arabic_g2p.py",
+            "phonemizer-fork",
+            "misaki[en]",
+        )
+        workflow_root = Path(".github/workflows")
+        offenders: dict[str, list[str]] = {}
+        for path in sorted(workflow_root.glob("*.yml")):
+            text = path.read_text(encoding="utf-8").lower()
+            hits = [item for item in retired if item.lower() in text]
+            if hits:
+                offenders[path.as_posix()] = hits
+        self.assertEqual(
+            offenders,
+            {},
+            f"retired local voice dependencies remain in workflows: {offenders}",
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
