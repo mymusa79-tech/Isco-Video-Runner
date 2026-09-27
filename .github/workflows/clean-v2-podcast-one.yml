@@ -23,7 +23,7 @@ jobs:
     env:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
-      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GEMINI_TTS_MODEL: gemini-3.8-flash-tts
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
@@ -174,7 +174,7 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
-          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "nabra:af_msa"
+          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "gemini-3.8:Charon"
 
       - name: Upload Podcast evidence and final file
         if: always()
