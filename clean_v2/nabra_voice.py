@@ -132,7 +132,7 @@ class NabraVoiceSynthesizer:
     - af_msa at native model speed 0.87;
     - one inference when the narration fits Kokoro; otherwise the fewest bounded passes;
     - model-native punctuation remains the semantic pause authority;
-    - unavoidable multi-pass seams receive only a 120 ms technical breath plus 8 ms edge fades;
+    - unavoidable multi-pass seams use only a tiny 18 ms waveform crossfade; no artificial batch silence;
     - one global 25 ms onset fade, never one fade per sentence/chunk;
     - no EQ/compressor/tempo/pitch processing here.
     """
