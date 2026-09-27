@@ -99,8 +99,13 @@ STAGES = (
 )
 
 
-VOICE_CHUNK_MAX_CHARS = 550
+VOICE_CHUNK_MAX_CHARS = 4200
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
+GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
+LONGFORM_DURATION_RANGES_SECONDS = {
+    "film": (180.0, 1200.0),
+    "podcast": (600.0, 1800.0),
+}
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -125,18 +130,48 @@ def _write_silence_like(reference: Path, destination: Path, seconds: float) -> P
 
 
 def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) -> list[str]:
-    """Split long narration at sentence/word boundaries without changing wording."""
-    normalized = " ".join(str(text or "").split()).strip()
-    if not normalized:
+    """Split long narration at natural boundaries while preserving dialogue turns."""
+    source = str(text or "").strip()
+    if not source:
         return []
     if max_chars < 120:
         raise ValueError("voice chunk bound is too small")
+
+    # Identity injection normalizes whitespace, so restore A:/B: boundaries locally.
+    dialogue_source = re.sub(r"(?<!\\S)([AB]):\\s+", r"\\n\\1: ", source).strip()
+    dialogue_lines = [
+        " ".join(line.split())
+        for line in dialogue_source.splitlines()
+        if line.strip()
+    ]
+    if any(re.match(r"^[AB]:\\s*\\S", line) for line in dialogue_lines):
+        if any(not re.match(r"^[AB]:\\s*\\S", line) for line in dialogue_lines):
+            raise RuntimeError("Clean V2 dialogue contains an unlabelled topic turn")
+        if any(len(line) > max_chars for line in dialogue_lines):
+            raise RuntimeError("Clean V2 dialogue turn exceeds Gemini TTS chunk bound")
+        chunks: list[str] = []
+        current = ""
+        for line in dialogue_lines:
+            candidate = line if not current else f"{current}\\n{line}"
+            if len(candidate) <= max_chars:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+            current = line
+        if current:
+            chunks.append(current)
+        if " ".join(" ".join(chunks).split()) != " ".join(source.split()):
+            raise RuntimeError("Clean V2 dialogue chunking changed narration text")
+        return chunks
+
+    normalized = " ".join(source.split()).strip()
     if len(normalized) <= max_chars:
         return [normalized]
 
     sentences = [
         item.strip()
-        for item in re.split(r"(?<=[.!؟!])\s+", normalized)
+        for item in re.split(r"(?<=[.!؟!])\\s+", normalized)
         if item.strip()
     ]
     pieces: list[str] = []
@@ -175,9 +210,8 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
     if " ".join(" ".join(chunks).split()) != normalized:
         raise RuntimeError("Clean V2 voice chunking changed narration text")
     if any(len(chunk) > max_chars for chunk in chunks):
-        raise RuntimeError("Clean V2 voice chunk exceeds local bound")
+        raise RuntimeError("Clean V2 voice chunk exceeds Gemini TTS bound")
     return chunks
-
 
 _PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
 
@@ -790,17 +824,6 @@ def _synthesize_sectioned_voice(
     role_reports: list[dict[str, Any]] = []
     report_path = narration_path.parent / "voice-sections.json"
 
-    if bool(getattr(voice_synthesizer, "nabra_continuous_ready", False)):
-        return _synthesize_continuous_nabra_voice(
-            voice_synthesizer,
-            sections,
-            narration_path,
-            fmt=fmt,
-            identity_definition=identity_definition,
-            identity_closer=identity_closer,
-            podcast_promo=podcast_promo,
-        )
-
     for index, item in enumerate(sections, start=1):
         section_id = str(item.get("id") or f"s{index}")
         section_text = str(item.get("narration") or "").strip()
@@ -892,61 +915,7 @@ def _synthesize_sectioned_voice(
                     )
                 else:
                     voice_synthesizer.synthesize(chunk_text, chunk_path)
-            except Exception as exc:
-                restart_nabra = getattr(
-                    voice_synthesizer,
-                    "activate_full_run_nabra_fallback",
-                    None,
-                )
-                if (
-                    isinstance(exc, VoiceInfrastructureError)
-                    and exc.secondary_reason == "narrator_route_locked_to_charon"
-                    and callable(restart_nabra)
-                ):
-                    prior_attempts = total_charon_attempts + int(
-                        getattr(voice_synthesizer, "charon_attempts", 0) or 0
-                    )
-                    atomic_write_json(
-                        report_path,
-                        {
-                            "schema_version": 1,
-                            "source": "clean-v2-sectioned-voice",
-                            "status": "restarting_with_nabra",
-                            "reason": "charon_failed_after_route_lock",
-                            "failed_section": section_id,
-                            "failed_chunk": chunk_index,
-                            "charon_tts_attempts_before_restart": prior_attempts,
-                            "sections": reports,
-                            "current_section_chunks": chunk_reports,
-                        },
-                    )
-                    shutil.rmtree(audio_dir, ignore_errors=True)
-                    audio_dir.mkdir(parents=True, exist_ok=True)
-                    narration_path.unlink(missing_ok=True)
-                    restart_nabra()
-                    restarted = _synthesize_sectioned_voice(
-                        voice_synthesizer,
-                        sections,
-                        narration_path,
-                        fmt=fmt,
-                        identity_definition=identity_definition,
-                        identity_closer=identity_closer,
-                        require_charon_only=require_charon_only,
-                        podcast_promo=podcast_promo,
-                    )
-                    restarted["voice_restart_reason"] = "charon_failed_after_route_lock"
-                    restarted["charon_tts_attempts_before_restart"] = prior_attempts
-                    atomic_write_json(
-                        report_path,
-                        {
-                            "schema_version": 1,
-                            "source": "clean-v2-sectioned-voice",
-                            "status": "pass",
-                            **restarted,
-                        },
-                    )
-                    return restarted
-
+            except Exception:
                 atomic_write_json(
                     report_path,
                     {
@@ -956,6 +925,7 @@ def _synthesize_sectioned_voice(
                         "failed_section": section_id,
                         "failed_chunk": chunk_index,
                         "chunk_chars": len(chunk_text),
+                        "reason": "gemini_3_8_voice_failed_closed",
                         "sections": reports,
                         "current_section_chunks": chunk_reports,
                     },
@@ -968,28 +938,10 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if require_charon_only and provider not in {"gemini:Charon", "nabra:af_msa"}:
+            if provider != GEMINI38_VOICE_PROVIDER:
                 raise RuntimeError(
-                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
+                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=gemini_3_8_only_provider_drift "
                     f"actual={provider}"
-                )
-            if (
-                provider == "nabra:af_msa"
-                and index == 1
-                and chunk_index == 1
-                and bool(getattr(voice_synthesizer, "nabra_continuous_ready", False))
-            ):
-                shutil.rmtree(audio_dir, ignore_errors=True)
-                audio_dir.mkdir(parents=True, exist_ok=True)
-                narration_path.unlink(missing_ok=True)
-                return _synthesize_continuous_nabra_voice(
-                    voice_synthesizer,
-                    sections,
-                    narration_path,
-                    fmt=fmt,
-                    identity_definition=identity_definition,
-                    identity_closer=identity_closer,
-                    podcast_promo=podcast_promo,
                 )
             if section_provider is None:
                 section_provider = provider
@@ -2571,7 +2523,7 @@ def _tone_repair_prompt(
     nabra_safe_repair_guidance = (
         "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
-        "wording when two unvowelled readings are plausible. " + NABRA_SAFE_WRITING_GUIDANCE
+        "wording when two unvowelled readings are plausible. " + GEMINI_SPOKEN_ARABIC_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
@@ -2596,7 +2548,7 @@ def _tone_repair_prompt(
             "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
             "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
             + (
-                PODCAST_NABRA_PERFORMANCE_GUIDANCE
+                PODCAST_GEMINI_PERFORMANCE_GUIDANCE
                 if str(brief.get("format") or "") == "podcast"
                 else ""
             )
@@ -2821,7 +2773,7 @@ def _factuality_repair_prompt(
         "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
         "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
-        "comfortable to say in one breath.\n" + NABRA_SAFE_WRITING_GUIDANCE
+        "comfortable to say in one breath.\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
@@ -3456,11 +3408,8 @@ def _write_resume_checkpoint(
         "artifacts": artifacts,
     }
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
-        if voice_provider not in {
-            "gemini:Charon",
-            "nabra:af_msa",
-        }:
-            raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
+        if voice_provider != GEMINI38_VOICE_PROVIDER:
+            raise RuntimeError("Clean V2 checkpoint voice provider is not Gemini 3.8")
         if not isinstance(voice_fallback_used, bool):
             raise RuntimeError("Clean V2 checkpoint voice fallback state is invalid")
         payload["voice_provider"] = voice_provider
@@ -3677,6 +3626,41 @@ def _run_audio_mastering_stage(
         if blocked:
             atomic_write_json(output_dir / "timeline-first.json", blocked)
         raise RuntimeError(str(exc)) from exc
+
+    measured_seconds = float(voice_timeline["voice_seconds_measured"])
+    if fmt in LONGFORM_DURATION_RANGES_SECONDS:
+        minimum, maximum = LONGFORM_DURATION_RANGES_SECONDS[fmt]
+        if not minimum <= measured_seconds <= maximum:
+            atomic_write_json(
+                output_dir / "longform-duration.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-measured-voice-duration",
+                    "status": "block",
+                    "format": fmt,
+                    "duration_seconds": round(measured_seconds, 3),
+                    "minimum_seconds": minimum,
+                    "maximum_seconds": maximum,
+                    "timeline_owner": "measured_voice",
+                },
+            )
+            raise RuntimeError(
+                f"CLEAN_V2_LONGFORM_DURATION_OUT_OF_RANGE format={fmt} "
+                f"seconds={measured_seconds:.3f} expected={minimum:.0f}-{maximum:.0f}"
+            )
+        atomic_write_json(
+            output_dir / "longform-duration.json",
+            {
+                "schema_version": 1,
+                "source": "clean-v2-measured-voice-duration",
+                "status": "pass",
+                "format": fmt,
+                "duration_seconds": round(measured_seconds, 3),
+                "minimum_seconds": minimum,
+                "maximum_seconds": maximum,
+                "timeline_owner": "measured_voice",
+            },
+        )
 
     atomic_write_json(output_dir / "timeline-first.json", voice_timeline)
     atomic_write_json(output_dir / "voice-owned-timeline.json", voice_timeline)
@@ -4269,8 +4253,8 @@ Return one JSON object with exactly this useful shape:
 
 
 
-NABRA_SAFE_WRITING_GUIDANCE = """
-NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, required for Nabra fallback):
+GEMINI_SPOKEN_ARABIC_GUIDANCE = """
+GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT (all spoken formats):
 - Write normal readable Modern Standard Arabic, not fully vocalized textbook Arabic.
 - Prefer clear syntax and common spoken-MSA wording. If an unvowelled word could reasonably be read
   in two different ways, prefer an unambiguous synonym when meaning is preserved.
@@ -4337,10 +4321,11 @@ LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before retu
 - Return a first-pass script ready to satisfy the existing Tone/Naturalness checks; do not assume a later repair will rescue semantic drift.
 """.strip()
 
-PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
-For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
-is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
-for one neutral female narrator without turning punctuation into theatrical acting.
+PODCAST_GEMINI_PERFORMANCE_GUIDANCE = """
+For podcast / خارج النص, write for Gemini 3.8 Flash TTS and the fixed Charon main voice. If the approved
+narrative format is dialogue_qa, preserve explicit A:/B: turns so A maps to Orus and B maps to Charon.
+For question_answer and ordinary narration, keep one narrator and do not invent speaker labels. Keep
+the delivery simple-deep, conversational, and natural without theatrical punctuation or acting.
 """.strip()
 
 
@@ -4355,15 +4340,18 @@ def _script_prompt(
     fmt = str(brief["format"])
     if fmt == "film":
         length = (
-            "For film, do not write toward a word-count target. Continue only while each section adds a new "
-            "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
-            "runtime natural rather than padding a long-form label with filler.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            "For the main long episode, the measured finished voice must land between 3 and 20 minutes. "
+            "Usually aim for roughly 500-1400 spoken Arabic words; continue only while each section adds a new "
+            "mechanism, consequence, example, distinction, or earned resolution. Never pad or repeat merely "
+            "to satisfy the lower bound.\n"
+            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
-            "For podcast / خارج النص, write natural spoken Modern Standard Arabic for one neutral female "
-            "narrator (local Nabra af_msa). The idea may be carefully planned, but the prose must NOT sound "
+            "For podcast / خارج النص, the measured finished voice must land between 10 and 30 minutes. "
+            "Usually aim for roughly 1400-2600 spoken Arabic words so the episode lands naturally inside the band; "
+            "never pad toward 30 minutes. Write natural spoken Modern Standard Arabic for the fixed Gemini 3.8 "
+            "main narrator. The idea may be carefully planned, but the prose must NOT sound "
             "like an article, lecture, news script, motivational speech, or over-rehearsed monologue. Write "
             "as if one thoughtful person understood the subject deeply and is now speaking simply to one "
             "listener. Use simple vocabulary with deep meaning, natural sentence-length variation, and "
@@ -4371,7 +4359,7 @@ def _script_prompt(
             "delivery such as أولا/ثانيا/ثالثا, repeated section signposting, a rhetorical question every "
             "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
             "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
-            "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
+            "first-person memories, experiences, credentials, or a fabricated personal identity. Do not "
             "write toward a word-count or duration target: continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
             "been answered fully. PODCAST HOOK QUALITY: the first spoken sentence must be specific to THIS approved episode, honest about what the episode will actually repay, and non-generic. Name or clearly imply one concrete topic-specific tension, behavior, consequence, contradiction, or question supported by the approved brief/plan. Reject and rewrite the hook if it could fit many unrelated episodes (hook_genericness), if it promises a stronger or different payoff than the body can earn (hook_honesty), or if it lacks a concrete topic-specific anchor (hook_specificity). Calm curiosity is acceptable; forced shock and clickbait are not. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
@@ -4383,7 +4371,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE + "\n" + PODCAST_GEMINI_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4392,7 +4380,7 @@ def _script_prompt(
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
             "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -4526,15 +4514,13 @@ def _narrative_identity_prompt(
         {"brief": dict(brief), "plan": dict(plan)}, ensure_ascii=False, separators=(",", ":")
     )
     spoken_identity_voice_guidance = (
-        "Apply this pronunciation-safe writing contract to opener, closer, and transitions because the same "
-        "text may be spoken by Nabra fallback even when Charon is primary:\n"
-        + NABRA_SAFE_WRITING_GUIDANCE
+        "Apply this spoken-Arabic contract to opener, closer, and transitions because Gemini 3.8 speaks "
+        "the text verbatim:\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
     )
     podcast_voice_guidance = (
-        "For podcast only, both anchors are spoken by a neutral female Arabic narrator. "
-        "Keep them speaker-neutral or grammatically compatible with a female narrator; "
-        "do not identify her as Mousa, use male self-reference, or invent personal experience. "
-        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+        "For podcast only, keep both anchors speaker-neutral and compatible with the fixed Gemini main voice. "
+        "Do not identify the synthetic narrator as Mousa and do not invent personal experience. "
+        + PODCAST_GEMINI_PERFORMANCE_GUIDANCE
         if str(brief.get("format") or "") == "podcast"
         else ""
     )
@@ -5179,31 +5165,16 @@ class CleanV2Pipeline:
                         _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
-                if voice_provider not in {
-                    "gemini:Charon",
-                    "nabra:af_msa",
-                } or not isinstance(voice_fallback_used, bool):
-                    raise RuntimeError("Clean V2 resume voice metadata is invalid")
+                if (
+                    voice_provider != GEMINI38_VOICE_PROVIDER
+                    or voice_fallback_used is not False
+                ):
+                    raise RuntimeError("Clean V2 resume voice must be Gemini 3.8 with no fallback")
                 journal.reuse("voice")
-                if str(brief["format"]) == "podcast":
-                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
-                        raise RuntimeError(
-                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
-                            f"provider={voice_provider} fallback={voice_fallback_used}"
-                        )
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
                 journal._write()
             else:
-                if str(brief["format"]) == "podcast":
-                    activate_nabra_primary = getattr(
-                        self.voice_synthesizer, "activate_full_run_nabra_primary", None
-                    )
-                    if not callable(activate_nabra_primary):
-                        raise RuntimeError(
-                            "PODCAST_NABRA_PRIMARY_UNAVAILABLE"
-                        )
-                    activate_nabra_primary()
                 podcast_promo = (
                     _select_podcast_promo_excerpt(
                         list(script["sections"]),
@@ -5231,12 +5202,14 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
-                if str(brief["format"]) == "podcast":
-                    if voice_provider != "nabra:af_msa" or voice_fallback_used is not False:
-                        raise RuntimeError(
-                            "PODCAST_NABRA_ONLY_VOICE_CONTRACT "
-                            f"provider={voice_provider} fallback={voice_fallback_used}"
-                        )
+                if (
+                    voice_provider != GEMINI38_VOICE_PROVIDER
+                    or voice_fallback_used is not False
+                ):
+                    raise RuntimeError(
+                        "GEMINI_3_8_ONLY_VOICE_CONTRACT "
+                        f"provider={voice_provider} fallback={voice_fallback_used}"
+                    )
                 if voice_provider is not None:
                     journal.payload["voice_provider"] = str(voice_provider)
                     journal.payload["voice_fallback_used"] = voice_fallback_used
