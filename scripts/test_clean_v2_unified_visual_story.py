@@ -189,7 +189,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
 
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
         self.assertIn("quiet depth", CHANNEL_VISUAL_IDENTITY)
-        self.assertIn("restrained warm-neutral", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("earned small wins", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("glossy lifestyle brightness", CHANNEL_VISUAL_IDENTITY)
         for fmt in ("short", "film", "podcast"):
@@ -205,9 +205,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         podcast_prompt = " ".join(_planning_prompt(_brief("podcast")).split())
 
         for prompt in (short_prompt, film_prompt, podcast_prompt):
-            self.assertIn("Use mature brightness rather than glow", prompt)
+            self.assertIn("Use quiet premium darkness rather than gloom", prompt)
             self.assertIn("avoid a permanent golden-hour wash", prompt)
-            self.assertIn("warm gold appear as a controlled accent", prompt)
+            self.assertIn("warm gold only as a restrained accent", prompt)
 
         self.assertIn("FORMAT VISUAL PROFILE — SHORT", short_prompt)
         self.assertIn("quicker visible state changes", short_prompt)
