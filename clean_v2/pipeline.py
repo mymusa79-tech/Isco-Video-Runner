@@ -290,507 +290,6 @@ def _isolate_podcast_promo_unit(
 
 
 
-def _nabra_continuous_voice_units(
-    sections: list[dict[str, Any]],
-    *,
-    fmt: str,
-    identity_definition: str,
-    identity_closer: str,
-    podcast_promo: Mapping[str, str] | None,
-) -> list[dict[str, str]]:
-    """Build the same semantic voice units without synthesizing them separately."""
-    units: list[dict[str, str]] = []
-    for index, item in enumerate(sections, start=1):
-        section_id = str(item.get("id") or f"s{index}")
-        section_text = str(item.get("narration") or "").strip()
-        if not section_text:
-            raise RuntimeError(
-                f"Clean V2 Nabra voice found empty narration: section={section_id}"
-            )
-
-        voice_units: list[tuple[str, str]] = []
-        if fmt in {"short", "film", "podcast"} and index == 1:
-            prayer_pos = section_text.find(PRAYER_SENTENCE)
-            definition = " ".join(str(identity_definition or "").split()).strip()
-            definition_pos = section_text.find(definition) if definition else -1
-            if prayer_pos <= 0 or definition_pos <= prayer_pos:
-                raise RuntimeError(
-                    "Timeline First requires explicit hook/prayer/identity voice units"
-                )
-            hook_text = section_text[:prayer_pos].strip()
-            after_definition = section_text[
-                definition_pos + len(definition):
-            ].strip()
-            voice_units.extend(
-                [
-                    ("hook", hook_text),
-                    ("prayer", PRAYER_SENTENCE),
-                    ("channel_identity", definition),
-                ]
-            )
-            voice_units.extend(
-                ("topic", chunk)
-                for chunk in _bounded_voice_chunks(after_definition)
-            )
-        else:
-            remaining = section_text
-            closer = " ".join(str(identity_closer or "").split()).strip()
-            if (
-                fmt in {"film", "podcast"}
-                and index == len(sections)
-                and closer
-                and remaining.endswith(closer)
-            ):
-                topic_text = remaining[: -len(closer)].strip()
-                voice_units.extend(
-                    ("topic", chunk)
-                    for chunk in _bounded_voice_chunks(topic_text)
-                )
-                voice_units.append(("outro", closer))
-            elif fmt in {"short", "film", "podcast"} and index == len(sections):
-                sentences = [
-                    candidate.strip()
-                    for candidate in re.split(r"(?<=[.!؟!])\s+", remaining)
-                    if candidate.strip()
-                ]
-                if len(sentences) >= 2:
-                    topic_text = " ".join(sentences[:-1]).strip()
-                    voice_units.extend(
-                        ("topic", chunk)
-                        for chunk in _bounded_voice_chunks(topic_text)
-                    )
-                    voice_units.append(("outro", sentences[-1]))
-                else:
-                    voice_units.append(("outro", remaining))
-            else:
-                voice_units.extend(
-                    ("topic", chunk)
-                    for chunk in _bounded_voice_chunks(remaining)
-                )
-
-        if (
-            fmt == "podcast"
-            and isinstance(podcast_promo, Mapping)
-            and str(podcast_promo.get("section_id") or "") == section_id
-        ):
-            voice_units = _isolate_podcast_promo_unit(
-                voice_units,
-                str(podcast_promo.get("text") or ""),
-            )
-
-        chunks = [text for _role, text in voice_units if text]
-        if " ".join(" ".join(chunks).split()) != " ".join(section_text.split()):
-            raise RuntimeError(
-                f"Timeline First Nabra voice-unit split changed narration: section={section_id}"
-            )
-        if not chunks:
-            raise RuntimeError(
-                f"Clean V2 Nabra voice found no narration chunks: section={section_id}"
-            )
-        for role, text in voice_units:
-            if text:
-                units.append(
-                    {
-                        "section_id": section_id,
-                        "role": role,
-                        "text": text,
-                    }
-                )
-    if not units:
-        raise RuntimeError("Clean V2 Nabra continuous voice has no units")
-    return units
-
-
-def _write_wav_slice(
-    reference: Path,
-    destination: Path,
-    *,
-    start_seconds: float,
-    end_seconds: float,
-) -> Path:
-    """Write a timing-evidence slice; never used to rebuild final narration."""
-    if end_seconds <= start_seconds:
-        raise RuntimeError("Nabra timing slice must have positive duration")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(reference), "rb") as source:
-        channels = source.getnchannels()
-        sample_width = source.getsampwidth()
-        sample_rate = source.getframerate()
-        compression = source.getcomptype()
-        compression_name = source.getcompname()
-        total_frames = source.getnframes()
-        start_frame = max(
-            0,
-            min(total_frames - 1, int(round(start_seconds * sample_rate))),
-        )
-        end_frame = max(
-            start_frame + 1,
-            min(total_frames, int(round(end_seconds * sample_rate))),
-        )
-        source.setpos(start_frame)
-        payload = source.readframes(end_frame - start_frame)
-    with wave.open(str(destination), "wb") as target:
-        target.setnchannels(channels)
-        target.setsampwidth(sample_width)
-        target.setframerate(sample_rate)
-        target.setcomptype(compression, compression_name)
-        target.writeframes(payload)
-    if not destination.is_file() or destination.stat().st_size <= 44:
-        raise RuntimeError("Nabra timing slice is empty")
-    return destination
-
-
-def _synthesize_continuous_nabra_voice(
-    voice_synthesizer: Any,
-    sections: list[dict[str, Any]],
-    narration_path: Path,
-    *,
-    fmt: str,
-    identity_definition: str,
-    identity_closer: str,
-    podcast_promo: Mapping[str, str] | None,
-) -> dict[str, Any]:
-    """Keep Nabra speech continuous, adding silence only at major identity boundaries."""
-    synthesize_continuous = getattr(
-        voice_synthesizer,
-        "synthesize_nabra_continuous",
-        None,
-    )
-    if not callable(synthesize_continuous):
-        raise RuntimeError("nabra_continuous_route_missing")
-
-    units = _nabra_continuous_voice_units(
-        sections,
-        fmt=fmt,
-        identity_definition=identity_definition,
-        identity_closer=identity_closer,
-        podcast_promo=podcast_promo,
-    )
-    result = synthesize_continuous(
-        [
-            {"role": item["role"], "text": item["text"]}
-            for item in units
-        ],
-        narration_path,
-    )
-    marks = result.get("parts") if isinstance(result, Mapping) else None
-    if not isinstance(marks, list) or len(marks) != len(units):
-        raise RuntimeError("nabra_continuous_timing_marks_invalid")
-
-    timing = identity_timing_profile(fmt) if fmt in IDENTITY_TIMELINE_FORMATS else None
-    native_source = narration_path.with_name(".narration-nabra-native.wav")
-    native_source.unlink(missing_ok=True)
-    shutil.copyfile(narration_path, native_source)
-
-    audio_dir = narration_path.parent / "audio"
-    shutil.rmtree(audio_dir, ignore_errors=True)
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    unit_dir = audio_dir / "nabra-units"
-    unit_dir.mkdir(parents=True, exist_ok=True)
-
-    chunk_rows_by_section: dict[str, list[dict[str, Any]]] = {}
-    chunk_paths_by_section: dict[str, list[Path]] = {}
-    ordered_chunk_paths: list[Path] = []
-    global_chunk = 0
-    last_index = len(units) - 1
-
-    def register_path(
-        *,
-        section_id: str,
-        role: str,
-        path: Path,
-        provider: str,
-        chars: int,
-    ) -> None:
-        nonlocal global_chunk
-        row = {
-            "chunk": global_chunk,
-            "file": str(path.relative_to(narration_path.parent)),
-            "chars": chars,
-            "provider": provider,
-            "charon_attempts": 0,
-            "fallback_used": bool(
-                getattr(voice_synthesizer, "fallback_used", False)
-            ),
-            "role": role,
-            "native_pause": provider.startswith("nabra_native_pause"),
-            "structural_silence": provider in {
-                "deterministic_silence",
-                "nabra_native_pause_padded",
-            },
-        }
-        chunk_rows_by_section.setdefault(section_id, []).append(row)
-        chunk_paths_by_section.setdefault(section_id, []).append(path)
-        ordered_chunk_paths.append(path)
-
-    def add_slice(
-        *,
-        section_id: str,
-        role: str,
-        start: float,
-        end: float,
-        provider: str,
-    ) -> None:
-        nonlocal global_chunk
-        global_chunk += 1
-        path = unit_dir / f"{global_chunk:03d}-{role}.wav"
-        _write_wav_slice(
-            native_source,
-            path,
-            start_seconds=start,
-            end_seconds=end,
-        )
-        register_path(
-            section_id=section_id,
-            role=role,
-            path=path,
-            provider=provider,
-            chars=0 if role in {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"} else 1,
-        )
-
-    def add_silence(
-        *,
-        section_id: str,
-        role: str,
-        seconds: float,
-    ) -> None:
-        nonlocal global_chunk
-        global_chunk += 1
-        path = unit_dir / f"{global_chunk:03d}-{role}.wav"
-        _write_silence_like(native_source, path, seconds)
-        register_path(
-            section_id=section_id,
-            role=role,
-            path=path,
-            provider="deterministic_silence",
-            chars=0,
-        )
-
-    final_pause_padding_seconds = 0.0
-
-    def add_final_silence(
-        *,
-        section_id: str,
-        start: float,
-        end: float,
-        minimum_seconds: float,
-    ) -> None:
-        """Preserve Nabra's native terminal breath, padding only the missing outro room."""
-        nonlocal global_chunk, final_pause_padding_seconds
-        native_seconds = max(0.001, end - start)
-        target_seconds = max(native_seconds, float(minimum_seconds))
-        padding_seconds = max(0.0, target_seconds - native_seconds)
-        global_chunk += 1
-        path = unit_dir / f"{global_chunk:03d}-final_silence.wav"
-        native_part = unit_dir / ".native-final-silence.wav"
-        padding_part = unit_dir / ".final-silence-padding.wav"
-        try:
-            _write_wav_slice(
-                native_source,
-                native_part,
-                start_seconds=start,
-                end_seconds=end,
-            )
-            if padding_seconds > 1e-6:
-                _write_silence_like(native_source, padding_part, padding_seconds)
-                concat_wav_parts([native_part, padding_part], path)
-                provider = "nabra_native_pause_padded"
-                final_pause_padding_seconds = padding_seconds
-            else:
-                shutil.copyfile(native_part, path)
-                provider = "nabra_native_pause"
-            if not path.is_file() or path.stat().st_size < 1024:
-                raise RuntimeError("nabra_final_silence_build_failed")
-        finally:
-            native_part.unlink(missing_ok=True)
-            padding_part.unlink(missing_ok=True)
-        register_path(
-            section_id=section_id,
-            role="final_silence",
-            path=path,
-            provider=provider,
-            chars=0,
-        )
-
-    for index, (unit, mark) in enumerate(zip(units, marks)):
-        if not isinstance(mark, Mapping):
-            raise RuntimeError("nabra_continuous_timing_mark_invalid")
-        start = float(mark.get("start_seconds") or 0.0)
-        speech_end = float(mark.get("speech_end_seconds") or 0.0)
-        pause_end = float(mark.get("pause_end_seconds") or 0.0)
-        if speech_end <= start or pause_end <= speech_end:
-            raise RuntimeError(
-                "nabra_continuous_native_pause_bounds_invalid "
-                f"role={unit['role']}"
-            )
-
-        section_id = unit["section_id"]
-        role = unit["role"]
-        if role == "hook" and timing is not None:
-            add_slice(
-                section_id=section_id,
-                role="hook",
-                start=start,
-                end=speech_end,
-                provider="nabra:af_msa",
-            )
-            add_silence(
-                section_id=section_id,
-                role="post_hook_silence",
-                seconds=timing["post_hook_silence_seconds"],
-            )
-            add_silence(
-                section_id=section_id,
-                role="intro_silence",
-                seconds=timing["intro_silence_seconds"],
-            )
-        elif role == "channel_identity" and timing is not None:
-            add_slice(
-                section_id=section_id,
-                role=role,
-                start=start,
-                end=speech_end,
-                provider="nabra:af_msa",
-            )
-            add_silence(
-                section_id=section_id,
-                role="pre_topic_silence",
-                seconds=timing["pre_topic_silence_seconds"],
-            )
-        elif index == last_index:
-            add_slice(
-                section_id=section_id,
-                role=role,
-                start=start,
-                end=speech_end,
-                provider="nabra:af_msa",
-            )
-            add_final_silence(
-                section_id=section_id,
-                start=speech_end,
-                end=pause_end,
-                minimum_seconds=(
-                    timing["final_silence_seconds"]
-                    if timing is not None
-                    else pause_end - speech_end
-                ),
-            )
-        else:
-            # Ordinary sentence breathing remains exactly Nabra's native punctuation.
-            add_slice(
-                section_id=section_id,
-                role=role,
-                start=start,
-                end=pause_end,
-                provider="nabra:af_msa",
-            )
-
-    reports: list[dict[str, Any]] = []
-    section_ids = [str(item.get("id") or f"s{i}") for i, item in enumerate(sections, 1)]
-    for section_index, section_id in enumerate(section_ids, start=1):
-        rows = chunk_rows_by_section.get(section_id) or []
-        paths = chunk_paths_by_section.get(section_id) or []
-        if not rows or not paths:
-            raise RuntimeError(
-                f"nabra_continuous_section_timing_missing:{section_id}"
-            )
-        section_path = audio_dir / f"{section_index:02d}.wav"
-        concat_wav_parts(paths, section_path)
-        if not section_path.is_file() or section_path.stat().st_size < 1024:
-            raise RuntimeError(
-                f"nabra_continuous_section_concat_failed:{section_id}"
-            )
-        reports.append(
-            {
-                "id": section_id,
-                "file": str(section_path.relative_to(narration_path.parent)),
-                "provider": "nabra:af_msa",
-                "charon_attempts": 0,
-                "fallback_used": bool(
-                    getattr(voice_synthesizer, "fallback_used", False)
-                ),
-                "chunk_count": len(rows),
-                "chunks": rows,
-            }
-        )
-
-    assembled = narration_path.with_name(".narration-structural-breaths.wav")
-    assembled.unlink(missing_ok=True)
-    concat_wav_parts(ordered_chunk_paths, assembled)
-    if not assembled.is_file() or assembled.stat().st_size < 1024:
-        raise RuntimeError("nabra_structural_breaths_concat_failed")
-    os.replace(assembled, narration_path)
-    native_source.unlink(missing_ok=True)
-
-    continuous_report = {
-        "voice_provider": "nabra:af_msa",
-        "voice_fallback_used": bool(
-            getattr(voice_synthesizer, "fallback_used", False)
-        ),
-        "charon_tts_attempts": int(
-            getattr(voice_synthesizer, "charon_attempts", 0) or 0
-        ),
-        "voice_roles": {
-            "mode": "continuous_nabra_structural_breaths",
-            "sections": reports,
-        },
-        "voice_approval_status": getattr(
-            voice_synthesizer, "voice_approval_status", None
-        ),
-        "voice_reference_profile": getattr(
-            voice_synthesizer, "voice_reference_profile", None
-        ),
-        "single_continuous_inference": bool(
-            result.get("single_continuous_inference", False)
-        ),
-        "continuous_narration_stream": True,
-        "inference_passes": int(result.get("inference_passes", 1) or 1),
-        "bounded_inference": bool(result.get("bounded_inference", False)),
-        "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
-        "native_pause_tokens": True,
-        "technical_batch_seam_crossfade_ms": int(
-            result.get("technical_batch_seam_crossfade_ms", 0) or 0
-        ),
-        "technical_batch_seam_silence_ms": int(
-            result.get("technical_batch_seam_silence_ms", 0) or 0
-        ),
-        "technical_batch_seam_count": max(
-            0, int(result.get("inference_passes", 1) or 1) - 1
-        ),
-        "external_silence_insertions": (
-            int(result.get("external_silence_insertions", 0) or 0)
-            + (
-                (3 + int(final_pause_padding_seconds > 1e-6))
-                if timing is not None
-                else 0
-            )
-        ),
-        "structural_silence_seconds": (
-            {
-                "after_hook": timing["post_hook_silence_seconds"],
-                "intro": timing["intro_silence_seconds"],
-                "before_topic": timing["pre_topic_silence_seconds"],
-                "final_outro_minimum": timing["final_silence_seconds"],
-                "final_outro_padding_added": round(final_pause_padding_seconds, 3),
-            }
-            if timing is not None
-            else {}
-        ),
-        "tempo_or_pitch_change": False,
-        "sections": reports,
-    }
-    atomic_write_json(
-        narration_path.parent / "voice-sections.json",
-        {
-            "schema_version": 3,
-            "source": "clean-v2-continuous-nabra-structural-breaths",
-            "status": "pass",
-            **continuous_report,
-        },
-    )
-    return continuous_report
-
-
 def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
@@ -2520,8 +2019,8 @@ def _tone_repair_prompt(
         )
     else:
         hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
-    nabra_safe_repair_guidance = (
-        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+    gemini_spoken_repair_guidance = (
+        "- Preserve the shared Gemini 3.8 spoken-Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
         "wording when two unvowelled readings are plausible. " + GEMINI_SPOKEN_ARABIC_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
@@ -2587,7 +2086,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
 {longform_progression_repair_guidance}
-{nabra_safe_repair_guidance}
+{gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -2769,8 +2268,8 @@ def _factuality_repair_prompt(
         allowed_patch_section_ids = _repair_target_section_ids(
             script, revision_note, cta_plan
         )
-    nabra_safe_repair_guidance = (
-        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+    gemini_spoken_repair_guidance = (
+        "- Preserve the shared Gemini 3.8 spoken-Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
         "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
         "comfortable to say in one breath.\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
@@ -2799,7 +2298,7 @@ ALLOWED_PATCH_SECTION_IDS:
 
 {targeted_structural}
 
-{nabra_safe_repair_guidance}
+{gemini_spoken_repair_guidance}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Fix EVERY concrete factuality, tone/naturalness, and structural problem listed in REVISION_NOTE,
@@ -4359,8 +3858,8 @@ def _script_prompt(
             "delivery such as أولا/ثانيا/ثالثا, repeated section signposting, a rhetorical question every "
             "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
             "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
-            "first-person memories, experiences, credentials, or a fabricated personal identity. Do not "
-            "write toward a word-count or duration target: continue only while each paragraph adds a new "
+            "first-person memories, experiences, credentials, or a fabricated personal identity. Stay inside the "
+            "10-30 minute measured-voice band without targeting an exact clock: continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
             "been answered fully. PODCAST HOOK QUALITY: the first spoken sentence must be specific to THIS approved episode, honest about what the episode will actually repay, and non-generic. Name or clearly imply one concrete topic-specific tension, behavior, consequence, contradiction, or question supported by the approved brief/plan. Reject and rewrite the hook if it could fit many unrelated episodes (hook_genericness), if it promises a stronger or different payoff than the body can earn (hook_honesty), or if it lacks a concrete topic-specific anchor (hook_specificity). Calm curiosity is acceptable; forced shock and clickbait are not. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
             "s2 must add a mechanism, cause, or distinction already supported by the approved brief/plan that "
@@ -4392,7 +3891,7 @@ def _script_prompt(
         separators=(",", ":"),
     )
     short_context = short_prompt_context(brief) if fmt == "short" else ""
-    if fmt != "short":
+    if fmt not in {"short", "film", "podcast"}:
         length += "\nDo not optimize for a fixed word count or duration."
     hook_length_guidance = (
         "For short, the complete first sentence has a hard maximum of 18 Arabic words; "
@@ -4401,8 +3900,7 @@ def _script_prompt(
         if fmt == "short"
         else (
             "For film and podcast, keep the complete first spoken hook sentence concise enough to land in one breath: "
-            "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses. "
-            "Do not optimize for a fixed word count or duration."
+            "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses."
             if fmt in {"film", "podcast"}
             else "Do not optimize for a fixed word count or duration."
         )
