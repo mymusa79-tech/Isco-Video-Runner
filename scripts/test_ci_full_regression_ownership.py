@@ -56,9 +56,10 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
         self.assertIn("scripts.test_m11_live_binding", m11)
 
         voice = SPECIALIZED[2].read_text(encoding="utf-8")
+        self.assertIn("scripts.test_clean_v2_voice", voice)
         self.assertIn("scripts.test_voice_identity_observer", voice)
-        self.assertIn("Assert immutable approved voice-reference provenance", voice)
-        self.assertIn("ECAPA real-model smoke", voice)
+        self.assertIn("Assert Gemini 3.8 fixed voice roster and fail-closed contract", voice)
+        self.assertNotIn("scripts.test_voice_mesh", voice)
 
     def test_production_keeps_live_dependency_audit_and_mutable_preflights(self) -> None:
         production = PRODUCTION.read_text(encoding="utf-8")
