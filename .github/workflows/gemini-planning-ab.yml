@@ -9,6 +9,7 @@ on:
       - ".github/workflows/gemini-planning-ab.yml"
       - "scripts/planning_stage_contract.py"
       - "scripts/production_exact_planning_harness.py"
+      - "scripts/production_model_contract.py"
   workflow_dispatch:
 
 permissions:
@@ -143,6 +144,9 @@ jobs:
       - name: Verify Gemini-only experiment seam
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          GEMINI_CONTENT_MODEL: gemini-3.8-flash
+          GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+          ISCO_GEMINI_AB_EXPERIMENT: "1"
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -150,7 +154,11 @@ jobs:
           os.environ["ISCO_GEMINI_AB_GEMINI_ONLY"] = "1"
           from scripts import planning_stage_contract as p
           assert p._planning_provider_order() == ("gemini",), p._planning_provider_order()
-          print("Planning provider isolation PASS: gemini-only")
+          from scripts.production_model_contract import install_production_model_contract
+          from isco_video_agent import orchestrator
+          contract = install_production_model_contract(orchestrator)
+          assert contract["content_model"] == "gemini-3.8-flash", contract
+          print("Planning provider isolation PASS: gemini-only; 3.8 A/B model contract PASS")
           PY
 
       - name: Run three paired production-exact planning trials per model
@@ -171,6 +179,12 @@ jobs:
           ISCO_GEMINI_AB_EXPERIMENT: "1"
           ISCO_GEMINI_AB_GEMINI_ONLY: "1"
           MISTRAL_FREE_ONLY: "true"
+          AB_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AB_GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          AB_MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          AB_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AB_PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          AB_PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         working-directory: engine
         run: |
           set -uo pipefail
@@ -187,6 +201,16 @@ jobs:
               echo "===== A/B model=$model attempt=$attempt ====="
               rm -rf output
               mkdir -p output
+              # V4 consumes secret files after materialization; recreate fresh copies for
+              # every isolated process so all six trials start from the same credentials.
+              umask 077
+              mkdir -p "$RUNNER_TEMP/isco-secrets"
+              printf '%s' "$AB_GEMINI_API_KEY" > "$GEMINI_API_KEY_FILE"
+              printf '%s' "$AB_GROQ_API_KEY" > "$GROQ_API_KEY_FILE"
+              printf '%s' "$AB_MISTRAL_API_KEY" > "$MISTRAL_API_KEY_FILE"
+              printf '%s' "$AB_OPENROUTER_API_KEY" > "$OPENROUTER_API_KEY_FILE"
+              printf '%s' "$AB_PEXELS_API_KEY" > "$PEXELS_API_KEY_FILE"
+              printf '%s' "$AB_PIXABAY_API_KEY" > "$PIXABAY_API_KEY_FILE"
               export GEMINI_CONTENT_MODEL="$model"
               log="$results/$model-attempt-$attempt.log"
               started="$(date +%s)"
