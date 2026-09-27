@@ -5584,17 +5584,19 @@ class FilmDerivedShortLiteTests(unittest.TestCase):
 
 class StabilityDecisionBoundaryTests(unittest.TestCase):
     def test_mistral_planning_is_compact_and_one_beat_per_possible_section(self) -> None:
-        prompt = providers_module._provider_prompt(
-            "BASE",
-            provider="mistral",
-            stage="planning",
+        prompt = _planning_prompt(_brief())
+        self.assertIn("each planned section owns exactly ONE beat", prompt)
+        self.assertIn("Keep Planning concise", prompt)
+        self.assertEqual(
+            providers_module._provider_prompt(
+                prompt,
+                provider="mistral",
+                stage="planning",
+            ),
+            prompt,
         )
-        self.assertIn("MISTRAL_PLANNING_COMPACTNESS", prompt)
-        self.assertIn("exactly ONE visual_story beat per planned section", prompt)
 
-        schema = providers_module._mistral_planning_response_schema(
-            _planning_prompt(_brief())
-        )
+        schema = providers_module._mistral_planning_response_schema(prompt)
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
         self.assertEqual(beats["minItems"], 5)
         self.assertEqual(beats["maxItems"], 5)
