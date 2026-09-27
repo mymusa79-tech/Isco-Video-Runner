@@ -2694,17 +2694,24 @@ def _trim_and_grade_clip(
     motion_mode: str | None = None,
     grade_filter: str | None = None,
 ) -> Path:
+    """Use real stock motion once; never restart/boomerang a clip to fill a slot."""
     grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
+    source_seconds = max(0.01, probe_duration(source))
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
     if motion_mode:
+        # Reserved for still-like local sources only. Normal stock motion is left
+        # untouched by the caller so real camera movement never fights push/pull FX.
         vf = f"{vf}," + _short_motion_filter(
             width=width,
             height=height,
-            seconds=seconds,
+            seconds=min(seconds, source_seconds),
             mode=motion_mode,
         )
     if grade:
         vf = f"{vf},{grade}"
+    hold_seconds = max(0.0, float(seconds) - source_seconds)
+    if hold_seconds > 0.01:
+        vf = f"{vf},tpad=stop_mode=clone:stop_duration={hold_seconds:.3f}"
     vf = f"{vf},trim=duration={seconds:.3f},setpts=PTS-STARTPTS"
     destination.parent.mkdir(parents=True, exist_ok=True)
     _run(
@@ -2714,8 +2721,6 @@ def _trim_and_grade_clip(
             "-loglevel",
             "error",
             "-y",
-            "-stream_loop",
-            "-1",
             "-i",
             str(source),
             "-vf",
@@ -2833,11 +2838,10 @@ def _build_section_body_segments(
                     width=width,
                     height=height,
                     seconds=durations[clip_index],
-                    motion_mode=(
-                        ("push", "pan", "pull")[clip_index % 3]
-                        if short_motion_lite
-                        else None
-                    ),
+                    # Stock video already contains real motion. Do not add
+                    # alternating push/pan/pull on top; that created the visible
+                    # back-and-forth feeling in Shorts.
+                    motion_mode=None,
                     grade_filter=grade_filter,
                 )
             )
