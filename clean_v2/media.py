@@ -262,6 +262,31 @@ def _remove_pinned_engine_tail_silence(
         return False
 
 
+def _legacy_gemini_synthesize(
+    api_key: str,
+    transcript: str,
+    output_path: Path,
+    *,
+    model: str,
+    voice: str,
+    style: str = "",
+) -> Path:
+    """Legacy compatibility seam for dormant non-production voice classes/tests."""
+    from isco_video_agent.providers.gemini import synthesize_wav
+
+    result = synthesize_wav(
+        api_key,
+        transcript,
+        output_path,
+        model=model,
+        voice=voice,
+        style=style,
+        attempts=1,
+    )
+    _remove_pinned_engine_tail_silence(Path(result), transcript)
+    return Path(result)
+
+
 def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     """Parse A:/B: dialogue markers without ever sending labels as spoken text.
 
