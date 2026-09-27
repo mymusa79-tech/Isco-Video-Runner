@@ -46,7 +46,7 @@ AZURE_F0_VOICE = "ar-OM-AbdullahNeural"
 AZURE_F0_LOCALE = "ar-OM"
 AZURE_F0_OUTPUT_FORMAT = "riff-24khz-16bit-mono-pcm"
 _AZURE_REGION_RE = re.compile(r"^[a-z0-9]+$")
-_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
+_DIALOGUE_LABEL_RE = re.compile(r"(?<!\\S)([AB]):\\s*")
 VOICE_REFERENCE_PROFILE_PATH = (
     Path(__file__).resolve().parents[1]
     / "voice-profiles"
