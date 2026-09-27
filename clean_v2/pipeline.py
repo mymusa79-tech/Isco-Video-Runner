@@ -4112,6 +4112,11 @@ wording.
 Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
 remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
 or shot-count target. Every planned section must have at least one beat and at most three.
+Do not default to one section-level stock image when a section contains more than one visible state.
+For fresh Short, Film, and Podcast plans, if at least one important beat is abstract, causal, internal,
+or otherwise poorly expressed by literal stock, mark the strongest such beat source_preference=ai_still.
+Do not return an all-stock plan merely because stock is easier; the free AI route may fail safely back
+to audited stock at runtime, so Planning should choose the source that best explains the meaning.
 HUMAN EDITORIAL RHYTHM applies to short, film, and podcast: when one section genuinely contains
 multiple visible states such as setup -> interruption, cause -> consequence, attempt -> result, or
 decision -> action, represent those distinct states as separate semantic beats instead of stretching
@@ -4125,8 +4130,11 @@ misleading substitutes that would look related but fail the exact idea. shot_int
 English visual description of the exact observable action/state for THIS beat, preferably about 6-14
 useful words; it must be specific enough to search directly and must not be mood-only language.
 display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
-exact image/beat and expresses its visible meaning; never reuse the same display phrase on another beat,
-never describe an unrelated idea, and never ask the image generator to draw this text.
+exact image/beat and expresses its visible meaning. It should compress a specific insight, tension, or
+consequence from this episode, not a generic motivational slogan. Never place the prayer sentence or any
+variant of الصلاة على النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
+Never reuse the same display phrase on another beat, never describe an unrelated idea, and never ask the
+image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
@@ -4244,6 +4252,19 @@ NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, req
   Do not flatten everything into clipped fragments and do not write long syntactic tangles that force rushed delivery.
 """.strip()
 
+CONTENT_DEPTH_GUIDANCE = """
+CONTENT DEPTH CONTRACT (Short, Film, and Podcast):
+- Every section must change the listener's understanding, not merely restate the topic in motivational language.
+- Prefer one concrete mechanism, tension, consequence, distinction, or lived example over broad advice.
+- Do not use generic lines that could fit dozens of unrelated self-development videos. If a sentence still works
+  after replacing the episode topic with a different topic, rewrite it to become specific.
+- Move forward semantically: observation -> why it happens -> what it changes -> earned implication or action.
+  Adjacent sections must add a genuinely new step rather than paraphrasing the previous one.
+- Keep the language simple enough to hear once, but let the idea be deeper than the wording. Avoid slogan chains,
+  empty reassurance, recycled wisdom, and advice that arrives before the mechanism has been understood.
+- The payoff must depend on what the episode actually established. It must not be a generic motivational ending.
+""".strip()
+
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
 For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
 is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
@@ -4262,8 +4283,10 @@ def _script_prompt(
     fmt = str(brief["format"])
     if fmt == "film":
         length = (
-            "Aim for roughly 650-900 spoken Arabic words across all sections.\n"
-            + NABRA_SAFE_WRITING_GUIDANCE
+            "For film, do not write toward a word-count target. Continue only while each section adds a new "
+            "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
+            "runtime natural rather than padding a long-form label with filler.\n"
+            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
@@ -4288,7 +4311,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4297,7 +4320,7 @@ def _script_prompt(
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
             "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
-            + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
