@@ -1562,26 +1562,58 @@ _FACTUALITY_UNAVAILABLE_RISK_PATTERNS = (
 
 
 _QUANTIFIED_RESEARCH_CLAIM_RE = re.compile(
-    r"\\d+(?:[.,]\\d+)?\\s*(?:%|٪|بالمئة|في\\s+المئة)"
+    r"\d+(?:[.,]\d+)?\s*(?:%|٪|بالمئة|في\s+المئة)"
 )
+_CLAIM_CONTEXT_WORD_RE = re.compile(r"[A-Za-z\u0600-\u06FF]{3,}")
+_CLAIM_CONTEXT_STOPWORDS = frozenset(
+    {
+        "هذه", "هذا", "ذلك", "تلك", "التي", "الذي", "على", "إلى", "الى", "من", "في",
+        "عن", "مع", "وفق", "وفقا", "وفقًا", "بنسبة", "النسبة", "نسبة", "الدراسة",
+        "دراسة", "الدراسات", "المصدر", "وردت", "نفسها", "نفسه", "the", "and", "for",
+        "with", "from", "study", "studies", "source", "percent", "percentage",
+    }
+)
+
+
+def _normalized_percentage_key(value: str) -> str:
+    translated = str(value or "").translate(
+        str.maketrans("٠١٢٣٤٥٦٧٨٩٪", "0123456789%")
+    )
+    return re.sub(r"\s+", "", translated.casefold())
+
+
+def _claim_context_words(value: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in _CLAIM_CONTEXT_WORD_RE.findall(str(value or ""))
+        if token.casefold() not in _CLAIM_CONTEXT_STOPWORDS
+    }
+
+
+def _sentence_containing_span(text: str, start: int, end: int) -> str:
+    left = max(text.rfind(".", 0, start), text.rfind("؟", 0, start), text.rfind("!", 0, start))
+    right_candidates = [
+        pos for pos in (text.find(".", end), text.find("؟", end), text.find("!", end)) if pos >= 0
+    ]
+    right = min(right_candidates) + 1 if right_candidates else len(text)
+    return text[left + 1 : right].strip()
 
 
 def _unsupported_quantified_research_claims(
     audit_script: Mapping[str, Any],
     research_context: Any,
 ) -> list[dict[str, str]]:
-    """Locally promote unsupported percentages into the existing Factuality owner.
+    """Promote unsupported percentages into the existing Factuality owner.
 
-    This is not a new audit stage or provider call. It closes the exact Long failure
-    family where a Writer can invent a percentage while a free-tier factuality model
-    misses it. Only explicit percentage/statistic values are deterministic here; all
-    broader factual semantics remain owned by the existing provider audit.
+    Support requires the same normalized percentage and at least one meaningful
+    claim-context word in the same approved claim_scope. This prevents an unrelated
+    percentage elsewhere in the research pack from laundering a fabricated claim.
     """
-    evidence = json.dumps(
-        research_context if isinstance(research_context, list) else [],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).casefold()
+    scopes = [
+        str(item.get("claim_scope") or "").strip()
+        for item in (research_context if isinstance(research_context, list) else [])
+        if isinstance(item, Mapping) and str(item.get("claim_scope") or "").strip()
+    ]
     rows: list[dict[str, str]] = []
     for item in (audit_script.get("sections") or []):
         if not isinstance(item, Mapping):
@@ -1590,7 +1622,16 @@ def _unsupported_quantified_research_claims(
         narration = str(item.get("narration") or "")
         for match in _QUANTIFIED_RESEARCH_CLAIM_RE.finditer(narration):
             claim = " ".join(match.group(0).split()).strip()
-            if claim and claim.casefold() not in evidence:
+            key = _normalized_percentage_key(claim)
+            sentence = _sentence_containing_span(narration, match.start(), match.end())
+            context_words = _claim_context_words(sentence)
+            supported = any(
+                key
+                and key in _normalized_percentage_key(scope)
+                and bool(context_words & _claim_context_words(scope))
+                for scope in scopes
+            )
+            if claim and not supported:
                 rows.append(
                     {
                         "section_id": section_id,
