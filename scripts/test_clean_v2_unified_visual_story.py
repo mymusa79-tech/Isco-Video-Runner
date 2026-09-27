@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clean_v2 import media as media_module
 from clean_v2 import providers as providers_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
@@ -101,6 +102,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 prompt = " ".join(_planning_prompt(_brief(fmt)).split())
                 self.assertIn("HOOK VISUAL STOP-POWER", prompt)
+                self.assertIn("HOOK COVERAGE CONTRACT", prompt)
+                self.assertIn("The first body beat must not repeat the hook's dominant scene/action family", prompt)
                 self.assertIn("MUST NOT be a calm mood-only establishing image", prompt)
                 self.assertIn("understood with sound off in the first frame", prompt)
                 self.assertIn("Avoid unrelated shock", prompt)
@@ -187,6 +190,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
+                self.assertIn("use 3-5 semantic visual beats total", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -261,6 +265,73 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             bound["beats"][1]["stock_query_en"],
             bound["beats"][1]["shot_intent"],
         )
+
+    def test_writer_binding_closes_real_stationery_repeat_with_existing_alternate(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = (
+            "hands frozen above empty notebook with pen and loose paper"
+        )
+        visual_story["beats"][1]["shot_intent"] = (
+            "hands sorting sticky notes and selecting one small note"
+        )
+        visual_story["beats"][2]["shot_intent"] = (
+            "hands writing first line in notebook with pen on page"
+        )
+        planned["sections"][1]["visual_query_alt_en"] = (
+            "half empty bookshelf with one book pulled out no face"
+        )
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"ثم يتغير المعنى في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+
+        self.assertIn("notebook", bound["beats"][0]["shot_intent"])
+        self.assertIn("bookshelf", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("sticky", bound["beats"][1]["shot_intent"])
+        # A genuinely different middle scene resets adjacency, so the payoff may
+        # intentionally return to the opening motif in a changed state.
+        self.assertIn("writing", bound["beats"][2]["shot_intent"])
+
+        hook_context = contextual_intent(
+            bound,
+            bound["beats"][0]["id"],
+            bound["beats"][0]["shot_intent"],
+        )
+        self.assertIn("Role:hook", hook_context)
+        self.assertIn("Family:stationery", hook_context)
+        self.assertIn("Hook must show an unresolved observable", hook_context)
+
+    def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
+        common = {
+            "index": 3,
+            "count": 12,
+            "width": 1080,
+            "height": 1920,
+            "duration": 6.0,
+            "portrait": True,
+            "query": "hands frozen above empty notebook pen loose paper",
+        }
+        matching = media_module._stock_local_rank_score(
+            **common,
+            metadata="female hands pen over empty notebook paper",
+        )
+        generic = media_module._stock_local_rank_score(
+            **common,
+            metadata="sunset ocean travel landscape",
+        )
+        self.assertGreater(matching, generic)
 
     def test_writer_overlay_copy_never_becomes_generated_image_text(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
