@@ -99,7 +99,7 @@ STAGES = (
 )
 
 
-VOICE_CHUNK_MAX_CHARS = 4200
+VOICE_CHUNK_MAX_CHARS = 6000
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
 
