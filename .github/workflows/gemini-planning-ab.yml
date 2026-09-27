@@ -1,5 +1,5 @@
-# Targeted follow-up after A/B: validate Gemini 3.8 with low thinking under the same planning contracts.
-name: Gemini 3.8 Planning Low-Thinking Probe
+# Single minimal follow-up after A/B to conserve free-tier quota.
+name: Gemini 3.8 Planning Single Low-Thinking Probe
 
 on:
   push:
@@ -196,9 +196,7 @@ jobs:
           mkdir -p "$results"
 
           for pair in \
-            gemini-3.8-flash:1 \
-            gemini-3.8-flash:2 \
-            gemini-3.8-flash:3; do
+            gemini-3.8-flash:1; do
               model="${pair%%:*}"
               attempt="${pair##*:}"
               echo "===== A/B model=$model attempt=$attempt ====="
@@ -296,9 +294,6 @@ jobs:
           )
           print(json.dumps(result, ensure_ascii=False, sort_keys=True))
           PY
-              if [ "$attempt" != "3" ]; then
-                sleep 30
-              fi
           done
 
           python - "$results" "$GITHUB_STEP_SUMMARY" <<'PY'
