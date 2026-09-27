@@ -10,6 +10,7 @@ from clean_v2 import providers as providers_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
+    _bound_ai_still_preferences,
     _bound_short_visual_story,
     _persist_planning_artifacts,
     _planning_prompt,
@@ -134,6 +135,30 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertEqual(beats[0]["role"], "hook")
         self.assertEqual(beats[-1]["role"], "payoff")
         self.assertEqual({beat["section_id"] for beat in beats}, {"s1", "s2", "s3"})
+
+    def test_ai_stills_remain_sparse_inside_existing_scene_budget_for_all_formats(self) -> None:
+        base = {
+            "beats": [
+                {"id": "b1", "role": "hook", "source_preference": "ai_still"},
+                {"id": "b2", "role": "body", "source_preference": "ai_still"},
+                {"id": "b3", "role": "body", "source_preference": "ai_still"},
+                {"id": "b4", "role": "payoff", "source_preference": "ai_still"},
+            ]
+        }
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                bounded = _bound_ai_still_preferences(base, fmt=fmt)
+                beats = bounded["beats"]
+                ai = [
+                    beat for beat in beats
+                    if beat["source_preference"] == "ai_still"
+                ]
+                self.assertEqual(len(beats), 4)
+                self.assertEqual(len(ai), 2)
+                self.assertEqual(
+                    {beat["role"] for beat in ai},
+                    {"hook", "payoff"},
+                )
 
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
