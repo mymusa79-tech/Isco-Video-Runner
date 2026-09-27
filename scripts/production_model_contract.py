@@ -18,6 +18,33 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _install_ab_thinking_level(level: str) -> None:
+    """Experiment-only Gemini thinking control without changing production defaults."""
+    normalized = str(level or "").strip().lower()
+    if not normalized:
+        return
+    if normalized not in {"low", "medium", "high"}:
+        raise RuntimeError(f"Unsupported Gemini A/B thinking level: {normalized!r}")
+    current = engine_gemini.text
+    if getattr(current, "_isco_ab_thinking_level", None) == normalized:
+        return
+
+    def ab_text(api_key: str, prompt: str, model: str = "gemini-2.5-flash", *, max_output_tokens: int | None = None) -> str:
+        client = engine_gemini._client(api_key)
+        generation_config: dict[str, object] = {"thinking_level": normalized}
+        if max_output_tokens is not None:
+            generation_config["max_output_tokens"] = max_output_tokens
+        response = client.interactions.create(
+            model=engine_gemini._content_model(model),
+            input=prompt,
+            generation_config=generation_config,
+        )
+        return response.output_text
+
+    setattr(ab_text, "_isco_ab_thinking_level", normalized)
+    engine_gemini.text = ab_text
+
+
 def install_production_model_contract(orchestrator_module) -> dict[str, str]:
     """Install and prove the single V4 production model contract.
 
@@ -42,6 +69,7 @@ def install_production_model_contract(orchestrator_module) -> dict[str, str]:
                 f"requested={content_model!r} allowed={sorted(_AB_ALLOWED_CONTENT_MODELS)!r}"
             )
         effective_content_model = content_model
+        _install_ab_thinking_level(os.environ.get("ISCO_GEMINI_AB_THINKING_LEVEL", ""))
     else:
         if content_model != CANONICAL_CONTENT_MODEL:
             raise RuntimeError(
