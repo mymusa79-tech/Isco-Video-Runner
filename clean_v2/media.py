@@ -46,7 +46,7 @@ AZURE_F0_VOICE = "ar-OM-AbdullahNeural"
 AZURE_F0_LOCALE = "ar-OM"
 AZURE_F0_OUTPUT_FORMAT = "riff-24khz-16bit-mono-pcm"
 _AZURE_REGION_RE = re.compile(r"^[a-z0-9]+$")
-_DIALOGUE_LABEL_RE = re.compile(r"(?<!\\S)([AB]):\\s*")
+_DIALOGUE_LABEL_RE = re.compile(r"(?<!\S)([AB]):\s*")
 VOICE_REFERENCE_PROFILE_PATH = (
     Path(__file__).resolve().parents[1]
     / "voice-profiles"
@@ -270,7 +270,7 @@ def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     channel narrator, so host-owned prayer/identity text stays on the main voice.
     """
     source = str(transcript or "").strip()
-    matches = list(re.finditer(r"(?<!\\S)([AB]):\\s*", source))
+    matches = list(re.finditer(r"(?<!\S)([AB]):\s*", source))
     if not matches:
         return []
     turns: list[tuple[str, str]] = []
