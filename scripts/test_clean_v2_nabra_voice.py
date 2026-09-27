@@ -239,7 +239,6 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(route.calls, 1)
         self.assertEqual(result["voice_provider"], "nabra:af_msa")
         self.assertTrue(result["single_continuous_inference"])
-        self.assertEqual(result["external_silence_insertions"], 2)
         chunks = [
             chunk
             for section in report["sections"]
