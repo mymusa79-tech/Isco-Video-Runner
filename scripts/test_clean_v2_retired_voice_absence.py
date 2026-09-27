@@ -16,7 +16,7 @@ class RetiredVoiceAbsenceTests(unittest.TestCase):
         )
         tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
         offenders: dict[str, list[str]] = {}
-        runtime_suffixes = {".py", ".yml", ".yaml", ".json", ".toml", ".sh"}
+        runtime_suffixes = {".py", ".yml", ".yaml", ".json", ".toml", ".sh", ".txt", ".lock"}
         for raw in tracked:
             if not raw:
                 continue
