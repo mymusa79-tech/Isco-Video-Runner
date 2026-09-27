@@ -251,6 +251,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             {beat["section_id"] for beat in story["beats"]},
             {section["id"] for section in planned["sections"]},
         )
+        self.assertEqual(story["beats"][0]["source_preference"], "ai_still")
+        self.assertEqual(story["beats"][-1]["source_preference"], "ai_still")
 
     def test_script_writer_receives_the_locked_hook_to_payoff_thread(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("film"), _brief("film"))
@@ -346,8 +348,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertEqual(len(validated["beats"]), 2)
         self.assertEqual(validated["beats"][0]["role"], "hook")
         self.assertEqual(validated["beats"][-1]["role"], "payoff")
-        self.assertTrue(
-            all(beat["source_preference"] == "stock_motion" for beat in validated["beats"])
+        self.assertEqual(
+            [beat["source_preference"] for beat in validated["beats"]],
+            ["ai_still", "ai_still"],
         )
 
 
