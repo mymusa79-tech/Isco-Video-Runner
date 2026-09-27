@@ -68,9 +68,7 @@ PACING_MAX_SHOTS_PER_SECTION = 3
 
 # Rich Short Visual Lite: still exactly three semantic sections, but 6-9
 # final shots depending only on measured voice duration. No new AI stage.
-SHORT_STOCK_ASSET_MAX = 6
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
-SHORT_MOTION_ZOOM = 0.045
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
 SHORT_MASTER_LOOK_FILTER = (
@@ -1020,31 +1018,6 @@ def _enforce_short_hook_shot_cap(
         result_durations[0] = first_budget
         result_durations[1] += moved
     return result_paths, result_durations
-
-
-def _short_motion_filter(
-    *,
-    width: int,
-    height: int,
-    seconds: float,
-    mode: str,
-) -> str:
-    """Three restrained deterministic moves; no motion model or extra analysis."""
-    frames = max(1, int(round(max(0.5, float(seconds)) * 30.0)))
-    if mode == "push":
-        z = f"min({1.0 + SHORT_MOTION_ZOOM:.6f},1+{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
-        x = "iw/2-(iw/zoom/2)"
-    elif mode == "pull":
-        z = f"max(1,{1.0 + SHORT_MOTION_ZOOM:.6f}-{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
-        x = "iw/2-(iw/zoom/2)"
-    else:
-        z = f"{1.0 + SHORT_MOTION_ZOOM:.6f}"
-        x = f"(iw-iw/zoom)*on/{frames}"
-    y = "ih/2-(ih/zoom/2)"
-    return (
-        f"zoompan=z='{z}':x='{x}':y='{y}':"
-        f"d=1:s={width}x{height}:fps=30"
-    )
 
 
 class StockVisualSource:
@@ -2692,22 +2665,12 @@ def _trim_and_grade_clip(
     width: int,
     height: int,
     seconds: float,
-    motion_mode: str | None = None,
     grade_filter: str | None = None,
 ) -> Path:
     """Use real stock motion once; never restart/boomerang a clip to fill a slot."""
     grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
     source_seconds = max(0.01, probe_duration(source))
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
-    if motion_mode:
-        # Reserved for still-like local sources only. Normal stock motion is left
-        # untouched by the caller so real camera movement never fights push/pull FX.
-        vf = f"{vf}," + _short_motion_filter(
-            width=width,
-            height=height,
-            seconds=min(seconds, source_seconds),
-            mode=motion_mode,
-        )
     if grade:
         vf = f"{vf},{grade}"
     hold_seconds = max(0.0, float(seconds) - source_seconds)
@@ -2839,10 +2802,6 @@ def _build_section_body_segments(
                     width=width,
                     height=height,
                     seconds=durations[clip_index],
-                    # Stock video already contains real motion. Do not add
-                    # alternating push/pan/pull on top; that created the visible
-                    # back-and-forth feeling in Shorts.
-                    motion_mode=None,
                     grade_filter=grade_filter,
                 )
             )
