@@ -3943,6 +3943,17 @@ visual motif remains supportive and non-essential to a listener with the screen 
         if fmt == "short"
         else ""
     )
+    compact_planning_instruction = (
+        "PLANNING COMPACTNESS — applies equally to every provider: return only the required JSON; "
+        "keep every required field and section but remove duplicated explanation. Use exactly one "
+        "visual_story beat per planned section. Keep title <=12 words, heading <=8 words, "
+        "promise/purpose/viewer_intent/meaning_target <=24 words each, visual_world <=45 words, "
+        "each story_arc value <=18 words, each retention_thread value <=24 words, "
+        "semantic_must_have and semantic_should_avoid to at most 2 short items each, "
+        "shot_intent <=30 words, and stock/section visual queries <=14 English words."
+        if fmt in {"short", "film", "podcast"}
+        else ""
+    )
     short_visual_query_shape = (
         ',\n      "visual_query_alt_en": "second distinct concrete English stock footage query for the same section"'
         if fmt == "short"
@@ -4096,6 +4107,7 @@ in section purpose text; visual-only CTA overlays are renderer-owned and do not 
 
 {short_context}
 {podcast_context}
+{compact_planning_instruction}
 
 Return one JSON object with exactly this useful shape:
 {{
