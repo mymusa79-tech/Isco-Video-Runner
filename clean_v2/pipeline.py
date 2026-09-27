@@ -511,7 +511,7 @@ def _synthesize_continuous_nabra_voice(
             role=role,
             path=path,
             provider=provider,
-            chars=0 if role in {"intro_silence", "pre_topic_silence", "final_silence"} else 1,
+            chars=0 if role in {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"} else 1,
         )
 
     def add_silence(
@@ -599,6 +599,11 @@ def _synthesize_continuous_nabra_voice(
                 start=start,
                 end=speech_end,
                 provider="nabra:af_msa",
+            )
+            add_silence(
+                section_id=section_id,
+                role="post_hook_silence",
+                seconds=timing["post_hook_silence_seconds"],
             )
             add_silence(
                 section_id=section_id,
@@ -721,14 +726,15 @@ def _synthesize_continuous_nabra_voice(
         "external_silence_insertions": (
             int(result.get("external_silence_insertions", 0) or 0)
             + (
-                (2 + int(final_pause_padding_seconds > 1e-6))
+                (3 + int(final_pause_padding_seconds > 1e-6))
                 if timing is not None
                 else 0
             )
         ),
         "structural_silence_seconds": (
             {
-                "after_hook": timing["intro_silence_seconds"],
+                "after_hook": timing["post_hook_silence_seconds"],
+                "intro": timing["intro_silence_seconds"],
                 "before_topic": timing["pre_topic_silence_seconds"],
                 "final_outro_minimum": timing["final_silence_seconds"],
                 "final_outro_padding_added": round(final_pause_padding_seconds, 3),
@@ -1036,17 +1042,35 @@ def _synthesize_sectioned_voice(
 
             if fmt in IDENTITY_TIMELINE_FORMATS and index == 1 and role == "hook":
                 timing = identity_timing_profile(fmt)
-                silence_path = chunk_path.parent / "intro-silence.wav"
+                post_hook_path = chunk_path.parent / "post-hook-silence.wav"
                 _write_silence_like(
                     chunk_path,
-                    silence_path,
-                    timing["intro_silence_seconds"],
+                    post_hook_path,
+                    timing["post_hook_silence_seconds"],
                 )
-                chunk_paths.append(silence_path)
+                chunk_paths.append(post_hook_path)
                 chunk_reports.append(
                     {
                         "chunk": len(chunk_reports) + 1,
-                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "file": str(post_hook_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "post_hook_silence",
+                    }
+                )
+                intro_path = chunk_path.parent / "intro-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    intro_path,
+                    timing["intro_silence_seconds"],
+                )
+                chunk_paths.append(intro_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(intro_path.relative_to(narration_path.parent)),
                         "chars": 0,
                         "provider": "deterministic_silence",
                         "charon_attempts": 0,
@@ -3647,6 +3671,7 @@ def _run_audio_mastering_stage(
             "format": fmt,
             "sequence": [
                 "hook",
+                "post_hook_silence_on_story_frame",
                 "intro_silence_with_fully_opaque_intro",
                 "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
