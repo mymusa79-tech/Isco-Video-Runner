@@ -93,7 +93,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "P2": (
         "scripts.test_voice_mesh",
-        "scripts.test_piper_chunking",
+        "scripts.test_clean_v2_voice",
         "scripts.test_short_voice_v2",
         "scripts.test_run188_short_capability_ownership",
         "scripts.test_run192_short_voice_feasibility",
