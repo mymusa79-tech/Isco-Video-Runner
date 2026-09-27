@@ -10,7 +10,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from clean_v2.media import (
+    GEMINI38_NARRATOR_STYLE,
     GEMINI38_PROVIDER,
+    GEMINI38_QUESTIONER_STYLE,
     GEMINI38_TTS_MODEL,
     GeminiOnlyVoiceSynthesizer,
     TtsProviderError,
@@ -63,6 +65,16 @@ class _FakeResponse:
 
 
 class CleanV2Gemini38VoiceTests(unittest.TestCase):
+    def test_turn_metadata_styles_are_short_stable_and_persona_free(self) -> None:
+        self.assertIn("Natural Modern Standard Arabic", GEMINI38_NARRATOR_STYLE)
+        self.assertIn("conversational", GEMINI38_NARRATOR_STYLE)
+        self.assertNotIn("adult", GEMINI38_NARRATOR_STYLE.lower())
+        self.assertNotIn("male", GEMINI38_NARRATOR_STYLE.lower())
+        self.assertNotIn("female", GEMINI38_NARRATOR_STYLE.lower())
+        self.assertLess(len(GEMINI38_NARRATOR_STYLE), 220)
+        self.assertIn("lightly probing", GEMINI38_QUESTIONER_STYLE)
+        self.assertLess(len(GEMINI38_QUESTIONER_STYLE), 180)
+
     def test_success_uses_only_gemini38_charon(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
