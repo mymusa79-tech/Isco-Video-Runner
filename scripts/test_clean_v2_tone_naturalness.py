@@ -51,6 +51,31 @@ def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
     }
 
 
+class FactualityAvailabilityBoundaryTests(unittest.TestCase):
+    def test_low_risk_self_development_text_has_no_local_unavailable_risk(self):
+        from clean_v2.pipeline import _factuality_unavailable_local_risks
+
+        script = {
+            "title": "خطوة صغيرة",
+            "sections": [
+                {"id": "s1", "narration": "ابدأ بمهمة واحدة واضحة ثم راقب ما أنجزته بهدوء."}
+            ],
+        }
+        self.assertEqual(_factuality_unavailable_local_risks(script), ())
+
+    def test_medical_or_research_surface_stays_fail_closed_without_provider(self):
+        from clean_v2.pipeline import _factuality_unavailable_local_risks
+
+        medical = {
+            "sections": [
+                {"id": "s1", "narration": "هذا العلاج يخفض ضغط الدم بحسب دراسة بنسبة 20٪."}
+            ]
+        }
+        risks = _factuality_unavailable_local_risks(medical)
+        self.assertIn("medical", risks)
+        self.assertIn("research_or_statistics", risks)
+
+
 class CleanV2ToneNaturalnessTests(unittest.TestCase):
     def test_strict_schema_matches_legacy_tone_contract(self):
         self.assertFalse(TONE_AUDIT_SCHEMA["additionalProperties"])
@@ -617,7 +642,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             self.assertEqual(persisted["status"], "block")
             self.assertEqual(dummy_plan.hook, "افتتاح واضح.")
 
-    def test_provider_exhaustion_stays_infrastructure(self):
+    def test_provider_exhaustion_is_advisory_not_content_block(self):
         exhausted = _tone_result(status="block", validation="providers_exhausted")
         exhausted["attempts"] = [
             {"provider": "gemini", "outcome": "rate_limited"},
@@ -633,16 +658,24 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
             return_value=exhausted,
         ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "text_audit exhausted bounded provider route: tone_naturalness",
-            ):
-                _run_legacy_tone_naturalness_audit(
-                    output_dir=Path(tmp),
-                    brief={"format": "film"},
-                    plan={"sections": []},
-                    script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
-                )
+            report = _run_legacy_tone_naturalness_audit(
+                output_dir=Path(tmp),
+                brief={"format": "film"},
+                plan={"sections": []},
+                script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
+            )
+
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["audit_availability"], "unavailable")
+            self.assertTrue(report["advisory_only"])
+            persisted = json.loads(
+                (Path(tmp) / "tone-naturalness-audit.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(persisted["status"], "pass")
+            self.assertEqual(
+                persisted["decision_source"],
+                "deterministic_provider_availability_policy",
+            )
 
     def test_run15_no_effect_tone_repair_fails_closed_before_reaudit(self):
         script = {
