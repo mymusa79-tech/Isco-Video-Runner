@@ -135,14 +135,14 @@ def run_opening_director(
     visual_source: Any,
     router: Any | None = None,
 ) -> dict[str, Any]:
-    """Restore the simplified three-shot first-30-second opening.
+    """Build a semantic three-shot first-30-second Film opening.
 
-    Film only: keep the already-selected section-1 clip as the audited 18-30s shot,
-    then select two distinct safe auxiliaries for 0-7 and 7-18. Candidate review uses
-    the unchanged current Final Cut Visual QA threshold with one global four-review
-    ceiling. After the first blocked/exhausted primary concept, exactly one alternate
-    stock query may be generated through the existing visual_query_recovery router;
-    there is no second alternate query and no threshold downgrade.
+    The already-selected/audited first semantic beat owns 0-7 so the strongest
+    hook image is visible from frame one, including an AI anchor when Planning
+    chose one. Two distinct audited stock cutaways extend that SAME hook intent
+    across 7-18 and 18-30. Candidate review keeps the existing Final Cut Visual
+    QA threshold and one global four-review ceiling. One alternate query remains
+    the only bounded recovery; there is no threshold downgrade.
     """
     output_dir = Path(output_dir)
     if str(fmt) != "film":
@@ -160,16 +160,28 @@ def run_opening_director(
         raise CleanV2OpeningBlock("CLEAN_V2_OPENING_BLOCK reason=opening_section_missing")
 
     first_id = str(sections[0].get("id") or "").strip()
-    query = str(sections[0].get("visual_query_en") or "").strip()
+    section_query = str(sections[0].get("visual_query_en") or "").strip()
     narration = str(script_sections[0].get("narration") or "").strip()
     primary_rows = [
         row for row in rights if str(row.get("section_id") or "").strip() == first_id
     ]
-    if not first_id or not query or not narration or len(primary_rows) != 1:
+    if not first_id or not narration or len(primary_rows) != 1:
         raise CleanV2OpeningBlock(
             "CLEAN_V2_OPENING_BLOCK reason=opening_primary_contract_invalid"
         )
     primary = primary_rows[0]
+    # Opening cutaways must explain the actual first semantic beat, not fall
+    # back to a broad section-level stock query.
+    query = str(
+        primary.get("shot_intent")
+        or primary.get("query")
+        or section_query
+        or ""
+    ).strip()
+    if not query:
+        raise CleanV2OpeningBlock(
+            "CLEAN_V2_OPENING_BLOCK reason=opening_semantic_query_missing"
+        )
     primary_file = str(primary.get("local_file") or "").strip()
     primary_path = output_dir / "visuals" / primary_file
     if not primary_file or not primary_path.is_file():
@@ -197,9 +209,9 @@ def run_opening_director(
             "CLEAN_V2_OPENING_BLOCK reason=opening_primary_visual_not_final_cut_ready"
         )
 
-    # The third audited shot owns exactly 18-30. After 30s the renderer
-    # returns to the ordinary body sequence starting from the next body visual,
-    # avoiding an immediate replay of the section-1 primary.
+    # The semantic primary owns frame one. After 30s the renderer returns to
+    # the ordinary body sequence starting from the next acquired beat, avoiding
+    # an immediate replay of the first semantic hook.
     if len(rights) < 2:
         raise CleanV2OpeningBlock(
             "CLEAN_V2_OPENING_BLOCK reason=opening_requires_body_visual_after_30s"
@@ -401,7 +413,7 @@ def run_opening_director(
             "CLEAN_V2_OPENING_BLOCK reason=two_opening_auxiliaries_not_final_cut_ready"
         )
 
-    slot_keys = ("cold_open", "escalation")
+    slot_keys = ("escalation", "promise_and_body")
     auxiliary_rows: list[dict[str, Any]] = []
     auxiliary_files: list[str] = []
     for slot_key, (candidate, row, verdict, _candidate_root) in zip(slot_keys, selected):
@@ -425,12 +437,13 @@ def run_opening_director(
         candidate_path.with_suffix(".m8.json").unlink(missing_ok=True)
 
     slots = opening_slot_specs()
-    slots[0]["local_file"] = auxiliary_files[0]
-    slots[0]["audit_source"] = "opening-audits"
-    slots[1]["local_file"] = auxiliary_files[1]
+    slots[0]["local_file"] = primary_file
+    slots[0]["audit_source"] = "final-cut-visual-qa"
+    slots[0]["semantic_primary"] = True
+    slots[1]["local_file"] = auxiliary_files[0]
     slots[1]["audit_source"] = "opening-audits"
-    slots[2]["local_file"] = primary_file
-    slots[2]["audit_source"] = "final-cut-visual-qa"
+    slots[2]["local_file"] = auxiliary_files[1]
+    slots[2]["audit_source"] = "opening-audits"
     report = {
         "schema_version": 1,
         "layer": "opening_director",
@@ -446,7 +459,13 @@ def run_opening_director(
         "search_attempts": search_attempts,
         "audited_shot_count": 3,
         "primary_section_id": first_id,
-        "body_continues_from_second": 18.0,
+        "body_continues_from_second": 30.0,
+        "frame_one_semantic_primary": True,
+        "opening_query_source": (
+            "primary_shot_intent"
+            if str(primary.get("shot_intent") or "").strip()
+            else ("primary_query" if str(primary.get("query") or "").strip() else "section_query")
+        ),
         "slots": slots,
         "candidate_reviews": reviewed,
     }
@@ -455,7 +474,7 @@ def run_opening_director(
         output_dir / "opening-rights.json",
         {
             "schema_version": 1,
-            "assets": [*auxiliary_rows, dict(primary)],
+            "assets": [dict(primary), *auxiliary_rows],
         },
     )
     return report
