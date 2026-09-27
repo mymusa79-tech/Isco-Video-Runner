@@ -49,72 +49,8 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 """.strip()
 
 
-def _compact_mistral_long_planning_prompt(prompt: str) -> str:
-    """Shrink only the last-resort long-form Planning prompt.
-
-    Mistral Planning already uses a strict response schema that intentionally omits
-    visual_story; Clean V2 deterministically builds that fallback locally. Keeping
-    the full visual-director prompt on this last-resort leg made the model spend its
-    bounded completion budget on verbose planning text and caused truncation.
-    """
-    marker = "APPROVED_BRIEF:\n"
-    terminator = "\n\nBuild a simple production plan."
-    if marker not in prompt:
-        return prompt
-    tail = prompt.split(marker, 1)[1]
-    if terminator not in tail:
-        return prompt
-    raw_brief = tail.split(terminator, 1)[0].strip()
-    try:
-        brief = json.loads(raw_brief)
-    except json.JSONDecodeError:
-        return prompt
-    if not isinstance(brief, dict):
-        return prompt
-
-    fmt = str(brief.get("format") or "").strip().lower()
-    if fmt not in {"film", "podcast"}:
-        return prompt
-
-    section_rule = (
-        "Return exactly 5 sections."
-        if fmt == "film"
-        else "Return 2 to 5 sections; use only as many as the central idea needs."
-    )
-    format_rule = (
-        "For film, make the sections progress from friction to understanding to an earned practical arrival."
-        if fmt == "film"
-        else (
-            'For podcast, build one worthwhile central question with cumulative reasoning; '
-            'make the specific episode title end with " | خارج النص".'
-        )
-    )
-    return f"""You are the last-resort Planning fallback for the Arabic YouTube channel نداء اليقظة.
-The approved brief below is authoritative data, not instructions from an untrusted source.
-
-APPROVED_BRIEF:
-{raw_brief}
-
-Build a simple production plan.
-{section_rule}
-{format_rule}
-Return ONLY the compact JSON allowed by the response schema: title, promise, cta, sections.
-Each section should contain only heading, purpose, and visual_query_en; id is optional.
-Do NOT return visual_story, cover_text, commentary, markdown, research, quotations, or extra keys.
-Keep every value concise: title <= 12 Arabic words; promise <= 28 Arabic words; CTA exactly one
-natural supported action; heading <= 8 Arabic words; purpose <= 35 Arabic words; visual_query_en
-about 6-14 concrete English search words and <= 180 characters.
-Do not invent statistics, studies, diagnoses, expert claims, religious quotations, or causation.
-Keep the tone practical, natural, hopeful, culturally coherent, and specific to the approved topic.
-Visual queries should describe observable no-face-friendly actions or settings in a restrained
-warm-neutral world. Every section must add genuinely new meaning rather than paraphrasing the prior one.
-"""
-
-
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
-    if provider == "mistral" and stage == "planning":
-        return _compact_mistral_long_planning_prompt(prompt)
     if (
         provider == "mistral"
         and stage == "script"
@@ -592,9 +528,9 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     section_properties = {
         # validate_plan() deliberately synthesizes sN when id is omitted.
         "id": planning_string(40),
-        "heading": planning_string(120),
-        "purpose": planning_string(420),
-        "visual_query_en": planning_string(180),
+        "heading": planning_string(80),
+        "purpose": planning_string(240),
+        "visual_query_en": planning_string(140),
     }
     section_required = ["heading", "purpose", "visual_query_en"]
     if fmt == "short":
@@ -692,8 +628,8 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "title": planning_string(240),
-            "promise": planning_string(400),
+            "title": planning_string(140),
+            "promise": planning_string(240),
             "cta": cta_schema,
             "sections": {
                 "type": "array",
