@@ -15,21 +15,31 @@ MAX_TRACK_BYTES = 20 * 1024 * 1024
 DOWNLOAD_TIMEOUT_SECONDS = 45
 MUSIC_STUDIO_MIN_TRACKS = 6
 
+# Curated dialogue beds only. These are intentionally restrained instrumental
+# cues; production must never select a vocal/lyric-forward or attention-seeking
+# song under narration.
+DIALOGUE_BED_TRACKS = frozenset({
+    "calm-sketch-piano",
+    "a-little-faith",
+    "wexford",
+    "c-major-2017",
+})
+
 _FORMAT_POOLS = {
     "short": {
-        "focus": ("calm-sketch-piano", "acoustic-shifter", "wonder-flow"),
-        "hopeful": ("peace-in-sunlight", "other-side-now", "wonder-flow"),
-        "general": ("wonder-flow", "a-little-faith", "peace-in-sunlight"),
+        "focus": ("calm-sketch-piano", "a-little-faith"),
+        "hopeful": ("a-little-faith", "calm-sketch-piano"),
+        "general": ("calm-sketch-piano", "a-little-faith"),
     },
     "film": {
-        "focus": ("calm-sketch-piano", "c-major-2017", "all-in-silver-line"),
-        "hopeful": ("other-side-now", "peace-in-sunlight", "all-in-silver-line"),
-        "general": ("all-in-silver-line", "a-little-faith", "c-major-2017"),
+        "focus": ("calm-sketch-piano", "c-major-2017", "a-little-faith"),
+        "hopeful": ("c-major-2017", "a-little-faith", "calm-sketch-piano"),
+        "general": ("a-little-faith", "calm-sketch-piano", "c-major-2017"),
     },
     "podcast": {
         "focus": ("wexford", "calm-sketch-piano", "a-little-faith"),
-        "hopeful": ("c-major-2017", "peace-in-sunlight", "wexford"),
-        "general": ("a-little-faith", "wexford", "all-in-silver-line"),
+        "hopeful": ("a-little-faith", "wexford", "calm-sketch-piano"),
+        "general": ("wexford", "a-little-faith", "calm-sketch-piano"),
     },
 }
 
@@ -221,13 +231,27 @@ def select_music_track(
     )
     ready = [item for item in report["ready"] if isinstance(item, Mapping)]
     by_id = {str(item.get("id") or ""): item for item in ready}
-    chosen = next((by_id[item_id] for item_id in candidates if item_id in by_id), None)
+    chosen = next(
+        (
+            by_id[item_id]
+            for item_id in candidates
+            if item_id in by_id and item_id in DIALOGUE_BED_TRACKS
+        ),
+        None,
+    )
 
-    report["selection_reason"] = reason if chosen is not None else reason + "_candidate_pool_unavailable"
+    report["instrumental_only_required"] = True
+    report["dialogue_bed_required"] = True
+    report["dialogue_bed_allowlist"] = sorted(DIALOGUE_BED_TRACKS)
+    report["selection_reason"] = reason if chosen is not None else reason + "_dialogue_bed_unavailable"
     report["selection_family"] = family
     report["selection_format"] = selection_format
     report["selection_candidates"] = candidates
     report["selection_rotation_index"] = rotation_index
     report["selected_id"] = str(chosen.get("id") or "") if chosen else None
     report["selected_title"] = str(chosen.get("title") or "") if chosen else None
+    report["selected_instrumental_only"] = bool(
+        chosen and str(chosen.get("id") or "") in DIALOGUE_BED_TRACKS
+    )
+    report["selected_dialogue_bed"] = report["selected_instrumental_only"]
     return (Path(str(chosen["path"])), report) if chosen else (None, report)
