@@ -83,8 +83,8 @@ class TTSStablePortTests(unittest.TestCase):
         self.assertTrue(first.durable_cache_configured)
         self.assertTrue(first.durable_cache_installed)
         self.assertTrue(first.voice_identity_observer_installed)
-        self.assertEqual(first.provider_owner, "legacy-voice-mesh-core")
-        self.assertEqual(first.retry_owner, "legacy-voice-mesh-core")
+        self.assertEqual(first.provider_owner, "gemini38-voice-mesh-core")
+        self.assertEqual(first.retry_owner, "gemini38-voice-mesh-core")
         self.assertEqual(first.audio_semantic_integrity_owner, "produce-scope-existing-owner")
 
     def test_cache_remains_optional_when_not_configured(self) -> None:
@@ -143,8 +143,8 @@ class TTSStablePortTests(unittest.TestCase):
         source = Path("scripts/orchestration_tts_port.py").read_text(encoding="utf-8")
         for forbidden in ("requests.", "time.sleep", "genai.Client", "gemini_synthesize(", "_local("):
             self.assertNotIn(forbidden, source)
-        self.assertIn('PROVIDER_OWNER = "legacy-voice-mesh-core"', source)
-        self.assertIn('RETRY_OWNER = "legacy-voice-mesh-core"', source)
+        self.assertIn('PROVIDER_OWNER = "gemini38-voice-mesh-core"', source)
+        self.assertIn('RETRY_OWNER = "gemini38-voice-mesh-core"', source)
 
 
 if __name__ == "__main__":

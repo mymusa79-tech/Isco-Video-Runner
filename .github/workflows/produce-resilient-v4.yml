@@ -316,6 +316,7 @@ jobs:
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+          GEMINI_TTS_VOICE: Charon
         run: |
           set -euo pipefail
           python -m scripts.provider_preflight \
@@ -387,6 +388,7 @@ jobs:
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+          GEMINI_TTS_VOICE: Charon
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
           YOUTUBE_LANGUAGE: ar
