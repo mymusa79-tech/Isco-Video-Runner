@@ -116,6 +116,7 @@ def _validate_boundary(output_dir: Path) -> dict[str, Any]:
         "required_planning_artifacts": list(_REQUIRED_PLANNING_ARTIFACTS),
         "media_artifacts_observed": media,
         "content_model": str(os.environ.get("GEMINI_CONTENT_MODEL") or ""),
+        "planning_model": str(os.environ.get("ISCO_GEMINI_AB_PLANNING_MODEL") or os.environ.get("GEMINI_CONTENT_MODEL") or ""),
         "planning_providers": planning_providers,
         "planning_wire_attempts": sum(1 for item in attempts if isinstance(item, dict) and item.get("wire_attempted")),
         "planning_attempts": attempts,
