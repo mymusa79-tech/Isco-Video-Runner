@@ -91,6 +91,28 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         self.assertIn("warm gold only as a rare accent", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("no blanket blue wash", CHANNEL_VISUAL_IDENTITY)
 
+    def test_reference_color_prefers_channel_neutral_depth_over_warm_stock_medoid(self) -> None:
+        measured = {
+            "neutral.mp4": media._RgbStats(
+                mean_r=141.2, mean_g=131.7, mean_b=119.7,
+                std_r=76.0, std_g=75.0, std_b=80.5,
+            ),
+            "warm-beige.mp4": media._RgbStats(
+                mean_r=179.7, mean_g=138.6, mean_b=108.4,
+                std_r=56.4, std_g=57.5, std_b=54.7,
+            ),
+            "bright-warm.mp4": media._RgbStats(
+                mean_r=184.0, mean_g=150.8, mean_b=120.3,
+                std_r=43.0, std_g=42.7, std_b=40.4,
+            ),
+        }
+        self.assertEqual(
+            media._representative_reference(measured),
+            "neutral.mp4",
+        )
+        self.assertGreater(media.COLOR_MATCH_STRENGTH, 0.55)
+        self.assertLess(media.MASTER_LOOK_SATURATION, 0.875)
+
     def test_human_editorial_rhythm_and_voice_pacing_are_shared(self) -> None:
         for fmt in ("short", "film", "podcast"):
             planning = " ".join(_planning_prompt(_brief(fmt)).split())
