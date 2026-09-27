@@ -673,21 +673,20 @@ def contextual_intent(
         17,
     )
     family_rule = (
-        " Adjacent same-family repetition fails unless it is the intentional "
-        "hook/payoff motif in a visibly changed state."
+        " No adjacent same-family repeat unless a changed hook/payoff motif."
         if current_family and current_family == previous_family
         else ""
     )
     hook_rule = (
-        " Hook must show an unresolved observable tension/consequence, not merely "
-        "a generic activity or matching prop."
+        " Hook must show unresolved observable tension, not a generic matching prop."
         if role == "hook"
         else ""
     )
     context = (
-        f"Role:{role}. Family:{current_family or 'other'} PrevFamily:{previous_family or 'none'}. "
-        f"Current:{current}. Previous:{previous}. Next:{following}. "
-        f"Meaning:{meaning}. Must:{must_have}. Avoid:{should_avoid}."
-        f"{family_rule}{hook_rule} Judge specific meaning before mood and keep the same hook-to-payoff arc."
+        f"Role: {role}. Family: {current_family or 'other'}. PrevFamily: {previous_family or 'none'}. "
+        f"Current: {current}. Previous: {previous}. Next: {following}. "
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        "Same hook-to-payoff arc: judge continuity."
+        f"{family_rule}{hook_rule}"
     )
     return context[:300].rstrip()
