@@ -290,9 +290,9 @@ class NabraRouteTests(unittest.TestCase):
         self.assertEqual(pre_topic[0]["provider"], "deterministic_silence")
         self.assertEqual(final[0]["provider"], "nabra_native_pause_padded")
         self.assertEqual(result["external_silence_insertions"], 3)
-        self.assertEqual(result["structural_silence_seconds"]["after_hook"], 0.60)
-        self.assertEqual(result["structural_silence_seconds"]["before_topic"], 0.35)
-        self.assertEqual(result["structural_silence_seconds"]["final_outro_minimum"], 1.25)
+        self.assertEqual(result["structural_silence_seconds"]["after_hook"], 1.15)
+        self.assertEqual(result["structural_silence_seconds"]["before_topic"], 0.65)
+        self.assertEqual(result["structural_silence_seconds"]["final_outro_minimum"], 1.60)
         self.assertGreater(
             result["structural_silence_seconds"]["final_outro_padding_added"],
             1.0,
