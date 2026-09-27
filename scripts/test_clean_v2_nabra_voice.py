@@ -35,6 +35,8 @@ from clean_v2.pipeline import _synthesize_sectioned_voice
 class _FakeNabra:
     def __init__(self, *, fail: bool = False) -> None:
         self.calls = 0
+        self.continuous_calls = 0
+        self.continuous_texts: list[str] = []
         self.fail = fail
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
@@ -43,6 +45,40 @@ class _FakeNabra:
             raise RuntimeError("nabra_fixture_failure")
         output_path.write_bytes(b"N" * 2048)
         return output_path
+
+    def synthesize_continuous(self, parts, output_path: Path):
+        self.continuous_calls += 1
+        self.continuous_texts = [str(item["text"]) for item in parts]
+        if self.fail:
+            raise RuntimeError("nabra_fixture_failure")
+        sample_rate = 24000
+        cursor = 0.0
+        marks = []
+        for item in parts:
+            start = cursor
+            speech_end = start + 0.20
+            pause_end = speech_end + 0.06
+            marks.append(
+                {
+                    "role": item["role"],
+                    "text": item["text"],
+                    "start_seconds": start,
+                    "speech_end_seconds": speech_end,
+                    "pause_end_seconds": pause_end,
+                }
+            )
+            cursor = pause_end
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(output_path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            wav.writeframes(b"\x00\x00" * int(round(cursor * sample_rate)))
+        return {
+            "parts": marks,
+            "single_continuous_inference": True,
+            "external_silence_insertions": 0,
+        }
 
 
 class _FakeContinuousNabraRoute:
@@ -414,6 +450,125 @@ class NabraRouteTests(unittest.TestCase):
             self.assertTrue(synth.fallback_used)
             self.assertEqual(backup.calls, 2)
             self.assertEqual(gemini_calls, first_gemini_calls)
+
+    def test_first_chunk_charon_failure_restarts_full_run_with_nabra(self) -> None:
+        backup = _FakeNabra()
+        gemini_calls = 0
+
+        def fail_gemini(*_args, **_kwargs):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            raise RuntimeError("synthetic Gemini TTS outage")
+
+        sections = [
+            {"id": "s1", "narration": "القسم الأول."},
+            {"id": "s2", "narration": "القسم الثاني."},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "narration.wav"
+            synth = GeminiPrimaryNabraFallbackSynthesizer("key", nabra=backup)
+            with mock.patch(
+                "clean_v2.media._legacy_voice_identity",
+                return_value=("Charon", "Orus"),
+            ), mock.patch(
+                "clean_v2.media._legacy_gemini_synthesize",
+                side_effect=fail_gemini,
+            ), mock.patch(
+                "clean_v2.media._charon_retry_delay",
+                return_value=0.0,
+            ):
+                result = _synthesize_sectioned_voice(
+                    synth,
+                    sections,
+                    target,
+                )
+
+            self.assertEqual(result["voice_provider"], "nabra:af_msa")
+            self.assertTrue(result["voice_fallback_used"])
+            self.assertTrue(result["continuous_narration_stream"])
+            self.assertEqual(backup.calls, 1)
+            self.assertEqual(backup.continuous_calls, 1)
+            self.assertEqual(
+                backup.continuous_texts,
+                ["القسم الأول.", "القسم الثاني."],
+            )
+            self.assertGreaterEqual(gemini_calls, 1)
+            self.assertTrue(target.is_file())
+            self.assertTrue(
+                all(
+                    row["provider"] == "nabra:af_msa"
+                    for row in result["sections"]
+                )
+            )
+
+    def test_mid_run_charon_failure_discards_charon_and_restarts_nabra_from_start(self) -> None:
+        backup = _FakeNabra()
+        gemini_calls = 0
+
+        def gemini(*args, **_kwargs):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            transcript = str(args[1])
+            target = Path(args[2])
+            if transcript == "القسم الأول.":
+                target.write_bytes(b"C" * 2048)
+                return target
+            raise RuntimeError("synthetic Gemini TTS outage after first section")
+
+        sections = [
+            {"id": "s1", "narration": "القسم الأول."},
+            {"id": "s2", "narration": "القسم الثاني."},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "narration.wav"
+            synth = GeminiPrimaryNabraFallbackSynthesizer("key", nabra=backup)
+            with mock.patch(
+                "clean_v2.media._legacy_voice_identity",
+                return_value=("Charon", "Orus"),
+            ), mock.patch(
+                "clean_v2.media._assert_human_approved_voice_reference",
+                return_value="approved-charon",
+            ), mock.patch(
+                "clean_v2.media._legacy_gemini_synthesize",
+                side_effect=gemini,
+            ), mock.patch(
+                "clean_v2.media._charon_retry_delay",
+                return_value=0.0,
+            ):
+                result = _synthesize_sectioned_voice(
+                    synth,
+                    sections,
+                    target,
+                )
+
+            self.assertEqual(result["voice_provider"], "nabra:af_msa")
+            self.assertTrue(result["voice_fallback_used"])
+            self.assertEqual(
+                result["voice_restart_reason"],
+                "charon_failed_after_route_lock",
+            )
+            self.assertEqual(
+                result["charon_tts_attempts_before_restart"],
+                4,
+            )
+            self.assertEqual(backup.continuous_calls, 1)
+            self.assertEqual(
+                backup.continuous_texts,
+                ["القسم الأول.", "القسم الثاني."],
+            )
+            self.assertTrue(target.is_file())
+            self.assertTrue(
+                all(
+                    row["provider"] == "nabra:af_msa"
+                    for row in result["sections"]
+                )
+            )
+            report = json.loads(
+                (Path(tmp) / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["voice_provider"], "nabra:af_msa")
+            self.assertNotIn("gemini:Charon", json.dumps(report, ensure_ascii=False))
 
     def test_short_style_flag_still_allows_nabra_before_route_lock(self) -> None:
         backup = _FakeNabra()

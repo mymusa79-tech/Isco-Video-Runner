@@ -175,6 +175,12 @@ def inject_spoken_identity(
     if not hook:
         raise RuntimeError("identity sequence requires a non-empty first-sentence hook")
     remainder = first[len(hook):].lstrip()
+    # Keep a hard sentence boundary before the host-owned prayer. Providers
+    # sometimes return a valid hook without terminal punctuation; without this
+    # boundary the prayer's final period becomes the first sentence terminator,
+    # so the downstream invariant incorrectly treats hook+prayer as one sentence.
+    if not _SENTENCE_END_RE.search(hook[-1:]):
+        hook = f"{hook}."
     sections[0]["narration"] = f"{hook} {identity_block} {remainder}".strip()
 
     if fmt in {"film", "podcast"} and closer:
