@@ -33,12 +33,31 @@ _WRITER_INTENT_DROP_TOKENS = frozenset({
     "cinematic", "warm", "neutral", "lighting", "light", "shot", "frame",
     "composition", "depth", "foreground", "background", "soft", "natural",
     "premium", "dramatic", "emotional", "inspiring", "motivational", "beautiful",
+    "caption", "captions", "subtitle", "subtitles", "title", "titles",
+    "lettering", "typography", "watermark", "watermarks", "logo", "logos",
 })
+_EMBEDDED_TEXT_REQUEST_RE = re.compile(
+    r"\b(?:with|showing|displaying|containing)\s+(?:readable\s+)?(?:arabic\s+)?"
+    r"(?:text|words|caption|captions|title|subtitle|lettering|typography|quote|label)\b.*$"
+    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading|showing|displaying)\b.*$",
+    re.IGNORECASE,
+)
+_AI_IMAGE_TEXT_AVOID = (
+    "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
+)
+
+
+def _strip_embedded_text_request(value: object) -> str:
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact:
+        return ""
+    stripped = _EMBEDDED_TEXT_REQUEST_RE.sub("", compact).strip(" ,;:-")
+    return stripped or compact
 
 
 def _writer_searchable_intent(value: object) -> str:
     """Compact one authored visual intent into a concrete provider/search boundary."""
-    compact = " ".join(str(value or "").split()).strip()
+    compact = _strip_embedded_text_request(value)
     if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
         return ""
     tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
@@ -489,6 +508,25 @@ def bind_visual_story_to_script(
             fallback = _writer_searchable_intent(beat.get("stock_query_en"))
             if direct or fallback:
                 beat["shot_intent"] = direct or fallback
+
+            # The Writer may own overlay copy, but image providers never own text.
+            # Remove embedded-text requests from image semantics and keep the Arabic
+            # copy only in display_text_ar for the renderer-owned overlay path.
+            beat["semantic_must_have"] = [
+                cue for cue in (
+                    _strip_embedded_text_request(item)
+                    for item in (beat.get("semantic_must_have") or [])
+                )
+                if cue and not _EMBEDDED_TEXT_REQUEST_RE.search(cue)
+            ][:4]
+            avoids = [
+                str(item).strip()
+                for item in (beat.get("semantic_should_avoid") or [])
+                if str(item).strip()
+            ]
+            if _AI_IMAGE_TEXT_AVOID not in avoids:
+                avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
+            beat["semantic_should_avoid"] = avoids[:4]
             beat["writer_anchor_ar"] = anchor
 
     return validate_visual_story(story, plan)
