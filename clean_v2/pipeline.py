@@ -4247,9 +4247,7 @@ class _Journal:
                     "secondary_reason": str(
                         getattr(exc, "secondary_reason", "unavailable") or "unavailable"
                     )[:120],
-                    "piper_emergency_enabled": bool(
-                        getattr(exc, "piper_fallback_allowed", False)
-                    ),
+                    "fallback_used": False,
                 }
                 record["voice_failure"] = voice_failure
                 self.payload["voice_failure"] = voice_failure
