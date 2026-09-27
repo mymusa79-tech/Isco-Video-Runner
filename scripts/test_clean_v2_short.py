@@ -1783,15 +1783,16 @@ class ShortPipelineSeamTests(unittest.TestCase):
                 ),
                 mock.patch.object(media_module, "_charon_retry_delay", return_value=None),
             ):
-                with self.assertRaisesRegex(
-                    VoiceInfrastructureError,
-                    "gemini_3_8_only_fail_closed_no_fallback",
-                ):
+                with self.assertRaises(VoiceInfrastructureError) as raised:
                     synth.synthesize(
                         "نص قصير",
                         Path(temporary) / "out.wav",
                         primary_only=True,
                     )
+            self.assertEqual(
+                raised.exception.secondary_reason,
+                "gemini_3_8_only_fail_closed_no_fallback",
+            )
             self.assertIsNone(synth.last_provider)
             self.assertFalse(synth.fallback_used)
 
