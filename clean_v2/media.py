@@ -296,7 +296,7 @@ def _gemini38_synthesize(
         if str(performance_mode or "") == "inner_dialogue":
             sentences = [
                 item.strip()
-                for item in re.split(r"(?<=[.!؟!])\\s+", source)
+                for item in re.split(r"(?<=[.!؟!])\s+", source)
                 if item.strip()
             ]
             if not sentences:
