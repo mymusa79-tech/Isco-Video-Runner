@@ -1070,8 +1070,8 @@ class _LongFakeVoice:
     def __init__(self, seconds: float) -> None:
         self.seconds = seconds
         self.calls = 0
-        self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
+        self.last_provider = "gemini:Charon"
+        self.fallback_used = False
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         self.calls += 1
