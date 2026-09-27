@@ -10,12 +10,11 @@ NABRA_VOICE = "af_msa"
 NABRA_SPEED = 0.87
 NABRA_SAMPLE_RATE = 24000
 NABRA_ONSET_FADE_MS = 25
-# Multi-pass long narration cannot be one Kokoro inference. Mask unavoidable
-# model resets with one tiny sentence-safe breath and micro-fades at technical
-# batch seams. This is shared by Short/Film/Podcast whenever more than one pass
-# is required; single-pass clips remain byte-for-byte unaffected by the seam path.
-NABRA_BATCH_SEAM_BREATH_MS = 120
-NABRA_BATCH_SEAM_FADE_MS = 8
+# Multi-pass long narration cannot be one Kokoro inference. Join unavoidable
+# model boundaries inside the existing terminal pause instead of inserting
+# artificial silence or fading the narrator to zero. Single-pass reference audio
+# remains byte-for-byte unaffected by this seam path.
+NABRA_BATCH_SEAM_CROSSFADE_MS = 18
 # Kokoro raw-phoneme inference is bounded below its 510-character model limit.
 NABRA_MAX_INFER_CHARS = 500
 NABRA_FRAGMENT_TARGET_CHARS = 440
@@ -484,6 +483,29 @@ class NabraVoiceSynthesizer:
                         cumulative_frames[token_count] * 600,
                     )
 
+                crossfade_samples = 0
+                batch_offset = global_sample_offset
+                if audio_batches:
+                    requested = max(
+                        1,
+                        int(round(NABRA_SAMPLE_RATE * NABRA_BATCH_SEAM_CROSSFADE_MS / 1000.0)),
+                    )
+                    previous_mark = fragment_marks[-1]
+                    previous_pause_room = max(
+                        0,
+                        int(previous_mark["pause_end_sample"])
+                        - int(previous_mark["speech_end_sample"])
+                        - 1,
+                    )
+                    crossfade_samples = min(
+                        requested,
+                        previous_pause_room,
+                        int(batch_audio.size) - 1,
+                    )
+                    if crossfade_samples > 0:
+                        previous_mark["pause_end_sample"] -= crossfade_samples
+                        batch_offset -= crossfade_samples
+
                 for local_index, item in enumerate(local_marks):
                     start_sample = sample_at(int(item["start_token"]))
                     speech_end_sample = sample_at(
@@ -518,50 +540,33 @@ class NabraVoiceSynthesizer:
                         {
                             **item,
                             "batch": batch_index,
-                            "start_sample": (
-                                global_sample_offset + start_sample
-                            ),
-                            "speech_end_sample": (
-                                global_sample_offset + speech_end_sample
-                            ),
-                            "pause_end_sample": (
-                                global_sample_offset + pause_end_sample
-                            ),
+                            "start_sample": batch_offset + start_sample,
+                            "speech_end_sample": batch_offset + speech_end_sample,
+                            "pause_end_sample": batch_offset + pause_end_sample,
                         }
                     )
 
-                if len(batches) > 1:
-                    seam_fade_samples = max(
-                        1,
-                        int(round(NABRA_SAMPLE_RATE * NABRA_BATCH_SEAM_FADE_MS / 1000.0)),
+                if crossfade_samples > 0:
+                    previous = audio_batches.pop()
+                    fade_out = np.linspace(
+                        1.0, 0.0, crossfade_samples, dtype=np.float32
                     )
-                    if batch_index > 1:
-                        fade = min(seam_fade_samples, int(batch_audio.size))
-                        if fade > 1:
-                            batch_audio = batch_audio.copy()
-                            batch_audio[:fade] *= np.linspace(
-                                0.0, 1.0, fade, dtype=np.float32
-                            )
-                    if batch_index < len(batches):
-                        fade = min(seam_fade_samples, int(batch_audio.size))
-                        if fade > 1:
-                            batch_audio = batch_audio.copy()
-                            batch_audio[-fade:] *= np.linspace(
-                                1.0, 0.0, fade, dtype=np.float32
-                            )
-
-                audio_batches.append(batch_audio)
-                global_sample_offset += int(batch_audio.size)
-                if batch_index < len(batches):
-                    seam_samples = max(
-                        1,
-                        int(round(NABRA_SAMPLE_RATE * NABRA_BATCH_SEAM_BREATH_MS / 1000.0)),
-                    )
-                    audio_batches.append(np.zeros(seam_samples, dtype=np.float32))
-                    # Attribute the technical breath to the previous safe pause so
-                    # downstream timing slices preserve it instead of cutting it out.
-                    fragment_marks[-1]["pause_end_sample"] += seam_samples
-                    global_sample_offset += seam_samples
+                    fade_in = 1.0 - fade_out
+                    blended = (
+                        previous[-crossfade_samples:] * fade_out
+                        + batch_audio[:crossfade_samples] * fade_in
+                    ).astype("float32", copy=False)
+                    joined = np.concatenate(
+                        [
+                            previous[:-crossfade_samples],
+                            blended,
+                            batch_audio[crossfade_samples:],
+                        ]
+                    ).astype("float32", copy=False)
+                    audio_batches.append(joined)
+                else:
+                    audio_batches.append(batch_audio)
+                global_sample_offset = sum(int(item.size) for item in audio_batches)
 
         audio = (
             audio_batches[0].copy()
@@ -678,13 +683,11 @@ class NabraVoiceSynthesizer:
             "inference_passes": len(batches),
             "bounded_inference": len(batches) > 1,
             "max_infer_chars": NABRA_MAX_INFER_CHARS,
-            "external_silence_insertions": max(0, len(batches) - 1),
-            "technical_batch_seam_breath_ms": (
-                NABRA_BATCH_SEAM_BREATH_MS if len(batches) > 1 else 0
+            "external_silence_insertions": 0,
+            "technical_batch_seam_crossfade_ms": (
+                NABRA_BATCH_SEAM_CROSSFADE_MS if len(batches) > 1 else 0
             ),
-            "technical_batch_seam_fade_ms": (
-                NABRA_BATCH_SEAM_FADE_MS if len(batches) > 1 else 0
-            ),
+            "technical_batch_seam_silence_ms": 0,
             "tempo_or_pitch_change": False,
             "native_pause_tokens": True,
             "msa_diacritizer": "camel-tools:calima-msa-r13",
