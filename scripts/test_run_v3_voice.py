@@ -158,7 +158,7 @@ class _MainPatchMixin:
             os.environ,
             {
                 "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
-                "GEMINI_TTS_MODEL": "gemini-3.1-flash-tts-preview",
+                "GEMINI_TTS_MODEL": "gemini-3.8-flash-tts",
             },
             clear=False,
         )
