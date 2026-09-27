@@ -511,18 +511,26 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         raise NoWireFailure("mistral_planning_unsupported_format")
 
     non_blank_string = {"type": "string", "minLength": 1, "pattern": r"\S"}
+    long_form = fmt in {"film", "podcast"}
+
+    def planning_string(max_length: int) -> dict[str, Any]:
+        schema = dict(non_blank_string)
+        if long_form:
+            schema["maxLength"] = max_length
+        return schema
+
     if fmt == "short":
         cta_schema = {"type": "string", "const": ""}
     elif fmt == "moment":
         cta_schema = {"type": "string"}
     else:
-        cta_schema = dict(non_blank_string)
+        cta_schema = planning_string(140)
     section_properties = {
         # validate_plan() deliberately synthesizes sN when id is omitted.
-        "id": dict(non_blank_string),
-        "heading": dict(non_blank_string),
-        "purpose": dict(non_blank_string),
-        "visual_query_en": dict(non_blank_string),
+        "id": planning_string(40),
+        "heading": planning_string(80),
+        "purpose": planning_string(240),
+        "visual_query_en": planning_string(140),
     }
     section_required = ["heading", "purpose", "visual_query_en"]
     if fmt == "short":
@@ -620,8 +628,8 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "title": dict(non_blank_string),
-            "promise": dict(non_blank_string),
+            "title": planning_string(140),
+            "promise": planning_string(240),
             "cta": cta_schema,
             "sections": {
                 "type": "array",
