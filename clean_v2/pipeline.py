@@ -2584,18 +2584,24 @@ def _tone_repair_prompt(
         if "content_depth:" in revision_note.casefold()
         else ""
     )
-    podcast_progression_repair_guidance = (
-        "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
-        "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
-        "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
-        "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
-        "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
-        "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
-        "too shallow. The final section must answer or deepen the exact opening tension with an earned "
-        "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
-        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
-        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
-        if str(brief.get("format") or "") == "podcast"
+    longform_progression_repair_guidance = (
+        (
+            "- For film and podcast, fix progression semantically, not cosmetically. s1 owns the "
+            "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
+            "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
+            "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
+            "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
+            "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
+            "too shallow. The final section must answer or deepen the exact opening tension with an earned "
+            "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
+            "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
+            + (
+                PODCAST_NABRA_PERFORMANCE_GUIDANCE
+                if str(brief.get("format") or "") == "podcast"
+                else ""
+            )
+        )
+        if str(brief.get("format") or "") in {"film", "podcast"}
         else ""
     )
     return with_human_feel(with_channel_persona(f"""
@@ -2628,7 +2634,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
-{podcast_progression_repair_guidance}
+{longform_progression_repair_guidance}
 {nabra_safe_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
@@ -4314,6 +4320,23 @@ WRITER QUALITY CONTRACT (Short, Film, and Podcast):
   the review and do not create a second review stage.
 """.strip()
 
+LONGFORM_RETENTION_PREFLIGHT = """
+LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before returning JSON):
+- Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
+- The first spoken hook must open the SAME concrete hook_tension and stay topic-specific.
+- Every middle section must add one new explanatory job already supported by the approved brief/plan: mechanism, cause, distinction, consequence, or lived example. Do not drift into generic advice.
+- The final section must explicitly deliver or deepen the SAME payoff_answer. Generic advice, a slogan, or an unrelated practical tip is not a payoff.
+- Silent acceptance check — do NOT output these labels; rewrite before returning until all three are true:
+  hook_genericness=false
+  hook_body_continuity=true
+  payoff_resolves_hook=true
+- BAD progression: a specific opening tension, then broad unrelated advice, then a generic action.
+- GOOD progression: one concrete opening tension, then the approved mechanism/turn in order, then the concrete conclusion already promised by payoff_answer.
+- SPOKEN-MSA preflight: scan every sentence once for obvious grammar/agreement errors, malformed noun/adjective agreement, broken particles, and transcription-like wording. Fix those locally before returning JSON.
+- Do not invent facts, mechanisms, studies, diagnoses, or authority to satisfy progression. Use only approved material already present in the brief, plan, visual story, and research pack.
+- Return a first-pass script ready to satisfy the existing Tone/Naturalness checks; do not assume a later repair will rescue semantic drift.
+""".strip()
+
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
 For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
 is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
@@ -4335,7 +4358,7 @@ def _script_prompt(
             "For film, do not write toward a word-count target. Continue only while each section adds a new "
             "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
             "runtime natural rather than padding a long-form label with filler.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
@@ -4360,7 +4383,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (

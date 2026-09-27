@@ -326,6 +326,53 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(selection["extra_ai_calls"], 0)
 
 
+
+class ShortHookBoundedRecoveryTests(unittest.TestCase):
+    def test_four_word_overrun_trims_only_at_natural_boundary(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "حين تفقد الدافع تمامًا لا يعني ذلك أنك كسول بل أن البداية تبدو ثقيلة، "
+                        "لأنك تنتظر شعورًا كاملًا قبل أول خطوة صغيرة."
+                    ),
+                }
+            ]
+        }
+        original_hook = script["sections"][0]["narration"]
+        self.assertEqual(len(original_hook.split()), SHORT_HOOK_MAX_WORDS + 4)
+        report = normalize_short_script_candidate(script)
+        self.assertTrue(report["hook_trimmed"])
+        accepted = validate_short_hook_contract(script)
+        self.assertLessEqual(accepted["hook_words"], SHORT_HOOK_MAX_WORDS)
+        self.assertEqual(
+            accepted["hook"],
+            "حين تفقد الدافع تمامًا لا يعني ذلك أنك كسول بل أن البداية تبدو ثقيلة.",
+        )
+
+    def test_five_word_overrun_stays_fail_closed(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "حين تفقد الدافع تمامًا لا يعني ذلك أنك كسول بل أن البداية تبدو ثقيلة، "
+                        "لأنك تنتظر شعورًا كاملًا قبل أول خطوة صغيرة اليوم."
+                    ),
+                }
+            ]
+        }
+        self.assertEqual(
+            len(script["sections"][0]["narration"].split()),
+            SHORT_HOOK_MAX_WORDS + 5,
+        )
+        report = normalize_short_script_candidate(script)
+        self.assertFalse(report["hook_trimmed"])
+        with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
+            validate_short_hook_contract(script)
+
+
 class ShortProviderDiagnosticsTests(unittest.TestCase):
     def test_shortformaterror_persists_only_safe_rule_code(self) -> None:
         reason = _safe_validator_reason(
