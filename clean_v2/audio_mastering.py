@@ -10,22 +10,16 @@ from .media import probe_duration
 
 
 TARGET_INTEGRATED_LUFS = -16.0
-# The user-approved Nabra reference WAV measures ~-17.04 LUFS at -1.50 dBTP.
-# Keep Charon at the existing channel target, but match Nabra to that reference.
-NABRA_TARGET_INTEGRATED_LUFS = -17.0
 TARGET_TRUE_PEAK_DBTP = -1.5
 TARGET_LOUDNESS_RANGE = 11.0
 ALIMITER_CEILING_LINEAR = 0.84
 MAX_DURATION_DRIFT_SECONDS = 0.08
 
-# Preserve the provider's own timbre. Both approved voices now use neutral
-# loudness/limiting/resampling only; no EQ, de-esser or compressor coloration.
-CHARON_CORRECTIVE_PROFILE = "charon-loudness-only-v2"
-CHARON_CORRECTIVE_FILTER = ""
-CHARON_MASTERING_PROFILE = "charon-loudness-only-v2"
-CHARON_ACTIVE_FILTER = ""
-NABRA_MASTERING_PROFILE = "nabra-reference-match-v2"
-NABRA_CORRECTIVE_FILTER = ""
+# Preserve Gemini's own timbre: loudness/limiting/resampling only; no EQ,
+# de-esser, compressor coloration, tempo change, or pitch change.
+GEMINI_CORRECTIVE_PROFILE = "gemini-3.8-loudness-only-v1"
+GEMINI_CORRECTIVE_FILTER = ""
+GEMINI_MASTERING_PROFILE = "gemini-3.8-loudness-only-v1"
 
 _LOUDNORM_JSON_RE = re.compile(r"\{\s*\"input_i\".*?\}", re.S)
 
@@ -71,23 +65,15 @@ def master_narration_loudness(
     *,
     voice_provider: str = "",
 ) -> dict[str, Any]:
-    """Normalize loudness without changing provider timbre, tempo or pitch.
-
-    Charon and Nabra both stay loudness-only. Provider-specific EQ, de-essing
-    and compression are intentionally absent so the approved raw voice identity
-    is not covered by an extra processing layer.
-    """
+    """Normalize Gemini narration loudness without changing timbre, tempo or pitch."""
     src = Path(src)
     dest = Path(dest)
     if not src.is_file():
         raise RuntimeError("audio_loudness_source_missing")
 
-    is_nabra = str(voice_provider or "").strip() == "nabra:af_msa"
-    profile = NABRA_MASTERING_PROFILE if is_nabra else CHARON_MASTERING_PROFILE
-    prefilter = NABRA_CORRECTIVE_FILTER if is_nabra else CHARON_ACTIVE_FILTER
-    target_integrated_lufs = (
-        NABRA_TARGET_INTEGRATED_LUFS if is_nabra else TARGET_INTEGRATED_LUFS
-    )
+    profile = GEMINI_MASTERING_PROFILE
+    prefilter = GEMINI_CORRECTIVE_FILTER
+    target_integrated_lufs = TARGET_INTEGRATED_LUFS
 
     before = probe_duration(src)
     measured = _measure_loudness(

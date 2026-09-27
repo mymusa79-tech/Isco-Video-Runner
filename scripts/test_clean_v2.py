@@ -290,7 +290,8 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn("specific situation, tension, behavior, consequence, or", normalized_prompt)
         self.assertIn("forced shock/clickbait", normalized_prompt)
         self.assertIn("same core tension the script will develop", normalized_prompt.lower())
-        self.assertIn("do not optimize for a fixed word count or duration", normalized_prompt.lower())
+        self.assertIn("never an acceptance gate", normalized_prompt.lower())
+        self.assertIn("actual synthesized voice owns the final duration completely", normalized_prompt.lower())
 
     def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
         opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
@@ -548,6 +549,9 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["title"]["maxLength"], 140)
         self.assertEqual(schema["properties"]["promise"]["maxLength"], 240)
         self.assertEqual(schema["properties"]["cta"]["maxLength"], 140)
+        self.assertIn("narrative_format", schema["required"])
+        self.assertIn("dialogue_qa", schema["properties"]["narrative_format"]["enum"])
+        self.assertIn("question_answer", schema["properties"]["narrative_format"]["enum"])
         self.assertFalse(item["additionalProperties"])
 
     def test_podcast_schema_allows_two_to_five_sections(self) -> None:
@@ -557,6 +561,8 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         sections = schema["properties"]["sections"]
         self.assertEqual(sections["minItems"], 2)
         self.assertEqual(sections["maxItems"], 5)
+        self.assertIn("narrative_format", schema["required"])
+        self.assertIn("dialogue_qa", schema["properties"]["narrative_format"]["enum"])
 
     def test_short_schema_matches_validator_one_to_five_not_prompt_two_to_four(self) -> None:
         for fmt in ("moment", "story"):
@@ -643,6 +649,7 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(provider_prompt, prompt)
         schema = providers_module._mistral_planning_response_schema(provider_prompt)
         self.assertNotIn("maxLength", schema["properties"]["promise"])
+        self.assertNotIn("narrative_format", schema["properties"])
 
     def test_planning_schema_context_failure_is_no_wire(self) -> None:
         with mock.patch.object(
@@ -1145,6 +1152,33 @@ class AuditNarrativeFormatAvoidsDialogueConfusionTests(unittest.TestCase):
         }
         self.assertEqual(_audit_narrative_format_for_brief(brief), "direct_cinematic")
 
+    def test_long_format_audit_uses_selected_dialogue_shape(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "هل المشكلة في الخطة أم في طريقة استخدامها؟",
+            "format": "film",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "شرح عملي هادئ.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        plan = _plan()
+        plan["narrative_format"] = "dialogue_qa"
+        normalized = validate_plan(plan, brief)
+        self.assertEqual(normalized["narrative_format"], "dialogue_qa")
+        self.assertEqual(
+            _audit_narrative_format_for_brief(brief, normalized),
+            "dialogue_qa",
+        )
+
+    def test_long_format_rejects_unknown_narrative_shape(self) -> None:
+        brief = _brief()
+        plan = _plan()
+        plan["narrative_format"] = "made_up_format"
+        with self.assertRaisesRegex(ContractError, "unsupported longform narrative_format"):
+            validate_plan(plan, brief)
+
     def test_internal_template_name_used_elsewhere_stays_inner_dialogue(self) -> None:
         brief = {
             "approved_by_user": True,
@@ -1540,8 +1574,8 @@ class _InfrastructureRouter:
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
-        self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
+        self.last_provider = "gemini-3.8:Charon"
+        self.fallback_used = False
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         self.calls += 1
@@ -2196,9 +2230,9 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(checkpoint["completed_stage"], "voice")
             self.assertEqual(
-                checkpoint["voice_provider"], "nabra:af_msa"
+                checkpoint["voice_provider"], "gemini-3.8:Charon"
             )
-            self.assertTrue(checkpoint["voice_fallback_used"])
+            self.assertFalse(checkpoint["voice_fallback_used"])
             self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
             self.assertFalse(
                 any(path.startswith("visuals/") for path in checkpoint["artifacts"])

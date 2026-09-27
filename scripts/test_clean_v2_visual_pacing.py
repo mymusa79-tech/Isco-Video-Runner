@@ -1070,8 +1070,8 @@ class _LongFakeVoice:
     def __init__(self, seconds: float) -> None:
         self.seconds = seconds
         self.calls = 0
-        self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
+        self.last_provider = "gemini-3.8:Charon"
+        self.fallback_used = False
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         self.calls += 1
@@ -1291,7 +1291,7 @@ class PipelineWiringTests(unittest.TestCase):
             timeline = json.loads(
                 (output / "timeline-first.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(timeline["timeline_owner"], "measured_nabra_voice")
+            self.assertEqual(timeline["timeline_owner"], "measured_gemini38_voice")
             self.assertAlmostEqual(
                 sum(received.values()),
                 float(timeline["voice_seconds_measured"]),

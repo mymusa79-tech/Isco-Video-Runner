@@ -27,9 +27,7 @@ from clean_v2 import media as media_module
 from clean_v2 import ai_still as ai_still_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
-    GeminiPrimaryNabraFallbackSynthesizer,
-    GeminiPrimaryPiperFallbackSynthesizer,
-    SHORT_CHARON_STYLE,
+    GeminiOnlyVoiceSynthesizer,
     SHORT_CUT_DISSOLVE_SECONDS,
     SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
@@ -42,7 +40,7 @@ from clean_v2.media import (
     VoiceInfrastructureError,
 )
 from clean_v2.providers import ProviderAdapter, ProviderRouter, _provider_prompt, _safe_validator_reason
-from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
+from clean_v2.audio_mastering import GEMINI_CORRECTIVE_FILTER, GEMINI_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
     MUSIC_MIN_REL_DB,
@@ -1196,7 +1194,7 @@ class ShortContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "status": "pass",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_gemini38_voice",
                         "voice_seconds_measured": 1.127,
                     }
                 ),
@@ -1495,7 +1493,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["status"], "pass")
-            self.assertEqual(report["timeline_owner"], "measured_charon_voice")
+            self.assertEqual(report["timeline_owner"], "measured_gemini38_voice")
             self.assertFalse(report["time_compression"])
             self.assertFalse(report["tts_regeneration_for_duration"])
             self.assertEqual(
@@ -1528,9 +1526,9 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
 
 
 class ShortAudioPolishTests(unittest.TestCase):
-    def test_charon_mastering_is_neutral_loudness_only(self) -> None:
-        self.assertEqual(CHARON_CORRECTIVE_PROFILE, "charon-loudness-only-v2")
-        self.assertEqual(CHARON_CORRECTIVE_FILTER, "")
+    def test_gemini_mastering_is_neutral_loudness_only(self) -> None:
+        self.assertEqual(GEMINI_CORRECTIVE_PROFILE, "gemini-3.8-loudness-only-v1")
+        self.assertEqual(GEMINI_CORRECTIVE_FILTER, "")
 
     def test_music_is_minus_25_to_minus_20_db_and_generated_noise_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1611,9 +1609,13 @@ class ShortPipelineSeamTests(unittest.TestCase):
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", prompt)
+        self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", prompt)
         self.assertIn("ONLY the minimum Arabic diacritic marks", prompt)
         self.assertIn("punctuation as performance notation", prompt)
+        self.assertIn("Gemini 3.8 reads transcript text verbatim", prompt)
+        self.assertIn("Performance direction belongs to structured", prompt)
+        self.assertIn("For inner_dialogue, keep one Charon voice", prompt)
+        self.assertIn("never more than one such event in a short section", prompt)
         self.assertIn("Do not write toward a target duration", prompt)
         self.assertIn("measured mastered voice owns the final runtime", prompt)
         self.assertNotIn("30-45 seconds", prompt)
@@ -1646,7 +1648,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
 
             def synthesize(self, text, path, *, primary_only=False):
                 self.primary_only_flags.append(bool(primary_only))
-                self.last_provider = "gemini:Charon"
+                self.last_provider = "gemini-3.8:Charon"
                 self.fallback_used = False
                 self.charon_attempts = 1
                 Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -1674,72 +1676,22 @@ class ShortPipelineSeamTests(unittest.TestCase):
                     require_charon_only=True,
                 )
 
-        self.assertEqual(report["voice_provider"], "gemini:Charon")
+        self.assertEqual(report["voice_provider"], "gemini-3.8:Charon")
         self.assertFalse(report["voice_fallback_used"])
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
 
-    def test_mid_run_charon_failure_restarts_whole_voice_with_nabra(self) -> None:
-        class FakeNabra:
-            def __init__(self) -> None:
-                self.calls: list[str] = []
-                self.continuous_calls = 0
+    def test_mid_run_gemini_failure_fails_closed_without_voice_substitution(self) -> None:
+        calls = {"count": 0}
 
-            def synthesize(self, transcript, output_path):
-                self.calls.append(str(transcript))
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                Path(output_path).write_bytes(b"N" * 2048)
-                return Path(output_path)
-
-            def synthesize_continuous(self, parts, output_path):
-                self.continuous_calls += 1
-                self.calls.append(" | ".join(str(item["text"]) for item in parts))
-                sample_rate = 24000
-                cursor = 0.0
-                marks = []
-                for item in parts:
-                    start = cursor
-                    speech_end = start + 0.18
-                    pause_end = speech_end + 0.04
-                    marks.append(
-                        {
-                            "role": item["role"],
-                            "text": item["text"],
-                            "start_seconds": start,
-                            "speech_end_seconds": speech_end,
-                            "pause_end_seconds": pause_end,
-                        }
-                    )
-                    cursor = pause_end
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                with wave.open(str(output_path), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(sample_rate)
-                    wav.writeframes(b"\x00\x00" * int(round(cursor * sample_rate)))
-                return {
-                    "parts": marks,
-                    "single_continuous_inference": True,
-                    "continuous_narration_stream": True,
-                    "inference_passes": 1,
-                    "bounded_inference": False,
-                    "max_infer_chars": 500,
-                }
-
-        gemini_calls = {"count": 0}
-
-        def fake_gemini(api_key, transcript, output_path, *, model, voice, style=""):
-            del api_key, transcript, model, voice, style
-            gemini_calls["count"] += 1
-            if gemini_calls["count"] == 1:
+        def fake_gemini38(api_key, transcript, output_path, **_kwargs):
+            del api_key, transcript
+            calls["count"] += 1
+            if calls["count"] == 1:
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_path).write_bytes(b"C" * 2048)
                 return Path(output_path)
             raise RuntimeError("http 429")
-
-        def fake_concat(_inputs, output):
-            Path(output).write_bytes(b"J" * 4096)
-            return Path(output)
 
         sections = [
             {"id": "s1", "narration": "هذه جملة أولى واضحة للاختبار."},
@@ -1749,96 +1701,61 @@ class ShortPipelineSeamTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             narration = root / "narration.wav"
-            nabra = FakeNabra()
-            synth = GeminiPrimaryNabraFallbackSynthesizer(
+            synth = GeminiOnlyVoiceSynthesizer(
                 "gemini-key",
-                nabra=nabra,
+                tts_model="gemini-3.8-flash-tts",
             )
             with (
                 mock.patch.object(
                     media_module,
-                    "_legacy_voice_identity",
-                    return_value=("Charon", "Orus"),
-                ),
-                mock.patch.object(
-                    media_module,
-                    "_assert_human_approved_voice_reference",
-                    return_value="fixture",
-                ),
-                mock.patch.object(
-                    media_module,
-                    "_legacy_gemini_synthesize",
-                    side_effect=fake_gemini,
+                    "_gemini38_synthesize",
+                    side_effect=fake_gemini38,
                 ),
                 mock.patch.object(
                     media_module,
                     "_charon_retry_delay",
-                    return_value=0,
-                ),
-                mock.patch(
-                    "clean_v2.pipeline.concat_wav_parts",
-                    side_effect=fake_concat,
+                    return_value=None,
                 ),
             ):
-                report = _synthesize_sectioned_voice(
-                    synth,
-                    sections,
-                    narration,
-                    require_charon_only=True,
-                )
+                with self.assertRaises(VoiceInfrastructureError):
+                    _synthesize_sectioned_voice(
+                        synth,
+                        sections,
+                        narration,
+                        require_charon_only=True,
+                    )
 
             persisted = json.loads(
                 (root / "voice-sections.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(gemini_calls["count"], 4)
-        self.assertEqual(nabra.continuous_calls, 1)
-        self.assertEqual(len(nabra.calls), 1)
-        self.assertIn("جملة أولى", nabra.calls[0])
-        self.assertIn("جملة ثانية", nabra.calls[0])
-        self.assertEqual(report["voice_provider"], "nabra:af_msa")
-        self.assertTrue(report["single_continuous_inference"])
-        self.assertEqual(report["external_silence_insertions"], 0)
-        self.assertTrue(report["voice_fallback_used"])
-        self.assertEqual(
-            report["voice_restart_reason"],
-            "charon_failed_after_route_lock",
-        )
-        self.assertEqual(report["charon_tts_attempts_before_restart"], 4)
-        self.assertEqual(
-            {section["provider"] for section in report["sections"]},
-            {"nabra:af_msa"},
-        )
-        self.assertEqual(persisted["status"], "pass")
-        self.assertEqual(persisted["voice_provider"], "nabra:af_msa")
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(persisted["status"], "failed")
+        self.assertEqual(persisted["reason"], "gemini_3_8_voice_failed_closed")
+        self.assertFalse(narration.exists())
 
-    def test_short_charon_passes_viewer_facing_performance_direction_without_rewriting(self) -> None:
+    def test_short_gemini38_passes_viewer_facing_performance_direction_without_rewriting(self) -> None:
         captured: dict[str, object] = {}
 
-        def fake_synthesize(api_key, transcript, output_path, *, model, voice, style=""):
+        def fake_synthesize(api_key, transcript, output_path, **kwargs):
             captured.update(
                 {
                     "api_key": api_key,
                     "transcript": transcript,
-                    "model": model,
-                    "voice": voice,
-                    "style": style,
+                    **kwargs,
                 }
             )
             Path(output_path).write_bytes(b"W" * 2048)
             return Path(output_path)
 
         with tempfile.TemporaryDirectory() as temporary:
-            synth = GeminiPrimaryPiperFallbackSynthesizer(
+            synth = GeminiOnlyVoiceSynthesizer(
                 "gemini-key",
-                Path(temporary) / "unused.onnx",
-                None,
+                tts_model="gemini-3.8-flash-tts",
             )
             transcript = "ابدأ بخطوة واحدة واضحة الآن."
             with (
-                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
-                mock.patch.object(media_module, "_assert_human_approved_voice_reference", return_value="fixture"),
-                mock.patch.object(media_module, "_legacy_gemini_synthesize", side_effect=fake_synthesize),
+                mock.patch.object(media_module, "_gemini38_synthesize", side_effect=fake_synthesize),
             ):
                 result = synth.synthesize(
                     transcript,
@@ -1846,50 +1763,38 @@ class ShortPipelineSeamTests(unittest.TestCase):
                     primary_only=True,
                 )
 
-        # The TemporaryDirectory is intentionally gone here; assert the returned
-        # destination identity, while the provider call itself already proved success
-        # by requiring a >1 KiB output before synthesize() returned.
         self.assertEqual(result.name, "out.wav")
         self.assertEqual(captured["transcript"], transcript)
-        self.assertEqual(captured["voice"], "Charon")
-        self.assertEqual(captured["style"], SHORT_CHARON_STYLE)
-        self.assertIn("same calm conversational cadence", str(captured["style"]))
-        self.assertIn("Do not reset into an announcer-like pickup", str(captured["style"]))
-        self.assertNotIn("clean first-word attack", str(captured["style"]))
-        self.assertNotIn("firmer in intent", str(captured["style"]))
+        self.assertEqual(captured["model"], "gemini-3.8-flash-tts")
+        self.assertEqual(captured["primary_voice"], "Charon")
+        self.assertEqual(captured["questioner_voice"], "Orus")
 
-    def test_primary_only_charon_failure_never_calls_azure_or_piper(self) -> None:
+    def test_gemini38_failure_never_substitutes_another_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            model = Path(temporary) / "unused.onnx"
-            synth = GeminiPrimaryPiperFallbackSynthesizer(
+            synth = GeminiOnlyVoiceSynthesizer(
                 "gemini-key",
-                model,
-                None,
-                azure_api_key="azure-key",
-                azure_region="eastus",
-                azure_free_tier_confirmed=True,
-                azure_voice_approved=True,
-                allow_piper_fallback=True,
+                tts_model="gemini-3.8-flash-tts",
             )
             with (
-                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
-                mock.patch.object(media_module, "_assert_human_approved_voice_reference", return_value="fixture"),
-                mock.patch.object(media_module, "_legacy_gemini_synthesize", side_effect=RuntimeError("http_503")),
+                mock.patch.object(
+                    media_module,
+                    "_gemini38_synthesize",
+                    side_effect=RuntimeError("http_503"),
+                ),
                 mock.patch.object(media_module, "_charon_retry_delay", return_value=None),
-                mock.patch.object(synth.azure, "synthesize") as azure_call,
-                mock.patch.object(synth.piper, "synthesize") as piper_call,
             ):
-                with self.assertRaisesRegex(
-                    VoiceInfrastructureError,
-                    "primary_only_contract_no_fallback",
-                ):
+                with self.assertRaises(VoiceInfrastructureError) as raised:
                     synth.synthesize(
                         "نص قصير",
                         Path(temporary) / "out.wav",
                         primary_only=True,
                     )
-            azure_call.assert_not_called()
-            piper_call.assert_not_called()
+            self.assertEqual(
+                raised.exception.secondary_reason,
+                "gemini_3_8_only_fail_closed_no_fallback",
+            )
+            self.assertIsNone(synth.last_provider)
+            self.assertFalse(synth.fallback_used)
 
     def test_short_identity_is_fixed_locally_with_zero_provider_calls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

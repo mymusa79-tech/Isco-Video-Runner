@@ -15,6 +15,17 @@ from typing import Any, Mapping
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_FORMATS = frozenset({"film", "short", "podcast"})
+LONGFORM_NARRATIVE_FORMATS = frozenset({
+    "direct_cinematic",
+    "question_answer",
+    "dialogue_qa",
+    "inner_dialogue",
+    "problem_reveal_solution",
+    "story_analysis",
+    "paradox",
+    "hypothesis_test",
+    "connected_list",
+})
 _HASH_METADATA_KEYS = frozenset({"approved_hash", "brief_sha256"})
 
 
@@ -112,6 +123,15 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
+    raw_narrative_format = str(value.get("narrative_format") or "").strip()
+    if fmt in {"film", "podcast"}:
+        narrative_format = raw_narrative_format or "direct_cinematic"
+        if narrative_format not in LONGFORM_NARRATIVE_FORMATS:
+            raise ContractError(
+                f"unsupported longform narrative_format: {narrative_format or '<empty>'}"
+            )
+    else:
+        narrative_format = ""
     if fmt == "short" and cta:
         raise ContractError("short plan requires an empty social cta")
     if fmt not in {"moment", "short"}:
@@ -196,6 +216,8 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         "cta": cta[:700],
         "sections": sections,
     }
+    if narrative_format:
+        result["narrative_format"] = narrative_format
     if cover_text:
         result["cover_text"] = cover_text
     return result

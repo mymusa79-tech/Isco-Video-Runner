@@ -9,7 +9,7 @@ from .legacy_cinematic import (
     m8_normalize_media,
     security_media_preflight,
 )
-from .media import GeminiPrimaryNabraFallbackSynthesizer, StockVisualSource
+from .media import GeminiOnlyVoiceSynthesizer, StockVisualSource
 from .pipeline import CleanV2Pipeline
 from .providers import ProviderRouter
 from .security_query_adapter import normalize_clean_v2_stock_query
@@ -44,9 +44,9 @@ def main() -> None:
     args = _parser().parse_args()
     pipeline = CleanV2Pipeline(
         router=ProviderRouter(),
-        voice_synthesizer=GeminiPrimaryNabraFallbackSynthesizer(
+        voice_synthesizer=GeminiOnlyVoiceSynthesizer(
             os.environ.get("GEMINI_API_KEY", ""),
-            tts_model=os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview"),
+            tts_model=os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts"),
         ),
         visual_source=StockVisualSource(
             query_normalizer=normalize_clean_v2_stock_query,

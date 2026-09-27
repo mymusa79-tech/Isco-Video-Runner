@@ -13,8 +13,7 @@ from clean_v2.identity_sequence import (
     assert_spoken_identity,
     inject_spoken_identity,
 )
-from clean_v2.media import GeminiPrimaryNabraFallbackSynthesizer
-from clean_v2.nabra_voice import NabraVoiceSynthesizer
+from clean_v2.media import GeminiOnlyVoiceSynthesizer, VoiceInfrastructureError, _gemini38_dialogue_turns
 from clean_v2.pipeline import (
     CleanV2Pipeline,
     _factuality_repair_prompt,
@@ -37,17 +36,6 @@ from scripts.telegram_clean_v2_control import (
     scope_keyboard,
 )
 from scripts.telegram_clean_v2_notify import milestone_messages, started_text
-
-
-class _FakeNabra:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
-        self.calls.append(transcript)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"RIFF" + b"0" * 2048)
-        return output_path
 
 
 class PodcastFormatTests(unittest.TestCase):
@@ -96,11 +84,15 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("genuine central question or contradiction", planning)
         self.assertIn("visual motif remains supportive and non-essential", planning)
         self.assertIn("without erasing their separate pacing and audio rules", planning)
+        self.assertIn("dialogue_qa", planning)
+        self.assertIn("question_answer", planning)
+        self.assertIn("duration targets, or visual complexity", planning)
         self.assertNotIn("payoff_answer must be a descriptive resolution", planning)
-        self.assertIn("neutral female narrator", script)
-        self.assertIn("local Nabra af_msa", script)
+        self.assertIn("fixed Gemini 3.8", script)
+        self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("Never invent first-person", script)
-        self.assertIn("Do not write toward a word-count or duration target", script)
+        self.assertIn("10-30 minutes is a normal editorial range, never an acceptance gate", script)
+        self.assertIn("actual synthesized voice owns the final duration completely", script)
         self.assertIn("audio alone", script)
         self.assertIn("article, lecture, news script", script)
         self.assertIn("speaking simply to one listener", script)
@@ -119,7 +111,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("specific to THIS approved episode", script)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", script)
         self.assertIn("generic advice and synonymous restatement are not progression", script)
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", script)
+        self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", script)
         self.assertIn("not fully vocalized textbook Arabic", script)
         self.assertIn("ONLY the minimum Arabic diacritic marks", script)
         self.assertIn("Preserve meaningful diacritics", script)
@@ -131,10 +123,10 @@ class PodcastFormatTests(unittest.TestCase):
             {**brief, "format": "film"},
             self._plan(5),
         )
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", film_script)
+        self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", film_script)
         self.assertIn("ONLY the minimum Arabic diacritic marks", film_script)
         self.assertIn("punctuation as performance notation", film_script)
-        self.assertIn("harmless for Charon, required for Nabra fallback", film_script)
+        self.assertIn("all spoken formats", film_script)
         self.assertIn("LONGFORM RETENTION PREFLIGHT", film_script)
         self.assertIn("hook_body_continuity=true", film_script)
         self.assertIn("payoff_resolves_hook=true", film_script)
@@ -168,14 +160,14 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("s2 must add a mechanism, cause, or distinction", podcast_prompt)
         self.assertIn("s3, when present, must derive a new implication or resolution from s2", podcast_prompt)
         self.assertIn("generic advice or paraphrase is not a payoff", podcast_prompt)
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", podcast_prompt)
+        self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", podcast_prompt)
         self.assertIn("keep intentional minimal", podcast_prompt)
 
         film_repair_prompt = _tone_repair_prompt(
             brief={**podcast_brief, "format": "film"},
             **kwargs,
         )
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", film_repair_prompt)
+        self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", film_repair_prompt)
         self.assertIn("keep intentional minimal", film_repair_prompt)
 
         film_prompt = _tone_repair_prompt(
@@ -194,7 +186,7 @@ class PodcastFormatTests(unittest.TestCase):
             **kwargs,
         )
         for repair_prompt in (podcast_factuality, film_factuality):
-            self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", repair_prompt)
+            self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", repair_prompt)
             self.assertIn("minimal diacritics", repair_prompt)
             self.assertIn("comfortable to say in one breath", repair_prompt)
 
@@ -212,40 +204,73 @@ class PodcastFormatTests(unittest.TestCase):
         assert_spoken_identity(sections, fmt="podcast", closer=closer)
 
 
-class PodcastNabraRoutingTests(unittest.TestCase):
-    def test_nabra_text_normalization_preserves_intentional_minimal_tashkeel(self) -> None:
-        parts = NabraVoiceSynthesizer._normalize_parts(
-            [
-                {
-                    "role": "topic",
-                    "text": "لا تُحمِّل كلمةً ملتبسةً أكثر مما تحتمل، وقلها بوضوح.",
-                }
-            ]
+class PodcastGeminiRoutingTests(unittest.TestCase):
+    def test_production_entrypoint_is_gemini_38_only(self) -> None:
+        source = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
+        self.assertIn("GeminiOnlyVoiceSynthesizer", source)
+        self.assertIn("gemini-3.8-flash-tts", source)
+        self.assertNotIn("PiperFallback", source)
+
+    def test_production_workflows_accept_only_gemini_38_voice(self) -> None:
+        for workflow in (
+            ".github/workflows/clean-v2-minimal-e2e.yml",
+            ".github/workflows/clean-v2-podcast-one.yml",
+            ".github/workflows/clean-v2-short-final-one.yml",
+            ".github/workflows/clean-v2-short-cohort.yml",
+            ".github/workflows/clean-v2-telegram-production.yml",
+        ):
+            source = Path(workflow).read_text(encoding="utf-8")
+            self.assertIn("gemini-3.8-flash-tts", source)
+            self.assertNotIn("gemini-3.1-flash-tts-preview", source)
+
+    def test_podcast_uses_gemini_38_only_and_never_falls_back(self) -> None:
+        synth = GeminiOnlyVoiceSynthesizer("key")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "clean_v2.media._gemini38_synthesize",
+            side_effect=lambda *_args, **_kwargs: (
+                Path(_args[2]).write_bytes(b"G" * 2048) or Path(_args[2])
+            ),
+        ):
+            output = Path(tmp) / "voice.wav"
+            synth.synthesize("هذا نص بودكاست عربي.", output)
+            self.assertTrue(output.is_file())
+
+        self.assertEqual(synth.last_provider, "gemini-3.8:Charon")
+        self.assertFalse(synth.fallback_used)
+        self.assertEqual(synth.voice_approval_status, "user_selected_gemini_3_8")
+
+    def test_podcast_gemini_failure_is_terminal_fail_closed(self) -> None:
+        synth = GeminiOnlyVoiceSynthesizer("key")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "clean_v2.media._gemini38_synthesize",
+            side_effect=RuntimeError("synthetic Gemini outage"),
+        ), mock.patch(
+            "clean_v2.media._charon_retry_delay",
+            return_value=0.0,
+        ):
+            with self.assertRaises(VoiceInfrastructureError) as raised:
+                synth.synthesize("هذا نص بودكاست عربي.", Path(tmp) / "voice.wav")
+
+        self.assertIn(
+            "gemini_3_8_only_fail_closed_no_fallback",
+            raised.exception.secondary_reason,
+        )
+        self.assertFalse(raised.exception.fallback_used)
+
+    def test_dialogue_turns_keep_a_and_b_for_orus_and_charon(self) -> None:
+        turns = _gemini38_dialogue_turns(
+            "A: لماذا يحدث هذا؟ B: لأننا نخلط بين الخطة والحياة. "
+            "A: وما الذي يتغير؟ B: يتغير المقياس الذي نحكم به."
         )
         self.assertEqual(
-            parts[0]["text"],
-            "لا تُحمِّل كلمةً ملتبسةً أكثر مما تحتمل، وقلها بوضوح.",
+            turns,
+            [
+                ("A", "لماذا يحدث هذا؟"),
+                ("B", "لأننا نخلط بين الخطة والحياة."),
+                ("A", "وما الذي يتغير؟"),
+                ("B", "يتغير المقياس الذي نحكم به."),
+            ],
         )
-
-    def test_podcast_primary_lock_never_attempts_charon_and_is_not_fallback(self) -> None:
-        fake = _FakeNabra()
-        synth = GeminiPrimaryNabraFallbackSynthesizer("", nabra=fake)
-        synth.activate_full_run_nabra_primary()
-        with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "clean_v2.media._legacy_voice_identity", return_value=("Charon", "Orus")
-        ), mock.patch(
-            "clean_v2.media._legacy_gemini_synthesize",
-            side_effect=AssertionError("Charon must not be called for Podcast"),
-        ):
-            result = synth.synthesize("هذا نص بودكاست عربي.", Path(tmp) / "voice.wav")
-            self.assertTrue(result.is_file())
-        self.assertEqual(fake.calls, ["هذا نص بودكاست عربي."])
-        self.assertEqual(synth.last_provider, "nabra:af_msa")
-        self.assertFalse(synth.fallback_used)
-        self.assertEqual(synth.charon_attempts, 0)
-        self.assertEqual(synth.voice_approval_status, "user_selected_primary")
-        self.assertTrue(synth.nabra_continuous_ready)
-        self.assertIn("native-punctuation-v2", str(synth.voice_reference_profile))
 
 
 class PodcastTelegramTests(unittest.TestCase):
@@ -262,7 +287,7 @@ class PodcastTelegramTests(unittest.TestCase):
         self.assertIn("سؤال مركزي حقيقي", instruction)
         self.assertIn("يتغير فهم المستمع", instruction)
 
-    def test_materialized_podcast_brief_keeps_choice_simple_and_marks_female_narration(self) -> None:
+    def test_materialized_podcast_brief_uses_fixed_gemini_roster_and_allows_dialogue(self) -> None:
         request = {
             "schema_version": 1,
             "request_id": "req-podcast",
@@ -289,9 +314,11 @@ class PodcastTelegramTests(unittest.TestCase):
             )
         self.assertEqual(brief["format"], "podcast")
         self.assertEqual(brief["series_name"], "خارج النص")
-        self.assertIn("راوية أنثوية محايدة", brief["editorial_intent"])
+        self.assertIn("بصوت القناة الثابت", brief["editorial_intent"])
+        self.assertIn("حوارًا حقيقيًا", brief["editorial_intent"])
         self.assertIn("مستمع واحد", brief["editorial_intent"])
-        self.assertTrue(any("female narrator" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("Gemini 3.8 is the only voice provider" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("Orus" in item and "dialogue_qa" in item for item in brief["hard_constraints"]))
         self.assertTrue(any("simple-deep" in item for item in brief["hard_constraints"]))
         self.assertTrue(any("Arab/Muslim" in item for item in brief["hard_constraints"]))
 

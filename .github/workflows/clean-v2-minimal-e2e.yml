@@ -110,13 +110,13 @@ jobs:
             scripts.test_clean_v2_contextual_cta \
             scripts.test_clean_v2_identity_visual_cta \
             scripts.test_clean_v2_voice \
-            scripts.test_clean_v2_nabra_voice \
             scripts.test_clean_v2_short \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             scripts.test_clean_v2_visual_pacing \
             scripts.test_clean_v2_unified_visual_story \
             scripts.test_clean_v2_podcast \
+            scripts.test_clean_v2_retired_voice_absence \
             scripts.test_clean_v2_ai_still \
             scripts.test_clean_v2_timeline_first \
             scripts.test_cover_lite \
@@ -142,7 +142,7 @@ jobs:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
-      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GEMINI_TTS_MODEL: gemini-3.8-flash-tts
       # Set only after listening to the generated Fusha acceptance sample.
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
@@ -209,25 +209,11 @@ jobs:
             fontconfig \
             fonts-noto-core \
             tesseract-ocr \
-            tesseract-ocr-ara \
-            espeak-ng \
-            libsndfile1
+            tesseract-ocr-ara
           bash scripts/install_cairo_bold.sh
           python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
-          python -m pip install --disable-pip-version-check \
-            --index-url https://download.pytorch.org/whl/cpu torch
-          python -m pip install --disable-pip-version-check \
-            soundfile huggingface_hub 'misaki[en]>=0.9.4' \
-            'phonemizer-fork>=3.3.2' camel-tools
-          python -m pip install --disable-pip-version-check \
-            'kokoro @ git+https://github.com/Oddadmix/kokoro.git@df50e07df746aec0bd7a6f237752d7109ace0b3d'
-          camel_data -i disambig-mle-calima-msa-r13
-          curl -fsSL \
-            'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
-            -o scripts/arabic_g2p.py
-          test -s scripts/arabic_g2p.py
 
       - name: Produce one Clean V2 video
         env:
@@ -272,7 +258,7 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
           case "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" in
-            "gemini:Charon"|"nabra:af_msa") ;;
+            "gemini-3.8:Charon") ;;
             *) echo "Unexpected Clean V2 voice provider" >&2; exit 1 ;;
           esac
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"

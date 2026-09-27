@@ -20,7 +20,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
         root: Path,
         seconds: float,
         fmt: str = "short",
-        owner: str = "measured_charon_voice",
+        owner: str = "measured_gemini38_voice",
     ) -> None:
         (root / "timeline-first.json").write_text(
             json.dumps(
@@ -61,13 +61,13 @@ class TimelineFirstDurationTests(unittest.TestCase):
                 self.assertEqual(final_gate["duration_delta_seconds"], 0.0)
                 self.assertIsNone(final_gate["editorial_target_seconds"])
 
-    def test_short_final_report_preserves_nabra_timeline_owner(self) -> None:
+    def test_short_final_report_preserves_gemini38_timeline_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._write_timeline(
                 root,
                 31.5,
-                owner="measured_nabra_voice",
+                owner="measured_gemini38_voice",
             )
             _inspect_final_with_short_gate(
                 final_inspector=lambda _path: {
@@ -85,7 +85,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
             )
             self.assertEqual(
                 final_gate["timeline_owner"],
-                "measured_nabra_voice",
+                "measured_gemini38_voice",
             )
 
     def test_same_voice_owned_duration_contract_applies_to_film(self) -> None:
@@ -325,7 +325,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                     {
                         "status": "pass",
                         "contract_id": "clean-v2-timeline-first-v1",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_gemini38_voice",
                         "identity_events": [
                             {"kind": "hook", "start": 0.0, "end": 3.0},
                             {"kind": "intro", "start": 3.0, "end": 8.0},

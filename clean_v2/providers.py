@@ -625,20 +625,38 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         "required": ["visual_world", "story_arc", "retention_thread", "beats"],
         "additionalProperties": False,
     }
+    plan_properties: dict[str, Any] = {
+        "title": planning_string(140),
+        "promise": planning_string(240),
+        "cta": cta_schema,
+        "sections": {
+            "type": "array",
+            "items": section_schema,
+            "minItems": min_sections,
+            "maxItems": max_sections,
+        },
+    }
+    plan_required = ["title", "promise", "cta", "sections"]
+    if long_form:
+        plan_properties["narrative_format"] = {
+            "type": "string",
+            "enum": [
+                "direct_cinematic",
+                "question_answer",
+                "dialogue_qa",
+                "inner_dialogue",
+                "problem_reveal_solution",
+                "story_analysis",
+                "paradox",
+                "hypothesis_test",
+                "connected_list",
+            ],
+        }
+        plan_required.append("narrative_format")
     return {
         "type": "object",
-        "properties": {
-            "title": planning_string(140),
-            "promise": planning_string(240),
-            "cta": cta_schema,
-            "sections": {
-                "type": "array",
-                "items": section_schema,
-                "minItems": min_sections,
-                "maxItems": max_sections,
-            },
-        },
-        "required": ["title", "promise", "cta", "sections"],
+        "properties": plan_properties,
+        "required": plan_required,
         "additionalProperties": False,
     }
 
@@ -714,20 +732,25 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
         "required": list(section_properties),
         "additionalProperties": False,
     }
+    properties: dict[str, Any] = {
+        "title": {"type": "string"},
+        "promise": {"type": "string"},
+        "cta": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": section_schema,
+            "minItems": int(source["properties"]["sections"]["minItems"]),
+            "maxItems": int(source["properties"]["sections"]["maxItems"]),
+        },
+    }
+    required = ["title", "promise", "cta", "sections"]
+    if "narrative_format" in source["properties"]:
+        properties["narrative_format"] = dict(source["properties"]["narrative_format"])
+        required.append("narrative_format")
     return {
         "type": "object",
-        "properties": {
-            "title": {"type": "string"},
-            "promise": {"type": "string"},
-            "cta": {"type": "string"},
-            "sections": {
-                "type": "array",
-                "items": section_schema,
-                "minItems": int(source["properties"]["sections"]["minItems"]),
-                "maxItems": int(source["properties"]["sections"]["maxItems"]),
-            },
-        },
-        "required": ["title", "promise", "cta", "sections"],
+        "properties": properties,
+        "required": required,
         "additionalProperties": False,
     }
 

@@ -20,7 +20,7 @@ _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
     # Structural breathing is deliberate and provider-independent. It is inserted
-    # only at major opening boundaries, never inside ordinary Nabra/Charon speech.
+    # only at major opening boundaries, never inside ordinary Gemini speech.
     # Long-form gets slightly more room than Shorts without becoming sluggish.
     "short": {
         "post_hook_silence_seconds": 1.15,

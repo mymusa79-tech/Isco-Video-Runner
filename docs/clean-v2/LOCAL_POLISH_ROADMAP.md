@@ -141,7 +141,7 @@ This is likely one of the best ways to make mixed stock sources feel like one fi
 
 ## 6. Voice and mastering — KEEP SIMPLE
 
-Current mastering is intentionally loudness-only for Charon and Nabra.
+Current mastering is intentionally loudness-only for the fixed Gemini 3.8 voice roster.
 
 Do not add:
 - generic EQ,
