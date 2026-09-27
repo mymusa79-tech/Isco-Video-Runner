@@ -320,25 +320,26 @@ def _gemini38_synthesize(
     questioner_voice: str,
     style: str = "",
 ) -> Path:
-    """Synthesize one Gemini 3.8 TTS unit using the GA speech_metadata schema.
+    """Synthesize one Gemini 3.8 TTS unit through the official REST endpoint.
 
-    Gemini 3.8 unary requests return a complete WAV file. We therefore write the
-    returned bytes directly and never wrap them in a second WAV header.
+    This intentionally uses only Python's standard library. Production therefore
+    does not depend on upgrading the frozen Engine's google-genai SDK just to gain
+    the Gemini 3.8 Interactions schema. Unary Gemini 3.8 TTS returns a complete WAV
+    file, so the returned bytes are written directly without wrapping a PCM header.
     """
     if model != "gemini-3.8-flash-tts":
         raise RuntimeError(f"Clean V2 requires Gemini 3.8 Flash TTS, got: {model}")
     source = str(transcript or "").strip()
     if not source:
         raise RuntimeError("cannot synthesize an empty transcript")
+    if not str(api_key or "").strip():
+        raise RuntimeError("Gemini 3.8 TTS requires an API key")
 
-    from google import genai
-
-    client = genai.Client(api_key=api_key)
     turns = _gemini38_dialogue_turns(source)
     natural_style = " ".join(str(style or "").split()).strip()
+    content: list[dict[str, Any]] = []
 
     if turns:
-        content = []
         for speaker, text in turns:
             turn_style = (
                 "Concise, curious, natural Modern Standard Arabic."
@@ -368,7 +369,7 @@ def _gemini38_synthesize(
             ],
         }
     else:
-        content = [
+        content.append(
             {
                 "type": "text",
                 "text": source,
@@ -380,20 +381,77 @@ def _gemini38_synthesize(
                     }
                 ],
             }
-        ]
+        )
         speech_config = [{"voice": voice}]
 
-    interaction = client.interactions.create(
-        model=model,
-        input=[{"type": "user_input", "content": content}],
-        response_format={"type": "audio"},
-        generation_config={"speech_config": speech_config},
+    payload = json.dumps(
+        {
+            "model": model,
+            "input": [{"type": "user_input", "content": content}],
+            "response_format": {"type": "audio"},
+            "generation_config": {"speech_config": speech_config},
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": str(api_key).strip(),
+            "User-Agent": "Isco-Clean-V2/1",
+        },
     )
-    output_audio = getattr(interaction, "output_audio", None)
-    data = getattr(output_audio, "data", None)
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            raw = response.read((MAX_TTS_AUDIO_BYTES * 2) + 1024 * 1024)
+    except urllib.error.HTTPError as exc:
+        raise TtsProviderError(
+            f"gemini38_http_{int(exc.code)}",
+            http_status=int(exc.code),
+            retry_after_seconds=_tts_retry_after_seconds(exc),
+        ) from None
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        raise TtsProviderError(
+            f"gemini38_transport_{type(exc).__name__.lower()}"
+        ) from None
+
+    try:
+        response_json = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Gemini 3.8 TTS returned invalid JSON") from exc
+
+    data: str | None = None
+    steps = response_json.get("steps") if isinstance(response_json, dict) else None
+    if isinstance(steps, list):
+        for step in reversed(steps):
+            if not isinstance(step, dict) or step.get("type") != "model_output":
+                continue
+            blocks = step.get("content")
+            if not isinstance(blocks, list):
+                continue
+            for block in reversed(blocks):
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "audio"
+                    and isinstance(block.get("data"), str)
+                    and block.get("data")
+                ):
+                    data = str(block["data"])
+                    break
+            if data:
+                break
     if not data:
         raise RuntimeError("Gemini 3.8 TTS returned no audio")
-    audio = base64.b64decode(data)
+
+    try:
+        audio = base64.b64decode(data, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError("Gemini 3.8 TTS returned invalid base64 audio") from exc
+    if len(audio) > MAX_TTS_AUDIO_BYTES:
+        raise RuntimeError("Gemini 3.8 TTS audio exceeded local safety limit")
     if len(audio) < 1024 or not audio.startswith(b"RIFF"):
         raise RuntimeError("Gemini 3.8 TTS returned invalid WAV audio")
 
@@ -414,7 +472,6 @@ def _gemini38_synthesize(
         temporary.unlink(missing_ok=True)
         raise
     return output_path
-
 
 def _tts_http_status(exc: BaseException) -> int | None:
     direct = getattr(exc, "http_status", None)
