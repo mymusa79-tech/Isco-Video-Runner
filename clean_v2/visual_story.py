@@ -5,8 +5,9 @@ from typing import Any, Mapping
 
 
 CHANNEL_VISUAL_IDENTITY = (
-    "Grounded cinematic realism with quiet depth; restrained warm-neutral palette; "
-    "moderate-to-deep natural exposure; practical directional light; tactile real environments; "
+    "Grounded cinematic realism with quiet premium depth; restrained dark navy and charcoal shadows; "
+    "ivory-neutral highlights; warm gold only as a rare accent; moderate-to-deep natural exposure; "
+    "soft practical directional light; tactile real environments; no blanket blue wash; "
     "a wakeful visual signature built on observable state-change from friction toward clarity, movement "
     "or earned progress, never on one repeated prop; hope shown through effort and earned small wins "
     "rather than glossy lifestyle brightness or forced melancholy; environments, hands, objects, routines, "
@@ -15,6 +16,8 @@ CHANNEL_VISUAL_IDENTITY = (
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
     "bright lifestyle advertising",
+    "flat beige or washed-out warm-neutral stock look",
+    "cold neon or heavy blue color cast",
     "generic stock-happy imagery",
     "generic productivity desk or writing imagery unless it is the exact semantic action",
     "repetitive stationery, notebooks, sticky notes, or typing across consecutive beats",
