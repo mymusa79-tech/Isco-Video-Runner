@@ -400,7 +400,7 @@ class VisualSafetyRegressionTests(unittest.TestCase):
     def test_later_visuals_must_stay_close_to_hook_quality(self) -> None:
         self.assertAlmostEqual(
             _retention_quality_target(hook_floor=0.97, absolute_floor=0.85),
-            0.89,
+            0.92,
         )
         self.assertEqual(
             _retention_quality_target(hook_floor=0.90, absolute_floor=0.85),
