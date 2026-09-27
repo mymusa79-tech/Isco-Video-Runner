@@ -593,6 +593,22 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
 
+    def test_mistral_planning_fallback_is_compact_and_uses_local_visual_story(self) -> None:
+        prompt = _planning_prompt(self._brief_for("film"))
+        provider_prompt = providers_module._provider_prompt(
+            prompt,
+            provider="mistral",
+            stage="planning",
+        )
+        self.assertIn("MISTRAL_COMPACT_PLANNING_FALLBACK", provider_prompt)
+        self.assertIn("Do NOT return visual_story", provider_prompt)
+
+        schema = providers_module._mistral_planning_response_schema(provider_prompt)
+        self.assertNotIn("visual_story", schema["properties"])
+        self.assertNotIn("visual_story", schema["required"])
+        self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
+        self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
+
     def test_planning_schema_context_failure_is_no_wire(self) -> None:
         with mock.patch.object(
             providers_module.mistral_executor,
