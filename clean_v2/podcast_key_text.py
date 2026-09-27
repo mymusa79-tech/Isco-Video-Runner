@@ -26,7 +26,9 @@ from clean_v2.short_timed_text import (
 SCHEMA_VERSION = 1
 RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v3"
 MAX_EVENTS = 3
-FONT_SIZE = 100
+FONT_SIZE = 94
+HOOK_FONT_SIZE = 108
+PAYOFF_FONT_SIZE = 100
 TEXT_X = 960
 TEXT_Y = 770
 EXTRUDE = (2, 3)
@@ -35,7 +37,9 @@ DISPLAY_SECONDS = 4.2
 MAX_WORDS = 10
 
 FILM_MAX_EVENTS = 5
-FILM_FONT_SIZE = 108
+FILM_FONT_SIZE = 100
+FILM_HOOK_FONT_SIZE = 116
+FILM_PAYOFF_FONT_SIZE = 106
 FILM_TEXT_Y = 760
 FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
@@ -327,6 +331,21 @@ def _visual_beat_text_events(
     return selected
 
 
+def _event_font_size(role: str, *, fmt: str) -> int:
+    role = str(role or "turn").strip().lower()
+    if fmt == "podcast":
+        if role == "hook":
+            return HOOK_FONT_SIZE
+        if role == "payoff":
+            return PAYOFF_FONT_SIZE
+        return FONT_SIZE
+    if role == "hook":
+        return FILM_HOOK_FONT_SIZE
+    if role == "payoff":
+        return FILM_PAYOFF_FONT_SIZE
+    return FILM_FONT_SIZE
+
+
 def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -> str:
     if fmt not in {"podcast", "film"}:
         raise PodcastKeyTextError(f"sparse_key_text_format_invalid:{fmt}")
@@ -358,9 +377,10 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
         plain = _plain_caption(text)
+        event_size = _event_font_size(str(item.get("role") or "turn"), fmt=fmt)
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X},{text_y})\\c{PRIMARY_ASS}}}{plain}"
+            f"{{{common}\\pos({TEXT_X},{text_y})\\fs{event_size}\\c{PRIMARY_ASS}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -452,9 +472,13 @@ def _apply_sparse_key_text(
         "body_rgb": "#F4F2EE",
         "font": BODY_FONT,
         "font_size": font_size,
+        "hook_font_size": _event_font_size("hook", fmt=fmt),
+        "payoff_font_size": _event_font_size("payoff", fmt=fmt),
+        "max_caption_lines": 2,
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
+        "font_family_contract": "Cairo Bold",
         "outline_px": 4,
         "shadow_offset": [0, 0],
         "extrusion_offset": [0, 0],
