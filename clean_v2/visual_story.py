@@ -631,19 +631,19 @@ def contextual_intent(
     current = _context_fragment(
         beats[current_index].get("shot_intent") or fallback_intent,
         "current beat",
-        32,
+        18,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        28,
+        14,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        28,
+        14,
     )
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
@@ -660,17 +660,17 @@ def contextual_intent(
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        24,
+        12,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
         "concrete evidence",
-        20,
+        10,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
         "generic mood",
-        17,
+        8,
     )
     family_rule = (
         " No adjacent same-family repeat unless a changed hook/payoff motif."
@@ -678,12 +678,12 @@ def contextual_intent(
         else ""
     )
     hook_rule = (
-        " Hook must show unresolved observable tension, not a generic matching prop."
+        " Hook must show an unresolved observable tension."
         if role == "hook"
         else ""
     )
     context = (
-        f"Role: {role}. Family: {current_family or 'other'}. PrevFamily: {previous_family or 'none'}. "
+        f"Role:{role}. Family:{current_family or 'other'}. PrevFamily:{previous_family or 'none'}. "
         f"Current: {current}. Previous: {previous}. Next: {following}. "
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         "Same hook-to-payoff arc: judge continuity."
