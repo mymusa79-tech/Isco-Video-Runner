@@ -1762,6 +1762,7 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "writer_anchor_ar": str(raw_beat.get("writer_anchor_ar") or "").strip(),
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
@@ -1898,6 +1899,7 @@ class StockVisualSource:
                         "beat_id": beat_id,
                         "viewer_intent": str(beat.get("viewer_intent") or ""),
                         "shot_intent": str(beat.get("shot_intent") or query),
+                        "writer_anchor_ar": str(beat.get("writer_anchor_ar") or ""),
                         "display_text_ar": str(beat.get("display_text_ar") or ""),
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
@@ -1981,6 +1983,7 @@ class StockVisualSource:
                 candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
                 candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                candidate["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
                 candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
                 candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(

@@ -16,6 +16,7 @@ from clean_v2.pipeline import (
 )
 from clean_v2.visual_story import (
     CHANNEL_VISUAL_IDENTITY,
+    bind_visual_story_to_script,
     contextual_intent,
     fallback_visual_story,
     validate_visual_story,
@@ -186,6 +187,124 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
+
+    def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                visual_story = dict(planned.pop("visual_story"))
+                script = {
+                    "title": "نص نهائي",
+                    "sections": [
+                        {
+                            "id": section["id"],
+                            "narration": (
+                                f"هذا هو المعنى النهائي للقسم {index}. "
+                                f"ثم تظهر نتيجة مختلفة مرتبطة بالفكرة {index}."
+                            ),
+                        }
+                        for index, section in enumerate(planned["sections"], start=1)
+                    ],
+                }
+                bound = bind_visual_story_to_script(
+                    visual_story,
+                    planned,
+                    script,
+                )
+                self.assertTrue(
+                    all(beat.get("writer_anchor_ar") for beat in bound["beats"])
+                )
+                self.assertTrue(
+                    all(
+                        str(beat["shot_intent"]).isascii()
+                        for beat in bound["beats"]
+                    )
+                )
+                self.assertNotIn("warm", bound["beats"][0]["shot_intent"].lower())
+                self.assertIn("notebook", bound["beats"][0]["shot_intent"].lower())
+                prompt = " ".join(_planning_prompt(_brief(fmt)).split())
+                self.assertNotIn(
+                    "VISUAL QUALITY CONTRACT (Short, Film, and Podcast)",
+                    prompt,
+                )
+                self.assertIn(
+                    '"shot_intent": "6-14 word concrete English observable action/state, directly searchable"',
+                    prompt,
+                )
+
+    def test_writer_binding_avoids_adjacent_repeated_action_family_without_provider_call(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = "hand writing in notebook at desk"
+        visual_story["beats"][1]["shot_intent"] = "person typing notes at keyboard"
+        planned["sections"][1]["visual_query_alt_en"] = "person walking through quiet hallway no face"
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"ثم يتغير المعنى في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+
+        self.assertIn("writing", bound["beats"][0]["shot_intent"])
+        self.assertIn("walking", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("typing", bound["beats"][1]["shot_intent"])
+        self.assertEqual(
+            bound["beats"][1]["stock_query_en"],
+            bound["beats"][1]["shot_intent"],
+        )
+
+    def test_writer_overlay_copy_never_becomes_generated_image_text(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = (
+            "hand holds card with Arabic text saying start now"
+        )
+        visual_story["beats"][0]["semantic_must_have"] = [
+            "card with readable Arabic text saying start now",
+            "hesitating hand",
+        ]
+        visual_story["beats"][0]["display_text_ar"] = "ابدأ بخطوة"
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"وهذا هو المعنى الذي يراه المشاهد في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+        first = bound["beats"][0]
+
+        self.assertEqual(first["display_text_ar"], "ابدأ بخطوة")
+        self.assertNotIn("Arabic text", first["shot_intent"])
+        self.assertNotIn("saying start now", first["shot_intent"])
+        self.assertTrue(
+            all("readable Arabic text" not in item for item in first["semantic_must_have"])
+        )
+        self.assertTrue(
+            any("readable text" in item for item in first["semantic_should_avoid"])
+        )
+        self.assertTrue(first.get("writer_anchor_ar"))
+
+        visual_story["beats"][0]["shot_intent"] = "Arabic text saying start now"
+        rebound = bind_visual_story_to_script(visual_story, planned, script)
+        self.assertNotIn("Arabic text", rebound["beats"][0]["shot_intent"])
+        self.assertNotIn("saying start now", rebound["beats"][0]["shot_intent"])
 
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
         self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)

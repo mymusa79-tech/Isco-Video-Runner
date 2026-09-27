@@ -54,7 +54,7 @@ from .short_format import (
 )
 
 
-from .visual_story import fallback_visual_story, validate_visual_story
+from .visual_story import bind_visual_story_to_script, fallback_visual_story, validate_visual_story
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
@@ -3579,6 +3579,25 @@ def _validate_script_for_brief(
     return script
 
 
+def _bind_writer_visual_story(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+    visual_story: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Make the accepted Writer output authoritative for downstream visual context."""
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    writer_script = _script_without_trusted_identity(script, trusted_identity)
+    bound = bind_visual_story_to_script(visual_story, plan, writer_script)
+    atomic_write_json(output_dir / "visual-story.json", bound)
+    return bound
+
+
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -4231,7 +4250,7 @@ Return one JSON object with exactly this useful shape:
         "meaning_target": "the exact visible meaning this shot must communicate",
         "semantic_must_have": ["one concrete visible cue", "second concrete cue if needed"],
         "semantic_should_avoid": ["generic mood-only substitute"],
-        "shot_intent": "rich semantic/cinematic image or motion intent",
+        "shot_intent": "6-14 word concrete English observable action/state, directly searchable",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
@@ -4950,6 +4969,14 @@ class CleanV2Pipeline:
                     _read_json_object(output_dir / "script.json"),
                     plan,
                     brief,
+                    visual_story,
+                )
+                visual_story = _bind_writer_visual_story(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
                 )
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
@@ -4995,6 +5022,13 @@ class CleanV2Pipeline:
                             visual_story,
                         ),
                     ),
+                )
+                visual_story = _bind_writer_visual_story(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
                 )
                 fmt = str(brief["format"])
                 _apply_brand_signature(
@@ -5092,6 +5126,13 @@ class CleanV2Pipeline:
                 )
                 validate_short_hook_contract(script)
                 validate_short_script(script)
+            visual_story = _bind_writer_visual_story(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+                visual_story=visual_story,
+            )
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
                     output_dir,
@@ -5306,7 +5347,7 @@ class CleanV2Pipeline:
                         "estimated_section_seconds": section_estimated_seconds,
                         "note": (
                             "Provider metadata captured at acquisition. Film and Short timing comes from the measured "
-                            "voice-owned Timeline First contract, while scene changes come only from Planning visual beats. "
+                            "voice-owned Timeline First contract, while scene changes come from Writer-bound visual beats, with Planning retaining the original story structure. "
                             "Timing values allocate beat duration but never create extra scenes."
                         ),
                     },

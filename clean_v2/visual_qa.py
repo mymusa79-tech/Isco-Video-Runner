@@ -688,6 +688,9 @@ def run_final_cut_visual_qa(
                 "is_final_cut_auxiliary": bool(row.get("pacing_auxiliary")),
                 "semantic_recovery_attempt": recovery,
                 "story_context_reviewed": bool(beat_id),
+                "writer_bound_narration_reviewed": bool(
+                    str(row.get("writer_anchor_ar") or "").strip()
+                ),
                 "final_cut_semantic_floor": round(floor, 6),
                 "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
                 "final_cut_readiness": (
@@ -701,7 +704,7 @@ def run_final_cut_visual_qa(
         with vision_provider_circuit_scope():
             for index, section in enumerate(sections, start=1):
                 section_id = str(section.get("id") or "").strip()
-                narration_context = script_by_id.get(section_id, "")
+                section_narration_context = script_by_id.get(section_id, "")
                 section_intended_visual = str(section.get("visual_query_en") or "").strip()
 
                 # Every clip that will actually appear in the final render for
@@ -723,6 +726,9 @@ def run_final_cut_visual_qa(
                     audited_selected_clip_count += 1
                     intended_visual = str(row.get("query") or section_intended_visual).strip()
                     beat_id = str(row.get("beat_id") or "").strip()
+                    narration_context = str(
+                        row.get("writer_anchor_ar") or section_narration_context
+                    ).strip()
                     contextual_visual = contextual_intent(
                         visual_story,
                         beat_id,
@@ -1112,6 +1118,7 @@ def run_final_cut_visual_qa(
                         "beat_id",
                         "viewer_intent",
                         "shot_intent",
+                        "writer_anchor_ar",
                         "role",
                         "source_preference",
                         "pacing_auxiliary",

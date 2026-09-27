@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Mapping
 
@@ -28,6 +29,102 @@ BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
 _PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+_WRITER_INTENT_DROP_TOKENS = frozenset({
+    "cinematic", "warm", "neutral", "lighting", "light", "shot", "frame",
+    "composition", "depth", "foreground", "background", "soft", "natural",
+    "premium", "dramatic", "emotional", "inspiring", "motivational", "beautiful",
+    "text", "texts", "word", "words", "caption", "captions",
+    "subtitle", "subtitles", "title", "titles", "quote", "quotes",
+    "label", "labels", "lettering", "typography", "watermark", "watermarks",
+    "logo", "logos",
+})
+_EMBEDDED_TEXT_REQUEST_RE = re.compile(
+    r"\b(?:with|showing|displaying|containing)\s+(?:readable\s+)?(?:arabic\s+)?"
+    r"(?:text|words|caption|captions|title|subtitle|lettering|typography|quote|label)\b.*$"
+    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading|showing|displaying)\b.*$"
+    r"|(?:^|\s)(?:arabic\s+)?(?:text|words|caption|captions|title|subtitle|quote|label)"
+    r"\s+(?:saying|reading|showing|displaying)\b.*$",
+    re.IGNORECASE,
+)
+_AI_IMAGE_TEXT_AVOID = (
+    "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
+)
+_ACTION_FAMILY_TERMS = {
+    "writing": ("write", "writing", "written", "pen", "notebook", "journal", "typing", "keyboard", "note"),
+    "walking": ("walk", "walking", "steps", "corridor", "path"),
+    "phone": ("phone", "smartphone", "screen", "notification", "scroll", "scrolling"),
+    "door": ("door", "doorway", "handle", "threshold"),
+    "window": ("window", "curtain", "glass"),
+    "sitting": ("sit", "sitting", "chair", "desk"),
+}
+
+
+def _visual_action_family(value: object) -> str:
+    tokens = set(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
+    if not tokens:
+        return ""
+    best_name = ""
+    best_score = 0
+    for name, terms in _ACTION_FAMILY_TERMS.items():
+        score = sum(term in tokens for term in terms)
+        if score > best_score:
+            best_name = name
+            best_score = score
+    return best_name if best_score > 0 else ""
+
+
+def _strip_embedded_text_request(value: object) -> str:
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact:
+        return ""
+    if not _EMBEDDED_TEXT_REQUEST_RE.search(compact):
+        return compact
+    return _EMBEDDED_TEXT_REQUEST_RE.sub("", compact).strip(" ,;:-")
+
+
+def _writer_searchable_intent(value: object) -> str:
+    """Compact one authored visual intent into a concrete provider/search boundary."""
+    compact = _strip_embedded_text_request(value)
+    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
+        return ""
+    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
+    useful = [
+        token for token in tokens
+        if token.casefold() not in _WRITER_INTENT_DROP_TOKENS
+    ]
+    if len(useful) < 3:
+        return ""
+    return " ".join(useful[:14])
+
+
+def _writer_beat_anchors(narration: object, count: int) -> list[str]:
+    """Split final writer narration into bounded contiguous anchors for its visual beats."""
+    compact = " ".join(str(narration or "").split()).strip()
+    if not compact or count <= 0:
+        return []
+    parts = [
+        " ".join(item.split()).strip()
+        for item in re.split(r"(?<=[.!؟?!؛;])\s+|[،,]\s*", compact)
+        if " ".join(item.split()).strip()
+    ]
+    if len(parts) < count:
+        words = compact.split()
+        if len(words) < count:
+            return [compact[:320] for _ in range(count)]
+        anchors = []
+        for index in range(count):
+            start = (index * len(words)) // count
+            end = ((index + 1) * len(words)) // count
+            anchors.append(" ".join(words[start:max(start + 1, end)])[:320].strip())
+        return anchors
+
+    anchors = []
+    for index in range(count):
+        start = (index * len(parts)) // count
+        end = ((index + 1) * len(parts)) // count
+        anchors.append(" ".join(parts[start:max(start + 1, end)])[:320].strip())
+    return anchors
 
 
 def _contains_prayer_text(value: object) -> bool:
@@ -242,6 +339,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         display_text_ar = " ".join(
             str(raw.get("display_text_ar") or "").split()
         ).strip()
+        writer_anchor_ar = " ".join(
+            str(raw.get("writer_anchor_ar") or "").split()
+        ).strip()[:320]
         if _contains_prayer_text(display_text_ar):
             raise ValueError(
                 f"visual_story beat {beat_id} must not place prayer text in display_text_ar"
@@ -336,6 +436,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 "stock_query_en": stock_query_en,
                 "display_text_ar": display_text_ar,
                 "source_preference": source_preference,
+                **({"writer_anchor_ar": writer_anchor_ar} if writer_anchor_ar else {}),
             }
         )
 
@@ -372,6 +473,123 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         "beats": beats,
     }
 
+
+
+def bind_visual_story_to_script(
+    visual_story: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind Planning visuals to the accepted Writer output without another model call.
+
+    The Writer owns the final spoken meaning. This local pass keeps Planning's visual
+    semantics, gives every beat a bounded narration anchor from the final script, and
+    turns vague/stylistic shot_intent text into the same concrete English boundary
+    consumed by Stock/AI. It adds no stage, provider, retry loop, or quality gate.
+    """
+    # Planning already validated and persisted this exact story. The Writer binder
+    # is a deterministic enrichment step, not a second Planning gate: re-validating
+    # here would incorrectly apply fresh-output rules to compatibility/fallback stories.
+    story = copy.deepcopy(dict(visual_story))
+    raw_sections = [
+        item for item in (script.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    narration_by_id = {
+        str(item.get("id") or "").strip(): " ".join(
+            str(item.get("narration") or "").split()
+        ).strip()
+        for item in raw_sections
+    }
+    plan_sections = [
+        item for item in (plan.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    expected_ids = [
+        str(item.get("id") or "").strip()
+        for item in plan_sections
+    ]
+    section_by_id = {
+        str(item.get("id") or "").strip(): item for item in plan_sections
+    }
+    if set(narration_by_id) != set(expected_ids) or any(
+        not narration_by_id.get(section_id) for section_id in expected_ids
+    ):
+        raise ValueError("writer visual binding requires complete final script sections")
+
+    beats_by_section: dict[str, list[dict[str, Any]]] = {
+        section_id: [] for section_id in expected_ids
+    }
+    for beat in story.get("beats") or []:
+        if not isinstance(beat, dict):
+            continue
+        section_id = str(beat.get("section_id") or "").strip()
+        if section_id in beats_by_section:
+            beats_by_section[section_id].append(beat)
+
+    prior_action_family = ""
+    for section_id in expected_ids:
+        section_beats = beats_by_section[section_id]
+        if not section_beats:
+            raise ValueError(
+                f"writer visual binding missing beats for section {section_id}"
+            )
+        anchors = _writer_beat_anchors(
+            narration_by_id[section_id],
+            len(section_beats),
+        )
+        if len(anchors) != len(section_beats):
+            raise ValueError(
+                f"writer visual binding could not anchor section {section_id}"
+            )
+        for beat, anchor in zip(section_beats, anchors):
+            direct = _writer_searchable_intent(beat.get("shot_intent"))
+            fallback = _writer_searchable_intent(beat.get("stock_query_en"))
+            if direct or fallback:
+                beat["shot_intent"] = direct or fallback
+
+            current_family = _visual_action_family(beat.get("shot_intent"))
+            if current_family and current_family == prior_action_family:
+                section = section_by_id.get(section_id) or {}
+                alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
+                alternate_family = _visual_action_family(alternate)
+                if alternate and alternate_family and alternate_family != current_family:
+                    beat["shot_intent"] = alternate
+                    beat["stock_query_en"] = alternate
+                    current_family = alternate_family
+                else:
+                    avoids = [
+                        str(item).strip()
+                        for item in (beat.get("semantic_should_avoid") or [])
+                        if str(item).strip()
+                    ]
+                    repeat_avoid = (
+                        f"repeat of previous {current_family} action/composition"
+                    )
+                    if repeat_avoid not in avoids:
+                        avoids.insert(0, repeat_avoid)
+                    beat["semantic_should_avoid"] = avoids[:4]
+
+            # The Writer may own overlay copy, but image providers never own text.
+            # Remove embedded-text requests from image semantics and keep the Arabic
+            # copy only in display_text_ar for the renderer-owned overlay path.
+            beat["semantic_must_have"] = [
+                cue for cue in (
+                    _strip_embedded_text_request(item)
+                    for item in (beat.get("semantic_must_have") or [])
+                )
+                if cue and not _EMBEDDED_TEXT_REQUEST_RE.search(cue)
+            ][:4]
+            avoids = [
+                str(item).strip()
+                for item in (beat.get("semantic_should_avoid") or [])
+                if str(item).strip()
+            ]
+            if _AI_IMAGE_TEXT_AVOID not in avoids:
+                avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
+            beat["semantic_should_avoid"] = avoids[:4]
+            beat["writer_anchor_ar"] = anchor
+            prior_action_family = current_family or prior_action_family
+
+    return story
 
 def _context_fragment(value: object, fallback: str, limit: int) -> str:
     text = " ".join(str(value or "").split()).strip() or fallback
