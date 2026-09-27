@@ -4233,7 +4233,7 @@ def _script_prompt(
             "first-person memories, experiences, credentials, or a male speaker identity for her. Do not "
             "write toward a word-count or duration target: continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
-            "been answered fully. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
+            "been answered fully. PODCAST HOOK QUALITY: the first spoken sentence must be specific to THIS approved episode, honest about what the episode will actually repay, and non-generic. Name or clearly imply one concrete topic-specific tension, behavior, consequence, contradiction, or question supported by the approved brief/plan. Reject and rewrite the hook if it could fit many unrelated episodes (hook_genericness), if it promises a stronger or different payoff than the body can earn (hook_honesty), or if it lacks a concrete topic-specific anchor (hook_specificity). Calm curiosity is acceptable; forced shock and clickbait are not. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
             "s2 must add a mechanism, cause, or distinction already supported by the approved brief/plan that "
             "explains WHY the tension exists instead of renaming s1; s3, when present, must derive a new "
             "implication or resolution from s2 rather than restating it, and later sections must continue the "
