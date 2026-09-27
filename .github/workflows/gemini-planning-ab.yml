@@ -22,7 +22,8 @@ env:
   STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
   GEMINI_CONTENT_MODEL: gemini-3.7-flash
   GEMINI_TTS_MODEL: gemini-3.8-flash-tts
-  ISCO_GEMINI_AB_ONLY: "1"
+  ISCO_GEMINI_AB_EXPERIMENT: "1"
+  ISCO_GEMINI_AB_GEMINI_ONLY: "1"
   MISTRAL_FREE_ONLY: "true"
 
 jobs:
@@ -145,7 +146,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import os
-          os.environ["ISCO_GEMINI_AB_ONLY"] = "1"
+          os.environ["ISCO_GEMINI_AB_GEMINI_ONLY"] = "1"
           from scripts import planning_stage_contract as p
           assert p._planning_provider_order() == ("gemini",), p._planning_provider_order()
           print("Planning provider isolation PASS: gemini-only")
@@ -166,7 +167,8 @@ jobs:
           ISCO_APPROVED_BRIEF_SHA256: ${{ env.STATIC_APPROVED_BRIEF_SHA256 }}
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
-          ISCO_GEMINI_AB_ONLY: "1"
+          ISCO_GEMINI_AB_EXPERIMENT: "1"
+          ISCO_GEMINI_AB_GEMINI_ONLY: "1"
           MISTRAL_FREE_ONLY: "true"
         working-directory: engine
         run: |
@@ -175,12 +177,16 @@ jobs:
           rm -rf "$results"
           mkdir -p "$results"
 
-          for model in gemini-3.7-flash gemini-3.8-flash; do
-            for attempt in 1 2 3; do
+          for pair in \
+            gemini-3.7-flash:1 gemini-3.8-flash:1 \
+            gemini-3.7-flash:2 gemini-3.8-flash:2 \
+            gemini-3.7-flash:3 gemini-3.8-flash:3; do
+              model="${pair%%:*}"
+              attempt="${pair##*:}"
               echo "===== A/B model=$model attempt=$attempt ====="
               rm -rf output
               mkdir -p output
-              export ISCO_GEMINI_AB_PLANNING_MODEL="$model"
+              export GEMINI_CONTENT_MODEL="$model"
               log="$results/$model-attempt-$attempt.log"
               started="$(date +%s)"
               set +e
@@ -195,7 +201,7 @@ jobs:
               cp "$log" "$dest/run.log"
               out="$(ls -td output/* 2>/dev/null | head -n 1 || true)"
               if [ -n "$out" ] && [ -d "$out" ]; then
-                for name in                   plan.json factuality-audit.json content-quality-audit.json                   tone-quality-audit.json quality-precheck.json ai-budget.json                   production-failure-diagnostics.json production-exact-planning-harness.json; do
+                for name in                   plan.json factuality-audit.json content-quality-audit.json                   tone-quality-audit.json quality-precheck.json ai-budget.json planning-telemetry.json                   production-failure-diagnostics.json production-exact-planning-harness.json; do
                   if [ -f "$out/$name" ]; then cp "$out/$name" "$dest/$name"; fi
                 done
               fi
@@ -262,7 +268,6 @@ jobs:
           )
           print(json.dumps(result, ensure_ascii=False, sort_keys=True))
           PY
-            done
           done
 
           python - "$results" "$GITHUB_STEP_SUMMARY" <<'PY'
