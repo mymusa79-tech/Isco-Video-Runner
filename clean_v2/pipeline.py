@@ -804,7 +804,11 @@ def _build_production_plan_for_audit(
         for item in plan["sections"]
     ]
     brief_format = str(brief.get("format") or "")
-    narrative_format = _audit_narrative_format_for_brief(brief)
+    narrative_format = (
+        str(plan.get("narrative_format") or "direct_cinematic")
+        if brief_format in {"film", "podcast"}
+        else _audit_narrative_format_for_brief(brief)
+    )
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
@@ -3419,6 +3423,19 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     else:
         section_requirement = "2 to 4 sections"
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    longform_voice_format = (
+        """
+For film and podcast, choose exactly one narrative_format in this SAME Planning response:
+- direct_cinematic: one fixed Charon narrator, flowing analysis/story without fake dialogue.
+- question_answer: one fixed Charon narrator organizes the episode around natural questions and answers;
+  do NOT use A:/B: speaker labels.
+- dialogue_qa: a genuine two-voice exchange only when the topic becomes clearer through challenge/answer.
+  A is the concise Orus questioner/challenger; B is the fixed Charon channel voice that carries the analysis.
+Choose dialogue_qa only when two voices add real explanatory value; never use it as a gimmick.
+"""
+        if fmt in {"film", "podcast"}
+        else ""
+    )
     podcast_context = (
         """
 For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
@@ -3633,6 +3650,7 @@ For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment
 in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
 
 {short_context}
+{longform_voice_format}
 {podcast_context}
 
 Return one JSON object with exactly this useful shape:
@@ -3640,6 +3658,7 @@ Return one JSON object with exactly this useful shape:
   "title": "Arabic title",
   "promise": "Arabic one-sentence viewer promise",
   "cover_text": "distinctive truthful Arabic cover phrase, 2-5 words",
+  "narrative_format": "for film/podcast only: direct_cinematic | question_answer | dialogue_qa",
   "cta": "one natural Arabic CTA, or empty only for moment",
   "sections": [
     {{
@@ -3877,6 +3896,11 @@ LOCKED_PLAN:
 The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
+
+SELECTED_NARRATIVE_FORMAT: {str(plan.get("narrative_format") or "direct_cinematic")}
+For dialogue_qa, write real alternating A:/B: turns: A asks/challenges briefly and B carries the
+substantive channel analysis. For question_answer, keep one Charon narrator and never use A:/B: labels.
+For direct_cinematic, keep one Charon narrator and do not manufacture dialogue.
 
 LOCKED_VISUAL_STORY:
 {story_json}
