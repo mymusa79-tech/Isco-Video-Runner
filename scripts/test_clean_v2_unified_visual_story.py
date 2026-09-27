@@ -188,7 +188,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 )
 
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
-        self.assertIn("quiet depth", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("earned small wins", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("glossy lifestyle brightness", CHANNEL_VISUAL_IDENTITY)
@@ -206,7 +206,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
 
         for prompt in (short_prompt, film_prompt, podcast_prompt):
             self.assertIn("Use quiet premium darkness rather than gloom", prompt)
-            self.assertIn("avoid a permanent golden-hour wash", prompt)
+            self.assertIn("avoid flat beige/washed-out warm-neutral stock", prompt)
             self.assertIn("warm gold only as a restrained accent", prompt)
 
         self.assertIn("FORMAT VISUAL PROFILE — SHORT", short_prompt)
