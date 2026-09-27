@@ -59,6 +59,7 @@ from clean_v2.identity_sequence import PRAYER_SENTENCE
 from clean_v2.short_format import select_short_template
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2 import providers as providers_module
+from clean_v2 import pipeline as pipeline_module
 from clean_v2 import media as media_module
 from clean_v2 import text_audit as text_audit_module
 
@@ -5580,6 +5581,116 @@ class FilmDerivedShortLiteTests(unittest.TestCase):
             self.assertEqual(report["tts_calls_added"], 0)
             self.assertTrue(final_path.is_file())
             self.assertFalse((root / "long-short.mp4").exists())
+
+class StabilityDecisionBoundaryTests(unittest.TestCase):
+    def test_mistral_planning_is_compact_and_one_beat_per_possible_section(self) -> None:
+        prompt = providers_module._provider_prompt(
+            "BASE",
+            provider="mistral",
+            stage="planning",
+        )
+        self.assertIn("MISTRAL_PLANNING_COMPACTNESS", prompt)
+        self.assertIn("exactly ONE visual_story beat per planned section", prompt)
+
+        schema = providers_module._mistral_planning_response_schema(
+            _planning_prompt(_brief())
+        )
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+
+    def test_factuality_provider_unavailable_is_not_a_content_block(self) -> None:
+        def unavailable(_api_key, _plan, _research, _model, *, diagnostics):
+            diagnostics.update(
+                {
+                    "validation": "invalid",
+                    "attempts": [
+                        {"provider": "gemini", "outcome": "rate_limited"},
+                        {"provider": "groq", "outcome": "schema_invalid"},
+                    ],
+                }
+            )
+            return {
+                "status": "block",
+                "unsupported_claims": [],
+                "professional_advice_flags": [],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary)
+            with (
+                mock.patch(
+                    "clean_v2.text_audit.audit_plan_with_mistral",
+                    side_effect=unavailable,
+                ),
+                mock.patch.object(
+                    pipeline_module,
+                    "_build_production_plan_for_audit",
+                    return_value=SimpleNamespace(),
+                ),
+            ):
+                report = pipeline_module._run_legacy_factuality_audit(
+                    output_dir=output_dir,
+                    brief=_brief(),
+                    plan=_plan(),
+                    script=_script(),
+                )
+
+            self.assertEqual(report["status"], "unavailable")
+            self.assertTrue(report["provider_unavailable"])
+            self.assertEqual(
+                report["decision_source"],
+                "provider_unavailable_nonblocking",
+            )
+            written = json.loads(
+                (output_dir / "factuality-audit.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(written["status"], "unavailable")
+
+    def test_tone_provider_unavailable_is_not_a_content_block(self) -> None:
+        unavailable = {
+            "validation": "invalid",
+            "status": "block",
+            "attempts": [
+                {"provider": "gemini", "outcome": "rate_limited"},
+                {"provider": "mistral", "outcome": "schema_invalid"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary)
+            with (
+                mock.patch(
+                    "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                    return_value=unavailable,
+                ),
+                mock.patch.object(
+                    pipeline_module,
+                    "_build_production_plan_for_audit",
+                    return_value=SimpleNamespace(),
+                ),
+            ):
+                report = pipeline_module._run_legacy_tone_naturalness_audit(
+                    output_dir=output_dir,
+                    brief=_brief(),
+                    plan=_plan(),
+                    script=_script(),
+                )
+
+            self.assertEqual(report["status"], "unavailable")
+            self.assertTrue(report["provider_unavailable"])
+            self.assertEqual(
+                report["decision_source"],
+                "provider_unavailable_nonblocking",
+            )
+            written = json.loads(
+                (output_dir / "tone-naturalness-audit.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(written["status"], "unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()
