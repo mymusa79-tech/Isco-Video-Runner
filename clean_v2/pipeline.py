@@ -709,10 +709,22 @@ def _synthesize_continuous_nabra_voice(
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
+        "technical_batch_seam_breath_ms": int(
+            result.get("technical_batch_seam_breath_ms", 0) or 0
+        ),
+        "technical_batch_seam_fade_ms": int(
+            result.get("technical_batch_seam_fade_ms", 0) or 0
+        ),
+        "technical_batch_seam_count": max(
+            0, int(result.get("inference_passes", 1) or 1) - 1
+        ),
         "external_silence_insertions": (
-            (2 + int(final_pause_padding_seconds > 1e-6))
-            if timing is not None
-            else 0
+            int(result.get("external_silence_insertions", 0) or 0)
+            + (
+                (2 + int(final_pause_padding_seconds > 1e-6))
+                if timing is not None
+                else 0
+            )
         ),
         "structural_silence_seconds": (
             {
