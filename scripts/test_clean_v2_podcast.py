@@ -255,7 +255,7 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
             "gemini_3_8_only_fail_closed_no_fallback",
             raised.exception.secondary_reason,
         )
-        self.assertFalse(raised.exception.piper_fallback_allowed)
+        self.assertFalse(raised.exception.fallback_used)
 
     def test_dialogue_turns_keep_a_and_b_for_orus_and_charon(self) -> None:
         turns = _gemini38_dialogue_turns(
