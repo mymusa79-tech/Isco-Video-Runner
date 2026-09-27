@@ -9,6 +9,7 @@ it never selects a schema, semantic contract, provider policy, or cache policy.
 import functools
 import hashlib
 import json
+import os
 import re
 import time
 from contextlib import contextmanager
@@ -217,7 +218,13 @@ OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER) * 2
 
 
 def _planning_provider_order() -> tuple[str, ...]:
-    """Add Mistral only after the exact model passed the free-only preflight gate."""
+    """Return the bounded planning provider order.
+
+    ISCO_GEMINI_AB_ONLY is a branch-local experiment seam used only by the isolated
+    Gemini 3.7 vs 3.8 benchmark. Production remains unchanged when the flag is absent.
+    """
+    if str(os.environ.get("ISCO_GEMINI_AB_ONLY") or "").strip() == "1":
+        return ("gemini",)
     if router._mistral_route_ready():
         return ("gemini", "groq", "mistral", "openrouter")
     return _PROVIDER_ORDER
