@@ -306,8 +306,10 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         bound = bind_visual_story_to_script(visual_story, planned, script)
 
         self.assertIn("writing", bound["beats"][0]["shot_intent"])
-        self.assertIn("walking", bound["beats"][1]["shot_intent"])
-        self.assertNotIn("typing", bound["beats"][1]["shot_intent"])
+        # Typing/laptop is intentionally a different family from stationery,
+        # so this genuinely different second beat should remain unchanged.
+        self.assertIn("typing", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("walking", bound["beats"][1]["shot_intent"])
         self.assertEqual(
             bound["beats"][1]["stock_query_en"],
             bound["beats"][1]["shot_intent"],
