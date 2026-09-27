@@ -3637,12 +3637,23 @@ asymmetry, and stronger local focal contrast than the body. Do not open on a pas
 coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
 Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
 
-VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, sticky notes, checklist and writing
-belong to one action family; laptop/keyboard/typing to another; walking/movement to another.
-Do not place the same dominant action family in consecutive beats and normally use one family no more
-than twice. The only intentional repeat may be the hook/payoff motif when its state visibly changes.
-Prefer an observable progression such as stuck -> choosing -> moving -> completed, so every new shot
-adds information instead of showing another angle of the same productivity prop.
+HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage. Treat the hook
+as the first shot of a tiny visual sequence, not as an illustration of one noun from the narration:
+show an observable unresolved moment or visible consequence first; then make the next beat reveal a
+different action, environment, scale, or state that advances the same tension. The first body beat must
+not repeat the hook's dominant scene/action family. A deliberate family return is reserved for a later
+hook/payoff motif only when its state has visibly changed. Search wording should prioritize the concrete
+observable state/action; composition, grade and channel styling are enforced locally and must not bloat
+a stock query with generic cinematic adjectives.
+
+VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, paper, page, planner, sticky notes,
+checklist and writing belong to ONE stationery family; laptop/keyboard/typing to another;
+walking/movement to another. Do not place the same dominant action family in consecutive beats and
+normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
+when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
+completed, so every new shot adds information instead of showing another angle of the same productivity prop.
+For Short specifically, use 3-5 semantic visual beats total. Never invent extra cuts to reach a shot-count
+target; if three strong scenes carry the complete miniature story, keep three.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
