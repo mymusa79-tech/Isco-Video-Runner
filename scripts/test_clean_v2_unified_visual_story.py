@@ -232,6 +232,36 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     prompt,
                 )
 
+    def test_writer_binding_avoids_adjacent_repeated_action_family_without_provider_call(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = "hand writing in notebook at desk"
+        visual_story["beats"][1]["shot_intent"] = "person typing notes at keyboard"
+        planned["sections"][1]["visual_query_alt_en"] = "person walking through quiet hallway no face"
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"ثم يتغير المعنى في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+
+        self.assertIn("writing", bound["beats"][0]["shot_intent"])
+        self.assertIn("walking", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("typing", bound["beats"][1]["shot_intent"])
+        self.assertEqual(
+            bound["beats"][1]["stock_query_en"],
+            bound["beats"][1]["shot_intent"],
+        )
+
     def test_writer_overlay_copy_never_becomes_generated_image_text(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
         visual_story = dict(planned.pop("visual_story"))
