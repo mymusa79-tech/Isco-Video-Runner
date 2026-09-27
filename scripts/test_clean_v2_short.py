@@ -1194,7 +1194,7 @@ class ShortContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "status": "pass",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_gemini38_voice",
                         "voice_seconds_measured": 1.127,
                     }
                 ),
@@ -1493,7 +1493,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["status"], "pass")
-            self.assertEqual(report["timeline_owner"], "measured_charon_voice")
+            self.assertEqual(report["timeline_owner"], "measured_gemini38_voice")
             self.assertFalse(report["time_compression"])
             self.assertFalse(report["tts_regeneration_for_duration"])
             self.assertEqual(
@@ -1708,11 +1708,6 @@ class ShortPipelineSeamTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     media_module,
-                    "_legacy_voice_identity",
-                    return_value=("Charon", "Orus"),
-                ),
-                mock.patch.object(
-                    media_module,
                     "_gemini38_synthesize",
                     side_effect=fake_gemini38,
                 ),
@@ -1760,7 +1755,6 @@ class ShortPipelineSeamTests(unittest.TestCase):
             )
             transcript = "ابدأ بخطوة واحدة واضحة الآن."
             with (
-                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
                 mock.patch.object(media_module, "_gemini38_synthesize", side_effect=fake_synthesize),
             ):
                 result = synth.synthesize(
@@ -1782,7 +1776,6 @@ class ShortPipelineSeamTests(unittest.TestCase):
                 tts_model="gemini-3.8-flash-tts",
             )
             with (
-                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
                 mock.patch.object(
                     media_module,
                     "_gemini38_synthesize",
