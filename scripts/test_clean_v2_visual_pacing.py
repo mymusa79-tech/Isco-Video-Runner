@@ -105,8 +105,9 @@ class HookVisualStopPowerTests(unittest.TestCase):
         hook = media_module._hook_stock_retrieval_query(base, {"role": "hook"})
         body = media_module._hook_stock_retrieval_query(base, {"role": "body"})
         self.assertIn("close", hook)
-        self.assertIn("decisive", hook)
-        self.assertIn("contrast", hook)
+        self.assertIn("up", hook)
+        self.assertNotIn("decisive", hook)
+        self.assertNotIn("contrast", hook)
         self.assertEqual(body, base)
         self.assertLessEqual(len(hook), 260)
 
@@ -1460,8 +1461,8 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
     def test_wakeful_depth_reduces_ad_like_saturation_without_network(self) -> None:
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.92)
         self.assertGreater(media_module.MASTER_LOOK_CONTRAST, 1.035)
-        self.assertIn("saturation=0.965", media_module.CINEMATIC_FINISH_FILTER)
-        self.assertIn("brightness=-0.025", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("saturation=0.94", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("brightness=-0.032", media_module.CINEMATIC_FINISH_FILTER)
 
     def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
         fragment = media_module.CINEMATIC_FINISH_FILTER
