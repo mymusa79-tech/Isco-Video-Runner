@@ -42,6 +42,12 @@ CAPTION_SHADOW_X = 0
 CAPTION_SHADOW_Y = 0
 MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
+_PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+
+def _contains_prayer_text(value: object) -> bool:
+    compact = _clean(value)
+    return all(marker in compact for marker in _PRAYER_TEXT_MARKERS)
 
 # Planning/retrieval already owns scene composition and asks Short footage for
 # left/lower-left subject action with clean upper-right negative space. Keep the
@@ -117,11 +123,12 @@ def _sentences(text: object) -> list[str]:
     compact = _clean(text)
     if not compact:
         return []
-    return [
+    sentences = [
         item.strip()
         for item in re.split(r"(?<=[.!؟!])\s+", compact)
-        if item.strip()
-    ] or [compact]
+        if item.strip() and not _contains_prayer_text(item)
+    ]
+    return sentences
 
 
 def _phrase_chunks(text: object) -> list[str]:
@@ -311,7 +318,12 @@ def _visual_asset_text_events(
         section_id = str(row.get("section_id") or "").strip()
         beat_id = str(row.get("beat_id") or "").strip()
         display = _clean(row.get("display_text_ar"))
-        if not section_id or not beat_id or not display:
+        if (
+            not section_id
+            or not beat_id
+            or not display
+            or _contains_prayer_text(display)
+        ):
             continue
         by_section.setdefault(section_id, []).append(row)
 
