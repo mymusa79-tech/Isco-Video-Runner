@@ -765,6 +765,7 @@ class ShortContractTests(unittest.TestCase):
             self.assertNotIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen[provider])
             self.assertNotIn("MISTRAL_SHORT_S3_COMPLIANCE", seen[provider])
         self.assertIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen["mistral"])
+        self.assertIn("- No channel identity opener, dialogue labels, social CTA", seen["mistral"])
         self.assertIn("preferably 8-16 words", seen["mistral"])
         self.assertIn("split the first sentence on whitespace", seen["mistral"])
         self.assertIn("TARGET 12-16 words and NEVER more than 18", seen["mistral"])
