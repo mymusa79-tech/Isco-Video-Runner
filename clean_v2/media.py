@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import math
@@ -441,7 +442,7 @@ def _gemini38_synthesize(
     primary_voice: str,
     questioner_voice: str,
 ) -> Path:
-    """Call the Gemini 3.8 TTS Interactions API using its native WAV contract."""
+    """Call Gemini 3.8 TTS directly over REST; no SDK upgrade is required."""
     if model != GEMINI38_TTS_MODEL:
         raise RuntimeError(
             f"Clean V2 Gemini TTS model drift: expected={GEMINI38_TTS_MODEL} actual={model}"
@@ -449,14 +450,9 @@ def _gemini38_synthesize(
     if not api_key:
         raise RuntimeError("Clean V2 Gemini TTS requires GEMINI_API_KEY")
 
-    try:
-        from google import genai
-    except ImportError as exc:
-        raise RuntimeError("google-genai is not installed") from exc
-
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
-        content = []
+        content: list[dict[str, Any]] = []
         for speaker, spoken in turns:
             content.append(
                 {
@@ -497,21 +493,67 @@ def _gemini38_synthesize(
         ]
         speech_config = [{"voice": primary_voice}]
 
-    client = genai.Client(api_key=api_key)
-    interaction = client.interactions.create(
-        model=model,
-        input=[{"type": "user_input", "content": content}],
-        response_format={"type": "audio"},
-        generation_config={"speech_config": speech_config},
+    payload = {
+        "model": model,
+        "input": [{"type": "user_input", "content": content}],
+        "response_format": {"type": "audio"},
+        "generation_config": {"speech_config": speech_config},
+    }
+    request = urllib.request.Request(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+            "User-Agent": "Isco-Clean-V2/1",
+        },
     )
-    output_audio = getattr(interaction, "output_audio", None)
-    encoded = getattr(output_audio, "data", None)
-    if isinstance(encoded, bytes):
-        audio = encoded
-    elif isinstance(encoded, str) and encoded.strip():
-        audio = base64.b64decode(encoded)
-    else:
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            body = response.read((MAX_TTS_AUDIO_BYTES * 2) + 1024 * 1024)
+    except urllib.error.HTTPError as exc:
+        raise TtsProviderError(
+            f"gemini_3_8_http_{int(exc.code)}",
+            http_status=int(exc.code),
+            retry_after_seconds=_tts_retry_after_seconds(exc),
+        ) from None
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        raise TtsProviderError(
+            f"gemini_3_8_transport_{type(exc).__name__.lower()}"
+        ) from None
+
+    try:
+        decoded = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Gemini 3.8 TTS returned invalid JSON") from exc
+
+    encoded = ""
+    steps = decoded.get("steps") if isinstance(decoded, dict) else None
+    if isinstance(steps, list):
+        for step in reversed(steps):
+            if not isinstance(step, dict):
+                continue
+            blocks = step.get("content")
+            if not isinstance(blocks, list):
+                continue
+            for block in reversed(blocks):
+                if (
+                    isinstance(block, dict)
+                    and str(block.get("type") or "") == "audio"
+                    and isinstance(block.get("data"), str)
+                ):
+                    encoded = str(block["data"])
+                    break
+            if encoded:
+                break
+    if not encoded:
         raise RuntimeError("Gemini 3.8 TTS returned no audio payload")
+
+    try:
+        audio = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise RuntimeError("Gemini 3.8 TTS returned invalid base64 audio") from exc
 
     if len(audio) < 1024 or len(audio) > MAX_TTS_AUDIO_BYTES:
         raise RuntimeError("Gemini 3.8 TTS returned an invalid audio size")
