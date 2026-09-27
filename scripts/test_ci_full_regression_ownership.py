@@ -68,7 +68,7 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
             "Require protected exact-SHA production certification",
             "Restore encrypted cross-run memory",
             "Require healthy restored cross-run memory",
-            "Verify local voice fallback before cloud production",
+            "GEMINI_TTS_MODEL: gemini-3.8-flash-tts",
             "Verify production environment and release namespace",
             "Verify complete provider readiness",
             "Certify provider-portable planning envelope",
