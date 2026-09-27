@@ -1216,7 +1216,6 @@ def _ai_still_prompt(
     visual_world = str(visual_story.get("visual_world") or "").strip()[:320]
     motif = str(thread.get("visual_motif") or "").strip()[:180]
     viewer_intent = str(beat.get("viewer_intent") or "").strip()[:240]
-    writer_anchor = str(beat.get("writer_anchor_ar") or "").strip()[:320]
     meaning_target = str(beat.get("meaning_target") or viewer_intent).strip()[:240]
     must_have = ", ".join(str(item) for item in (beat.get("semantic_must_have") or []))[:240]
     should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
@@ -1244,8 +1243,7 @@ def _ai_still_prompt(
         f"Beat role: {role}. "
         f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
-        + (f"Writer-bound spoken anchor (Arabic): {writer_anchor}. " if writer_anchor else "")
-        + f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
+        f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
         f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
         "Lived-in foreground, midground and background depth, restrained deep navy/charcoal shadow world, "
