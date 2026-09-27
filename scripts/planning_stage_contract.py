@@ -220,10 +220,10 @@ OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER) * 2
 def _planning_provider_order() -> tuple[str, ...]:
     """Return the bounded planning provider order.
 
-    ISCO_GEMINI_AB_ONLY is a branch-local experiment seam used only by the isolated
+    ISCO_GEMINI_AB_GEMINI_ONLY is a branch-local experiment seam used only by the isolated
     Gemini 3.7 vs 3.8 benchmark. Production remains unchanged when the flag is absent.
     """
-    if str(os.environ.get("ISCO_GEMINI_AB_ONLY") or "").strip() == "1":
+    if str(os.environ.get("ISCO_GEMINI_AB_GEMINI_ONLY") or "").strip() == "1":
         return ("gemini",)
     if router._mistral_route_ready():
         return ("gemini", "groq", "mistral", "openrouter")
