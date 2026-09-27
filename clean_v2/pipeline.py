@@ -2575,6 +2575,15 @@ def _tone_repair_prompt(
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
+    shared_depth_repair_guidance = (
+        "- For Short, Film, and Podcast, when REVISION_NOTE contains content_depth:, repair depth locally "
+        "using only approved material. Replace generic motivational wording with the specific tension, "
+        "mechanism, consequence, distinction, or implication already present in the brief/plan/script; "
+        "make adjacent sections advance rather than paraphrase one another; and make the payoff depend on "
+        "the reasoning built before it. Do not add facts or expand scope. "
+        if "content_depth:" in revision_note.casefold()
+        else ""
+    )
     podcast_progression_repair_guidance = (
         "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
         "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
@@ -2618,6 +2627,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   Use as many of your patches as the listed flags require, up to the maximum below.
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
+{shared_depth_repair_guidance}
 {podcast_progression_repair_guidance}
 {nabra_safe_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
