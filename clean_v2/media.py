@@ -21,7 +21,6 @@ import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
-from xml.sax.saxutils import escape as xml_escape
 
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
@@ -47,28 +46,7 @@ GEMINI38_QUESTIONER_STYLE = (
     "calm rather than confrontational, with natural conversational timing."
 )
 
-# Deliberately light continuity direction for every Charon call. The pinned Engine
-# already supplies the full Arabic performance preamble; this only prevents each
-# separately synthesized unit from sounding like a fresh announcer pickup.
-CHARON_NATURAL_STYLE = (
-    " Keep this excerpt in the same calm conversational cadence as one continuous passage. "
-    "Do not reset into an announcer-like pickup at the start, over-emphasize the first word, "
-    "or manufacture dramatic pauses. Preserve the written punctuation naturally."
-)
-# Compatibility name used by focused Short tests/callers.
-SHORT_CHARON_STYLE = CHARON_NATURAL_STYLE
-
-AZURE_F0_VOICE = "ar-OM-AbdullahNeural"
-AZURE_F0_LOCALE = "ar-OM"
-AZURE_F0_OUTPUT_FORMAT = "riff-24khz-16bit-mono-pcm"
-_AZURE_REGION_RE = re.compile(r"^[a-z0-9]+$")
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
-VOICE_REFERENCE_PROFILE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "voice-profiles"
-    / "voice-reference-profile-v1.json"
-)
-VOICE_REFERENCE_PROFILE_VERSION = "channel-voice-roster-v1"
 
 # Visual-pacing bounds for splitting one section's own narration-weighted
 # estimated duration across several distinct same-query clips instead of one
@@ -128,179 +106,6 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def verify_voice_assets(model_path: Path, manifest_path: Path | None) -> None:
-    config_path = Path(str(model_path) + ".json")
-    for required in (model_path, config_path):
-        if not required.is_file() or required.stat().st_size < 1024:
-            raise RuntimeError(f"missing Piper voice asset: {required.name}")
-    if manifest_path is None:
-        return
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("cannot read Piper voice manifest") from exc
-    files = manifest.get("files") if isinstance(manifest, dict) else None
-    if not isinstance(files, dict):
-        raise RuntimeError("invalid Piper voice manifest")
-    for path in (model_path, config_path):
-        expected = files.get(path.name)
-        if not isinstance(expected, dict):
-            raise RuntimeError(f"Piper manifest is missing {path.name}")
-        expected_size = int(expected.get("size_bytes") or 0)
-        expected_hash = str(expected.get("sha256") or "")
-        if path.stat().st_size != expected_size or _sha256(path) != expected_hash:
-            raise RuntimeError(f"Piper asset identity mismatch: {path.name}")
-
-
-def _text_chunks(text: str, maximum: int = 520) -> list[str]:
-    sentences = [
-        item.strip()
-        for item in re.split(r"(?<=[.!؟?؛])\s+|\n+", text.strip())
-        if item.strip()
-    ]
-    chunks: list[str] = []
-    current = ""
-    for sentence in sentences:
-        pieces = [sentence[index : index + maximum] for index in range(0, len(sentence), maximum)]
-        for piece in pieces:
-            proposed = f"{current} {piece}".strip()
-            if current and len(proposed) > maximum:
-                chunks.append(current)
-                current = piece
-            else:
-                current = proposed
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-class PiperVoiceSynthesizer:
-    def __init__(self, model_path: Path, manifest_path: Path | None = None) -> None:
-        self.model_path = model_path
-        self.manifest_path = manifest_path
-
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
-        verify_voice_assets(self.model_path, self.manifest_path)
-        try:
-            from piper import PiperVoice
-        except ImportError as exc:
-            raise RuntimeError("piper-tts is not installed") from exc
-        chunks = _text_chunks(transcript)
-        if not chunks:
-            raise RuntimeError("cannot synthesize an empty transcript")
-        voice = PiperVoice.load(
-            str(self.model_path), config_path=str(self.model_path) + ".json"
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="clean-v2-piper-") as temporary:
-            chunk_paths: list[Path] = []
-            for index, chunk in enumerate(chunks, start=1):
-                chunk_path = Path(temporary) / f"{index:04d}.wav"
-                with wave.open(str(chunk_path), "wb") as handle:
-                    voice.synthesize_wav(chunk, handle)
-                chunk_paths.append(chunk_path)
-            params = None
-            with wave.open(str(output_path), "wb") as destination:
-                for chunk_path in chunk_paths:
-                    with wave.open(str(chunk_path), "rb") as source:
-                        if params is None:
-                            params = source.getparams()
-                            destination.setparams(params)
-                        elif (
-                            source.getnchannels(),
-                            source.getsampwidth(),
-                            source.getframerate(),
-                            source.getcomptype(),
-                        ) != (
-                            params.nchannels,
-                            params.sampwidth,
-                            params.framerate,
-                            params.comptype,
-                        ):
-                            raise RuntimeError("Piper chunks have incompatible WAV parameters")
-                        destination.writeframes(source.readframes(source.getnframes()))
-        if output_path.stat().st_size < 1024:
-            raise RuntimeError("Piper produced an empty narration file")
-        return output_path
-
-
-def _legacy_voice_identity() -> tuple[str, str]:
-    """Reuse the pinned Engine voice identity owner; do not duplicate its policy here."""
-    from isco_video_agent.providers.gemini import _voice_identity
-
-    return _voice_identity()
-
-
-def _remove_pinned_engine_tail_silence(
-    path: Path,
-    transcript: str,
-    *,
-    expected_seconds: float | None = None,
-) -> bool:
-    """Remove only the exact zero tail added by the pinned Engine pacing layer.
-
-    Gemini's own waveform and natural end-of-utterance timing remain untouched.
-    If the expected Engine tail is not all digital zero, fail soft and preserve
-    the synthesized file byte-for-byte.
-    """
-    try:
-        if expected_seconds is None:
-            from isco_video_agent.media.audio_pacing import section_tail_seconds
-            seconds = float(section_tail_seconds(transcript))
-        else:
-            seconds = float(expected_seconds)
-        if seconds <= 0:
-            return False
-        source = Path(path)
-        with wave.open(str(source), "rb") as wav:
-            params = wav.getparams()
-            total_frames = wav.getnframes()
-            trim_frames = int(round(params.framerate * seconds))
-            if trim_frames <= 0 or total_frames <= trim_frames:
-                return False
-            keep_frames = total_frames - trim_frames
-            wav.setpos(keep_frames)
-            expected_tail = wav.readframes(trim_frames)
-            if not expected_tail or any(expected_tail):
-                return False
-            wav.rewind()
-            kept = wav.readframes(keep_frames)
-
-        temp = source.with_name(source.name + ".charon-tail.tmp.wav")
-        with wave.open(str(temp), "wb") as wav:
-            wav.setparams(params)
-            wav.writeframes(kept)
-        temp.replace(source)
-        return True
-    except Exception:
-        return False
-
-
-def _legacy_gemini_synthesize(
-    api_key: str,
-    transcript: str,
-    output_path: Path,
-    *,
-    model: str,
-    voice: str,
-    style: str = "",
-) -> Path:
-    """Reuse pinned Gemini TTS once, without its extra post-provider zero tail."""
-    from isco_video_agent.providers.gemini import synthesize_wav
-
-    result = synthesize_wav(
-        api_key,
-        transcript,
-        output_path,
-        model=model,
-        voice=voice,
-        style=style,
-        attempts=1,
-    )
-    _remove_pinned_engine_tail_silence(Path(result), transcript)
-    return Path(result)
 
 
 def _tts_http_status(exc: BaseException) -> int | None:
@@ -579,46 +384,6 @@ def _gemini38_synthesize(
     return output_path
 
 
-def _assert_human_approved_voice_reference(
-    *,
-    tts_model: str,
-    primary_voice: str,
-    questioner_voice: str,
-) -> str:
-    """Fail closed if runtime voice identity drifts from the human-approved sample."""
-    try:
-        profile = json.loads(VOICE_REFERENCE_PROFILE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Clean V2 human-approved voice reference is unavailable") from exc
-    source = profile.get("source") if isinstance(profile, dict) else None
-    voices = profile.get("profiles") if isinstance(profile, dict) else None
-    primary = voices.get("primary") if isinstance(voices, dict) else None
-    questioner = voices.get("questioner") if isinstance(voices, dict) else None
-    expected = {
-        "profile_version": VOICE_REFERENCE_PROFILE_VERSION,
-        "mode": "human_approved_reference",
-        "tts_model": tts_model,
-        "primary_voice": primary_voice,
-        "questioner_voice": questioner_voice,
-        "human_approval": f"{primary_voice}=primary; {questioner_voice}=questioner",
-    }
-    actual = {
-        "profile_version": profile.get("profile_version") if isinstance(profile, dict) else None,
-        "mode": profile.get("mode") if isinstance(profile, dict) else None,
-        "tts_model": source.get("tts_model") if isinstance(source, dict) else None,
-        "primary_voice": primary.get("voice_name") if isinstance(primary, dict) else None,
-        "questioner_voice": (
-            questioner.get("voice_name") if isinstance(questioner, dict) else None
-        ),
-        "human_approval": (
-            source.get("human_approval") if isinstance(source, dict) else None
-        ),
-    }
-    if actual != expected:
-        raise RuntimeError("Clean V2 human-approved voice reference mismatch")
-    return VOICE_REFERENCE_PROFILE_VERSION
-
-
 class TtsProviderError(RuntimeError):
     def __init__(
         self,
@@ -634,131 +399,24 @@ class TtsProviderError(RuntimeError):
 
 
 class VoiceInfrastructureError(RuntimeError):
-    """Fail-loud terminal voice availability failure; never a content block."""
+    """Terminal Gemini 3.8 voice failure after bounded same-provider retries."""
 
     def __init__(
         self,
         *,
         charon_attempts: int,
         charon_reason: str,
-        secondary_reason: str,
-        piper_fallback_allowed: bool,
+        secondary_reason: str = "gemini_3_8_only_fail_closed_no_fallback",
     ) -> None:
         self.charon_attempts = int(charon_attempts)
         self.charon_reason = str(charon_reason or "unknown")
-        self.secondary_reason = str(secondary_reason or "unavailable")
-        self.piper_fallback_allowed = bool(piper_fallback_allowed)
+        self.secondary_reason = str(secondary_reason or "gemini_3_8_only_fail_closed_no_fallback")
+        self.fallback_used = False
         super().__init__(
             "CLEAN_V2_VOICE_INFRASTRUCTURE "
-            f"reason=charon_unavailable attempts={self.charon_attempts} "
-            f"charon_error={self.charon_reason} secondary={self.secondary_reason} "
-            f"piper_emergency_enabled={str(self.piper_fallback_allowed).lower()}"
+            f"reason=gemini_3_8_unavailable attempts={self.charon_attempts} "
+            f"error={self.charon_reason} fallback=false"
         )
-
-
-class AzureF0NeuralVoiceSynthesizer:
-    """Optional free-tier neural fallback; active only after explicit F0 confirmation."""
-
-    def __init__(
-        self,
-        api_key: str,
-        region: str,
-        *,
-        free_tier_confirmed: bool,
-        voice_approved: bool,
-        voice: str = AZURE_F0_VOICE,
-    ) -> None:
-        self.api_key = str(api_key or "").strip()
-        self.region = str(region or "").strip().lower()
-        self.free_tier_confirmed = bool(free_tier_confirmed)
-        self.voice_approved = bool(voice_approved)
-        self.voice = str(voice or "").strip() or AZURE_F0_VOICE
-
-    @property
-    def enabled(self) -> bool:
-        return bool(
-            self.api_key
-            and self.region
-            and self.free_tier_confirmed
-            and self.voice_approved
-        )
-
-    @property
-    def unavailable_reason(self) -> str:
-        if not self.api_key and not self.region:
-            return "azure_f0_not_configured"
-        if not self.api_key:
-            return "azure_f0_missing_key"
-        if not self.region:
-            return "azure_f0_missing_region"
-        if not self.free_tier_confirmed:
-            return "azure_f0_not_confirmed"
-        if not self.voice_approved:
-            return "azure_f0_voice_not_human_approved"
-        return "azure_f0_available"
-
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
-        if not self.enabled:
-            raise TtsProviderError(self.unavailable_reason)
-        if not _AZURE_REGION_RE.fullmatch(self.region):
-            raise TtsProviderError("azure_f0_invalid_region")
-        if re.search(r"(?m)^\s*[AB]:\s*\S", transcript):
-            raise TtsProviderError("azure_f0_dialogue_voice_contract_unsupported")
-
-        escaped = xml_escape(transcript.strip())
-        if not escaped:
-            raise TtsProviderError("azure_f0_empty_transcript")
-        ssml = (
-            f'<speak version="1.0" xml:lang="{AZURE_F0_LOCALE}">'
-            f'<voice name="{self.voice}">{escaped}</voice></speak>'
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            f"https://{self.region}.tts.speech.microsoft.com/cognitiveservices/v1",
-            data=ssml,
-            method="POST",
-            headers={
-                "Content-Type": "application/ssml+xml",
-                "Ocp-Apim-Subscription-Key": self.api_key,
-                "X-Microsoft-OutputFormat": AZURE_F0_OUTPUT_FORMAT,
-                "User-Agent": "Isco-Clean-V2/1",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                audio = response.read(MAX_TTS_AUDIO_BYTES + 1)
-        except urllib.error.HTTPError as exc:
-            status = int(exc.code)
-            raise TtsProviderError(
-                f"azure_f0_http_{status}",
-                http_status=status,
-                retry_after_seconds=_tts_retry_after_seconds(exc),
-            ) from None
-        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-            raise TtsProviderError(
-                f"azure_f0_transport_{type(exc).__name__.lower()}"
-            ) from None
-        if len(audio) > MAX_TTS_AUDIO_BYTES:
-            raise TtsProviderError("azure_f0_audio_too_large")
-        if len(audio) < 1024 or not audio.startswith(b"RIFF"):
-            raise TtsProviderError("azure_f0_invalid_audio")
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = output_path.with_name(f".{output_path.name}.azure-f0.tmp")
-        temporary.write_bytes(audio)
-        try:
-            with wave.open(str(temporary), "rb") as wav:
-                if (
-                    wav.getnchannels() != 1
-                    or wav.getsampwidth() != 2
-                    or wav.getframerate() != 24000
-                    or wav.getnframes() <= 0
-                ):
-                    raise TtsProviderError("azure_f0_unexpected_wav_format")
-            os.replace(temporary, output_path)
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            raise
-        return output_path
 
 
 class GeminiOnlyVoiceSynthesizer:
@@ -799,17 +457,8 @@ class GeminiOnlyVoiceSynthesizer:
                 f"expected={self.EXPECTED_TTS_MODEL} actual={self.tts_model}"
             )
 
-        primary_voice, questioner_voice = _legacy_voice_identity()
-        if primary_voice != self.EXPECTED_PRIMARY_VOICE:
-            raise RuntimeError(
-                "Clean V2 primary voice identity mismatch: "
-                f"expected={self.EXPECTED_PRIMARY_VOICE} actual={primary_voice}"
-            )
-        if questioner_voice != self.EXPECTED_QUESTIONER_VOICE:
-            raise RuntimeError(
-                "Clean V2 questioner voice identity mismatch: "
-                f"expected={self.EXPECTED_QUESTIONER_VOICE} actual={questioner_voice}"
-            )
+        primary_voice = self.EXPECTED_PRIMARY_VOICE
+        questioner_voice = self.EXPECTED_QUESTIONER_VOICE
 
         self.voice_roles = _spoken_voice_roles(transcript)
         self.last_provider = None
@@ -863,206 +512,6 @@ class GeminiOnlyVoiceSynthesizer:
         raise VoiceInfrastructureError(
             charon_attempts=self.charon_attempts,
             charon_reason=reason,
-            secondary_reason="gemini_3_8_only_fail_closed_no_fallback",
-            piper_fallback_allowed=False,
-        )
-
-
-class GeminiPrimaryPiperFallbackSynthesizer:
-    """Pinned Charon route with bounded retry, optional F0 neural fallback, and opt-in Piper."""
-
-    EXPECTED_PRIMARY_VOICE = "Charon"
-    EXPECTED_QUESTIONER_VOICE = "Orus"
-    EXPECTED_TTS_MODEL = "gemini-3.1-flash-tts-preview"
-
-    def __init__(
-        self,
-        api_key: str,
-        piper_model_path: Path,
-        manifest_path: Path | None = None,
-        *,
-        tts_model: str = "gemini-3.1-flash-tts-preview",
-        azure_api_key: str = "",
-        azure_region: str = "",
-        azure_free_tier_confirmed: bool = False,
-        azure_voice_approved: bool = False,
-        allow_piper_fallback: bool = False,
-    ) -> None:
-        self.api_key = str(api_key or "").strip()
-        self.tts_model = str(tts_model or "").strip() or "gemini-3.1-flash-tts-preview"
-        self.piper = PiperVoiceSynthesizer(piper_model_path, manifest_path)
-        self.azure = AzureF0NeuralVoiceSynthesizer(
-            azure_api_key,
-            azure_region,
-            free_tier_confirmed=azure_free_tier_confirmed,
-            voice_approved=azure_voice_approved,
-        )
-        self.allow_piper_fallback = bool(allow_piper_fallback)
-        self.last_provider: str | None = None
-        self.fallback_used: bool | None = None
-        self.charon_attempts = 0
-        self.voice_roles: dict[str, str] | None = None
-        self.voice_approval_status: str | None = None
-        self.voice_reference_profile: str | None = None
-
-    def _piper_fallback(self, transcript: str, output_path: Path) -> Path:
-        if _spoken_voice_roles(transcript).get("mode") == "dialogue_qa":
-            raise VoiceInfrastructureError(
-                charon_attempts=self.charon_attempts,
-                charon_reason="dialogue_cloud_voice_unavailable",
-                secondary_reason="piper_cannot_preserve_two_voice_dialogue",
-                piper_fallback_allowed=self.allow_piper_fallback,
-            )
-        result = self.piper.synthesize(transcript, output_path)
-        self.last_provider = f"piper-local:{self.piper.model_path.stem}"
-        self.fallback_used = True
-        self.voice_approval_status = "emergency_only_not_naturalness_approved"
-        self.voice_reference_profile = None
-        print(f"Clean V2 voice provider selected: {self.last_provider}")
-        return result
-
-    def synthesize(
-        self,
-        transcript: str,
-        output_path: Path,
-        *,
-        primary_only: bool = False,
-    ) -> Path:
-        if not transcript.strip():
-            raise RuntimeError("cannot synthesize an empty transcript")
-
-        primary_voice, questioner_voice = _legacy_voice_identity()
-        if primary_voice != self.EXPECTED_PRIMARY_VOICE:
-            raise RuntimeError(
-                "Clean V2 primary voice identity mismatch: "
-                f"expected={self.EXPECTED_PRIMARY_VOICE} actual={primary_voice}"
-            )
-        if questioner_voice != self.EXPECTED_QUESTIONER_VOICE:
-            raise RuntimeError(
-                "Clean V2 questioner voice identity mismatch: "
-                f"expected={self.EXPECTED_QUESTIONER_VOICE} actual={questioner_voice}"
-            )
-        self.voice_reference_profile = _assert_human_approved_voice_reference(
-            tts_model=self.tts_model,
-            primary_voice=primary_voice,
-            questioner_voice=questioner_voice,
-        )
-        self.voice_roles = _spoken_voice_roles(transcript)
-        print(
-            "Clean V2 voice role map: "
-            + " ".join(f"{key}={value}" for key, value in self.voice_roles.items())
-        )
-
-        self.last_provider = None
-        self.fallback_used = None
-        self.voice_approval_status = None
-        self.charon_attempts = 0
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        charon_error: BaseException | None = None
-
-        if self.api_key:
-            for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
-                self.charon_attempts = attempt
-                try:
-                    _legacy_gemini_synthesize(
-                        self.api_key,
-                        transcript,
-                        output_path,
-                        model=self.tts_model,
-                        voice=primary_voice,
-                        style=CHARON_NATURAL_STYLE,
-                    )
-                    if not output_path.is_file() or output_path.stat().st_size < 1024:
-                        raise RuntimeError("Gemini TTS produced an empty narration file")
-                    self.last_provider = f"gemini:{primary_voice}"
-                    self.fallback_used = False
-                    self.voice_approval_status = "human_approved_reference"
-                    print(
-                        f"Clean V2 voice provider selected: {self.last_provider} "
-                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
-                    )
-                    return output_path
-                except Exception as exc:
-                    charon_error = exc
-                    output_path.unlink(missing_ok=True)
-                    print(
-                        "Clean V2 Charon attempt failed: "
-                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
-                        f"error_type={type(exc).__name__} "
-                        f"detail={_tts_exception_detail(exc)}"
-                    )
-                    if attempt >= CHARON_MAX_ATTEMPTS:
-                        break
-                    delay = _charon_retry_delay(exc, attempt - 1)
-                    if delay is None:
-                        print(
-                            "Clean V2 Charon retry stopped by permanent/long-window evidence: "
-                            f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
-                        )
-                        break
-                    print(
-                        "Clean V2 Charon retry scheduled: "
-                        f"next_attempt={attempt + 1}/{CHARON_MAX_ATTEMPTS} "
-                        f"delay_seconds={delay:g}"
-                    )
-                    time.sleep(delay)
-        else:
-            print("Clean V2 Charon unavailable: missing_api_key")
-
-        charon_reason = _tts_failure_reason(charon_error, missing="missing_api_key")
-        if primary_only:
-            raise VoiceInfrastructureError(
-                charon_attempts=self.charon_attempts,
-                charon_reason=charon_reason,
-                secondary_reason="primary_only_contract_no_fallback",
-                piper_fallback_allowed=False,
-            )
-
-        secondary_reason = self.azure.unavailable_reason
-        if self.azure.enabled:
-            try:
-                result = self.azure.synthesize(transcript, output_path)
-                self.last_provider = f"azure-f0:{self.azure.voice}"
-                self.fallback_used = True
-                self.voice_approval_status = "human_approved_fallback"
-                self.voice_reference_profile = f"azure-f0:{self.azure.voice}"
-                print(f"Clean V2 voice provider selected: {self.last_provider}")
-                return result
-            except Exception as exc:
-                output_path.unlink(missing_ok=True)
-                secondary_reason = str(getattr(exc, "reason", type(exc).__name__))[:120]
-                print(
-                    "Clean V2 Azure F0 neural fallback failed: "
-                    f"error_type={type(exc).__name__} "
-                    f"detail={_tts_exception_detail(exc)}"
-                )
-        else:
-            print(f"Clean V2 Azure F0 neural fallback unavailable: {secondary_reason}")
-
-        if self.allow_piper_fallback:
-            print(
-                "Clean V2 emergency Piper fallback explicitly enabled after cloud voice exhaustion"
-            )
-            try:
-                return self._piper_fallback(transcript, output_path)
-            except VoiceInfrastructureError:
-                raise
-            except Exception as exc:
-                piper_reason = _tts_failure_reason(
-                    exc, missing="piper_unavailable"
-                )
-                raise VoiceInfrastructureError(
-                    charon_attempts=self.charon_attempts,
-                    charon_reason=charon_reason,
-                    secondary_reason=f"{secondary_reason};piper_{piper_reason}"[:120],
-                    piper_fallback_allowed=self.allow_piper_fallback,
-                ) from None
-
-        raise VoiceInfrastructureError(
-            charon_attempts=self.charon_attempts,
-            charon_reason=charon_reason,
-            secondary_reason=secondary_reason,
-            piper_fallback_allowed=self.allow_piper_fallback,
         )
 
 
