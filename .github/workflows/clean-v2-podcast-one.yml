@@ -174,7 +174,7 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
-          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "nabra:af_msa"
+          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "gemini:Charon"\n          test "$(jq -r .voice_fallback_used "$CLEAN_V2_OUTPUT/run-manifest.json")" = "false"
 
       - name: Upload Podcast evidence and final file
         if: always()
