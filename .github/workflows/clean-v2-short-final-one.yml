@@ -25,7 +25,7 @@ jobs:
     env:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
-      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GEMINI_TTS_MODEL: gemini-3.8-flash-tts
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
@@ -175,7 +175,7 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
           case "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" in
-            "gemini:Charon"|"nabra:af_msa") ;;
+            "gemini-3.8:Charon") ;;
             *) echo "Unexpected Clean V2 voice provider" >&2; exit 1 ;;
           esac
 
@@ -188,7 +188,7 @@ jobs:
           awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d > 0 && d <= 120) }"
           awk "BEGIN { x=$(jq -r .duration_delta_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); if (x < 0) x=-x; exit !(x <= 0.08) }"
           case "$(jq -r .timeline_owner "$CLEAN_V2_OUTPUT/timeline-first.json")" in
-            "measured_charon_voice"|"measured_nabra_voice") ;;
+            "measured_charon_voice") ;;
             *) echo "Unexpected Short timeline owner" >&2; exit 1 ;;
           esac
           test "$(jq -r .final_composition_review_performed "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "true"
