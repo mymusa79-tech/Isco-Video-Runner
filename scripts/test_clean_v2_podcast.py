@@ -295,7 +295,7 @@ class PodcastTelegramTests(unittest.TestCase):
 
 
 class PodcastVisualIdentityTests(unittest.TestCase):
-    def test_sparse_key_text_uses_approved_3d_style_at_most_three_times(self) -> None:
+    def test_sparse_key_text_uses_approved_cairo_bold_style_at_most_three_times(self) -> None:
         script = {
             "sections": [
                 {"id": "s1", "narration": "أحيانًا نعرف الضرر ونعود إليه. هذه بداية السؤال."},
@@ -320,9 +320,11 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertEqual([item["role"] for item in events], ["hook", "turn", "payoff"])
         ass = build_podcast_key_text_ass(events)
         self.assertIn("PlayResX: 1920", ass)
-        self.assertIn("Style: Shadow", ass)
-        self.assertIn("Style: Extrusion", ass)
-        self.assertIn("&H005BA8D7", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn("&H00EEF2F4", ass)
+        self.assertNotIn("Style: Shadow", ass)
+        self.assertNotIn("Style: Extrusion", ass)
+        self.assertNotIn("&H005BA8D7", ass)
         self.assertNotIn("drawbox", ass)
 
     def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:

@@ -56,8 +56,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Title,Noto Sans Arabic,96,&H005BA8D7,&H005BA8D7,&H00111820,&H00000000,-1,0,0,0,100,100,0,0,1,3,2,5,60,60,0,1
-Style: Sub,Noto Sans Arabic,38,&H00F2F2F2,&H00F2F2F2,&H00111820,&H00000000,0,0,0,0,100,100,0,0,1,2,1,5,60,60,0,1
+Style: Title,Cairo,96,&H005BA8D7,&H005BA8D7,&H00111820,&H00000000,-1,0,0,0,100,100,0,0,1,3,2,5,60,60,0,1
+Style: Sub,Cairo,38,&H00F2F2F2,&H00F2F2F2,&H00111820,&H00000000,0,0,0,0,100,100,0,0,1,2,1,5,60,60,0,1
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text

@@ -43,30 +43,31 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 6.0, "end": 9.0, "text": "الخطوة الصغيرة تصنع الفرق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertNotIn(r"\bord5", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events))
+        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn(text_module.PRIMARY_ASS, ass)
+        self.assertIn(r"\fad(140,200)", ass)
+        self.assertNotIn("Style: Shadow", ass)
+        self.assertNotIn("Style: Extrusion", ass)
+        self.assertNotIn(r"\clip(", ass)
+        self.assertNotIn(r"\t(0,", ass)
 
-    def test_continuous_gold_wipe_moves_from_right_to_left_without_word_steps(self) -> None:
-        tag = text_module._rtl_gold_wipe_tag(
-            x=540,
-            y=1400,
-            duration_seconds=4.0,
-        )
-        self.assertIn(r"\clip(1040,1100,1040,1700)", tag)
-        self.assertIn(r"\t(0,4000,\clip(40,1100,1040,1700))", tag)
-        self.assertNotIn(r"\kf", tag)
-
+    def test_short_caption_is_static_cairo_bold_without_gold_wipe(self) -> None:
         events = [
             {"start": 0.0, "end": 4.0, "text": "أمسكت بالقلم فوق الصفحة الفارغة", "role": "hook"},
             {"start": 4.0, "end": 8.0, "text": "ثم بدأت الفكرة تتغير أمامي", "role": "beat"},
             {"start": 8.0, "end": 12.0, "text": "الخطوة الصغيرة فتحت الطريق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertNotIn(r"\kf", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
         self.assertIn("أمسكت", ass)
         self.assertIn("الفارغة", ass)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
+        self.assertEqual(ass.count("Dialogue:"), len(events))
+        self.assertNotIn(r"\kf", ass)
+        self.assertNotIn(r"\clip(", ass)
+        self.assertNotIn(r"\t(0,", ass)
+        self.assertNotIn("Style: Extrusion", ass)
+        self.assertNotIn("Style: Shadow", ass)
 
     def test_short_visual_text_uses_same_beat_metadata_as_selected_images(self) -> None:
         timeline = {
@@ -138,33 +139,13 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in podcast_events))
         self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in film_events))
 
-    def test_short_karaoke_sweep_tracks_phrase_locally_without_provider_alignment(self) -> None:
+    def test_short_renderer_disables_karaoke_and_keeps_voice_owned_event_timing(self) -> None:
         item = text_module.TimedTextEvent(
             start=1.0,
             end=5.0,
             text="ابدأ بخطوة صغيرة ثم واصل بهدوء",
             role="hook",
         )
-        windows = text_module._word_highlight_windows(item)
-        centiseconds = text_module._karaoke_centiseconds(item)
-        words = item.text.split()
-
-        self.assertEqual(len(windows), len(words))
-        self.assertEqual(len(centiseconds), len(words))
-        self.assertEqual(sum(centiseconds), 400)
-        self.assertTrue(all(value >= 1 for value in centiseconds))
-
-        face = text_module._karaoke_caption(
-            item,
-            body_size=108,
-            focus_size=132,
-        )
-        self.assertEqual(face.count(r"\kf"), len(words))
-        self.assertIn(text_module.ACCENT_ASS, face)
-        self.assertIn(text_module.PRIMARY_ASS, face)
-        for word in words:
-            self.assertIn(word, face)
-
         events = [
             {"start": 0.0, "end": 4.0, "text": item.text, "role": "hook"},
             {"start": 4.0, "end": 8.0, "text": "الفكرة تصبح أوضح عندما تبدأ فعلا", "role": "beat"},
@@ -172,11 +153,11 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         ]
         ass = text_module.build_rich_ass(events)
         self.assertNotIn(r"\kf", ass)
-        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertNotIn(r"\clip(", ass)
+        self.assertNotIn(r"\t(0,", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events))
+        self.assertIn("Cairo", ass)
         self.assertIn(text_module.PRIMARY_ASS, ass)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
-        self.assertIn(r"\clip(", ass)
-        self.assertIn(r"\t(0,", ass)
         self.assertNotIn("\u202B", ass)
 
     def test_film_key_text_is_sparse_complete_and_breathes(self) -> None:
@@ -218,7 +199,9 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         ass = build_sparse_ass(events, fmt="film")
         self.assertIn("PlayResX: 1920", ass)
         self.assertIn(text_module.PRIMARY_ASS, ass)
-        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertNotIn("Style: Shadow", ass)
+        self.assertNotIn("Style: Extrusion", ass)
 
     def test_cta_does_not_repeat_writing_action(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -265,6 +248,8 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             )
             self.assertNotEqual(revised[0].mode, "comment")
             self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
+            self.assertGreater(revised[0].x, 540)
+            self.assertLess(revised[0].y, text_module.CAPTION_Y)
             self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
 

@@ -11,35 +11,35 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 10
-RICH_RENDERER_VERSION = "clean-v2-short-arabic-continuous-rtl-gold-wipe-v10"
+SCHEMA_VERSION = 11
+RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-v11"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Approved Tracked 3D Lite: preserve the existing voice-owned phrase/word timing,
-# while giving the Arabic face a warm-gold focus, crisp edge, shallow extrusion
-# and a separate soft shadow. No text box and no extra provider/model call.
-ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm channel gold
-PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
+# Approved Caption Lite: Cairo Bold, large readable Arabic, warm off-white face,
+# crisp black outline, no gold sweep, no extrusion and no shadow. Timing stays
+# voice-owned and the only motion is a short fade at the event boundaries.
+PRIMARY_ASS = "&H00EEF2F4"  # RGB #F4F2EE warm off-white
+ACCENT_ASS = PRIMARY_ASS  # compatibility alias; accent rendering is disabled
 OUTLINE_ASS = "&H00000000"  # opaque black
-EXTRUSION_ASS = "&H00231A12"  # dark warm side face
-SHADOW_ASS = "&HA8000000"  # soft transparent black
-BODY_FONT = "Noto Sans Arabic"
+EXTRUSION_ASS = OUTLINE_ASS  # compatibility alias; extrusion rendering is disabled
+SHADOW_ASS = OUTLINE_ASS  # compatibility alias; shadow rendering is disabled
+BODY_FONT = "Cairo"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 124
-FOCUS_FONT_SIZE = 176
-FOCUS_SCALE = 1.20
+BODY_FONT_SIZE = 168
+FOCUS_FONT_SIZE = 168
+FOCUS_SCALE = 1.00
 BODY_WRAP_WORDS = 5
-ARABIC_WORD_GAP = "\u2009\u2009"
+ARABIC_WORD_GAP = " "  # Cairo handles natural Arabic spacing; avoid stretched thin-space gaps
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
 CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
-CAPTION_EXTRUDE_X = 2
-CAPTION_EXTRUDE_Y = 3
-CAPTION_SHADOW_X = 4
-CAPTION_SHADOW_Y = 5
+CAPTION_EXTRUDE_X = 0
+CAPTION_EXTRUDE_Y = 0
+CAPTION_SHADOW_X = 0
+CAPTION_SHADOW_Y = 0
 MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
@@ -55,9 +55,9 @@ SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
 COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
-    "hook": 150,
-    "beat": 128,
-    "payoff": 140,
+    "hook": 192,
+    "beat": 174,
+    "payoff": 184,
 }
 
 _SECRET_ENV_NAMES = {
@@ -716,16 +716,16 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
     words = len(_clean(item.text).split())
     size = ROLE_BASE_FONT_SIZE[item.role]
     if words <= 2:
-        size += 8
+        size += 6
     elif words >= 9:
-        size -= 16
+        size -= 18
     elif words >= 5:
         size -= 8
     if len(_clean(item.text)) >= 46:
-        size -= 6
+        size -= 8
     elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(112, min(158, size))
+    return max(150, min(202, size))
 
 
 def build_composition_hints(
@@ -777,9 +777,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Shadow,{BODY_FONT},{BODY_FONT_SIZE},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,70,70,0,1",
-        f"Style: Extrusion,{BODY_FONT},{BODY_FONT_SIZE},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,70,70,0,1",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{ACCENT_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -791,56 +789,13 @@ def build_rich_ass(
         x = int(hint.get("x") or CAPTION_X)
         y = int(hint.get("y") or CAPTION_Y)
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
-        focus_size = max(
-            font_size + 18,
-            min(188, int(round(font_size * FOCUS_SCALE))),
-        )
-        white_face = _hierarchy_caption(
-            item.text,
-            body_size=font_size,
-            focus_size=focus_size,
-            color=PRIMARY_ASS,
-        )
-        gold_face = _hierarchy_caption(
-            item.text,
-            body_size=font_size,
-            focus_size=focus_size,
-            color=ACCENT_ASS,
-        )
         start = _ass_time(item.start)
         end = _ass_time(item.end)
-        motion = r"\fad(150,200)\fscx99\fscy99\t(0,140,\fscx100\fscy100)"
-        wipe = _rtl_gold_wipe_tag(
-            x=x,
-            y=y,
-            duration_seconds=item.end - item.start,
-        )
-        shadow_tag = (
-            rf"\an5\pos({x + CAPTION_SHADOW_X},{y + CAPTION_SHADOW_Y})"
-            + rf"\fs{font_size}"
-            + motion
-        )
-        extrusion_tag = (
-            rf"\an5\pos({x + CAPTION_EXTRUDE_X},{y + CAPTION_EXTRUDE_Y})"
-            + rf"\fs{font_size}"
-            + motion
-        )
+        motion = r"\fad(140,200)"
         face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + motion
         lines.append(
-            f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,"
-            f"{{{shadow_tag}}}{plain}"
-        )
-        lines.append(
-            f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,"
-            f"{{{extrusion_tag}}}{plain}"
-        )
-        lines.append(
-            f"Dialogue: 2,{start},{end},Caption,,0,0,0,,"
-            f"{{{face_tag}\\c{PRIMARY_ASS}}}{white_face}"
-        )
-        lines.append(
-            f"Dialogue: 3,{start},{end},Caption,,0,0,0,,"
-            f"{{{face_tag}{wipe}\\c{ACCENT_ASS}}}{gold_face}"
+            f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
+            f"{{{face_tag}\\c{PRIMARY_ASS}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -901,7 +856,7 @@ def render_progressive_text(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_karaoke_3d_lite",
+        "renderer": "ffmpeg_libass_cairo_bold_static",
         "renderer_version": RICH_RENDERER_VERSION,
         "status": "pass",
         "srt": str(srt),
@@ -912,8 +867,9 @@ def render_progressive_text(
         "dark_slate_index": None,
         "dark_slate_hook_forbidden": True,
         "max_dark_slates": MAX_DARK_SLATES,
-        "accent_rgb": "#D7A85B",
-        "body_rgb": "#FFFFFF",
+        "accent_rgb": None,
+        "accent_enabled": False,
+        "body_rgb": "#F4F2EE",
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
@@ -934,21 +890,23 @@ def render_progressive_text(
             "y_max": SAFE_Y_MAX,
         },
         "composition_layouts": layout_hints,
-        "depth_layers": 3,
+        "depth_layers": 1,
         "black_text_box": False,
-        "extrusion_offset": [CAPTION_EXTRUDE_X, CAPTION_EXTRUDE_Y],
-        "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
+        "font_weight": "bold",
+        "outline_px": 4,
+        "extrusion_offset": [0, 0],
+        "shadow_offset": [0, 0],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "continuous_full_phrase_rtl_clip_wipe",
+        "word_highlight_timing": "none",
         "word_highlight_count": 0,
-        "karaoke_mode": "continuous_rtl_white_to_gold_clip_wipe_no_word_steps",
+        "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
         "text_source_policy": "visual_beat_display_text_ar_when_available_else_verbatim_final_script",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
-        "caption_motion": "full_phrase_rtl_fade_150_200ms_scale_99_to_100_plus_continuous_right_to_left_gold_wipe",
-        "shadow_policy": "soft_offset_4x5_outline3_extrude2x3_same_two_row_silhouette_no_black_box",
+        "caption_motion": "static_phrase_fade_140_200ms",
+        "shadow_policy": "black_outline4_no_shadow_no_extrusion_no_black_box",
     }
 
 

@@ -1,4 +1,4 @@
-name: Clean V2 Short Final One-Shot
+name: Clean V2 Podcast One-Shot
 
 on:
   workflow_dispatch:
@@ -6,22 +6,20 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: clean-v2-short-final-one-${{ github.run_id }}
+  group: clean-v2-podcast-one-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
-  final-one-shot:
-    permissions:
-      contents: write
+  podcast-one:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.actor == github.repository_owner &&
-       github.event.comment.body == '/clean-v2-short-final-one')
+       github.event.comment.body == '/clean-v2-podcast-one')
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
@@ -33,7 +31,7 @@ jobs:
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
       CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
-      CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-short-final-one
+      CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-podcast-one
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
     steps:
@@ -98,24 +96,26 @@ jobs:
             -o scripts/arabic_g2p.py
           test -s scripts/arabic_g2p.py
 
-      - name: Build immutable Short final brief
+      - name: Build immutable Podcast brief
         run: |
           set -euo pipefail
-          brief="$RUNNER_TEMP/clean-v2-short-final-brief.json"
+          brief="$RUNNER_TEMP/clean-v2-podcast-one-brief.json"
           cat > "$brief" <<'JSON'
           {
             "approved_by_user": true,
-            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
-            "format": "short",
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "series_name": "خارج النص",
             "language": "ar",
             "audience": "Arabic-speaking adults",
-            "editorial_intent": "نبرة هادئة وعملية وطبيعية؛ فكرة واحدة مكتملة، دون تشاؤم أو مبالغة.",
+            "editorial_intent": "بودكاست عربي بسيط وعميق، راوية أنثوية محايدة، سؤال مركزي واحد يتقدم منطقيًا دون حشو أو مبالغة.",
             "research_pack": [],
             "hard_constraints": [
               "No fabricated facts.",
-              "One natural Arabic narrator only.",
-              "No social CTA.",
-              "Complete Short follows the natural mastered voice duration; no editorial duration target."
+              "Use the approved podcast voice route.",
+              "Audio alone must carry the full meaning.",
+              "Sparse visuals only; no visual dependency for comprehension.",
+              "No paid provider or paid fallback."
             ]
           }
           JSON
@@ -124,15 +124,14 @@ jobs:
           from pathlib import Path
           from clean_v2.contracts import compute_brief_sha256
           path = Path(os.environ["BRIEF"])
-          brief = json.loads(path.read_text(encoding="utf-8"))
-          print(compute_brief_sha256(brief))
+          print(compute_brief_sha256(json.loads(path.read_text(encoding="utf-8"))))
           PY
           )"
-          echo "CLEAN_V2_SHORT_BRIEF=$brief" >> "$GITHUB_ENV"
+          echo "CLEAN_V2_PODCAST_BRIEF=$brief" >> "$GITHUB_ENV"
           echo "ISCO_APPROVED_BRIEF_SHA256=$sha" >> "$GITHUB_ENV"
           test "${#sha}" = 64
 
-      - name: Run one final cold Short
+      - name: Produce one Podcast
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -142,13 +141,12 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-clean-v2-short-final-vision-quota-v1.json
+          CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-clean-v2-vision-quota-v1.json
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           set -euo pipefail
-          rm -rf "$CLEAN_V2_OUTPUT"
-          python scripts/telegram_clean_v2_notify.py watch --output "$CLEAN_V2_OUTPUT" --kind short --poll-seconds 4 &
+          python scripts/telegram_clean_v2_notify.py watch --output "$CLEAN_V2_OUTPUT" --kind podcast --poll-seconds 4 &
           notify_pid=$!
           cleanup_notify() {
             kill "$notify_pid" 2>/dev/null || true
@@ -157,11 +155,11 @@ jobs:
           trap cleanup_notify EXIT
           set +e
           python -m clean_v2 \
-            --brief "$CLEAN_V2_SHORT_BRIEF" \
+            --brief "$CLEAN_V2_PODCAST_BRIEF" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
             --runner-sha "$GITHUB_SHA" \
-            --max-visuals 5 \
+            --max-visuals 4 \
             --output "$CLEAN_V2_OUTPUT"
           production_status=$?
           set -e
@@ -169,93 +167,25 @@ jobs:
           trap - EXIT
           exit "$production_status"
 
-      - name: Verify final Short contract and polish evidence
+      - name: Require complete Podcast final
         run: |
           set -euo pipefail
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
-          case "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" in
-            "gemini:Charon"|"nabra:af_msa") ;;
-            *) echo "Unexpected Clean V2 voice provider" >&2; exit 1 ;;
-          esac
-
-          test "$(jq -r .format "$CLEAN_V2_OUTPUT/short-contract.json")" = "short"
-          test "$(jq -r .section_count "$CLEAN_V2_OUTPUT/short-contract.json")" = "3"
-          test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-pre-visual.json")" = "pass"
-          test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
-          test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
-          test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d > 0 && d <= 120) }"
-          awk "BEGIN { x=$(jq -r .duration_delta_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); if (x < 0) x=-x; exit !(x <= 0.08) }"
-          case "$(jq -r .timeline_owner "$CLEAN_V2_OUTPUT/timeline-first.json")" in
-            "measured_charon_voice"|"measured_nabra_voice") ;;
-            *) echo "Unexpected Short timeline owner" >&2; exit 1 ;;
-          esac
-          test "$(jq -r .final_composition_review_performed "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "true"
-
-          test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
-          test "$(jq -r .mode "$CLEAN_V2_OUTPUT/cta-plan.json")" = "none"
-          test -s "$CLEAN_V2_OUTPUT/visual-cta.json"
-          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/visual-cta.json")" = "0"
-          test "$(jq -r .event_count "$CLEAN_V2_OUTPUT/visual-cta.json")" -le 2
-          test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
-          test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
+          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "nabra:af_msa"
 
-          test -s "$CLEAN_V2_OUTPUT/short-timed-text.json"
-          test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-timed-text.json")" = "pass"
-          test "$(jq -r .provider_calls "$CLEAN_V2_OUTPUT/short-timed-text.json")" = "0"
-          test "$(jq -r .dark_slate_count "$CLEAN_V2_OUTPUT/short-timed-text.json")" -le 1
-
-          test -s "$CLEAN_V2_OUTPUT/short-audio-polish.json"
-          case "$(jq -r .status "$CLEAN_V2_OUTPUT/short-audio-polish.json")" in
-            pass|skipped_fail_safe) ;;
-            *) echo "Unexpected Short audio polish status" >&2; exit 1 ;;
-          esac
-          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/short-audio-polish.json")" = "0"
-          test "$(jq -r .narration_mastering_untouched "$CLEAN_V2_OUTPUT/short-audio-polish.json")" = "true"
-
-      - name: Write final one-shot result
-        if: success()
-        run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          root = Path(os.environ["CLEAN_V2_OUTPUT"])
-          final_gate = json.loads((root / "short-duration-final.json").read_text(encoding="utf-8"))
-          manifest = json.loads((root / "run-manifest.json").read_text(encoding="utf-8"))
-          timed = json.loads((root / "short-timed-text.json").read_text(encoding="utf-8"))
-          polish = json.loads((root / "short-audio-polish.json").read_text(encoding="utf-8"))
-          result = {
-              "status": "pass",
-              "runner_sha": os.environ.get("GITHUB_SHA"),
-              "engine_sha": os.environ.get("ISCO_ENGINE_SHA"),
-              "topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
-              "duration_seconds": final_gate.get("duration_seconds"),
-              "voice_provider": manifest.get("voice_provider"),
-              "timed_text_status": timed.get("status"),
-              "dark_slate_count": timed.get("dark_slate_count"),
-              "audio_polish_status": polish.get("status"),
-              "audio_components": polish.get("components"),
-              "cold_attempt": True,
-              "resume_used": False
-          }
-          (root / "final-one-shot-result.json").write_text(
-              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          print(json.dumps(result, ensure_ascii=False))
-          PY
-
-      - name: Upload final Short evidence
+      - name: Upload Podcast evidence and final file
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: clean-v2-short-final-one-${{ github.run_number }}
+          name: clean-v2-podcast-one-${{ github.run_number }}-${{ github.run_attempt }}
           path: ${{ env.CLEAN_V2_OUTPUT }}
           if-no-files-found: warn
           retention-days: 7
-      - name: Deliver final video through unified GitHub Release
+
+      - name: Deliver Podcast through unified GitHub Release
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -264,8 +194,8 @@ jobs:
         run: |
           python scripts/clean_v2_release_delivery.py deliver \
             --output-root "$CLEAN_V2_OUTPUT" \
-            --scope short \
-            --delivery-key "short-final-one"
+            --scope podcast \
+            --delivery-key "podcast-one"
 
       - name: Notify Telegram terminal result
         if: always()
@@ -277,6 +207,6 @@ jobs:
         run: |
           python scripts/telegram_clean_v2_notify.py terminal \
             --output "$CLEAN_V2_OUTPUT" \
-            --kind short \
+            --kind podcast \
             --job-status "$CLEAN_V2_JOB_STATUS" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
