@@ -210,6 +210,10 @@ def apply_topic_audio_polish(
         )
         if track_path is None:
             raise RuntimeError("verified_music_track_unavailable")
+        if not bool(library_report.get("selected_instrumental_only")):
+            raise RuntimeError("music_track_not_instrumental_only_allowlist")
+        if not bool(library_report.get("selected_dialogue_bed")):
+            raise RuntimeError("music_track_not_dialogue_bed")
 
         raw_bed = temp_dir / "music-window-raw.wav"
         adjusted = temp_dir / "music-window.wav"
@@ -271,6 +275,8 @@ def apply_topic_audio_polish(
         "music_during_outro": False,
         "music_during_final_silence": False,
         "generated_music": False,
+        "instrumental_only_required": True,
+        "dialogue_bed_required": True,
         "generated_sfx": False,
         "components": {"music": component},
         "library": library_report,
