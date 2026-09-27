@@ -415,18 +415,31 @@ def _synthesize_sectioned_voice(
                     if chunk_role in {"hook", "topic", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = "inner_dialogue"
                 if require_charon_only:
-                    voice_synthesizer.synthesize(
-                        chunk_text,
-                        chunk_path,
-                        primary_only=True,
-                        performance_mode=effective_performance_mode,
-                    )
+                    if effective_performance_mode:
+                        voice_synthesizer.synthesize(
+                            chunk_text,
+                            chunk_path,
+                            primary_only=True,
+                            performance_mode=effective_performance_mode,
+                        )
+                    else:
+                        voice_synthesizer.synthesize(
+                            chunk_text,
+                            chunk_path,
+                            primary_only=True,
+                        )
                 else:
-                    voice_synthesizer.synthesize(
-                        chunk_text,
-                        chunk_path,
-                        performance_mode=effective_performance_mode,
-                    )
+                    if effective_performance_mode:
+                        voice_synthesizer.synthesize(
+                            chunk_text,
+                            chunk_path,
+                            performance_mode=effective_performance_mode,
+                        )
+                    else:
+                        voice_synthesizer.synthesize(
+                            chunk_text,
+                            chunk_path,
+                        )
             except Exception:
                 atomic_write_json(
                     report_path,
