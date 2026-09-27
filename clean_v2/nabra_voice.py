@@ -277,10 +277,10 @@ class NabraVoiceSynthesizer:
         Short narration normally fits in one Kokoro inference. Long film/podcast
         narration is packed into the fewest possible <=500-character phoneme
         batches, split only at safe punctuation/whitespace boundaries. When more
-        than one pass is technically unavoidable, mask the model reset with a tiny
-        120 ms breath at the safe boundary and 8 ms edge fades. There are no
-        sentence-level fades, no tempo/pitch processing, and only one global onset
-        fade for the complete narration.
+        than one pass is technically unavoidable, join the model reset with a tiny
+        18 ms waveform crossfade at a safe boundary and no artificial batch silence.
+        There are no sentence-level fades, no tempo/pitch processing, and only one
+        global onset fade for the complete narration.
         """
         normalized = self._normalize_parts(parts)
         pipeline, voice, torch, model = self._load()
