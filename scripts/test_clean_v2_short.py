@@ -27,7 +27,6 @@ from clean_v2 import media as media_module
 from clean_v2 import ai_still as ai_still_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
-    GeminiPrimaryNabraFallbackSynthesizer,
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
     SHORT_CUT_DISSOLVE_SECONDS,
