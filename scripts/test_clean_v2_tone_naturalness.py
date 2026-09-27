@@ -617,7 +617,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             self.assertEqual(persisted["status"], "block")
             self.assertEqual(dummy_plan.hook, "افتتاح واضح.")
 
-    def test_provider_exhaustion_stays_infrastructure(self):
+    def test_provider_exhaustion_is_recorded_unavailable_not_content_block(self):
         exhausted = _tone_result(status="block", validation="providers_exhausted")
         exhausted["attempts"] = [
             {"provider": "gemini", "outcome": "rate_limited"},
@@ -633,16 +633,24 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
             return_value=exhausted,
         ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "text_audit exhausted bounded provider route: tone_naturalness",
-            ):
-                _run_legacy_tone_naturalness_audit(
-                    output_dir=Path(tmp),
-                    brief={"format": "film"},
-                    plan={"sections": []},
-                    script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
+            report = _run_legacy_tone_naturalness_audit(
+                output_dir=Path(tmp),
+                brief={"format": "film"},
+                plan={"sections": []},
+                script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
+            )
+            self.assertEqual(report["status"], "unavailable")
+            self.assertTrue(report["provider_unavailable"])
+            self.assertEqual(
+                report["decision_source"],
+                "provider_unavailable_nonblocking",
+            )
+            persisted = json.loads(
+                (Path(tmp) / "tone-naturalness-audit.json").read_text(
+                    encoding="utf-8"
                 )
+            )
+            self.assertEqual(persisted["status"], "unavailable")
 
     def test_run15_no_effect_tone_repair_fails_closed_before_reaudit(self):
         script = {
