@@ -3068,14 +3068,46 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
     return result
 
 
+def _bound_ai_still_preferences(
+    story: Mapping[str, Any],
+    *,
+    fmt: str,
+) -> dict[str, Any]:
+    """Keep free AI stills sparse; excess beats fall back to stock motion locally."""
+    result = copy.deepcopy(dict(story))
+    beats = [item for item in (result.get("beats") or []) if isinstance(item, dict)]
+    max_ai = 2 if fmt in {"short", "film", "podcast"} else 1
+    ai_indexes = [
+        index
+        for index, beat in enumerate(beats)
+        if str(beat.get("source_preference") or "") == "ai_still"
+    ]
+    if len(ai_indexes) <= max_ai:
+        return result
+
+    priority = [
+        index for index in ai_indexes
+        if str(beats[index].get("role") or "") in {"hook", "payoff"}
+    ]
+    priority.extend(index for index in ai_indexes if index not in priority)
+    keep = set(priority[:max_ai])
+    for index in ai_indexes:
+        if index not in keep:
+            beats[index]["source_preference"] = "stock_motion"
+    result["beats"] = beats
+    return result
+
+
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     plan = validate_plan(value, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
-    if str(brief.get("format") or "") == "short":
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
         visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+    visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
     plan["visual_story"] = visual_story
     return plan
 
@@ -3755,8 +3787,10 @@ one beat in a Short and one or two high-value turns in Film/Podcast, and only wh
 better than ordinary footage. Never make all three roles look like the same setup. AI images MUST be
 image-only: no title, caption, letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned
 display text is added later.
-For short, normally use 2-4 AI still beats at most; for film, keep stock motion dominant and use up to
-4 AI anchors only at high-value idea turns; for podcast, remain sparse and normally use 2-3 AI anchors.
+Keep AI stills sparse and inside the same scene budget, never as extra cuts. For Short, normally use
+0-1 AI still and use at most 2 only when a deliberate hook/payoff motif benefits from a controlled matched
+pair. For Film, keep stock motion dominant and use at most 2 AI anchors at high-value abstract or causal
+turns. For Podcast, normally use 0-1 and at most 2 when the idea genuinely needs a controlled visual anchor.
 All AI remains free-only and fails safely to quality-gated stock when unavailable. A recurring hook/payoff
 motif may return in a visibly changed state, but body AI beats must not be forced into the same environment.
 
