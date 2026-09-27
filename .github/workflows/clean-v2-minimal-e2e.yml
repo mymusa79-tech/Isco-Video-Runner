@@ -67,6 +67,19 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Require zero retired Nabra footprint
+        run: |
+          set -euo pipefail
+          if git grep -ni -I 'nabra'; then
+            echo "Retired Nabra reference remains in tracked files." >&2
+            exit 1
+          fi
+          if git grep -nEi -I 'kokoro|camel_data|camel-tools|arabic_g2p|phonemizer-fork|misaki\[en\]'; then
+            echo "Retired Nabra-only local voice dependency remains." >&2
+            exit 1
+          fi
+
+
       - name: Install FFmpeg and local Cover Studio fixture dependencies
         run: |
           set -euo pipefail
