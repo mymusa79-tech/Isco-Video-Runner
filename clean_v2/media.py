@@ -66,8 +66,8 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
-# Rich Short Visual Lite: still exactly three semantic sections, but 6-9
-# final shots depending only on measured voice duration. No new AI stage.
+# Short visuals are semantic-story owned: normally 3-5 real scenes total.
+# Measured voice owns timing only; duration never fabricates extra shots.
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
