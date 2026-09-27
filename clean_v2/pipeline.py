@@ -511,7 +511,7 @@ def _synthesize_continuous_nabra_voice(
             role=role,
             path=path,
             provider=provider,
-            chars=0 if role in {"intro_silence", "pre_topic_silence", "final_silence"} else 1,
+            chars=0 if role in {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"} else 1,
         )
 
     def add_silence(
@@ -599,6 +599,11 @@ def _synthesize_continuous_nabra_voice(
                 start=start,
                 end=speech_end,
                 provider="nabra:af_msa",
+            )
+            add_silence(
+                section_id=section_id,
+                role="post_hook_silence",
+                seconds=timing["post_hook_silence_seconds"],
             )
             add_silence(
                 section_id=section_id,
@@ -709,14 +714,27 @@ def _synthesize_continuous_nabra_voice(
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
+        "technical_batch_seam_crossfade_ms": int(
+            result.get("technical_batch_seam_crossfade_ms", 0) or 0
+        ),
+        "technical_batch_seam_silence_ms": int(
+            result.get("technical_batch_seam_silence_ms", 0) or 0
+        ),
+        "technical_batch_seam_count": max(
+            0, int(result.get("inference_passes", 1) or 1) - 1
+        ),
         "external_silence_insertions": (
-            (2 + int(final_pause_padding_seconds > 1e-6))
-            if timing is not None
-            else 0
+            int(result.get("external_silence_insertions", 0) or 0)
+            + (
+                (3 + int(final_pause_padding_seconds > 1e-6))
+                if timing is not None
+                else 0
+            )
         ),
         "structural_silence_seconds": (
             {
-                "after_hook": timing["intro_silence_seconds"],
+                "after_hook": timing["post_hook_silence_seconds"],
+                "intro": timing["intro_silence_seconds"],
                 "before_topic": timing["pre_topic_silence_seconds"],
                 "final_outro_minimum": timing["final_silence_seconds"],
                 "final_outro_padding_added": round(final_pause_padding_seconds, 3),
@@ -1024,17 +1042,35 @@ def _synthesize_sectioned_voice(
 
             if fmt in IDENTITY_TIMELINE_FORMATS and index == 1 and role == "hook":
                 timing = identity_timing_profile(fmt)
-                silence_path = chunk_path.parent / "intro-silence.wav"
+                post_hook_path = chunk_path.parent / "post-hook-silence.wav"
                 _write_silence_like(
                     chunk_path,
-                    silence_path,
-                    timing["intro_silence_seconds"],
+                    post_hook_path,
+                    timing["post_hook_silence_seconds"],
                 )
-                chunk_paths.append(silence_path)
+                chunk_paths.append(post_hook_path)
                 chunk_reports.append(
                     {
                         "chunk": len(chunk_reports) + 1,
-                        "file": str(silence_path.relative_to(narration_path.parent)),
+                        "file": str(post_hook_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "post_hook_silence",
+                    }
+                )
+                intro_path = chunk_path.parent / "intro-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    intro_path,
+                    timing["intro_silence_seconds"],
+                )
+                chunk_paths.append(intro_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(intro_path.relative_to(narration_path.parent)),
                         "chars": 0,
                         "provider": "deterministic_silence",
                         "charon_attempts": 0,
@@ -2539,6 +2575,15 @@ def _tone_repair_prompt(
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
     )
+    shared_depth_repair_guidance = (
+        "- For Short, Film, and Podcast, when REVISION_NOTE contains content_depth:, repair depth locally "
+        "using only approved material. Replace generic motivational wording with the specific tension, "
+        "mechanism, consequence, distinction, or implication already present in the brief/plan/script; "
+        "make adjacent sections advance rather than paraphrase one another; and make the payoff depend on "
+        "the reasoning built before it. Do not add facts or expand scope. "
+        if "content_depth:" in revision_note.casefold()
+        else ""
+    )
     podcast_progression_repair_guidance = (
         "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
         "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
@@ -2582,6 +2627,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   Use as many of your patches as the listed flags require, up to the maximum below.
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
+{shared_depth_repair_guidance}
 {podcast_progression_repair_guidance}
 {nabra_safe_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
@@ -3635,6 +3681,7 @@ def _run_audio_mastering_stage(
             "format": fmt,
             "sequence": [
                 "hook",
+                "post_hook_silence_on_story_frame",
                 "intro_silence_with_fully_opaque_intro",
                 "prayer_sentence_with_fully_opaque_visual",
                 "channel_definition",
@@ -4016,11 +4063,12 @@ materially affect retrieval. Use positive face-safe cues such as hands only, bac
 only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
 and keep each visual query concise and at most 260 characters. Keep the whole
 video's stock searches inside one restrained channel lighting world where semantically appropriate:
-natural practical light, moderate-to-deep exposure, soft directional contrast, and restrained warm-neutral tones.
+natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
+ivory-neutral highlights, and warm gold only as a restrained accent.
 The channel mood is grounded upward movement: clarity, effort, recovery, small wins and earned hope.
-Use mature brightness rather than glow: preserve highlight detail, avoid blown sun/window highlights, avoid a
-permanent golden-hour wash, keep saturation restrained, let warm gold appear as a controlled accent, and preserve
-richer midtone depth so the image feels lived-in rather than commercial. Do not make the world glossy, airy
+Use quiet premium darkness rather than gloom: preserve highlight detail, avoid blown sun/window highlights,
+avoid flat beige/washed-out warm-neutral stock, avoid a blanket blue cast, keep saturation restrained, and preserve
+rich midtone depth so the image feels lived-in, calm and expensive rather than commercial. Do not make the world glossy, airy
 lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
 {format_visual_profile}
 Do not mix obvious neon/night/cold-blue looks unless the topic itself requires them. Prefer environments,
@@ -4046,8 +4094,8 @@ shared by short, film, and podcast formats without erasing their separate pacing
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
-HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook may keep the same warm-neutral
-channel palette, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
+HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
+dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
 topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
 that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
 asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
@@ -4073,7 +4121,18 @@ wording.
 
 Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
 remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
-or shot-count target. Every planned section must have at least one beat and at most three. For each
+or shot-count target. Every planned section must have at least one beat and at most three.
+Do not default to one section-level stock image when a section contains more than one visible state.
+For fresh Short, Film, and Podcast plans, if at least one important beat is abstract, causal, internal,
+or otherwise poorly expressed by literal stock, mark the strongest such beat source_preference=ai_still.
+Do not return an all-stock plan merely because stock is easier; the free AI route may fail safely back
+to audited stock at runtime, so Planning should choose the source that best explains the meaning.
+HUMAN EDITORIAL RHYTHM applies to short, film, and podcast: when one section genuinely contains
+multiple visible states such as setup -> interruption, cause -> consequence, attempt -> result, or
+decision -> action, represent those distinct states as separate semantic beats instead of stretching
+one generic stock clip across the whole section. Prefer a simple establish -> detail/cutaway ->
+consequence/payoff progression when the content supports it. Do not manufacture cuts where meaning
+has not changed, and do not let a single clip carry unrelated mechanism, example and payoff states. For each
 beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
@@ -4081,8 +4140,11 @@ misleading substitutes that would look related but fail the exact idea. shot_int
 English visual description of the exact observable action/state for THIS beat, preferably about 6-14
 useful words; it must be specific enough to search directly and must not be mood-only language.
 display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
-exact image/beat and expresses its visible meaning; never reuse the same display phrase on another beat,
-never describe an unrelated idea, and never ask the image generator to draw this text.
+exact image/beat and expresses its visible meaning. It should compress a specific insight, tension, or
+consequence from this episode, not a generic motivational slogan. Never place the prayer sentence or any
+variant of الصلاة على النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
+Never reuse the same display phrase on another beat, never describe an unrelated idea, and never ask the
+image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
 section-level query across multiple beats and never put Arabic in stock_query_en.
 
@@ -4107,8 +4169,7 @@ CHANNEL VISUAL SIGNATURE is semantic and compositional, not merely a color grade
 specific to نداء اليقظة through visible movement from friction toward clarity/progress, tactile lived-in
 detail, purposeful directional light, layered depth, restrained confidence and an earned sense of upward
 movement. Do not hard-code one prop such as notebooks, doors or stairs across episodes; the signature is
-the meaningful state-change and composition, not a repeated object. Warm-neutral grading supports this
-identity but never substitutes for a specific scene.
+the meaningful state-change and composition, not a repeated object. The restrained navy/charcoal grade supports this identity but never substitutes for a specific scene.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -4194,8 +4255,24 @@ NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, req
 - Preserve meaningful diacritics already present in approved fixed lines; never strip them during repair.
 - Use punctuation as performance notation: commas for a light breath, sentence punctuation for a real
   idea boundary. Do not stack theatrical punctuation or write fragments merely to manufacture pauses.
-- Prefer sentences that can be spoken comfortably in one breath, with natural variation; do not flatten
-  everything into short clipped sentences and do not write long syntactic tangles that force rushed delivery.
+- Prefer sentences that can be spoken comfortably in one breath. Most spoken sentences should land around
+  8-22 Arabic words; rewrite sentences above roughly 28 words into two natural thoughts unless a shorter
+  split would damage meaning. This is a performance rule, not a duration target.
+- Let important conclusions breathe: after a dense idea, prefer a real sentence stop before advancing.
+  Do not flatten everything into clipped fragments and do not write long syntactic tangles that force rushed delivery.
+""".strip()
+
+CONTENT_DEPTH_GUIDANCE = """
+CONTENT DEPTH CONTRACT (Short, Film, and Podcast):
+- Every section must change the listener's understanding, not merely restate the topic in motivational language.
+- Prefer one concrete mechanism, tension, consequence, distinction, or lived example over broad advice.
+- Do not use generic lines that could fit dozens of unrelated self-development videos. If a sentence still works
+  after replacing the episode topic with a different topic, rewrite it to become specific.
+- Move forward semantically: observation -> why it happens -> what it changes -> earned implication or action.
+  Adjacent sections must add a genuinely new step rather than paraphrasing the previous one.
+- Keep the language simple enough to hear once, but let the idea be deeper than the wording. Avoid slogan chains,
+  empty reassurance, recycled wisdom, and advice that arrives before the mechanism has been understood.
+- The payoff must depend on what the episode actually established. It must not be a generic motivational ending.
 """.strip()
 
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
@@ -4216,8 +4293,10 @@ def _script_prompt(
     fmt = str(brief["format"])
     if fmt == "film":
         length = (
-            "Aim for roughly 650-900 spoken Arabic words across all sections.\n"
-            + NABRA_SAFE_WRITING_GUIDANCE
+            "For film, do not write toward a word-count target. Continue only while each section adds a new "
+            "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
+            "runtime natural rather than padding a long-form label with filler.\n"
+            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
@@ -4242,7 +4321,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4251,7 +4330,7 @@ def _script_prompt(
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
             "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
-            + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -4263,12 +4342,20 @@ def _script_prompt(
         separators=(",", ":"),
     )
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    if fmt != "short":
+        length += "\nDo not optimize for a fixed word count or duration."
     hook_length_guidance = (
         "For short, the complete first sentence has a hard maximum of 18 Arabic words; "
         "count it before returning JSON. Do not shorten by breaking grammar or removing "
         "the specific tension. Do not optimize any sentence for a target duration."
         if fmt == "short"
-        else "Do not optimize for a fixed word count or duration."
+        else (
+            "For film and podcast, keep the complete first spoken hook sentence concise enough to land in one breath: "
+            "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses. "
+            "Do not optimize for a fixed word count or duration."
+            if fmt in {"film", "podcast"}
+            else "Do not optimize for a fixed word count or duration."
+        )
     )
     short_payoff_guidance = (
         "For short, express payoff_answer as descriptive resolution, then write the one "
@@ -5327,15 +5414,17 @@ class CleanV2Pipeline:
             if opening_report.get("status") == "pass":
                 opening_files = [
                     str(item.get("local_file") or "")
-                    for item in opening_report.get("slots", [])[:2]
+                    for item in opening_report.get("slots", [])[:3]
                     if isinstance(item, Mapping)
                 ]
-                if len(opening_files) != 2 or any(not item for item in opening_files):
-                    raise RuntimeError("opening director pass report has invalid auxiliary files")
+                if len(opening_files) != 3 or any(not item for item in opening_files):
+                    raise RuntimeError("opening director pass report has invalid opening files")
+                # Slot 0 is the already-acquired semantic primary. Do not append
+                # clips[0] again after the 30-second opening; continue from the
+                # next semantic beat instead.
                 render_clips = [
-                    output_dir / "visuals" / opening_files[0],
-                    output_dir / "visuals" / opening_files[1],
-                    *clips,
+                    *(output_dir / "visuals" / item for item in opening_files),
+                    *clips[1:],
                 ]
 
             final_path = output_dir / "final.mp4"

@@ -307,8 +307,8 @@ def build_cta_ass(binding: CtaBinding, schedule: CtaSchedule) -> str:
             "",
             "[V4+ Styles]",
             "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-            "Style: CTA,Noto Sans Arabic,42,&H00F4F1EA,&H00F4F1EA,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
-            f"Style: CTASub,Noto Sans Arabic,30,{CTA_ACCENT_ASS},{CTA_ACCENT_ASS},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
+            "Style: CTA,Cairo,52,&H00F4F1EA,&H00F4F1EA,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,0,0,0,1",
+            f"Style: CTASub,Cairo,38,{CTA_ACCENT_ASS},{CTA_ACCENT_ASS},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,0,0,0,1",
             "",
             "[Events]",
             "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -337,11 +337,7 @@ def render_cta_overlay(
     dest.parent.mkdir(parents=True, exist_ok=True)
     ass_path = dest.with_suffix(".cta.ass")
     ass_path.write_text(build_cta_ass(binding, schedule), encoding="utf-8")
-    enable = f"between(t,{schedule.start_seconds:.3f},{schedule.end_seconds:.3f})"
-    vf = (
-        "drawbox=x=1000:y=72:w=790:h=178:color=black@0.46:t=fill:"
-        f"enable='{enable}',subtitles='{_filter_escape_path(ass_path)}'"
-    )
+    vf = f"subtitles='{_filter_escape_path(ass_path)}'"
     try:
         subprocess.run(
             [

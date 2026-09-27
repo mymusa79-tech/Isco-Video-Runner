@@ -119,6 +119,14 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   and payoff_resolves_hook are true AND genericness is false.
   If it fails, set status=block and add one concise narrative_format_flags item prefixed exactly
   "hook_quality:" naming the failed dimension(s). Do not demand sensationalism.
+- CONTENT DEPTH applies to Short, Film, and Podcast inside this SAME audit call. Block shallow narration
+  when a body section merely paraphrases the prior section, relies on broad motivational language that
+  could fit unrelated topics, gives generic advice before explaining the episode-specific tension, or
+  reaches a payoff that does not depend on the reasoning built before it. Do NOT demand new facts,
+  studies, statistics, diagnoses, or unsupported mechanisms; depth means clearer reasoning from the
+  already approved material, not more factual claims. For each concrete defect add one concise
+  narrative_format_flags item prefixed exactly "content_depth:" and include the affected section id
+  (for example content_depth:s2 ...). Set status=block when any such defect exists.
 - Extend the existing JSON object with exactly these required boolean fields:
   "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness",
   "hook_body_continuity", "payoff_resolves_hook".

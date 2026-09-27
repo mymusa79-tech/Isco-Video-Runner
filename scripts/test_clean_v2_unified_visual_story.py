@@ -188,8 +188,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 )
 
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
-        self.assertIn("quiet depth", CHANNEL_VISUAL_IDENTITY)
-        self.assertIn("restrained warm-neutral", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("earned small wins", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("glossy lifestyle brightness", CHANNEL_VISUAL_IDENTITY)
         for fmt in ("short", "film", "podcast"):
@@ -205,9 +205,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         podcast_prompt = " ".join(_planning_prompt(_brief("podcast")).split())
 
         for prompt in (short_prompt, film_prompt, podcast_prompt):
-            self.assertIn("Use mature brightness rather than glow", prompt)
-            self.assertIn("avoid a permanent golden-hour wash", prompt)
-            self.assertIn("warm gold appear as a controlled accent", prompt)
+            self.assertIn("Use quiet premium darkness rather than gloom", prompt)
+            self.assertIn("avoid flat beige/washed-out warm-neutral stock", prompt)
+            self.assertIn("warm gold only as a restrained accent", prompt)
 
         self.assertIn("FORMAT VISUAL PROFILE — SHORT", short_prompt)
         self.assertIn("quicker visible state changes", short_prompt)
@@ -251,6 +251,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             {beat["section_id"] for beat in story["beats"]},
             {section["id"] for section in planned["sections"]},
         )
+        self.assertEqual(story["beats"][0]["source_preference"], "ai_still")
+        self.assertEqual(story["beats"][-1]["source_preference"], "ai_still")
 
     def test_script_writer_receives_the_locked_hook_to_payoff_thread(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("film"), _brief("film"))
@@ -346,8 +348,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertEqual(len(validated["beats"]), 2)
         self.assertEqual(validated["beats"][0]["role"], "hook")
         self.assertEqual(validated["beats"][-1]["role"], "payoff")
-        self.assertTrue(
-            all(beat["source_preference"] == "stock_motion" for beat in validated["beats"])
+        self.assertEqual(
+            [beat["source_preference"] for beat in validated["beats"]],
+            ["ai_still", "ai_still"],
         )
 
 
@@ -397,7 +400,7 @@ class VisualSafetyRegressionTests(unittest.TestCase):
     def test_later_visuals_must_stay_close_to_hook_quality(self) -> None:
         self.assertAlmostEqual(
             _retention_quality_target(hook_floor=0.97, absolute_floor=0.85),
-            0.89,
+            0.92,
         )
         self.assertEqual(
             _retention_quality_target(hook_floor=0.90, absolute_floor=0.85),

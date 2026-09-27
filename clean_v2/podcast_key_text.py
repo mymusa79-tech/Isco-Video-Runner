@@ -41,6 +41,12 @@ FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
 FILM_MIN_GAP_SECONDS = 12.0
 TRANSITION_MARKERS = ("لكن", "المشكلة", "الحقيقة", "ربما", "وهنا", "لأن", "لهذا")
+_PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+
+def _contains_prayer_text(value: object) -> bool:
+    compact = _clean(value)
+    return all(marker in compact for marker in _PRAYER_TEXT_MARKERS)
 
 
 class PodcastKeyTextError(RuntimeError):
@@ -55,7 +61,11 @@ def _sentences(value: object) -> list[str]:
     text = _clean(value)
     if not text:
         return []
-    return [part.strip() for part in re.split(r"(?<=[.!؟!])\s+", text) if part.strip()] or [text]
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[.!؟!])\s+", text)
+        if part.strip() and not _contains_prayer_text(part)
+    ]
 
 
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
@@ -335,7 +345,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,100,100,0,1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,100,100,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -343,7 +353,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
     common = r"\an5\fad(180,240)"
     for item in events[:max_events]:
         text = _clean(item.get("text"))
-        if not text:
+        if not text or _contains_prayer_text(text):
             continue
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
@@ -445,7 +455,7 @@ def _apply_sparse_key_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "outline_px": 3,
+        "outline_px": 4,
         "shadow_offset": [0, 0],
         "extrusion_offset": [0, 0],
         "motion": "static_phrase_fade_180_240ms",

@@ -5,8 +5,9 @@ from typing import Any, Mapping
 
 
 CHANNEL_VISUAL_IDENTITY = (
-    "Grounded cinematic realism with quiet depth; restrained warm-neutral palette; "
-    "moderate-to-deep natural exposure; practical directional light; tactile real environments; "
+    "Grounded cinematic realism with quiet premium depth; restrained dark navy and charcoal shadows; "
+    "ivory-neutral highlights; warm gold only as a rare accent; moderate-to-deep natural exposure; "
+    "soft practical directional light; tactile real environments; no blanket blue wash; "
     "a wakeful visual signature built on observable state-change from friction toward clarity, movement "
     "or earned progress, never on one repeated prop; hope shown through effort and earned small wins "
     "rather than glossy lifestyle brightness or forced melancholy; environments, hands, objects, routines, "
@@ -15,6 +16,8 @@ CHANNEL_VISUAL_IDENTITY = (
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
     "bright lifestyle advertising",
+    "flat beige or washed-out warm-neutral stock look",
+    "cold neon or heavy blue color cast",
     "generic stock-happy imagery",
     "generic productivity desk or writing imagery unless it is the exact semantic action",
     "repetitive stationery, notebooks, sticky notes, or typing across consecutive beats",
@@ -24,6 +27,12 @@ SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
+_PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+
+def _contains_prayer_text(value: object) -> bool:
+    compact = " ".join(str(value or "").split()).strip()
+    return all(marker in compact for marker in _PRAYER_TEXT_MARKERS)
 
 
 def _beat_role(index: int, total: int) -> str:
@@ -115,6 +124,14 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "source_preference": "stock_motion",
             }
         )
+    # Provider-light/local fallback must not silently regress the production to
+    # stock-only. Keep motion footage dominant, but reserve two controlled
+    # explanatory anchors for the unresolved opening tension and earned payoff.
+    # The AI route itself remains free-only and fail-soft to audited stock.
+    if len(beats) >= 2:
+        beats[0]["source_preference"] = "ai_still"
+        beats[-1]["source_preference"] = "ai_still"
+
     return {
         "schema_version": 2,
         "visual_world": VISUAL_WORLD_DEFAULT,
@@ -225,6 +242,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         display_text_ar = " ".join(
             str(raw.get("display_text_ar") or "").split()
         ).strip()
+        if _contains_prayer_text(display_text_ar):
+            raise ValueError(
+                f"visual_story beat {beat_id} must not place prayer text in display_text_ar"
+            )
         if not display_text_ar:
             viewer_words = viewer_intent.split()
             if (

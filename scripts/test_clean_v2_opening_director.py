@@ -191,11 +191,54 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             self.assertEqual(report["status"], "pass")
             self.assertEqual(report["audited_shot_count"], 3)
             self.assertEqual(report["candidate_review_count"], 3)
-            self.assertTrue((root / "visuals" / "opening-cold_open.mp4").is_file())
             self.assertTrue((root / "visuals" / "opening-escalation.mp4").is_file())
-            self.assertEqual(report["slots"][2]["local_file"], "primary.mp4")
-            self.assertEqual(report["slots"][2]["start"], 18.0)
-            self.assertEqual(report["slots"][2]["end"], 30.0)
+            self.assertTrue((root / "visuals" / "opening-promise_and_body.mp4").is_file())
+            self.assertEqual(report["slots"][0]["local_file"], "primary.mp4")
+            self.assertEqual(report["slots"][0]["start"], 0.0)
+            self.assertEqual(report["slots"][0]["end"], 7.0)
+            self.assertTrue(report["slots"][0]["semantic_primary"])
+            self.assertTrue(report["frame_one_semantic_primary"])
+            self.assertEqual(report["body_continues_from_second"], 30.0)
+
+    def test_opening_cutaways_follow_semantic_primary_intent_not_section_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rights = _prepare_primary(root)
+            rights[0]["shot_intent"] = "unfinished project title after several missed days"
+            semantic_query = rights[0]["shot_intent"]
+            candidate1 = root / "visuals" / ".semantic-candidate-1.mp4"
+            candidate2 = root / "visuals" / ".semantic-candidate-2.mp4"
+            candidate1.write_bytes(b"a" * 2048)
+            candidate2.write_bytes(b"b" * 2048)
+            source = _QueryOpeningVisualSource(
+                {
+                    semantic_query: [
+                        (candidate1, {"provider": "pexels", "asset_id": "semantic-1"}),
+                        (candidate2, {"provider": "pixabay", "asset_id": "semantic-2"}),
+                    ]
+                }
+            )
+            passed = {
+                "report": {"status": "pass"},
+                "audit": {"final_cut_readiness": "ready", "fit_score_10": 9.0},
+            }
+            with patch("clean_v2.opening_director.probe_duration", return_value=120.0), patch(
+                "clean_v2.opening_director._candidate_audit",
+                side_effect=[passed, passed],
+            ):
+                report = run_opening_director(
+                    output_dir=root,
+                    plan=_plan(),
+                    script=_script(),
+                    rights=rights,
+                    fmt="film",
+                    narration_path=root / "voice.wav",
+                    visual_source=source,
+                )
+
+            self.assertEqual(source.queries, [semantic_query])
+            self.assertEqual(report["opening_query_source"], "primary_shot_intent")
+            self.assertEqual(report["slots"][0]["local_file"], "primary.mp4")
 
     def test_blocked_primary_search_uses_one_bounded_alternate_query(self):
         with tempfile.TemporaryDirectory() as tmp:

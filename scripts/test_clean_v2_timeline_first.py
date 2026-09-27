@@ -309,9 +309,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("PRAYER_SENTENCE", source)
 
     def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
-        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
-        self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 1.50)
-        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 1.60)
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.20)
+        self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
+        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 3.75)
 
 
 class FinalCompositionVisualQATests(unittest.TestCase):

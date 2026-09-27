@@ -337,12 +337,12 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(repeated_report["selection_format"], "short")
         self.assertIn(
             repeated_report["selected_id"],
-            {"calm-sketch-piano", "acoustic-shifter", "wonder-flow"},
+            {"calm-sketch-piano", "a-little-faith"},
         )
         self.assertEqual(repeated_report["catalog_track_count"], 9)
         self.assertEqual((audio_module.MUSIC_MIN_REL_DB, audio_module.MUSIC_TARGET_REL_DB, audio_module.MUSIC_MAX_REL_DB), (-21.0, -19.0, -17.0))
-        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["film"], (-20.0, -22.0, -18.0))
-        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-21.0, -23.0, -19.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["film"], (-23.0, -25.0, -21.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-24.0, -26.0, -22.0))
         self.assertEqual(audio_module.POST_MIX_LIMITER_LINEAR, 0.84)
 
     def test_rule_8b_music_studio_has_distinct_format_pools_without_provider_calls(self) -> None:

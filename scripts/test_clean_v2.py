@@ -201,7 +201,7 @@ class PlanningCardinalityTests(unittest.TestCase):
         prompt = _planning_prompt(_brief())
         self.assertIn("natural practical light", prompt)
         self.assertIn("moderate-to-deep exposure", prompt)
-        self.assertIn("restrained warm-neutral tones", prompt)
+        self.assertIn("dark navy/charcoal shadow depth", prompt)
         self.assertIn("Do not mix obvious neon/night/cold-blue looks", prompt)
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
@@ -1758,10 +1758,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 chunk for chunk in chunks
                 if str(chunk.get("provider") or "") == "deterministic_silence"
             ]
-            self.assertEqual(len(silence_chunks), 3)
+            self.assertEqual(len(silence_chunks), 4)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
-                {"intro_silence", "pre_topic_silence", "final_silence"},
+                {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"},
             )
             self.assertTrue(
                 all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)
@@ -3262,7 +3262,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
     def test_safe_primary_is_retained_when_recovery_regresses_or_only_ties(self) -> None:
         for recovery_scores in ([0.35, 0.20, 0.35], [0.80, 0.70, 0.65]):
             with self.subTest(recovery_scores=recovery_scores):
-                primary = 0.70 if recovery_scores[0] == 0.35 else 0.80
+                primary = 0.78 if recovery_scores[0] == 0.35 else 0.80
                 outcome = self._run_case(
                     primary_relevance=primary,
                     primary_status="pass",
@@ -3276,7 +3276,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 self.assertEqual(outcome["result"]["best_available_primary_count"], 1)
                 self.assertEqual(
                     outcome["result"]["best_available_primary_semantic_floor"],
-                    0.70,
+                    0.78,
                 )
                 self.assertEqual(outcome["recovery"][0]["status"], "retained_primary")
                 self.assertEqual(

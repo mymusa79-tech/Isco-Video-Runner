@@ -129,11 +129,17 @@ def _compatibility_plan(
             ScriptSection(
                 id=section_id,
                 narration=str(s.get("narration") or ""),
-                visual_query=str(p.get("visual_query_en") or right.get("query") or ""),
+                visual_query=str(right.get("query") or p.get("visual_query_en") or ""),
                 on_screen_text=str(p.get("on_screen_text") or ""),
                 emotion="reflective",
                 expected_seconds=0.0,
-                key_point=str(p.get("purpose") or p.get("heading") or "legacy_section"),
+                key_point=str(
+                    right.get("viewer_intent")
+                    or right.get("shot_intent")
+                    or p.get("purpose")
+                    or p.get("heading")
+                    or "semantic_beat"
+                ),
             )
         )
         right["m7_section_id"] = section_id
@@ -289,10 +295,24 @@ def apply_post_render_layer(
                     "asset_id": asset_id,
                     "candidate_ref": f"{provider}:{asset_id}",
                     "source_url": right.get("source_url"),
+                    "beat_id": str(right.get("beat_id") or ""),
+                    "viewer_intent": str(right.get("viewer_intent") or ""),
+                    "shot_intent": str(right.get("shot_intent") or ""),
+                    "source_actual": str(right.get("source_actual") or "stock_motion"),
                     "cut_reason": (
-                        "episode_start" if index == 0 else "legacy_final_cut_boundary"
+                        "episode_start"
+                        if index == 0
+                        else (
+                            "semantic_beat_boundary"
+                            if str(right.get("beat_id") or "").strip()
+                            else "legacy_final_cut_boundary"
+                        )
                     ),
-                    "fallback_reason": "clean_v2_no_director_visual_qa",
+                    "fallback_reason": (
+                        "clean_v2_semantic_beat_final_cut"
+                        if str(right.get("beat_id") or "").strip()
+                        else "clean_v2_no_semantic_beat_evidence"
+                    ),
                     "final_cut_audit_reference": evidence,
                     "rights_reference": evidence,
                 }
