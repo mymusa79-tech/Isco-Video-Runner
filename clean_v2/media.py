@@ -2359,13 +2359,13 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.55
+COLOR_MATCH_STRENGTH = 0.62
 COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.055
-MASTER_LOOK_SATURATION = 0.875
+MASTER_LOOK_CONTRAST = 1.075
+MASTER_LOOK_SATURATION = 0.84
 MASTER_LOOK_WARM_R = -0.006
 MASTER_LOOK_WARM_G = -0.003
 MASTER_LOOK_WARM_B = 0.008
@@ -2375,9 +2375,9 @@ MASTER_LOOK_WARM_B = 0.008
 # call, no timing change, and no second visual authority.
 CINEMATIC_FINISH_VERSION = "clean-v2-navy-depth-finish-v4"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.055:brightness=-0.025:saturation=0.965:gamma=0.975,"
-    "unsharp=5:5:0.34:5:5:0.0,"
-    "vignette=PI/13"
+    "eq=contrast=1.065:brightness=-0.032:saturation=0.94:gamma=0.97,"
+    "unsharp=5:5:0.30:5:5:0.0,"
+    "vignette=PI/14"
 )
 
 
@@ -2474,27 +2474,37 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
 def _representative_reference(
     measured: Mapping[str, _RgbStats],
 ) -> str:
-    """Choose the medoid-like real clip nearest the episode's median color stats."""
+    """Choose the real clip closest to the channel's restrained neutral/deep world.
+
+    The previous median-medoid rule could make one warm/beige stock clip the visual
+    authority for the whole episode. Keep one real reference, but prefer moderate
+    exposure, restrained channel imbalance and useful tonal spread so source stock
+    cannot redefine the channel palette.
+    """
     if not measured:
         raise ValueError("reference selection requires measured clips")
     rows = list(measured.items())
-    medians = (
-        statistics.median(item.mean_r for _, item in rows),
-        statistics.median(item.mean_g for _, item in rows),
-        statistics.median(item.mean_b for _, item in rows),
-        statistics.median(item.std_r for _, item in rows),
-        statistics.median(item.std_g for _, item in rows),
-        statistics.median(item.std_b for _, item in rows),
-    )
 
-    def distance(stats: _RgbStats) -> float:
-        means = (stats.mean_r, stats.mean_g, stats.mean_b)
-        stds = (stats.std_r, stats.std_g, stats.std_b)
-        mean_distance = sum((value - target) ** 2 for value, target in zip(means, medians[:3]))
-        std_distance = sum((value - target) ** 2 for value, target in zip(stds, medians[3:]))
-        return mean_distance + (0.25 * std_distance)
+    def channel_distance(stats: _RgbStats) -> float:
+        luma = (
+            (0.2126 * stats.mean_r)
+            + (0.7152 * stats.mean_g)
+            + (0.0722 * stats.mean_b)
+        )
+        # Target a moderate/deep base rather than bright lifestyle stock.
+        exposure_penalty = abs(luma - 132.0) * 1.25
+        # Penalize strong warm/cool casts; the master LUT owns the subtle channel tint.
+        cast_penalty = (
+            abs(stats.mean_r - stats.mean_g) * 0.55
+            + abs(stats.mean_g - stats.mean_b) * 0.45
+        )
+        # Prefer enough local contrast/depth to avoid flat washed-out references.
+        spread = (stats.std_r + stats.std_g + stats.std_b) / 3.0
+        flat_penalty = max(0.0, 48.0 - spread) * 0.85
+        bright_penalty = max(0.0, luma - 155.0) * 1.50
+        return exposure_penalty + cast_penalty + flat_penalty + bright_penalty
 
-    return min(rows, key=lambda row: distance(row[1]))[0]
+    return min(rows, key=lambda row: channel_distance(row[1]))[0]
 
 
 def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
@@ -2564,9 +2574,9 @@ def _build_reference_color_plan(
         "provider_calls_added": 0,
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
-        "method": "bounded_rgb_mean_std_reference_match_v1",
+        "method": "channel_anchored_rgb_mean_std_reference_match_v2",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "channel_deep_warm_neutral_v2",
+        "master_look": "channel_deep_neutral_v3",
         "measured_clip_count": len(measured),
         "failures": failures,
     }
