@@ -102,10 +102,6 @@ STAGES = (
 VOICE_CHUNK_MAX_CHARS = 4200
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
-LONGFORM_DURATION_RANGES_SECONDS = {
-    "film": (180.0, 1200.0),
-    "podcast": (600.0, 1800.0),
-}
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -3126,41 +3122,6 @@ def _run_audio_mastering_stage(
             atomic_write_json(output_dir / "timeline-first.json", blocked)
         raise RuntimeError(str(exc)) from exc
 
-    measured_seconds = float(voice_timeline["voice_seconds_measured"])
-    if fmt in LONGFORM_DURATION_RANGES_SECONDS:
-        minimum, maximum = LONGFORM_DURATION_RANGES_SECONDS[fmt]
-        if not minimum <= measured_seconds <= maximum:
-            atomic_write_json(
-                output_dir / "longform-duration.json",
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-measured-voice-duration",
-                    "status": "block",
-                    "format": fmt,
-                    "duration_seconds": round(measured_seconds, 3),
-                    "minimum_seconds": minimum,
-                    "maximum_seconds": maximum,
-                    "timeline_owner": "measured_voice",
-                },
-            )
-            raise RuntimeError(
-                f"CLEAN_V2_LONGFORM_DURATION_OUT_OF_RANGE format={fmt} "
-                f"seconds={measured_seconds:.3f} expected={minimum:.0f}-{maximum:.0f}"
-            )
-        atomic_write_json(
-            output_dir / "longform-duration.json",
-            {
-                "schema_version": 1,
-                "source": "clean-v2-measured-voice-duration",
-                "status": "pass",
-                "format": fmt,
-                "duration_seconds": round(measured_seconds, 3),
-                "minimum_seconds": minimum,
-                "maximum_seconds": maximum,
-                "timeline_owner": "measured_voice",
-            },
-        )
-
     atomic_write_json(output_dir / "timeline-first.json", voice_timeline)
     atomic_write_json(output_dir / "voice-owned-timeline.json", voice_timeline)
     if fmt == "short":
@@ -3839,17 +3800,17 @@ def _script_prompt(
     fmt = str(brief["format"])
     if fmt == "film":
         length = (
-            "For the main long episode, the measured finished voice must land between 3 and 20 minutes. "
-            "Usually aim for roughly 500-1400 spoken Arabic words; continue only while each section adds a new "
-            "mechanism, consequence, example, distinction, or earned resolution. Never pad or repeat merely "
-            "to satisfy the lower bound.\n"
+            "For the main long episode, 3-20 minutes is a normal editorial range, never an acceptance gate. "
+            "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
+            "a sound script merely to hit that range. Continue only while each section adds a new mechanism, "
+            "consequence, example, distinction, or earned resolution.\n"
             + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
-            "For podcast / خارج النص, the measured finished voice must land between 10 and 30 minutes. "
-            "Usually aim for roughly 1400-2600 spoken Arabic words so the episode lands naturally inside the band; "
-            "never pad toward 30 minutes. Write natural spoken Modern Standard Arabic for the fixed Gemini 3.8 "
+            "For podcast / خارج النص, 10-30 minutes is a normal editorial range, never an acceptance gate. "
+            "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
+            "a sound episode merely to hit that range. Write natural spoken Modern Standard Arabic for the fixed Gemini 3.8 "
             "main narrator. The idea may be carefully planned, but the prose must NOT sound "
             "like an article, lecture, news script, motivational speech, or over-rehearsed monologue. Write "
             "as if one thoughtful person understood the subject deeply and is now speaking simply to one "
@@ -3858,8 +3819,7 @@ def _script_prompt(
             "delivery such as أولا/ثانيا/ثالثا, repeated section signposting, a rhetorical question every "
             "few lines, a polished aphorism at the end of every paragraph, or generic advice after every "
             "problem. Never fake spontaneity with filler phrases just to sound casual. Never invent "
-            "first-person memories, experiences, credentials, or a fabricated personal identity. Stay inside the "
-            "10-30 minute measured-voice band without targeting an exact clock: continue only while each paragraph adds a new "
+            "first-person memories, experiences, credentials, or a fabricated personal identity. Continue only while each paragraph adds a new "
             "meaning, example, distinction, tension, or resolution, and stop when the central question has "
             "been answered fully. PODCAST HOOK QUALITY: the first spoken sentence must be specific to THIS approved episode, honest about what the episode will actually repay, and non-generic. Name or clearly imply one concrete topic-specific tension, behavior, consequence, contradiction, or question supported by the approved brief/plan. Reject and rewrite the hook if it could fit many unrelated episodes (hook_genericness), if it promises a stronger or different payoff than the body can earn (hook_honesty), or if it lacks a concrete topic-specific anchor (hook_specificity). Calm curiosity is acceptable; forced shock and clickbait are not. Enforce semantic progression, not paraphrase: s1 opens the central tension; "
             "s2 must add a mechanism, cause, or distinction already supported by the approved brief/plan that "
