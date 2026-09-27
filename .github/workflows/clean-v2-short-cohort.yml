@@ -91,14 +91,6 @@ jobs:
           python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
-          python -m pip install --disable-pip-version-check \
-            --index-url https://download.pytorch.org/whl/cpu torch
-          python -m pip install --disable-pip-version-check \
-            soundfile huggingface_hub 'misaki[en]>=0.9.4' \
-            'phonemizer-fork>=3.3.2' camel-tools
-          python -m pip install --disable-pip-version-check \
-            'kokoro @ git+https://github.com/Oddadmix/kokoro.git@df50e07df746aec0bd7a6f237752d7109ace0b3d'
-          camel_data -i disambig-mle-calima-msa-r13
           curl -fsSL \
             'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
             -o scripts/arabic_g2p.py
