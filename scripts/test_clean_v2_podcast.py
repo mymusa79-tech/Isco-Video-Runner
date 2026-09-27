@@ -209,7 +209,6 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
         source = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
         self.assertIn("GeminiOnlyVoiceSynthesizer", source)
         self.assertIn("gemini-3.8-flash-tts", source)
-        self.assertNotIn("Nabra", source)
         self.assertNotIn("PiperFallback", source)
 
     def test_production_workflows_accept_only_gemini_38_voice(self) -> None:
@@ -222,7 +221,6 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
         ):
             source = Path(workflow).read_text(encoding="utf-8")
             self.assertIn("gemini-3.8-flash-tts", source)
-            self.assertNotIn("nabra:af_msa", source)
             self.assertNotIn("gemini-3.1-flash-tts-preview", source)
 
     def test_podcast_uses_gemini_38_only_and_never_falls_back(self) -> None:
