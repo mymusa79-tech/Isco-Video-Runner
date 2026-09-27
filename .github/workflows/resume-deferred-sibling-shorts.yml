@@ -65,22 +65,6 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-          python -m pip install 'piper-tts==1.4.2'
-
-      - name: Download Piper voice for derivative children
-        env:
-          PIPER_MODEL_DIR: ${{ runner.temp }}/piper-voices
-        run: |
-          set -euo pipefail
-          mkdir -p "$PIPER_MODEL_DIR"
-          for attempt in 1 2; do
-            if python -m piper.download_voices --data-dir "$PIPER_MODEL_DIR" ar_JO-kareem-medium; then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then exit 1; fi
-            sleep 4
-          done
-          test -f "$PIPER_MODEL_DIR/ar_JO-kareem-medium.onnx"
 
       - name: Download sealed parent derivative contract
         env:
@@ -137,10 +121,9 @@ jobs:
           CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/deferred-sibling-secrets/cloudflare-api-token
           CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/deferred-sibling-secrets/cloudflare-account-id
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/deferred-sibling-cloudflare-quota.json
-          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
-          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          GEMINI_TTS_MODEL: gemini-3.8-flash-tts
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           PARENT_DIR: ${{ runner.temp }}/delivered-parent
           PARENT_RELEASE_TAG: ${{ inputs.parent_release_tag }}
@@ -188,7 +171,6 @@ jobs:
         if: always()
         run: |
           rm -rf "$RUNNER_TEMP/deferred-sibling-secrets" || true
-          rm -rf "$RUNNER_TEMP/piper-voices" || true
           rm -rf "$RUNNER_TEMP/deferred-sibling-runtime" || true
           rm -rf "$RUNNER_TEMP/delivered-parent" || true
           rm -rf "$RUNNER_TEMP/sibling-derived" || true
