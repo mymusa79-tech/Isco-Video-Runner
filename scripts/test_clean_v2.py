@@ -1540,8 +1540,8 @@ class _InfrastructureRouter:
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
-        self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
+        self.last_provider = "gemini:Charon"
+        self.fallback_used = False
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         self.calls += 1
