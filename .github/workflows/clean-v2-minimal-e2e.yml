@@ -116,6 +116,7 @@ jobs:
             scripts.test_clean_v2_visual_pacing \
             scripts.test_clean_v2_unified_visual_story \
             scripts.test_clean_v2_podcast \
+            scripts.test_clean_v2_retired_voice_absence \
             scripts.test_clean_v2_ai_still \
             scripts.test_clean_v2_timeline_first \
             scripts.test_cover_lite \
