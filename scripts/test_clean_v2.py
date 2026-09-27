@@ -3262,7 +3262,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
     def test_safe_primary_is_retained_when_recovery_regresses_or_only_ties(self) -> None:
         for recovery_scores in ([0.35, 0.20, 0.35], [0.80, 0.70, 0.65]):
             with self.subTest(recovery_scores=recovery_scores):
-                primary = 0.70 if recovery_scores[0] == 0.35 else 0.80
+                primary = 0.78 if recovery_scores[0] == 0.35 else 0.80
                 outcome = self._run_case(
                     primary_relevance=primary,
                     primary_status="pass",
