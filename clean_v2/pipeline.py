@@ -1582,12 +1582,22 @@ def _normalized_percentage_key(value: str) -> str:
     return re.sub(r"\s+", "", translated.casefold())
 
 
+def _normalize_claim_context_token(token: str) -> str:
+    value = token.casefold().strip()
+    # Minimal Arabic clitic normalization for local claim-context matching only:
+    # وتنجح -> تنجح, بالطريقة -> الطريقة. This is not semantic stemming.
+    if len(value) > 4 and value[0] in {"و", "ف", "ب", "ل", "ك"}:
+        value = value[1:]
+    return value
+
+
 def _claim_context_words(value: str) -> set[str]:
-    return {
-        token.casefold()
-        for token in _CLAIM_CONTEXT_WORD_RE.findall(str(value or ""))
-        if token.casefold() not in _CLAIM_CONTEXT_STOPWORDS
-    }
+    rows: set[str] = set()
+    for token in _CLAIM_CONTEXT_WORD_RE.findall(str(value or "")):
+        normalized = _normalize_claim_context_token(token)
+        if normalized and normalized not in _CLAIM_CONTEXT_STOPWORDS:
+            rows.add(normalized)
+    return rows
 
 
 def _sentence_containing_span(text: str, start: int, end: int) -> str:
@@ -1625,12 +1635,19 @@ def _unsupported_quantified_research_claims(
             key = _normalized_percentage_key(claim)
             sentence = _sentence_containing_span(narration, match.start(), match.end())
             context_words = _claim_context_words(sentence)
-            supported = any(
-                key
-                and key in _normalized_percentage_key(scope)
-                and bool(context_words & _claim_context_words(scope))
-                for scope in scopes
-            )
+            supported = False
+            for scope in scopes:
+                scope_words = _claim_context_words(scope)
+                overlap = context_words & scope_words
+                required_overlap = min(2, len(context_words), len(scope_words))
+                if (
+                    key
+                    and key in _normalized_percentage_key(scope)
+                    and required_overlap > 0
+                    and len(overlap) >= required_overlap
+                ):
+                    supported = True
+                    break
             if claim and not supported:
                 rows.append(
                     {
@@ -2679,7 +2696,7 @@ def _tone_repair_prompt(
     )
     longform_progression_repair_guidance = (
         (
-            "- For film and podcast, repair only the progression defect named in REVISION_NOTE and only "
+            "- For film and podcast, fix progression semantically, not cosmetically, but repair only the progression defect named in REVISION_NOTE and only "
             "inside ALLOWED_PATCH_SECTION_IDS. Preserve each LOCKED_PLAN section purpose as the semantic owner "
             "of that section; do not redesign the whole argument, move ideas across sections, or invent a new "
             "mechanism to rescue a weak draft. If a targeted later section merely repeats the prior section, "
