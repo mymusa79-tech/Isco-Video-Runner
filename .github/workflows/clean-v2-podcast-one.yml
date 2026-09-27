@@ -96,11 +96,11 @@ jobs:
             "series_name": "خارج النص",
             "language": "ar",
             "audience": "Arabic-speaking adults",
-            "editorial_intent": "بودكاست عربي بسيط وعميق، راوية أنثوية محايدة، سؤال مركزي واحد يتقدم منطقيًا دون حشو أو مبالغة.",
+            "editorial_intent": "بودكاست عربي بسيط وعميق بصوت Gemini الرئيسي الثابت، سؤال مركزي واحد يتقدم منطقيًا دون حشو أو مبالغة، مع حوار Orus وCharon فقط عندما يضيف قيمة حقيقية.",
             "research_pack": [],
             "hard_constraints": [
               "No fabricated facts.",
-              "Use the approved podcast voice route.",
+              "Use the fixed Gemini 3.8 voice roster only: Charon primary, Orus only for dialogue_qa questions.",
               "Audio alone must carry the full meaning.",
               "Sparse visuals only; no visual dependency for comprehension.",
               "No paid provider or paid fallback."
