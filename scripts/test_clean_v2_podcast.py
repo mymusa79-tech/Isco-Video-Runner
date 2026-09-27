@@ -26,6 +26,7 @@ from clean_v2.pipeline import (
     _tone_repair_prompt,
 )
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
+from clean_v2.providers import _provider_prompt
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
 from clean_v2.podcast_key_text import build_events as build_podcast_key_text_events
 from clean_v2.visual_qa import _apply_cultural_islamic_policy
@@ -107,6 +108,14 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("numbered-list", script)
         self.assertIn("s2 must add a mechanism, cause, or distinction", script)
         self.assertIn("PODCAST HOOK QUALITY", script)
+        mistral_script = _provider_prompt(script, provider="mistral", stage="script")
+        self.assertIn("MISTRAL_FILM_PODCAST_RETENTION_COMPLIANCE", mistral_script)
+        self.assertIn("hook_genericness=false", mistral_script)
+        self.assertIn("hook_body_continuity=true", mistral_script)
+        self.assertIn("payoff_resolves_hook=true", mistral_script)
+        self.assertIn("BAD progression", mistral_script)
+        self.assertIn("GOOD progression", mistral_script)
+        self.assertEqual(_provider_prompt(script, provider="groq", stage="script"), script)
         self.assertIn("hook_genericness", script)
         self.assertIn("hook_honesty", script)
         self.assertIn("hook_specificity", script)
@@ -129,6 +138,10 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("ONLY the minimum Arabic diacritic marks", film_script)
         self.assertIn("punctuation as performance notation", film_script)
         self.assertIn("harmless for Charon, required for Nabra fallback", film_script)
+        mistral_film = _provider_prompt(film_script, provider="mistral", stage="script")
+        self.assertIn("MISTRAL_FILM_PODCAST_RETENTION_COMPLIANCE", mistral_film)
+        self.assertIn("hook_body_continuity=true", mistral_film)
+        self.assertIn("payoff_resolves_hook=true", mistral_film)
 
     def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
         podcast_brief = {
@@ -173,7 +186,8 @@ class PodcastFormatTests(unittest.TestCase):
             brief={**podcast_brief, "format": "film"},
             **kwargs,
         )
-        self.assertNotIn("fix progression semantically, not cosmetically", film_prompt)
+        self.assertIn("fix progression semantically, not cosmetically", film_prompt)
+        self.assertIn("For film and podcast", film_prompt)
 
         podcast_factuality = _factuality_repair_prompt(
             brief=podcast_brief,
