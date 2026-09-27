@@ -49,6 +49,7 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 """.strip()
 
 
+
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
     if (

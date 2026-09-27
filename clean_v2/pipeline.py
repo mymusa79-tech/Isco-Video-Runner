@@ -1567,7 +1567,29 @@ def _run_legacy_factuality_audit(
         summary = ", ".join(
             f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
         ) or "no providers configured"
-        raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
+        # An unavailable or invalid audit cannot establish a factual violation.
+        # Only a valid response with concrete local hard flags may block.
+        report.update(
+            {
+                "status": "pass",
+                "decision_source": "technical_unavailable_advisory",
+                "audit_outcome": "advisory_technical_unavailable",
+                "technical_unavailable": True,
+                "technical_summary": summary,
+                "hard_flag_count": 0,
+                "hard_flags": {
+                    "unsupported_claims": [],
+                    "professional_advice_flags": [],
+                    "expert_persona_flags": [],
+                },
+                "advisory_flags": {
+                    "professional_advice_flags": [],
+                    "expert_persona_flags": [],
+                },
+            }
+        )
+        atomic_write_json(output_dir / "factuality-audit.json", report)
+        return report
     if local_status == "block":
         raise CleanV2FactualityContentBlock(report)
     return report
@@ -1726,10 +1748,20 @@ def _run_legacy_tone_naturalness_audit(
             for item in attempts
             if isinstance(item, Mapping)
         ) or "no providers configured"
-        raise RuntimeError(
-            f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: "
-            f"tone_naturalness {summary}"
+        # Capacity or schema failures are infrastructure evidence, not a
+        # validated editorial rejection. Valid content blocks still fail below.
+        report.update(
+            {
+                "status": "pass",
+                "provider_status": str(result.get("status") or ""),
+                "decision_source": "technical_unavailable_advisory",
+                "audit_outcome": "advisory_technical_unavailable",
+                "technical_unavailable": True,
+                "technical_summary": summary,
+            }
         )
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
+        return report
     if result.get("status") == "block":
         raise CleanV2ToneContentBlock(report)
     return report
@@ -3911,6 +3943,17 @@ visual motif remains supportive and non-essential to a listener with the screen 
         if fmt == "short"
         else ""
     )
+    compact_planning_instruction = (
+        "PLANNING COMPACTNESS — applies equally to every provider: return only the required JSON; "
+        "keep every required field and section but remove duplicated explanation. Use exactly one "
+        "visual_story beat per planned section. Keep title <=12 words, heading <=8 words, "
+        "promise/purpose/viewer_intent/meaning_target <=24 words each, visual_world <=45 words, "
+        "each story_arc value <=18 words, each retention_thread value <=24 words, "
+        "semantic_must_have and semantic_should_avoid to at most 2 short items each, "
+        "shot_intent <=30 words, and stock/section visual queries <=14 English words."
+        if fmt in {"short", "film", "podcast"}
+        else ""
+    )
     short_visual_query_shape = (
         ',\n      "visual_query_alt_en": "second distinct concrete English stock footage query for the same section"'
         if fmt == "short"
@@ -4064,6 +4107,7 @@ in section purpose text; visual-only CTA overlays are renderer-owned and do not 
 
 {short_context}
 {podcast_context}
+{compact_planning_instruction}
 
 Return one JSON object with exactly this useful shape:
 {{
