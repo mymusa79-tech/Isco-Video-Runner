@@ -201,7 +201,7 @@ class PlanningCardinalityTests(unittest.TestCase):
         prompt = _planning_prompt(_brief())
         self.assertIn("natural practical light", prompt)
         self.assertIn("moderate-to-deep exposure", prompt)
-        self.assertIn("restrained warm-neutral tones", prompt)
+        self.assertIn("dark navy/charcoal shadow depth", prompt)
         self.assertIn("Do not mix obvious neon/night/cold-blue looks", prompt)
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
