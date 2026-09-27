@@ -473,6 +473,60 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertNotIn("اللهم صلِّ وسلِّم على نبينا محمد.", audited)
         self.assertNotIn("وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح.", audited)
 
+    def test_factuality_provider_exhaustion_is_advisory_not_content_block(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "ملاحظة يومية بسيطة بلا ادعاء عالي الخطورة."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            diagnostics.update(
+                {
+                    "validation": "providers_exhausted",
+                    "attempts": [
+                        {"provider": "gemini", "outcome": "rate_limited"},
+                        {"provider": "groq", "outcome": "schema_invalid"},
+                        {"provider": "openrouter", "outcome": "rate_limited"},
+                        {"provider": "mistral", "outcome": "schema_invalid"},
+                    ],
+                }
+            )
+            return {
+                "status": "block",
+                "unsupported_claims": [
+                    {"section_id": "s1", "issue": "untrusted because audit validation failed"}
+                ],
+                "professional_advice_flags": [],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                report = _run_legacy_factuality_audit(
+                    output_dir=root,
+                    brief={"format": "film", "research_pack": []},
+                    plan=plan,
+                    script=script,
+                )
+            persisted = json.loads(
+                (root / "factuality-audit.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["decision_source"], "technical_unavailable_advisory")
+        self.assertEqual(report["audit_outcome"], "advisory_technical_unavailable")
+        self.assertTrue(report["technical_unavailable"])
+        self.assertEqual(report["hard_flag_count"], 0)
+        self.assertEqual(report["hard_flags"]["unsupported_claims"], [])
+        self.assertIn("gemini:rate_limited", report["technical_summary"])
+        self.assertEqual(persisted, report)
+
     def test_factuality_local_flags_block_even_if_provider_status_pass(self):
         plan = {"sections": [{"id": "s1"}]}
         script = {"sections": [{"id": "s1", "narration": "هذه نسبة دقيقة غير موثقة."}]}
@@ -617,7 +671,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             self.assertEqual(persisted["status"], "block")
             self.assertEqual(dummy_plan.hook, "افتتاح واضح.")
 
-    def test_provider_exhaustion_stays_infrastructure(self):
+    def test_provider_exhaustion_is_advisory_not_content_block(self):
         exhausted = _tone_result(status="block", validation="providers_exhausted")
         exhausted["attempts"] = [
             {"provider": "gemini", "outcome": "rate_limited"},
@@ -633,16 +687,24 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
             return_value=exhausted,
         ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "text_audit exhausted bounded provider route: tone_naturalness",
-            ):
-                _run_legacy_tone_naturalness_audit(
-                    output_dir=Path(tmp),
-                    brief={"format": "film"},
-                    plan={"sections": []},
-                    script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
-                )
+            root = Path(tmp)
+            report = _run_legacy_tone_naturalness_audit(
+                output_dir=root,
+                brief={"format": "film"},
+                plan={"sections": []},
+                script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
+            )
+            persisted = json.loads(
+                (root / "tone-naturalness-audit.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["provider_status"], "block")
+        self.assertEqual(report["decision_source"], "technical_unavailable_advisory")
+        self.assertEqual(report["audit_outcome"], "advisory_technical_unavailable")
+        self.assertTrue(report["technical_unavailable"])
+        self.assertIn("gemini:rate_limited", report["technical_summary"])
+        self.assertEqual(persisted, report)
 
     def test_run15_no_effect_tone_repair_fails_closed_before_reaudit(self):
         script = {
