@@ -1,7 +1,11 @@
-name: Voice Sample Test (Gacrux vs Charon vs Orus vs Sadaltager vs Schedar)
+name: Voice Sample Test (Gemini 3.8 Charon and Orus)
 
 on:
   workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/voice-sample-test.yml"
 
 permissions:
   contents: read
@@ -9,101 +13,153 @@ permissions:
 jobs:
   synthesize_samples:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      - name: Checkout private engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: 8e898e65af7148f088ad357c438e7e1d2dd95c63
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: engine
-          persist-credentials: false
-          fetch-depth: 1
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
-      - name: Install locked engine
-        run: |
-          set -euo pipefail
-          cd engine
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
-
-      - name: Prepare secure secret
+      - name: Synthesize Charon and Orus samples with Gemini 3.8 REST
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
-          umask 077
-          mkdir -p "$RUNNER_TEMP/isco-secrets"
-          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
-
-      - name: Synthesize voice samples
-        env:
-          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
-        run: |
-          set -euo pipefail
           mkdir -p voice-samples
           python - <<'PY'
+          import base64
+          import json
           import os
-          import time
+          import urllib.request
           from pathlib import Path
-          from unittest.mock import patch
 
-          import isco_video_agent.providers.gemini as gem
-
-          api_key = Path(os.environ["GEMINI_API_KEY_FILE"]).read_text().strip()
-          text_sample = (
-              "هل أنت متأخر فعلًا، أم أنك تستخدم مقياسًا لم يُصنع لحياتك أصلًا؟ "
-              "خلال دقائق سنفكك هذا المقياس ونرى ما الذي يستحق أن تقيسه بدلًا منه."
-          )
-          voices = ["Gacrux", "Charon", "Orus", "Sadaltager", "Schedar"]
+          endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+          api_key = os.environ["GEMINI_API_KEY"]
           out_dir = Path("voice-samples")
 
-          failures = []
-          print("Waiting 60s before the first request so any rate-limit window from a prior attempt clears.")
-          time.sleep(60)
-          for index, voice in enumerate(voices):
-              out = out_dir / f"voice_test_{voice.lower()}.wav"
-              if index > 0:
-                  time.sleep(60)  # free-tier TTS rate limit: space requests out
-              try:
-                  with patch.object(gem, "_voice_identity", return_value=(voice, "Iapetus")):
-                      gem.synthesize_wav(
-                          api_key,
-                          text_sample,
-                          out,
-                          model="gemini-3.1-flash-tts-preview",
-                          voice=voice,
-                          style="",
-                      )
-                  size = out.stat().st_size
-                  print(f"OK {voice}: {out} ({size} bytes)")
-                  if size < 1024:
-                      failures.append(voice)
-                      print(f"FAIL {voice}: suspiciously small audio")
-              except Exception as exc:
-                  failures.append(voice)
-                  print(f"FAIL {voice}: {exc}")
+          def call(name, content, speech_config):
+              payload = {
+                  "model": "gemini-3.8-flash-tts",
+                  "input": [{"type": "user_input", "content": content}],
+                  "response_format": {"type": "audio"},
+                  "generation_config": {"speech_config": speech_config},
+              }
+              request = urllib.request.Request(
+                  endpoint,
+                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "x-goog-api-key": api_key,
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  result = json.loads(response.read().decode("utf-8"))
+              encoded = None
+              for step in reversed(result.get("steps", [])):
+                  for block in reversed(step.get("content", [])):
+                      if block.get("type") == "audio" and block.get("data"):
+                          encoded = block["data"]
+                          break
+                  if encoded:
+                      break
+              if not encoded:
+                  raise RuntimeError(f"{name}: no audio returned")
+              audio = base64.b64decode(encoded)
+              if not audio.startswith(b"RIFF"):
+                  raise RuntimeError(f"{name}: non-WAV response")
+              target = out_dir / name
+              target.write_bytes(audio)
+              print(f"OK {target} {len(audio)} bytes")
 
-          if failures:
-              raise SystemExit(f"Voices that failed to synthesize: {', '.join(failures)}")
+          narrator_style = (
+              "Natural adult Modern Standard Arabic. Warm, mature, intelligent and conversational; "
+              "calm confidence, human pacing, clear articulation, no announcer tone."
+          )
+          questioner_style = (
+              "Natural Modern Standard Arabic questioner. Concise, intelligent and curious; "
+              "firm but calm, never theatrical."
+          )
+
+          call(
+              "01_charon_primary.wav",
+              [{
+                  "type": "text",
+                  "text": "أحيانًا لا تكون المشكلة في أنك لا تعرف ماذا تفعل، بل في أنك تقيس تقدمك بطريقة لا تناسب حياتك.",
+                  "annotations": [{"type": "speech_metadata", "style": narrator_style}],
+              }],
+              [{"voice": "Charon"}],
+          )
+
+          call(
+              "02_orus_questioner.wav",
+              [{
+                  "type": "text",
+                  "text": "لكن إذا كانت الخطة جيدة فعلًا، لماذا نفشل في الالتزام بها كل مرة؟",
+                  "annotations": [{"type": "speech_metadata", "style": questioner_style}],
+              }],
+              [{"voice": "Orus"}],
+          )
+
+          call(
+              "03_dialogue_charon_orus.wav",
+              [
+                  {
+                      "type": "text",
+                      "text": "إذا كانت المشكلة ليست في الخطة، فأين هي إذن؟",
+                      "annotations": [{
+                          "type": "speech_metadata",
+                          "speaker": "A",
+                          "style": questioner_style,
+                      }],
+                  },
+                  {
+                      "type": "text",
+                      "text": "في كثير من الأحيان، الخطة تفترض يومًا مثاليًا. بينما حياتك الحقيقية مليئة بالمقاطعات والتعب وتغير الأولويات.",
+                      "annotations": [{
+                          "type": "speech_metadata",
+                          "speaker": "B",
+                          "style": narrator_style,
+                      }],
+                  },
+                  {
+                      "type": "text",
+                      "text": "يعني أنني لا أحتاج خطة أكثر صرامة؟",
+                      "annotations": [{
+                          "type": "speech_metadata",
+                          "speaker": "A",
+                          "style": questioner_style,
+                      }],
+                  },
+                  {
+                      "type": "text",
+                      "text": "بالضبط. تحتاج خطة تعرف كيف تنحني عندما يتغير يومك، من دون أن تنكسر.",
+                      "annotations": [{
+                          "type": "speech_metadata",
+                          "speaker": "B",
+                          "style": narrator_style,
+                      }],
+                  },
+              ],
+              {
+                  "mode": "conversational",
+                  "speakers": [
+                      {"speaker": "A", "voice": "Orus"},
+                      {"speaker": "B", "voice": "Charon"},
+                  ],
+              },
+          )
           PY
 
       - name: Upload voice samples
-        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: voice-samples
+          name: gemini38-charon-orus-samples
           path: voice-samples/*.wav
           if-no-files-found: error
           retention-days: 3
