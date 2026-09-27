@@ -5412,15 +5412,17 @@ class CleanV2Pipeline:
             if opening_report.get("status") == "pass":
                 opening_files = [
                     str(item.get("local_file") or "")
-                    for item in opening_report.get("slots", [])[:2]
+                    for item in opening_report.get("slots", [])[:3]
                     if isinstance(item, Mapping)
                 ]
-                if len(opening_files) != 2 or any(not item for item in opening_files):
-                    raise RuntimeError("opening director pass report has invalid auxiliary files")
+                if len(opening_files) != 3 or any(not item for item in opening_files):
+                    raise RuntimeError("opening director pass report has invalid opening files")
+                # Slot 0 is the already-acquired semantic primary. Do not append
+                # clips[0] again after the 30-second opening; continue from the
+                # next semantic beat instead.
                 render_clips = [
-                    output_dir / "visuals" / opening_files[0],
-                    output_dir / "visuals" / opening_files[1],
-                    *clips,
+                    *(output_dir / "visuals" / item for item in opening_files),
+                    *clips[1:],
                 ]
 
             final_path = output_dir / "final.mp4"
