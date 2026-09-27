@@ -4094,6 +4094,27 @@ shared by short, film, and podcast formats without erasing their separate pacing
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
+VISUAL QUALITY CONTRACT (Short, Film, and Podcast):
+- Design for the viewer, not for validators, gates, schemas, or stock-search convenience. The gates are safety nets;
+  they are not the creative target.
+- Every beat must earn its place by adding one distinct visible meaning, state, consequence, decision, or action.
+  If removing the beat loses no visual information, remove it. If the same beat could fit many unrelated
+  self-development topics after swapping a noun, rewrite it until it is topic-specific.
+- The visible scene must prove the narration's exact idea, not merely share its mood. Prefer one observable cause,
+  tension, choice, consequence, or result over generic atmosphere, productivity props, scenic filler, or symbolism
+  that needs explanation.
+- shot_intent is the execution brief: write one concrete English observable action/state, normally 6-14 useful
+  words, directly searchable or directly depictable. Do not hide weak semantics behind words such as cinematic,
+  inspiring, emotional, beautiful, premium, dramatic, or motivational.
+- The hook must be truthful, topic-specific, immediately readable with sound off, and visually repayable later.
+  The payoff must visibly resolve, answer, or advance the same central tension instead of ending on generic success.
+- Progress visually as meaning changes. Do not repeat the same dominant action family in adjacent beats unless the
+  repeated motif returns in a clearly changed state that proves progression.
+- Choose stock_motion versus ai_still only by which source communicates THIS beat more clearly, not by convenience.
+- Before returning JSON, do one silent self-check only: topic specificity, narration-to-visual match, semantic
+  progression, repeated action families, hook-to-payoff relationship, and generic-stock smell. Fix problems in-place;
+  do not output the review and do not create a second review stage or extra provider call.
+
 HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
 dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
 topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
@@ -4231,7 +4252,7 @@ Return one JSON object with exactly this useful shape:
         "meaning_target": "the exact visible meaning this shot must communicate",
         "semantic_must_have": ["one concrete visible cue", "second concrete cue if needed"],
         "semantic_should_avoid": ["generic mood-only substitute"],
-        "shot_intent": "rich semantic/cinematic image or motion intent",
+        "shot_intent": "6-14 word concrete English observable action/state, directly searchable",
         "role": "hook",
         "stock_query_en": "distinct concise English retrieval query for this beat",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
