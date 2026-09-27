@@ -58,14 +58,15 @@ def render_identity_composition(
     filters = (
         f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+        f"tpad=stop_mode=clone:stop_duration={intro_end - intro_start:.3f},"
         f"trim=duration={intro_end - intro_start:.3f},"
         f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
         f"[2:v]scale={prayer_width}:-1,format=rgba,"
         f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
         f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-        f"trim=duration={outro_duration:.3f},"
-        f"tpad=stop_mode=clone:stop_duration={freeze_duration:.3f},"
+        f"tpad=stop_mode=clone:stop_duration={outro_duration + freeze_duration:.3f},"
+        f"trim=duration={outro_duration + freeze_duration:.3f},"
         f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
         f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
         f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
@@ -78,9 +79,9 @@ def render_identity_composition(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(source),
-            "-stream_loop", "-1", "-i", str(assets["intro"]),
+            "-i", str(assets["intro"]),
             "-loop", "1", "-framerate", "30", "-i", str(assets["prayer"]),
-            "-stream_loop", "-1", "-i", str(assets["outro"]),
+            "-i", str(assets["outro"]),
             "-filter_complex", filters,
             "-map", "[vout]", "-map", "0:a:0",
             "-t", f"{voice_seconds:.3f}",
