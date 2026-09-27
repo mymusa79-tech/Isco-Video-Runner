@@ -1,0 +1,318 @@
+name: Gemini Planning 3.7 vs 3.8 A/B
+
+on:
+  push:
+    branches:
+      - "exp/gemini-38-planning-ab-20260928"
+    paths:
+      - ".github/workflows/gemini-planning-ab.yml"
+      - "scripts/planning_stage_contract.py"
+      - "scripts/production_exact_planning_harness.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-planning-ab-20260928
+  cancel-in-progress: false
+
+env:
+  EXPECTED_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+  STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
+  GEMINI_CONTENT_MODEL: gemini-3.7-flash
+  GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+  ISCO_GEMINI_AB_ONLY: "1"
+  MISTRAL_FREE_ONLY: "true"
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify experiment branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "exp/gemini-38-planning-ab-20260928"
+          python -m py_compile scripts/planning_stage_contract.py scripts/production_exact_planning_harness.py
+
+      - name: Checkout frozen private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install production planning dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
+          cd engine
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+          python -m pip install --disable-pip-version-check -r requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e .
+          python -m pip check
+
+      - name: Validate frozen approved brief and create request
+        env:
+          ISCO_APPROVED_BRIEF_SHA256: ${{ env.STATIC_APPROVED_BRIEF_SHA256 }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=engine/src python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from isco_video_agent.brief_approval_binding import verify_brief_approval
+
+          brief_path = Path("engine/production/approved_brief.json")
+          brief = json.loads(brief_path.read_text(encoding="utf-8"))
+          if not isinstance(brief, dict) or brief.get("approved_by_user") is not True:
+              raise SystemExit("Benchmark brief is not explicitly approved")
+          verify_brief_approval(brief, os.environ["ISCO_APPROVED_BRIEF_SHA256"])
+          topic = str(brief.get("approved_topic") or "").strip()
+          fmt = str(brief.get("format") or "").strip().lower()
+          if not topic or fmt != "film":
+              raise SystemExit(f"Benchmark requires frozen film brief, got format={fmt!r}")
+          request = Path(os.environ["RUNNER_TEMP"]) / "isco-request.json"
+          request.write_text(json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8")
+          request.chmod(0o600)
+          print(f"A/B brief locked: topic={topic!r} format={fmt}")
+          PY
+
+      - name: Materialize provider secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
+          printf '%s' "$MISTRAL_API_KEY" > "$RUNNER_TEMP/isco-secrets/mistral"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
+
+      - name: Verify Gemini 3.7 and 3.8 are visible to this key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, requests
+          key = os.environ["GEMINI_API_KEY"]
+          response = requests.get(
+              "https://generativelanguage.googleapis.com/v1beta/models",
+              headers={"x-goog-api-key": key},
+              timeout=30,
+          )
+          response.raise_for_status()
+          names = {str(item.get("name", "")).removeprefix("models/") for item in response.json().get("models", [])}
+          required = {"gemini-3.7-flash", "gemini-3.8-flash"}
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit("Gemini A/B models unavailable to current key: " + ",".join(missing))
+          print("Gemini model discovery PASS: 3.7 and 3.8 visible")
+          PY
+
+      - name: Verify Gemini-only experiment seam
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          os.environ["ISCO_GEMINI_AB_ONLY"] = "1"
+          from scripts import planning_stage_contract as p
+          assert p._planning_provider_order() == ("gemini",), p._planning_provider_order()
+          print("Planning provider isolation PASS: gemini-only")
+          PY
+
+      - name: Run three paired production-exact planning trials per model
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          REQUEST_FILE: ${{ runner.temp }}/isco-request.json
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          MISTRAL_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/mistral
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+          ISCO_ENGINE_SHA: ${{ env.EXPECTED_ENGINE_SHA }}
+          ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
+          ISCO_APPROVED_BRIEF_SHA256: ${{ env.STATIC_APPROVED_BRIEF_SHA256 }}
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+          ISCO_GEMINI_AB_ONLY: "1"
+          MISTRAL_FREE_ONLY: "true"
+        working-directory: engine
+        run: |
+          set -uo pipefail
+          results="$GITHUB_WORKSPACE/ab-results"
+          rm -rf "$results"
+          mkdir -p "$results"
+
+          for model in gemini-3.7-flash gemini-3.8-flash; do
+            for attempt in 1 2 3; do
+              echo "===== A/B model=$model attempt=$attempt ====="
+              rm -rf output
+              mkdir -p output
+              export ISCO_GEMINI_AB_PLANNING_MODEL="$model"
+              log="$results/$model-attempt-$attempt.log"
+              started="$(date +%s)"
+              set +e
+              python ../scripts/production_exact_planning_harness.py >"$log" 2>&1
+              status=$?
+              set -e
+              ended="$(date +%s)"
+              elapsed=$((ended-started))
+
+              dest="$results/$model/attempt-$attempt"
+              mkdir -p "$dest"
+              cp "$log" "$dest/run.log"
+              out="$(ls -td output/* 2>/dev/null | head -n 1 || true)"
+              if [ -n "$out" ] && [ -d "$out" ]; then
+                for name in                   plan.json factuality-audit.json content-quality-audit.json                   tone-quality-audit.json quality-precheck.json ai-budget.json                   production-failure-diagnostics.json production-exact-planning-harness.json; do
+                  if [ -f "$out/$name" ]; then cp "$out/$name" "$dest/$name"; fi
+                done
+              fi
+
+              python - "$dest" "$model" "$attempt" "$status" "$elapsed" <<'PY'
+          import json, pathlib, re, sys
+          dest = pathlib.Path(sys.argv[1])
+          model = sys.argv[2]
+          attempt = int(sys.argv[3])
+          exit_code = int(sys.argv[4])
+          elapsed = int(sys.argv[5])
+          log = (dest / "run.log").read_text(encoding="utf-8", errors="replace")
+          result = {
+              "model": model,
+              "attempt": attempt,
+              "exit_code": exit_code,
+              "elapsed_seconds": elapsed,
+              "harness_pass": False,
+              "planning_gemini_successes": log.count("Planning subtask provider selected: gemini"),
+              "planning_non_gemini_successes": sum(
+                  log.count(f"Planning subtask provider selected: {provider}")
+                  for provider in ("groq", "mistral", "openrouter")
+              ),
+              "planning_failure_lines": len(re.findall(r"Planning provider|Planning stage|PROVIDER_", log, flags=re.I)),
+              "repair_mentions": len(re.findall(r"repair", log, flags=re.I)),
+              "rate_limit_mentions": len(re.findall(r"429|rate.?limit|RESOURCE_EXHAUSTED", log, flags=re.I)),
+              "server_error_mentions": len(re.findall(r"\b50[0234]\b|service unavailable|over capacity", log, flags=re.I)),
+          }
+          hp = dest / "production-exact-planning-harness.json"
+          if hp.exists():
+              try:
+                  result["harness_pass"] = json.loads(hp.read_text(encoding="utf-8")).get("status") == "pass"
+              except Exception:
+                  pass
+          planp = dest / "plan.json"
+          if planp.exists():
+              try:
+                  plan = json.loads(planp.read_text(encoding="utf-8"))
+                  sections = plan.get("sections") if isinstance(plan, dict) else []
+                  if isinstance(sections, list):
+                      result["section_count"] = len(sections)
+                      result["narration_words"] = sum(
+                          len(str(s.get("narration") or "").split())
+                          for s in sections if isinstance(s, dict)
+                      )
+              except Exception as exc:
+                  result["plan_parse_error"] = type(exc).__name__
+          for filename, key in (
+              ("factuality-audit.json", "factuality_status"),
+              ("content-quality-audit.json", "content_quality_status"),
+              ("tone-quality-audit.json", "tone_quality_status"),
+              ("quality-precheck.json", "quality_precheck_status"),
+          ):
+              p = dest / filename
+              if p.exists():
+                  try:
+                      obj = json.loads(p.read_text(encoding="utf-8"))
+                      result[key] = obj.get("status") if isinstance(obj, dict) else None
+                  except Exception:
+                      result[key] = "parse_error"
+          (dest / "result.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+            done
+          done
+
+          python - "$results" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, pathlib, statistics, sys
+          root = pathlib.Path(sys.argv[1])
+          summary_path = pathlib.Path(sys.argv[2])
+          rows = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(root.glob("*/attempt-*/result.json"))]
+          summary = {"schema_version": 1, "trials": rows, "models": {}}
+          isolation_violations = 0
+          for model in ("gemini-3.7-flash", "gemini-3.8-flash"):
+              group = [r for r in rows if r["model"] == model]
+              passes = sum(1 for r in group if r["harness_pass"])
+              isolation_violations += sum(int(r["planning_non_gemini_successes"]) for r in group)
+              elapsed = [int(r["elapsed_seconds"]) for r in group]
+              summary["models"][model] = {
+                  "attempts": len(group),
+                  "passes": passes,
+                  "pass_rate": passes / len(group) if group else 0.0,
+                  "median_elapsed_seconds": statistics.median(elapsed) if elapsed else None,
+                  "total_rate_limit_mentions": sum(int(r["rate_limit_mentions"]) for r in group),
+                  "total_repair_mentions": sum(int(r["repair_mentions"]) for r in group),
+                  "planning_non_gemini_successes": sum(int(r["planning_non_gemini_successes"]) for r in group),
+              }
+          summary["isolation_violations"] = isolation_violations
+          (root / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+          lines = [
+              "# Gemini Planning A/B",
+              "",
+              "| Model | Passes | Median sec | Rate-limit mentions | Repair mentions | Non-Gemini planning successes |",
+              "|---|---:|---:|---:|---:|---:|",
+          ]
+          for model, data in summary["models"].items():
+              lines.append(
+                  f"| {model} | {data['passes']}/{data['attempts']} | {data['median_elapsed_seconds']} | "
+                  f"{data['total_rate_limit_mentions']} | {data['total_repair_mentions']} | "
+                  f"{data['planning_non_gemini_successes']} |"
+              )
+          lines += ["", f"Isolation violations: **{isolation_violations}**"]
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+          if isolation_violations:
+              raise SystemExit("Gemini-only planning isolation was violated")
+          PY
+
+      - name: Upload A/B evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gemini-planning-ab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ab-results
+          if-no-files-found: error
+          retention-days: 7
