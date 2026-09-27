@@ -187,6 +187,27 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     "payoff_answer must be a descriptive resolution", prompt
                 )
 
+    def test_source_first_visual_quality_contract_is_shared_without_new_stage(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                prompt = " ".join(_planning_prompt(_brief(fmt)).split())
+                self.assertIn("VISUAL QUALITY CONTRACT (Short, Film, and Podcast)", prompt)
+                self.assertIn("Every beat must earn its place", prompt)
+                self.assertIn("The visible scene must prove the narration's exact idea", prompt)
+                self.assertIn("shot_intent is the execution brief", prompt)
+                self.assertIn("The hook must be truthful, topic-specific", prompt)
+                self.assertIn("The payoff must visibly resolve, answer, or advance", prompt)
+                self.assertIn("generic-stock smell", prompt)
+                self.assertIn("do not create a second review stage or extra provider call", prompt)
+                self.assertIn(
+                    '"shot_intent": "6-14 word concrete English observable action/state, directly searchable"',
+                    prompt,
+                )
+                self.assertNotIn(
+                    '"shot_intent": "rich semantic/cinematic image or motion intent"',
+                    prompt,
+                )
+
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
         self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
