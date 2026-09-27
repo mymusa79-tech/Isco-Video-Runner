@@ -1413,7 +1413,13 @@ def _trusted_identity_for_factuality(
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
     definition = channel_definition(fmt, str(identity.get("opener") or ""))
     phrases: list[str] = []
-    for phrase in (PRAYER_SENTENCE, definition):
+    # Prayer, runtime channel definition/opener, and closer are all host-owned.
+    # Excluding them keeps factuality/tone judgment scoped to Writer-owned prose.
+    for phrase in (
+        PRAYER_SENTENCE,
+        definition,
+        str(identity.get("closer") or ""),
+    ):
         normalized = " ".join(str(phrase or "").split()).strip()
         if normalized and normalized not in phrases:
             phrases.append(normalized)
@@ -1555,6 +1561,106 @@ _FACTUALITY_UNAVAILABLE_RISK_PATTERNS = (
 )
 
 
+_QUANTIFIED_RESEARCH_CLAIM_RE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:%|٪|بالمئة|في\s+المئة)"
+)
+_CLAIM_CONTEXT_WORD_RE = re.compile(r"[A-Za-z\u0600-\u06FF]{3,}")
+_CLAIM_CONTEXT_STOPWORDS = frozenset(
+    {
+        "هذه", "هذا", "ذلك", "تلك", "التي", "الذي", "على", "إلى", "الى", "من", "في",
+        "عن", "مع", "وفق", "وفقا", "وفقًا", "بنسبة", "النسبة", "نسبة", "الدراسة",
+        "دراسة", "الدراسات", "المصدر", "وردت", "نفسها", "نفسه", "the", "and", "for",
+        "with", "from", "study", "studies", "source", "percent", "percentage",
+    }
+)
+
+
+def _normalized_percentage_key(value: str) -> str:
+    translated = str(value or "").translate(
+        str.maketrans("٠١٢٣٤٥٦٧٨٩٪", "0123456789%")
+    )
+    return re.sub(r"\s+", "", translated.casefold())
+
+
+def _normalize_claim_context_token(token: str) -> str:
+    value = token.casefold().strip()
+    # Minimal Arabic clitic normalization for local claim-context matching only:
+    # وتنجح -> تنجح, بالطريقة -> الطريقة. This is not semantic stemming.
+    if len(value) > 4 and value[0] in {"و", "ف", "ب", "ل", "ك"}:
+        value = value[1:]
+    return value
+
+
+def _claim_context_words(value: str) -> set[str]:
+    rows: set[str] = set()
+    for token in _CLAIM_CONTEXT_WORD_RE.findall(str(value or "")):
+        normalized = _normalize_claim_context_token(token)
+        if normalized and normalized not in _CLAIM_CONTEXT_STOPWORDS:
+            rows.add(normalized)
+    return rows
+
+
+def _sentence_containing_span(text: str, start: int, end: int) -> str:
+    left = max(text.rfind(".", 0, start), text.rfind("؟", 0, start), text.rfind("!", 0, start))
+    right_candidates = [
+        pos for pos in (text.find(".", end), text.find("؟", end), text.find("!", end)) if pos >= 0
+    ]
+    right = min(right_candidates) + 1 if right_candidates else len(text)
+    return text[left + 1 : right].strip()
+
+
+def _unsupported_quantified_research_claims(
+    audit_script: Mapping[str, Any],
+    research_context: Any,
+) -> list[dict[str, str]]:
+    """Promote unsupported percentages into the existing Factuality owner.
+
+    Support requires the same normalized percentage and at least one meaningful
+    claim-context word in the same approved claim_scope. This prevents an unrelated
+    percentage elsewhere in the research pack from laundering a fabricated claim.
+    """
+    scopes = [
+        str(item.get("claim_scope") or "").strip()
+        for item in (research_context if isinstance(research_context, list) else [])
+        if isinstance(item, Mapping) and str(item.get("claim_scope") or "").strip()
+    ]
+    rows: list[dict[str, str]] = []
+    for item in (audit_script.get("sections") or []):
+        if not isinstance(item, Mapping):
+            continue
+        section_id = str(item.get("id") or "").strip()
+        narration = str(item.get("narration") or "")
+        for match in _QUANTIFIED_RESEARCH_CLAIM_RE.finditer(narration):
+            claim = " ".join(match.group(0).split()).strip()
+            key = _normalized_percentage_key(claim)
+            sentence = _sentence_containing_span(narration, match.start(), match.end())
+            context_words = _claim_context_words(sentence)
+            supported = False
+            for scope in scopes:
+                scope_words = _claim_context_words(scope)
+                overlap = context_words & scope_words
+                required_overlap = min(2, len(context_words), len(scope_words))
+                if (
+                    key
+                    and key in _normalized_percentage_key(scope)
+                    and required_overlap > 0
+                    and len(overlap) >= required_overlap
+                ):
+                    supported = True
+                    break
+            if claim and not supported:
+                rows.append(
+                    {
+                        "section_id": section_id,
+                        "issue": (
+                            "unsupported quantified claim not present in approved research_pack: "
+                            + claim
+                        ),
+                    }
+                )
+    return rows
+
+
 def _factuality_unavailable_local_risks(
     audit_script: Mapping[str, Any],
 ) -> tuple[str, ...]:
@@ -1604,6 +1710,27 @@ def _run_legacy_factuality_audit(
         diagnostics=diagnostics,
     )
     provider_status = str(result.get("status") or "")
+    local_quantified_claims = _unsupported_quantified_research_claims(
+        audit_script,
+        research_context,
+    )
+    if local_quantified_claims:
+        result = dict(result)
+        existing_unsupported = [
+            dict(item)
+            for item in (result.get("unsupported_claims") or [])
+            if isinstance(item, Mapping)
+        ]
+        seen = {
+            (str(item.get("section_id") or ""), str(item.get("issue") or ""))
+            for item in existing_unsupported
+        }
+        for item in local_quantified_claims:
+            key = (str(item.get("section_id") or ""), str(item.get("issue") or ""))
+            if key not in seen:
+                existing_unsupported.append(item)
+                seen.add(key)
+        result["unsupported_claims"] = existing_unsupported
 
     if diagnostics.get("validation") != "valid":
         risks = _factuality_unavailable_local_risks(audit_script)
@@ -1752,16 +1879,15 @@ def _run_legacy_tone_naturalness_audit(
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
     identity_path = output_dir / "narrative-identity.json"
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
-    short_identity_scope = str(brief.get("format") or "") == "short"
-    if short_identity_scope:
-        trusted_identity = _trusted_identity_for_factuality(
-            output_dir=output_dir,
-            brief=brief,
-        )
-        audit_script = _script_without_trusted_identity(script, trusted_identity)
-    else:
-        trusted_identity = ()
-        audit_script = script
+    # Host-owned prayer/channel identity is not Writer-owned narration. Judge the
+    # Writer on authored text for every spoken format, while still exposing identity
+    # opener/closer separately to the Engine audit below. This keeps the Tone gate
+    # authoritative without asking its bounded Writer repair to modify locked host text.
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    audit_script = _script_without_trusted_identity(script, trusted_identity)
 
     production_plan = _build_production_plan_for_audit(
         brief=brief,
@@ -1770,11 +1896,7 @@ def _run_legacy_tone_naturalness_audit(
     )
     production_plan.hook = _first_spoken_sentence(audit_script)
     production_plan.closing_payoff = (
-        (
-            _closing_payoff_for_tone_audit(audit_script)
-            if short_identity_scope
-            else _closing_payoff_for_tone_audit(script, identity=identity)
-        )
+        _closing_payoff_for_tone_audit(audit_script)
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -1794,14 +1916,8 @@ def _run_legacy_tone_naturalness_audit(
         report = {
             "schema_version": 1,
             "source": "clean-v2-legacy-tone-naturalness-audit",
-            **(
-                {
-                    "trusted_identity_excluded_from_model_judgment": True,
-                    "trusted_identity": list(trusted_identity),
-                }
-                if short_identity_scope
-                else {}
-            ),
+            "trusted_identity_excluded_from_model_judgment": True,
+            "trusted_identity": list(trusted_identity),
             **result,
             "status": "pass",
             "provider_status": str(result.get("status") or ""),
@@ -1815,14 +1931,8 @@ def _run_legacy_tone_naturalness_audit(
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-tone-naturalness-audit",
-        **(
-            {
-                "trusted_identity_excluded_from_model_judgment": True,
-                "trusted_identity": list(trusted_identity),
-            }
-            if short_identity_scope
-            else {}
-        ),
+        "trusted_identity_excluded_from_model_judgment": True,
+        "trusted_identity": list(trusted_identity),
         **result,
         "decision_source": "validated_provider_content_verdict",
         "audit_availability": "available",
@@ -2586,14 +2696,15 @@ def _tone_repair_prompt(
     )
     longform_progression_repair_guidance = (
         (
-            "- For film and podcast, fix progression semantically, not cosmetically. s1 owns the "
-            "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
-            "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
-            "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
-            "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
-            "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
-            "too shallow. The final section must answer or deepen the exact opening tension with an earned "
-            "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
+            "- For film and podcast, fix progression semantically, not cosmetically, but repair only the progression defect named in REVISION_NOTE and only "
+            "inside ALLOWED_PATCH_SECTION_IDS. Preserve each LOCKED_PLAN section purpose as the semantic owner "
+            "of that section; do not redesign the whole argument, move ideas across sections, or invent a new "
+            "mechanism to rescue a weak draft. Within the targeted local span, s2 must add a mechanism, cause, or distinction "
+            "already supported by the locked plan; s3, when present, must derive a new implication or resolution from s2 "
+            "rather than merely rename it. If a targeted later section merely repeats the prior section, "
+            "rewrite that local span so it delivers its own locked purpose and advances the same opening tension. "
+            "If the targeted final section is flagged, make its local payoff wording directly answer the opening "
+            "tension before any practical action. generic advice or paraphrase is not a payoff. "
             "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
             + (
                 PODCAST_NABRA_PERFORMANCE_GUIDANCE
@@ -4005,6 +4116,29 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     else:
         section_requirement = "2 to 4 sections"
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    film_context = (
+        """
+For film only, treat retention_thread and the five section purposes as ONE argument contract, not
+decorative planning metadata. hook_tension must be the unresolved viewer-facing question or
+contradiction the opening creates; do NOT write it as a meta summary such as "we explain / reveal /
+present", do not list the causes inside the tension, and do not encode the solution there.
+payoff_answer must directly answer that SAME tension in one causal/explanatory sentence BEFORE any
+optional practical step. If a practical action belongs in the payoff, append it only after the answer
+using a clear therefore/so relationship.
+
+The five section purposes must form a non-overlapping proof chain:
+- s1: concrete situation + unresolved central tension; do not dump the full answer.
+- s2: first explanatory cause or mechanism.
+- s3: a distinct deeper mechanism, distinction, or failure mode; never paraphrase s2.
+- s4: a concrete contrast, example, consequence, or test that makes the explanation observable.
+- s5: synthesize the direct answer to the original tension, then (only if useful) one practical step.
+If two adjacent purposes could swap places without losing a logical step, rewrite the later purpose.
+If s5 could fit an unrelated productivity video, it is too generic. Keep every causal claim inside
+the approved brief/research boundaries.
+"""
+        if fmt == "film"
+        else ""
+    )
     podcast_context = (
         """
 For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
@@ -4219,6 +4353,7 @@ For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment
 in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
 
 {short_context}
+{film_context}
 {podcast_context}
 
 Return one JSON object with exactly this useful shape:
@@ -4320,6 +4455,22 @@ WRITER QUALITY CONTRACT (Short, Film, and Podcast):
   the review and do not create a second review stage.
 """.strip()
 
+FILM_ARGUMENT_DISCIPLINE = """
+FILM ARGUMENT DISCIPLINE (Film only — execute before returning JSON):
+- The LOCKED_PLAN has exactly five section purposes. Treat them as five different jobs in one proof chain; do not merge, reorder, or paraphrase one job into another.
+- s1 opens the exact concrete tension and may frame it, but must not answer the whole episode.
+- s2 contributes the first explanatory cause/mechanism.
+- s3 contributes a genuinely different mechanism, distinction, or failure mode. If s3 could replace s2 without losing meaning, rewrite s3.
+- s4 must make the explanation concrete through a contrast, example, consequence, or test; it must not collapse into a generic productivity tip.
+- s5 must FIRST state the direct causal/explanatory answer to the hook tension in plain Arabic, and only THEN may derive one practical action. A slogan or action alone is not the payoff.
+- Keep the topic-specific nouns and scenario from the hook alive through the body. After the runtime-owned identity handoff, continue the SAME unresolved question rather than restarting with broad motivation.
+- Write spoken Arabic only. Do not emit Latin-script terminology, CJK text, code fragments, UI text, or untranslated English labels in narration; express ordinary concepts naturally in Modern Standard Arabic.
+- Do not invent percentages, statistics, study attributions, expert authority, or numeric research claims. A percentage/statistic is allowed only when the exact value and claim are present in APPROVED_RESEARCH_PACK.
+- Do not write the prayer, basmala, channel definition, opener, closer, or CTA yourself; those lines are host-owned and inserted separately.
+- BAD: specific hook -> broad psychology -> repeated advice -> generic action.
+- GOOD: specific hook -> cause -> deeper distinction -> concrete contrast/example -> direct answer to the hook -> one earned action.
+""".strip()
+
 LONGFORM_RETENTION_PREFLIGHT = """
 LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before returning JSON):
 - Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
@@ -4358,7 +4509,7 @@ def _script_prompt(
             "For film, do not write toward a word-count target. Continue only while each section adds a new "
             "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
             "runtime natural rather than padding a long-form label with filler.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + FILM_ARGUMENT_DISCIPLINE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (

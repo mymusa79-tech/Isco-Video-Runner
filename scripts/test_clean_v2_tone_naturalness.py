@@ -75,6 +75,31 @@ class FactualityAvailabilityBoundaryTests(unittest.TestCase):
         self.assertIn("medical", risks)
         self.assertIn("research_or_statistics", risks)
 
+    def test_explicit_percentage_is_promoted_into_existing_factuality_owner_only_when_unsupported(self):
+        from clean_v2.pipeline import _unsupported_quantified_research_claims
+
+        script = {
+            "sections": [
+                {"id": "s3", "narration": "وتنجح هذه الطريقة بنسبة 90٪ وفقًا للدراسات."}
+            ]
+        }
+        unsupported = _unsupported_quantified_research_claims(script, [])
+        self.assertEqual(len(unsupported), 1)
+        self.assertEqual(unsupported[0]["section_id"], "s3")
+        self.assertIn("90٪", unsupported[0]["issue"])
+
+        supported = _unsupported_quantified_research_claims(
+            script,
+            [{"claim_scope": "تنجح هذه الطريقة بنسبة 90٪ لهذه النتيجة وفق المصدر المعتمد."}],
+        )
+        self.assertEqual(supported, [])
+
+        unrelated_same_number = _unsupported_quantified_research_claims(
+            script,
+            [{"claim_scope": "أكمل 90٪ من المشاركين مهمة مختلفة لا علاقة لها بهذه الطريقة."}],
+        )
+        self.assertEqual(len(unrelated_same_number), 1)
+
 
 class CleanV2ToneNaturalnessTests(unittest.TestCase):
     def test_strict_schema_matches_legacy_tone_contract(self):
@@ -339,6 +364,72 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(plan.identity_opener, identity["opener"])
         self.assertEqual(plan.identity_closer, identity["closer"])
         self.assertEqual(plan.identity_transitions, identity["transitions"])
+
+    def test_film_tone_audit_excludes_host_owned_prayer_and_identity_from_writer_judgment(self):
+        identity = {
+            "opener": "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح.",
+            "closer": "حفظك الله، وننتظرك في نداء أقرب.",
+            "transitions": [],
+        }
+        prayer = "اللهم صلِّ وسلِّم على نبينا محمد."
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "لماذا تفشل خطتك عند أول مقاطعة؟ "
+                        + prayer
+                        + " "
+                        + identity["opener"]
+                        + " لأن الخطة لم ترتبط بلحظة تنفيذ واضحة."
+                    ),
+                },
+                {"id": "s5", "narration": "إذن المشكلة في جسر التنفيذ لا في النية. " + identity["closer"]},
+            ]
+        }
+        captured = {}
+        dummy_plan = SimpleNamespace(
+            hook="",
+            closing_payoff="",
+            identity_opener="",
+            identity_closer="",
+            identity_transitions=[],
+            sections=[],
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps(identity, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            def build_plan(*, script, **_kwargs):
+                captured["audit_script"] = script
+                return dummy_plan
+
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                side_effect=build_plan,
+            ), patch(
+                "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                return_value=_tone_result(),
+            ):
+                report = _run_legacy_tone_naturalness_audit(
+                    output_dir=root,
+                    brief={"format": "film"},
+                    plan={"promise": "نفهم سبب فشل الخطة"},
+                    script=script,
+                )
+
+        joined = " ".join(
+            item["narration"] for item in captured["audit_script"]["sections"]
+        )
+        self.assertNotIn(prayer, joined)
+        self.assertNotIn(identity["opener"], joined)
+        self.assertNotIn(identity["closer"], joined)
+        self.assertIn("لماذا تفشل خطتك", joined)
+        self.assertTrue(report["trusted_identity_excluded_from_model_judgment"])
 
     def test_run256_tone_scope_defers_visual_query_and_respects_host_locks(self):
         base = (

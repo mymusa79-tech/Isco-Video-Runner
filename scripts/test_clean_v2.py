@@ -242,6 +242,17 @@ class PlanningCardinalityTests(unittest.TestCase):
         self.assertIn("at most 260 characters", prompt)
         self.assertIn("never cut mid-thought", prompt)
 
+    def test_film_planning_retention_thread_is_an_unresolved_question_then_direct_answer(self) -> None:
+        brief = _brief()
+        brief["format"] = "film"
+        prompt = " ".join(_planning_prompt(brief).split())
+        self.assertIn("hook_tension must be the unresolved viewer-facing question", prompt)
+        self.assertIn("do not list the causes inside the tension", prompt)
+        self.assertIn("payoff_answer must directly answer that SAME tension", prompt)
+        self.assertIn("The five section purposes must form a non-overlapping proof chain", prompt)
+        self.assertIn("s5: synthesize the direct answer to the original tension", prompt)
+        self.assertIn("If two adjacent purposes could swap places", prompt)
+
 
 class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
     def test_attempt2_productivity_guidance_is_explicitly_outside_professional_advice_flag(self) -> None:
@@ -291,6 +302,20 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn("forced shock/clickbait", normalized_prompt)
         self.assertIn("same core tension the script will develop", normalized_prompt.lower())
         self.assertIn("do not optimize for a fixed word count or duration", normalized_prompt.lower())
+
+    def test_film_writer_owns_one_five_step_argument_without_foreign_or_invented_claims(self) -> None:
+        brief = _brief()
+        brief["format"] = "film"
+        brief["research_pack"] = []
+        prompt = " ".join(_script_prompt(brief, _plan()).split())
+        self.assertIn("FILM ARGUMENT DISCIPLINE", prompt)
+        self.assertIn("five different jobs in one proof chain", prompt)
+        self.assertIn("s5 must FIRST state the direct causal/explanatory answer", prompt)
+        self.assertIn("Do not emit Latin-script terminology, CJK text", prompt)
+        self.assertIn("Do not invent percentages, statistics, study attributions", prompt)
+        self.assertIn("Do not write the prayer, basmala, channel definition", prompt)
+        self.assertIn("specific hook -> broad psychology -> repeated advice -> generic action", prompt)
+        self.assertIn("specific hook -> cause -> deeper distinction -> concrete contrast/example", prompt)
 
     def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
         opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
