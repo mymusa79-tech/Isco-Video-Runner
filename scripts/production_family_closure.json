@@ -143,7 +143,7 @@
       "id":"F06","name":"tts_audio_vision_and_retry_ownership",
       "historical_runs":["106-110","128"],
       "required_phases":["P2","P3"],
-      "contracts":["scripts.test_voice_mesh","scripts.test_piper_chunking","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_groq_audio_audit","scripts.test_provider_retry_ownership"]
+      "contracts":["scripts.test_voice_mesh","scripts.test_clean_v2_voice","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_groq_audio_audit","scripts.test_provider_retry_ownership"]
     },
     {
       "id":"F07","name":"state_persistence_and_test_production_isolation",
@@ -239,7 +239,7 @@
       "id":"F22","name":"audio_production_contract_semantic_fidelity_and_final_artifact",
       "historical_runs":["106-110","128","169"],
       "required_phases":["P2","P4"],
-      "contracts":["scripts.test_voice_mesh","scripts.test_piper_chunking","scripts.test_short_voice_v2","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_audio_producer_repair_lifecycle","scripts.test_groq_audio_audit","scripts.test_audio_producer_final_certificate"]
+      "contracts":["scripts.test_voice_mesh","scripts.test_clean_v2_voice","scripts.test_short_voice_v2","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_audio_producer_repair_lifecycle","scripts.test_groq_audio_audit","scripts.test_audio_producer_final_certificate"]
     },
     {
       "id":"F23","name":"planning_production_contract_lineage_taxonomy_and_deadlines",
