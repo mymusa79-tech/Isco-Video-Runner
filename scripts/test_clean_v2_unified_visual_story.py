@@ -10,6 +10,7 @@ from clean_v2 import providers as providers_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
+    _bound_short_visual_story,
     _persist_planning_artifacts,
     _planning_prompt,
     _script_prompt,
@@ -112,6 +113,27 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("stuck -> choosing -> moving -> completed", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+
+    def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
+        story = {
+            "beats": [
+                {"id": "b1", "section_id": "s1", "role": "hook"},
+                {"id": "b2", "section_id": "s1", "role": "body"},
+                {"id": "b3", "section_id": "s1", "role": "body"},
+                {"id": "b4", "section_id": "s2", "role": "body"},
+                {"id": "b5", "section_id": "s2", "role": "body"},
+                {"id": "b6", "section_id": "s3", "role": "body"},
+                {"id": "b7", "section_id": "s3", "role": "payoff"},
+            ]
+        }
+        bounded = _bound_short_visual_story(story, max_beats=5)
+        beats = bounded["beats"]
+        self.assertEqual(len(beats), 5)
+        self.assertEqual(beats[0]["id"], "b1")
+        self.assertEqual(beats[-1]["id"], "b7")
+        self.assertEqual(beats[0]["role"], "hook")
+        self.assertEqual(beats[-1]["role"], "payoff")
+        self.assertEqual({beat["section_id"] for beat in beats}, {"s1", "s2", "s3"})
 
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
