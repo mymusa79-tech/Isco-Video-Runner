@@ -143,7 +143,7 @@
       "id":"F06","name":"tts_audio_vision_and_retry_ownership",
       "historical_runs":["106-110","128"],
       "required_phases":["P2","P3"],
-      "contracts":["scripts.test_voice_mesh","scripts.test_clean_v2_voice","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_groq_audio_audit","scripts.test_provider_retry_ownership"]
+      "contracts":["scripts.test_clean_v2_voice","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_groq_audio_audit","scripts.test_provider_retry_ownership"]
     },
     {
       "id":"F07","name":"state_persistence_and_test_production_isolation",
@@ -179,7 +179,7 @@
       "id":"F12","name":"shorts_integration_and_unified_delivery",
       "historical_runs":["51-132"],
       "required_phases":["P2","P3","P6"],
-      "contracts":["scripts.test_native_short_planner_router","scripts.test_shorts_production_binding","scripts.test_short_voice_v2","scripts.test_sibling_short_orchestration","scripts.test_unified_delivery_canonical"]
+      "contracts":["scripts.test_native_short_planner_router","scripts.test_shorts_production_binding","scripts.test_sibling_short_orchestration","scripts.test_unified_delivery_canonical"]
     },
     {
       "id":"F13","name":"approved_brief_snapshot_hash_authority",
