@@ -3,7 +3,15 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from clean_v2 import ai_still, contextual_cta, media, nabra_voice, podcast_key_text, short_timed_text
+from clean_v2 import (
+    ai_still,
+    contextual_cta,
+    media,
+    nabra_voice,
+    podcast_key_text,
+    short_timed_text,
+    tone_audit,
+)
 from clean_v2.identity_sequence import identity_timing_profile
 from clean_v2.music_library import DIALOGUE_BED_TRACKS, _FORMAT_POOLS
 from clean_v2.nabra_voice import (
@@ -84,6 +92,11 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         prayer = "اللهم صلِّ وسلِّم على نبينا محمد."
         self.assertTrue(short_timed_text._contains_prayer_text(prayer))
         self.assertTrue(podcast_key_text._contains_prayer_text(prayer))
+
+    def test_existing_tone_audit_rejects_shallow_copy_without_new_stage(self) -> None:
+        scoped = inspect.getsource(tone_audit._scope_clean_v2_tone_prompt)
+        self.assertIn("CONTENT DEPTH applies to Short, Film, and Podcast", scoped)
+        self.assertIn('content_depth:', scoped)
 
     def test_dark_navy_channel_world_is_shared(self) -> None:
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
