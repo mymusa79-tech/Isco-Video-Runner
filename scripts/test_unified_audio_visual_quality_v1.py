@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from clean_v2 import ai_still, media
+from clean_v2 import ai_still, contextual_cta, media, nabra_voice, podcast_key_text, short_timed_text
 from clean_v2.identity_sequence import identity_timing_profile
 from clean_v2.music_library import DIALOGUE_BED_TRACKS, _FORMAT_POOLS
 from clean_v2.nabra_voice import (
@@ -72,8 +72,18 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
     def test_nabra_keeps_reference_speed_without_artificial_batch_silence(self) -> None:
         self.assertEqual(NABRA_SPEED, 0.87)
         self.assertEqual(NABRA_BATCH_SEAM_CROSSFADE_MS, 18)
-        source = inspect.getsource(ai_still.generate_cloudflare_ai_still)
-        self.assertNotIn("NABRA_BATCH_SEAM_BREATH_MS", inspect.getsource(__import__("clean_v2.nabra_voice", fromlist=["*"])))
+        source = inspect.getsource(nabra_voice)
+        self.assertNotIn("NABRA_BATCH_SEAM_BREATH_MS", source)
+        self.assertNotIn("NABRA_BATCH_SEAM_FADE_MS", source)
+        self.assertIn("technical_batch_seam_silence_ms", source)
+
+    def test_text_overlays_have_no_black_panel_and_prayer_is_reserved(self) -> None:
+        cta_source = inspect.getsource(contextual_cta)
+        self.assertNotIn("drawbox=x=1000", cta_source)
+        self.assertIn("Style: CTA,Cairo", cta_source)
+        prayer = "اللهم صلِّ وسلِّم على نبينا محمد."
+        self.assertTrue(short_timed_text._contains_prayer_text(prayer))
+        self.assertTrue(podcast_key_text._contains_prayer_text(prayer))
 
     def test_dark_navy_channel_world_is_shared(self) -> None:
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
