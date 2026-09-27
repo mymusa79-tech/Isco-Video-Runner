@@ -1611,7 +1611,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
-        self.assertIn("NABRA-SAFE ARABIC WRITING CONTRACT", prompt)
+        self.assertIn("GEMINI 3.8 TTS ARABIC WRITING CONTRACT", prompt)
         self.assertIn("ONLY the minimum Arabic diacritic marks", prompt)
         self.assertIn("punctuation as performance notation", prompt)
         self.assertIn("Do not write toward a target duration", prompt)
