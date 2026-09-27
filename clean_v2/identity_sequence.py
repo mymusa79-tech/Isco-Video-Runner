@@ -25,17 +25,17 @@ _TIMING_PROFILES = {
     "short": {
         "intro_silence_seconds": 0.60,
         "pre_topic_silence_seconds": 0.35,
-        "final_silence_seconds": 0.35,
+        "final_silence_seconds": 1.25,
     },
     "film": {
         "intro_silence_seconds": 0.70,
         "pre_topic_silence_seconds": 0.45,
-        "final_silence_seconds": 0.45,
+        "final_silence_seconds": 1.50,
     },
     "podcast": {
         "intro_silence_seconds": 0.70,
         "pre_topic_silence_seconds": 0.45,
-        "final_silence_seconds": 0.45,
+        "final_silence_seconds": 1.60,
     },
 }
 

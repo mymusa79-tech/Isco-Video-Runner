@@ -79,6 +79,9 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("original-source frames", prompt)
         self.assertIn("NO-FACE POLICY", prompt)
         self.assertIn("identifiable_person=true, status MUST be block", prompt)
+        self.assertIn("IMAGE-ONLY RULE", prompt)
+        self.assertIn("SUBSCRIBE/LIKE graphic", prompt)
+        self.assertIn("obvious_synthetic_or_visual_artifact=true", prompt)
 
     def test_attempt5_s1_does_not_require_unstated_decision_fatigue(self) -> None:
         narration = (

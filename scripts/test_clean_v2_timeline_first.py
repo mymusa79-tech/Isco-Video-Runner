@@ -8,8 +8,9 @@ from types import SimpleNamespace
 from unittest import mock
 
 from clean_v2.pipeline import _inspect_final_with_short_gate
-from clean_v2.timeline_render import render_identity_composition
+from clean_v2.timeline_render import _prayer_ass, render_identity_composition
 from clean_v2.timeline_first import build_voice_owned_timeline
+from clean_v2.identity_sequence import identity_timing_profile
 from clean_v2.visual_qa import verify_final_composition_visual_qa
 
 
@@ -293,8 +294,26 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("colorchannelmixer=aa=", filters)
         self.assertNotIn("alpha=1", filters)
         self.assertIn("tpad=stop_mode=clone", filters)
-        self.assertIn("[0:v][intro]overlay", filters)
-        self.assertIn("[v2][outro]overlay", filters)
+        self.assertIn("ass='", filters)
+        self.assertNotIn("[prayer]overlay", filters)
+        self.assertIn("[base][intro]overlay", filters)
+        self.assertIn("[v1][outro]overlay", filters)
+
+    def test_prayer_is_renderer_owned_text_without_card_or_background_box(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                ass = _prayer_ass(fmt=fmt, start=3.0, end=5.0)
+                self.assertIn("اللهم صلِّ وسلِّم", ass)
+                self.assertIn("على نبينا محمد", ass)
+                self.assertIn("&H005BA8D7", ass)
+                self.assertIn(r"\fad(160,200)", ass)
+                self.assertNotIn("BorderStyle,3", ass)
+                self.assertNotIn("OpaqueBox", ass)
+
+    def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
+        self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 1.50)
+        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 1.60)
 
 
 class FinalCompositionVisualQATests(unittest.TestCase):
