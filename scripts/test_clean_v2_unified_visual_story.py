@@ -271,6 +271,11 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         )
         self.assertTrue(first.get("writer_anchor_ar"))
 
+        visual_story["beats"][0]["shot_intent"] = "Arabic text saying start now"
+        rebound = bind_visual_story_to_script(visual_story, planned, script)
+        self.assertNotIn("Arabic text", rebound["beats"][0]["shot_intent"])
+        self.assertNotIn("saying start now", rebound["beats"][0]["shot_intent"])
+
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
         self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
