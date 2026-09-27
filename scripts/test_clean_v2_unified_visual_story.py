@@ -16,6 +16,7 @@ from clean_v2.pipeline import (
 )
 from clean_v2.visual_story import (
     CHANNEL_VISUAL_IDENTITY,
+    bind_visual_story_to_script,
     contextual_intent,
     fallback_visual_story,
     validate_visual_story,
@@ -187,24 +188,47 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     "payoff_answer must be a descriptive resolution", prompt
                 )
 
-    def test_source_first_visual_quality_contract_is_shared_without_new_stage(self) -> None:
+    def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
             with self.subTest(fmt=fmt):
+                planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                visual_story = dict(planned.pop("visual_story"))
+                script = {
+                    "title": "نص نهائي",
+                    "sections": [
+                        {
+                            "id": section["id"],
+                            "narration": (
+                                f"هذا هو المعنى النهائي للقسم {index}. "
+                                f"ثم تظهر نتيجة مختلفة مرتبطة بالفكرة {index}."
+                            ),
+                        }
+                        for index, section in enumerate(planned["sections"], start=1)
+                    ],
+                }
+                bound = bind_visual_story_to_script(
+                    visual_story,
+                    planned,
+                    script,
+                )
+                self.assertTrue(
+                    all(beat.get("writer_anchor_ar") for beat in bound["beats"])
+                )
+                self.assertTrue(
+                    all(
+                        str(beat["shot_intent"]).isascii()
+                        for beat in bound["beats"]
+                    )
+                )
+                self.assertNotIn("warm", bound["beats"][0]["shot_intent"].lower())
+                self.assertIn("notebook", bound["beats"][0]["shot_intent"].lower())
                 prompt = " ".join(_planning_prompt(_brief(fmt)).split())
-                self.assertIn("VISUAL QUALITY CONTRACT (Short, Film, and Podcast)", prompt)
-                self.assertIn("Every beat must earn its place", prompt)
-                self.assertIn("The visible scene must prove the narration's exact idea", prompt)
-                self.assertIn("shot_intent is the execution brief", prompt)
-                self.assertIn("The hook must be truthful, topic-specific", prompt)
-                self.assertIn("The payoff must visibly resolve, answer, or advance", prompt)
-                self.assertIn("generic-stock smell", prompt)
-                self.assertIn("do not create a second review stage or extra provider call", prompt)
-                self.assertIn(
-                    '"shot_intent": "6-14 word concrete English observable action/state, directly searchable"',
+                self.assertNotIn(
+                    "VISUAL QUALITY CONTRACT (Short, Film, and Podcast)",
                     prompt,
                 )
-                self.assertNotIn(
-                    '"shot_intent": "rich semantic/cinematic image or motion intent"',
+                self.assertIn(
+                    '"shot_intent": "6-14 word concrete English observable action/state, directly searchable"',
                     prompt,
                 )
 
