@@ -1317,13 +1317,22 @@ def _provider_result(
                 "GEMINI_CREDENTIAL_UNAVAILABLE",
                 "request credential unavailable after one-time secret consumption",
             )
+        effective_model = model
+        if str(os.environ.get("ISCO_GEMINI_AB_ONLY") or "").strip() == "1":
+            candidate = str(os.environ.get("ISCO_GEMINI_AB_PLANNING_MODEL") or "").strip()
+            if candidate not in {"gemini-3.7-flash", "gemini-3.8-flash"}:
+                raise RuntimeError(
+                    "Gemini planning A/B model must be one of "
+                    "gemini-3.7-flash or gemini-3.8-flash"
+                )
+            effective_model = candidate
         return router._budgeted_provider_call(
             "gemini",
-            model,
+            effective_model,
             router.gemini_json_text,
             gemini_key,
             prompt,
-            model=model,
+            model=effective_model,
             max_output_tokens=contract.provider_policy.completion_tokens_for("gemini"),
         )
     if provider == "groq":
