@@ -62,8 +62,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 self.assertNotIn("colorchannelmixer=aa=", filters)
                 self.assertNotIn("alpha=1", filters)
                 self.assertIn("tpad=stop_mode=clone", filters)
+                self.assertIn("ass='", filters)
+                self.assertNotIn("[prayer]overlay", filters)
                 self.assertIn("between(t,2.000,3.000)", filters)
-                self.assertIn("between(t,3.000,4.500)", filters)
                 self.assertIn("between(t,10.000,12.000)", filters)
 
     def test_rule_7_format_asset_groups_are_distinct_and_timing_contract_is_shared(self) -> None:
