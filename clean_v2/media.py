@@ -69,12 +69,6 @@ PACING_MAX_SHOTS_PER_SECTION = 3
 # Rich Short Visual Lite: still exactly three semantic sections, but 6-9
 # final shots depending only on measured voice duration. No new AI stage.
 SHORT_STOCK_ASSET_MAX = 6
-SHORT_VISUAL_MIN = 6
-SHORT_VISUAL_TARGET = 7
-SHORT_VISUAL_MAX = 9
-SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS = 30.0
-SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS = 36.0
-SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS = 41.0
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_MOTION_ZOOM = 0.045
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
@@ -976,48 +970,6 @@ def _stock_local_rank_score(
         + pixels * 0.15
         + duration_fit * 0.05
     )
-
-
-def _short_shot_distribution(total_seconds: float) -> tuple[int, int, int]:
-    seconds = max(0.0, float(total_seconds))
-    if seconds > SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS:
-        return (3, 3, 3)
-    if seconds > SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS:
-        return (3, 2, 3)
-    if seconds > SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS:
-        return (3, 2, 2)
-    return (2, 2, 2)
-
-
-def _expand_short_visual_sequence(
-    paths: list[Path],
-    section_ids: list[str] | None,
-    total_seconds: float,
-) -> list[Path]:
-    """Create 6-9 rendered shots from at most six already-approved stock assets."""
-    if section_ids is None or len(paths) != len(section_ids):
-        return list(paths)
-    order: list[str] = []
-    groups: dict[str, list[Path]] = {}
-    for path, section_id in zip(paths, section_ids):
-        if section_id not in groups:
-            order.append(section_id)
-            groups[section_id] = []
-        groups[section_id].append(path)
-    if len(order) != 3 or any(len(groups[item]) < 2 for item in order):
-        return list(paths)
-
-    desired = _short_shot_distribution(total_seconds)
-    expanded: list[Path] = []
-    for section_id, shot_count in zip(order, desired):
-        assets = groups[section_id][:2]
-        expanded.extend(assets)
-        if shot_count >= 3:
-            # Reuse the already-audited first asset as a new local edit beat.
-            # _build_section_body_segments gives each occurrence a different
-            # motion mode, so this adds a cut without another provider/QA call.
-            expanded.append(assets[0])
-    return expanded
 
 
 def _timeline_hook_end_seconds(output_dir: Path) -> float:
