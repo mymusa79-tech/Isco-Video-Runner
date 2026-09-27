@@ -19,6 +19,8 @@ class VoiceMeshGeminiOnlyTests(unittest.TestCase):
 
         with patch.dict(os.environ, {"ISCO_DIALOGUE_QA": "0"}, clear=False), \
                 patch.object(voice_mesh, "_gemini38_synthesize", side_effect=fake_gemini), \
+                patch.object(voice_mesh, "section_tail_seconds", return_value=0.65), \
+                patch.object(voice_mesh, "add_tail_silence_in_place", return_value=output), \
                 patch.object(voice_mesh, "_qa") as qa:
             result = voice_mesh.synthesize(
                 "key",
