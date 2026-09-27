@@ -629,9 +629,8 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                 "minItems": min_sections,
                 "maxItems": max_sections,
             },
-            "visual_story": visual_story_schema,
         },
-        "required": ["title", "promise", "cta", "sections", "visual_story"],
+        "required": ["title", "promise", "cta", "sections"],
         "additionalProperties": False,
     }
 

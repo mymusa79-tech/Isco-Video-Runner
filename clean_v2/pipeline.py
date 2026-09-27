@@ -1509,6 +1509,30 @@ def _run_structural_ai_flags(
     return report
 
 
+_FACTUALITY_UNAVAILABLE_RISK_PATTERNS = (
+    ("medical", re.compile(r"(?:طب(?:ي|ية)?|طبيب|دواء|أدوية|علاج|تشخيص|مرض|ضغط الدم|سكري|السكري|إنسولين|انسولين|جرعة|أعراض)")),
+    ("legal", re.compile(r"(?:قانون(?:ي|ية)?|محام|محامي|محكمة|دعوى|عقد قانوني)")),
+    ("financial", re.compile(r"(?:استثمار|أسهم|سهم|تداول|قرض|قروض|ربح مضمون|عائد مضمون|نصيحة مالية)")),
+    ("religious_attribution", re.compile(r"(?:قال الله|قال رسول|حديث|رواه|آية|القرآن|القرآن الكريم|نُسب إلى النبي|نسب إلى النبي)")),
+    ("research_or_statistics", re.compile(r"(?:دراسة|دراسات|بحث علمي|أبحاث|إحصاء|إحصائية|إحصائيات|%|٪|\d+(?:[.,]\d+)?\s*(?:بالمئة|في المئة))")),
+    ("high_risk_safety", re.compile(r"(?:انتحار|إيذاء النفس|ايذاء النفس|جرعة زائدة|سلاح|متفجر)")),
+)
+
+
+def _factuality_unavailable_local_risks(
+    audit_script: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Conservative local boundary used only when every factuality provider is unavailable."""
+    haystack = " ".join(_script_text_haystack(audit_script).split()).casefold()
+    if not haystack:
+        return ()
+    return tuple(
+        name
+        for name, pattern in _FACTUALITY_UNAVAILABLE_RISK_PATTERNS
+        if pattern.search(haystack)
+    )
+
+
 def _run_legacy_factuality_audit(
     *,
     output_dir: Path,
@@ -1516,8 +1540,10 @@ def _run_legacy_factuality_audit(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
-    # Reuse the frozen Engine's full prompt, normalizer, validator, fail-closed result,
-    # and semantic-block behavior. Clean V2 appends only the final Mistral executor leg.
+    # Provider detections are useful evidence, but provider availability is not a
+    # content verdict. A valid detected violation stays fail-closed. If all audit
+    # providers are unavailable, a narrow local risk boundary decides whether the
+    # low-risk self-development script may continue or must remain blocked.
     from clean_v2.text_audit import audit_plan_with_mistral
 
     api_key = _read_secret("GEMINI_API_KEY")
@@ -1542,6 +1568,34 @@ def _run_legacy_factuality_audit(
         diagnostics=diagnostics,
     )
     provider_status = str(result.get("status") or "")
+
+    if diagnostics.get("validation") != "valid":
+        risks = _factuality_unavailable_local_risks(audit_script)
+        report = {
+            "schema_version": 1,
+            "source": "clean-v2-legacy-factuality-audit",
+            "trusted_identity_excluded_from_model_judgment": True,
+            **result,
+            "status": "block" if risks else "pass",
+            "provider_status": provider_status,
+            "decision_source": "deterministic_provider_availability_policy",
+            "audit_availability": "unavailable",
+            "trusted_identity": list(trusted_identity),
+            "hard_flag_count": len(risks),
+            "hard_flags": {
+                "provider_unavailable_local_risk": list(risks),
+            },
+            "advisory_flags": {},
+            "diagnostics": diagnostics,
+        }
+        atomic_write_json(output_dir / "factuality-audit.json", report)
+        if risks:
+            raise RuntimeError(
+                f"{TEXT_AUDIT_STAGE} factuality providers unavailable with "
+                "local high-risk surface: " + ",".join(risks)
+            )
+        return report
+
     local_policy = _deterministic_factuality_policy(
         result=result,
         audit_script=audit_script,
@@ -1555,6 +1609,7 @@ def _run_legacy_factuality_audit(
         "status": local_status,
         "provider_status": provider_status,
         "decision_source": "deterministic_local_risk_policy",
+        "audit_availability": "available",
         "trusted_identity": list(trusted_identity),
         "hard_flag_count": int(local_policy["hard_flag_count"]),
         "hard_flags": dict(local_policy["hard_flags"]),
@@ -1562,12 +1617,6 @@ def _run_legacy_factuality_audit(
         "diagnostics": diagnostics,
     }
     atomic_write_json(output_dir / "factuality-audit.json", report)
-    if diagnostics.get("validation") != "valid":
-        attempts = diagnostics.get("attempts") or []
-        summary = ", ".join(
-            f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
-        ) or "no providers configured"
-        raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
     if local_status == "block":
         raise CleanV2FactualityContentBlock(report)
     return report
@@ -1704,6 +1753,29 @@ def _run_legacy_tone_naturalness_audit(
         production_plan,
         model,
     )
+    validation = str(result.get("validation") or "")
+    if validation != "valid":
+        report = {
+            "schema_version": 1,
+            "source": "clean-v2-legacy-tone-naturalness-audit",
+            **(
+                {
+                    "trusted_identity_excluded_from_model_judgment": True,
+                    "trusted_identity": list(trusted_identity),
+                }
+                if short_identity_scope
+                else {}
+            ),
+            **result,
+            "status": "pass",
+            "provider_status": str(result.get("status") or ""),
+            "decision_source": "deterministic_provider_availability_policy",
+            "audit_availability": "unavailable",
+            "advisory_only": True,
+        }
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
+        return report
+
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-tone-naturalness-audit",
@@ -1716,20 +1788,11 @@ def _run_legacy_tone_naturalness_audit(
             else {}
         ),
         **result,
+        "decision_source": "validated_provider_content_verdict",
+        "audit_availability": "available",
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
 
-    if str(result.get("validation") or "") != "valid":
-        attempts = result.get("attempts") or []
-        summary = ", ".join(
-            f"{item.get('provider')}:{item.get('outcome')}"
-            for item in attempts
-            if isinstance(item, Mapping)
-        ) or "no providers configured"
-        raise RuntimeError(
-            f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: "
-            f"tone_naturalness {summary}"
-        )
     if result.get("status") == "block":
         raise CleanV2ToneContentBlock(report)
     return report

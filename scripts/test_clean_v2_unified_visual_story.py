@@ -230,25 +230,23 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertIn("avoid alcohol, gambling, nightclub/party imagery", recovery)
         self.assertIn("Do not force religious symbols", recovery)
 
-    def test_mistral_planning_schema_requires_the_unified_story(self) -> None:
+    def test_mistral_planning_schema_uses_existing_local_visual_story_fallback(self) -> None:
         schema = providers_module._mistral_planning_response_schema(
             _planning_prompt(_brief("film"))
         )
-        self.assertIn("visual_story", schema["required"])
-        story = schema["properties"]["visual_story"]
+        self.assertNotIn("visual_story", schema["required"])
+        self.assertNotIn("visual_story", schema["properties"])
+
+        compact = _planning_value("film")
+        compact.pop("visual_story")
+        planned = _validate_plan_for_brief(compact, _brief("film"))
+        story = planned["visual_story"]
+        self.assertTrue(story["beats"])
+        self.assertEqual(story["beats"][0]["role"], "hook")
+        self.assertEqual(story["beats"][-1]["role"], "payoff")
         self.assertEqual(
-            story["required"],
-            ["visual_world", "story_arc", "retention_thread", "beats"],
-        )
-        beat = story["properties"]["beats"]["items"]
-        self.assertIn("stock_query_en", beat["required"])
-        self.assertIn("display_text_ar", beat["required"])
-        self.assertEqual(beat["properties"]["role"]["enum"], ["hook", "body", "payoff"])
-        self.assertNotIn("progression", beat["properties"])
-        self.assertNotIn("hook_relation", beat["properties"])
-        self.assertEqual(
-            beat["properties"]["source_preference"]["enum"],
-            ["stock_motion", "ai_still"],
+            {beat["section_id"] for beat in story["beats"]},
+            {section["id"] for section in planned["sections"]},
         )
 
     def test_script_writer_receives_the_locked_hook_to_payoff_thread(self) -> None:
