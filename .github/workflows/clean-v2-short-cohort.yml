@@ -84,17 +84,11 @@ jobs:
             fontconfig \
             fonts-noto-core \
             tesseract-ocr \
-            tesseract-ocr-ara \
-            espeak-ng \
-            libsndfile1
+            tesseract-ocr-ara
           bash scripts/install_cairo_bold.sh
           python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
-          curl -fsSL \
-            'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
-            -o scripts/arabic_g2p.py
-          test -s scripts/arabic_g2p.py
 
       - name: Build immutable Short cohort brief
         run: |
