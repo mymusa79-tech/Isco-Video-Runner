@@ -49,20 +49,8 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 """.strip()
 
 
-_MISTRAL_COMPACT_PLANNING_PROMPT_SUFFIX = """
-MISTRAL_COMPACT_PLANNING_FALLBACK — authoritative for this fallback leg only:
-- Return ONLY title, promise, cta, and sections.
-- Do NOT return visual_story.
-- Keep each section purpose and stock query concise and complete.
-- The existing deterministic local visual-story fallback will derive the visual story from the accepted sections.
-This compact fallback exists to avoid truncating a valid long/podcast plan when Mistral is the last free provider.
-""".strip()
-
-
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
-    if provider == "mistral" and stage == "planning":
-        return prompt.rstrip() + "\n\n" + _MISTRAL_COMPACT_PLANNING_PROMPT_SUFFIX
     if (
         provider == "mistral"
         and stage == "script"
