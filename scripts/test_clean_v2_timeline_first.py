@@ -20,7 +20,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
         root: Path,
         seconds: float,
         fmt: str = "short",
-        owner: str = "measured_charon_voice",
+        owner: str = "measured_gemini38_voice",
     ) -> None:
         (root / "timeline-first.json").write_text(
             json.dumps(
@@ -325,7 +325,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                     {
                         "status": "pass",
                         "contract_id": "clean-v2-timeline-first-v1",
-                        "timeline_owner": "measured_charon_voice",
+                        "timeline_owner": "measured_gemini38_voice",
                         "identity_events": [
                             {"kind": "hook", "start": 0.0, "end": 3.0},
                             {"kind": "intro", "start": 3.0, "end": 8.0},
