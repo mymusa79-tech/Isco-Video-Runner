@@ -86,7 +86,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("without erasing their separate pacing and audio rules", planning)
         self.assertIn("dialogue_qa", planning)
         self.assertIn("question_answer", planning)
-        self.assertIn("does not add providers, stages, duration targets", planning)
+        self.assertIn("duration targets, or visual complexity", planning)
         self.assertNotIn("payoff_answer must be a descriptive resolution", planning)
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("fixed Gemini 3.8", script)
