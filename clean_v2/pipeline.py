@@ -799,17 +799,16 @@ _AUDIT_NARRATIVE_FORMAT_OVERRIDES = {
 }
 
 
-def _audit_narrative_format_for_brief(brief: Mapping[str, Any]) -> str:
-    """Bind legacy tone QA to the actual Clean V2 Short template.
-
-    Legacy ProductionPlan defaults narrative_format to direct_cinematic. That is
-    correct for legacy plans but wrong for standalone Clean V2 Shorts, whose
-    deterministic template selection is authoritative.
-    """
+def _audit_narrative_format_for_brief(
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any] | None = None,
+) -> str:
+    """Bind legacy tone QA to the narrative shape Clean V2 actually selected."""
     if str(brief.get("format") or "") == "short":
         template = str(select_short_template(brief)["template"])
         return _AUDIT_NARRATIVE_FORMAT_OVERRIDES.get(template, template)
-    return "direct_cinematic"
+    selected = str((plan or {}).get("narrative_format") or "direct_cinematic").strip()
+    return _AUDIT_NARRATIVE_FORMAT_OVERRIDES.get(selected, selected)
 
 
 def _build_production_plan_for_audit(
@@ -834,7 +833,7 @@ def _build_production_plan_for_audit(
         for item in plan["sections"]
     ]
     brief_format = str(brief.get("format") or "")
-    narrative_format = _audit_narrative_format_for_brief(brief)
+    narrative_format = _audit_narrative_format_for_brief(brief, plan)
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
@@ -3495,6 +3494,28 @@ visual motif remains supportive and non-essential to a listener with the screen 
         if fmt == "short"
         else ""
     )
+    longform_narrative_format_instruction = (
+        """
+For film and podcast only, choose exactly one narrative_format that best serves THIS topic without
+adding a new production stage:
+- direct_cinematic: default for a clear flowing explanation.
+- question_answer: one narrator asks and answers progressively deeper questions; no A:/B: labels.
+- dialogue_qa: use only when a real two-position exchange improves understanding. A is the concise
+  questioner/challenger and B is the fixed primary channel voice; both must advance the argument.
+- inner_dialogue: one voice representing believable internal conflict; never A:/B: labels.
+- problem_reveal_solution, story_analysis, paradox, hypothesis_test, or connected_list only when the
+  topic naturally earns that structure.
+Do not pick dialogue_qa merely for novelty. The selected format changes writing shape only; it does
+not add providers, stages, duration targets, or visual complexity.
+"""
+        if fmt in {"film", "podcast"}
+        else ""
+    )
+    narrative_format_shape = (
+        ',\n  "narrative_format": "one allowed longform narrative format"'
+        if fmt in {"film", "podcast"}
+        else ""
+    )
     format_visual_profile = {
         "short": (
             "FORMAT VISUAL PROFILE — SHORT: favor close/medium no-face framing, one immediately readable "
@@ -3664,13 +3685,14 @@ in section purpose text; visual-only CTA overlays are renderer-owned and do not 
 
 {short_context}
 {podcast_context}
+{longform_narrative_format_instruction}
 
 Return one JSON object with exactly this useful shape:
 {{
   "title": "Arabic title",
   "promise": "Arabic one-sentence viewer promise",
   "cover_text": "distinctive truthful Arabic cover phrase, 2-5 words",
-  "cta": "one natural Arabic CTA, or empty only for moment",
+  "cta": "one natural Arabic CTA, or empty only for moment"{narrative_format_shape},
   "sections": [
     {{
       "id": "s1",
