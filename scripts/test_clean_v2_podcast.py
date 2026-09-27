@@ -226,8 +226,6 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
     def test_podcast_uses_gemini_38_only_and_never_falls_back(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer("key")
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "clean_v2.media._legacy_voice_identity", return_value=("Charon", "Orus")
-        ), mock.patch(
             "clean_v2.media._gemini38_synthesize",
             side_effect=lambda *_args, **_kwargs: (
                 Path(_args[2]).write_bytes(b"G" * 2048) or Path(_args[2])
@@ -244,8 +242,6 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
     def test_podcast_gemini_failure_is_terminal_fail_closed(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer("key")
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "clean_v2.media._legacy_voice_identity", return_value=("Charon", "Orus")
-        ), mock.patch(
             "clean_v2.media._gemini38_synthesize",
             side_effect=RuntimeError("synthetic Gemini outage"),
         ), mock.patch(
