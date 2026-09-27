@@ -426,54 +426,14 @@ def _synthesize_sectioned_voice(
                     )
                 else:
                     voice_synthesizer.synthesize(chunk_text, chunk_path)
-            except Exception as exc:
-                atomic_write_json(
-                        report_path,
-                        {
-                            "schema_version": 1,
-                            "source": "clean-v2-sectioned-voice",
-                            "status": "restarting_with_nabra",
-                            "reason": "charon_failed_after_route_lock",
-                            "failed_section": section_id,
-                            "failed_chunk": chunk_index,
-                            "charon_tts_attempts_before_restart": prior_attempts,
-                            "sections": reports,
-                            "current_section_chunks": chunk_reports,
-                        },
-                    )
-                    shutil.rmtree(audio_dir, ignore_errors=True)
-                    audio_dir.mkdir(parents=True, exist_ok=True)
-                    narration_path.unlink(missing_ok=True)
-                    restart_nabra()
-                    restarted = _synthesize_sectioned_voice(
-                        voice_synthesizer,
-                        sections,
-                        narration_path,
-                        fmt=fmt,
-                        identity_definition=identity_definition,
-                        identity_closer=identity_closer,
-                        require_charon_only=require_charon_only,
-                        podcast_promo=podcast_promo,
-                    )
-                    restarted["voice_restart_reason"] = "charon_failed_after_route_lock"
-                    restarted["charon_tts_attempts_before_restart"] = prior_attempts
-                    atomic_write_json(
-                        report_path,
-                        {
-                            "schema_version": 1,
-                            "source": "clean-v2-sectioned-voice",
-                            "status": "pass",
-                            **restarted,
-                        },
-                    )
-                    return restarted
-
+            except Exception:
                 atomic_write_json(
                     report_path,
                     {
                         "schema_version": 1,
                         "source": "clean-v2-sectioned-voice",
                         "status": "failed",
+                        "reason": "gemini_voice_failed_closed",
                         "failed_section": section_id,
                         "failed_chunk": chunk_index,
                         "chunk_chars": len(chunk_text),
@@ -2071,8 +2031,8 @@ def _tone_repair_prompt(
         )
     else:
         hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
-    nabra_safe_repair_guidance = (
-        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+    gemini_tts_repair_guidance = (
+        "- Preserve the shared Gemini 3.8 Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
         "wording when two unvowelled readings are plausible. " + GEMINI_TTS_WRITING_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
@@ -2138,7 +2098,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
 {longform_progression_repair_guidance}
-{nabra_safe_repair_guidance}
+{gemini_tts_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -2320,8 +2280,8 @@ def _factuality_repair_prompt(
         allowed_patch_section_ids = _repair_target_section_ids(
             script, revision_note, cta_plan
         )
-    nabra_safe_repair_guidance = (
-        "- Preserve the shared Nabra-safe Arabic writing contract in every changed phrase: keep intentional "
+    gemini_tts_repair_guidance = (
+        "- Preserve the shared Gemini 3.8 Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, prefer pronunciation-safe "
         "spoken-MSA wording when two unvowelled readings are plausible, and keep the repaired sentence "
         "comfortable to say in one breath.\n" + GEMINI_TTS_WRITING_GUIDANCE
@@ -2350,7 +2310,7 @@ ALLOWED_PATCH_SECTION_IDS:
 
 {targeted_structural}
 
-{nabra_safe_repair_guidance}
+{gemini_tts_repair_guidance}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Fix EVERY concrete factuality, tone/naturalness, and structural problem listed in REVISION_NOTE,
