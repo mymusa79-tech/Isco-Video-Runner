@@ -4239,7 +4239,7 @@ class _Journal:
             record["failure_classification"] = failure_classification
             if voice_infrastructure:
                 voice_failure = {
-                    "provider": "gemini:Charon",
+                    "provider": GEMINI38_VOICE_PROVIDER,
                     "charon_attempts": int(getattr(exc, "charon_attempts", 0) or 0),
                     "charon_reason": str(
                         getattr(exc, "charon_reason", "unavailable") or "unavailable"
