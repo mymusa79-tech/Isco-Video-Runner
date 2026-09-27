@@ -180,52 +180,6 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
 
 
 
-LONGFORM_VOICE_DURATION_BANDS_SECONDS = {
-    "film": (3 * 60.0, 20 * 60.0),
-    "podcast": (10 * 60.0, 30 * 60.0),
-}
-
-
-def _enforce_longform_voice_duration(
-    output_dir: Path,
-    narration_path: Path,
-    *,
-    fmt: str,
-) -> dict[str, Any] | None:
-    """Apply the user-owned runtime bands to measured Gemini narration only.
-
-    Voice remains the timeline authority: nothing is time-stretched, padded, or
-    truncated to hit the band. If the naturally synthesized narration lands
-    outside the requested range, the production fails closed and must be
-    regenerated editorially.
-    """
-    band = LONGFORM_VOICE_DURATION_BANDS_SECONDS.get(str(fmt or ""))
-    if band is None:
-        return None
-    seconds = float(probe_duration(narration_path))
-    minimum, maximum = band
-    passed = minimum <= seconds <= maximum
-    report = {
-        "schema_version": 1,
-        "source": "clean-v2-measured-gemini-voice",
-        "format": fmt,
-        "duration_seconds": round(seconds, 3),
-        "minimum_seconds": minimum,
-        "maximum_seconds": maximum,
-        "status": "pass" if passed else "fail",
-        "voice_is_timeline_authority": True,
-        "forced_time_fit": False,
-    }
-    atomic_write_json(output_dir / "longform-duration.json", report)
-    if not passed:
-        raise RuntimeError(
-            "Clean V2 long-form voice duration outside requested band: "
-            f"format={fmt} duration={seconds:.3f}s "
-            f"allowed={minimum:.0f}-{maximum:.0f}s"
-        )
-    return report
-
-
 _PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
 
 
@@ -3818,9 +3772,7 @@ def _script_prompt(
         length = (
             "For film, do not write toward a word-count target. Continue only while each section adds a new "
             "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
-            "runtime natural rather than padding a long-form label with filler. Aim naturally for about 5-10 "
-            "minutes by default, while the measured accepted range is 3-20 minutes. Add only supported depth, "
-            "examples and distinctions; never repeat ideas to stretch runtime.\n"
+            "runtime natural rather than padding a long-form label with filler.\n"
             + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_TTS_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
@@ -3845,10 +3797,8 @@ def _script_prompt(
             "the other without losing a new explanatory step, rewrite the later section. The final section must "
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
-            "work as audio alone. The default editorial target is roughly 12-18 minutes, with a hard accepted "
-            "measured voice range of 10-30 minutes. Build enough supported mechanisms, examples, distinctions, "
-            "tension and resolution to earn that depth; never pad with repetition. Let punctuation create natural "
-            "breathing for Gemini 3.8.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_TTS_WRITING_GUIDANCE + "\n" + PODCAST_GEMINI38_PERFORMANCE_GUIDANCE
+            "work as audio alone. Let punctuation create natural breathing for Gemini 3.8 rather than rushing "
+            "or padding.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_TTS_WRITING_GUIDANCE + "\n" + PODCAST_GEMINI38_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
@@ -4702,11 +4652,6 @@ class CleanV2Pipeline:
                     if isinstance(reference_profile, str) and reference_profile:
                         journal.payload["voice_reference_profile"] = reference_profile
                     journal._write()
-            _enforce_longform_voice_duration(
-                output_dir,
-                narration_path,
-                fmt=str(brief["format"]),
-            )
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="voice",
