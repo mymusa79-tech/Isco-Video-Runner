@@ -37,12 +37,20 @@ GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
 GEMINI38_NARRATOR_STYLE = (
-    "Natural Modern Standard Arabic; warm, calm, thoughtful and conversational; "
-    "clear articulation and human pacing; no announcer tone or theatrical delivery."
+    "Natural adult Modern Standard Arabic. Warm, mature, intelligent and conversational; "
+    "calm confidence, human pacing, clear articulation, no announcer tone."
 )
 GEMINI38_QUESTIONER_STYLE = (
-    "Natural Modern Standard Arabic; concise, curious, intelligent and conversational; "
-    "calm and lightly probing."
+    "Natural Modern Standard Arabic questioner. Concise, intelligent and curious; "
+    "firm but calm, never theatrical."
+)
+GEMINI38_INNER_REFLECTIVE_STYLE = (
+    "Warm, mature and intimate; subtle hesitation before questions, calm self-correction in answers, "
+    "human pacing, no announcer tone, no theatrical acting, no second character."
+)
+GEMINI38_INNER_RESOLVED_STYLE = (
+    "Same exact Charon speaker and identity. Slightly clearer and steadier as the thought resolves, "
+    "still private and conversational, never motivational-speaker delivery."
 )
 
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
@@ -245,6 +253,7 @@ def _gemini38_synthesize(
     model: str,
     primary_voice: str,
     questioner_voice: str,
+    performance_mode: str = "",
 ) -> Path:
     """Call Gemini 3.8 TTS directly over REST; no SDK upgrade is required."""
     if model != GEMINI38_TTS_MODEL:
@@ -283,18 +292,47 @@ def _gemini38_synthesize(
             ],
         }
     else:
-        content = [
-            {
-                "type": "text",
-                "text": transcript.strip(),
-                "annotations": [
+        source = transcript.strip()
+        if str(performance_mode or "") == "inner_dialogue":
+            sentences = [
+                item.strip()
+                for item in re.split(r"(?<=[.!؟!])\\s+", source)
+                if item.strip()
+            ]
+            if not sentences:
+                sentences = [source]
+            content = []
+            for index, sentence in enumerate(sentences):
+                style = (
+                    GEMINI38_INNER_RESOLVED_STYLE
+                    if index == len(sentences) - 1
+                    else GEMINI38_INNER_REFLECTIVE_STYLE
+                )
+                content.append(
                     {
-                        "type": "speech_metadata",
-                        "style": GEMINI38_NARRATOR_STYLE,
+                        "type": "text",
+                        "text": sentence,
+                        "annotations": [
+                            {
+                                "type": "speech_metadata",
+                                "style": style,
+                            }
+                        ],
                     }
-                ],
-            }
-        ]
+                )
+        else:
+            content = [
+                {
+                    "type": "text",
+                    "text": source,
+                    "annotations": [
+                        {
+                            "type": "speech_metadata",
+                            "style": GEMINI38_NARRATOR_STYLE,
+                        }
+                    ],
+                }
+            ]
         speech_config = [{"voice": primary_voice}]
 
     payload = {
@@ -446,6 +484,7 @@ class GeminiOnlyVoiceSynthesizer:
         output_path: Path,
         *,
         primary_only: bool = False,
+        performance_mode: str = "",
     ) -> Path:
         del primary_only  # Gemini is the only allowed route, so fallback policy is invariant.
         if not transcript.strip():
@@ -479,6 +518,7 @@ class GeminiOnlyVoiceSynthesizer:
                         model=self.tts_model,
                         primary_voice=primary_voice,
                         questioner_voice=questioner_voice,
+                        performance_mode=performance_mode,
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
