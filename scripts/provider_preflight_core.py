@@ -185,9 +185,8 @@ def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: i
     models.list, so preflight now verifies the exact resolved content model and its
     generateContent capability without spending an inference attempt.
 
-    Gemini TTS is not a hard whole-run dependency because canonical V4 separately
-    certifies Piper and the TTS budget owns Gemini -> Piper fallback. Its availability
-    is still reported so degraded cloud voice is observable before production.
+    Gemini TTS is a hard production dependency. Voice substitution is disabled, so
+    preflight must fail closed before production when the exact TTS model is unavailable.
     """
     models = _gemini_models(api_key, timeout=timeout)
     resolved_content = _gemini_runtime_content_model(content_model)
@@ -201,12 +200,11 @@ def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: i
             f"gemini runtime content model lacks generateContent support: {resolved_content}"
         )
 
-    tts_available = tts_model in models
-    tts_note = (
-        f"TTS model {tts_model} listed"
-        if tts_available
-        else f"TTS model {tts_model} not listed; canonical Piper fallback required"
-    )
+    if tts_model not in models:
+        raise RuntimeError(
+            f"gemini TTS model unavailable: {tts_model}; voice fallback is disabled"
+        )
+    tts_note = f"TTS model {tts_model} listed"
     return ProviderCheck(
         "gemini",
         "pass",
@@ -606,7 +604,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--content-model", default="gemini-2.5-flash")
-    parser.add_argument("--tts-model", default="gemini-3.1-flash-tts-preview")
+    parser.add_argument("--tts-model", default="gemini-3.8-flash-tts")
     parser.add_argument("--gemini-key-file", required=True)
     parser.add_argument("--groq-key-file", required=True)
     parser.add_argument("--mistral-key-file")
