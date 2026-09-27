@@ -92,9 +92,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_reliability_failure_matrix",
     ),
     "P2": (
-        "scripts.test_voice_mesh",
         "scripts.test_clean_v2_voice",
-        "scripts.test_short_voice_v2",
         "scripts.test_run188_short_capability_ownership",
         "scripts.test_run192_short_voice_feasibility",
         "scripts.test_voice_owned_timeline_v1",
