@@ -15,7 +15,7 @@ def _probe_env() -> dict[str, str]:
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["GEMINI_CONTENT_MODEL"] = "gemini-3.7-flash"
-    env["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
+    env["GEMINI_TTS_MODEL"] = "gemini-3.8-flash-tts"
     for name in (
         "ISCO_CANONICAL_RUNTIME",
         "GITHUB_ACTIONS",
