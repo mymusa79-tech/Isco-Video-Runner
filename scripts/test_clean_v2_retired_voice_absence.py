@@ -35,6 +35,10 @@ class RetiredVoiceAbsenceTests(unittest.TestCase):
             "arabic_g2p.py",
             "phonemizer-fork",
             "misaki[en]",
+            "piper-tts",
+            "piper.download_voices",
+            "azure_speech_key",
+            "azure_speech_region",
         )
         workflow_root = Path(".github/workflows")
         offenders: dict[str, list[str]] = {}
