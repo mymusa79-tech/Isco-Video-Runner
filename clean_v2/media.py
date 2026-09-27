@@ -1216,6 +1216,7 @@ def _ai_still_prompt(
     visual_world = str(visual_story.get("visual_world") or "").strip()[:320]
     motif = str(thread.get("visual_motif") or "").strip()[:180]
     viewer_intent = str(beat.get("viewer_intent") or "").strip()[:240]
+    writer_anchor = str(beat.get("writer_anchor_ar") or "").strip()[:320]
     meaning_target = str(beat.get("meaning_target") or viewer_intent).strip()[:240]
     must_have = ", ".join(str(item) for item in (beat.get("semantic_must_have") or []))[:240]
     should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
@@ -1243,7 +1244,8 @@ def _ai_still_prompt(
         f"Beat role: {role}. "
         f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
-        f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
+        + (f"Writer-bound spoken anchor (Arabic): {writer_anchor}. " if writer_anchor else "")
+        + f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
         f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
         "Lived-in foreground, midground and background depth, restrained deep navy/charcoal shadow world, "
@@ -1762,6 +1764,7 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "writer_anchor_ar": str(raw_beat.get("writer_anchor_ar") or "").strip(),
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
@@ -1898,6 +1901,7 @@ class StockVisualSource:
                         "beat_id": beat_id,
                         "viewer_intent": str(beat.get("viewer_intent") or ""),
                         "shot_intent": str(beat.get("shot_intent") or query),
+                        "writer_anchor_ar": str(beat.get("writer_anchor_ar") or ""),
                         "display_text_ar": str(beat.get("display_text_ar") or ""),
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
@@ -1981,6 +1985,7 @@ class StockVisualSource:
                 candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
                 candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
                 candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                candidate["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
                 candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
                 candidate["role"] = str(beat.get("role") or "")
                 candidate["source_preference"] = str(
