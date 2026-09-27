@@ -116,6 +116,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "audio/01-chunks/01.wav": ("hook", 4.0),
                 "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.60),
                 "audio/01-chunks/02.wav": ("prayer", 3.0),
+                "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.20),
                 "audio/01-chunks/03.wav": ("channel_identity", 5.0),
                 "audio/01-chunks/pre-topic-silence.wav": ("pre_topic_silence", 0.35),
                 "audio/01-chunks/04.wav": ("topic", 6.0),
@@ -133,6 +134,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "audio/01-chunks/01.wav": 0,
                 "audio/01-chunks/intro-silence.wav": 0,
                 "audio/01-chunks/02.wav": 0,
+                "audio/01-chunks/post-prayer-silence.wav": 0,
                 "audio/01-chunks/03.wav": 0,
                 "audio/01-chunks/pre-topic-silence.wav": 0,
                 "audio/01-chunks/04.wav": 0,
@@ -141,7 +143,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "audio/03-chunks/02.wav": 2,
                 "audio/03-chunks/final-silence.wav": 2,
             }
-            durations = {"narration-mastered.wav": 31.3}
+            durations = {"narration-mastered.wav": 31.5}
             for relative, (role, seconds) in files.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,7 +160,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             def duration(path: Path) -> float:
                 path = Path(path)
                 if path.name == "narration-mastered.wav":
-                    return 31.3
+                    return 31.5
                 return files[str(path.relative_to(root))][1]
 
             with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
@@ -174,16 +176,20 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.6))
             self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.6, 7.6))
             self.assertEqual(
+                (events["post_prayer_silence"]["start"], events["post_prayer_silence"]["end"]),
+                (7.6, 7.8),
+            )
+            self.assertEqual(
                 (events["channel_identity"]["start"], events["channel_identity"]["end"]),
-                (7.6, 12.6),
+                (7.8, 12.8),
             )
             self.assertEqual(
                 (events["pre_topic_silence"]["start"], events["pre_topic_silence"]["end"]),
-                (12.6, 12.95),
+                (12.8, 13.15),
             )
-            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (12.95, 30.95))
-            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (30.95, 31.3))
-            self.assertEqual((events["final_silence"]["start"], events["final_silence"]["end"]), (30.95, 31.3))
+            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.15, 31.15))
+            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (31.15, 31.5))
+            self.assertEqual((events["final_silence"]["start"], events["final_silence"]["end"]), (31.15, 31.5))
             self.assertEqual(events["outro"]["source"], "post_payoff_terminal_silence")
             self.assertTrue(
                 all(
@@ -203,6 +209,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                     "audio/01-chunks/01.wav": ("hook", 4.0),
                     "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.70),
                     "audio/01-chunks/02.wav": ("prayer", 3.0),
+                    "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.30),
                     "audio/01-chunks/03.wav": ("channel_identity", 5.0),
                     "audio/01-chunks/pre-topic-silence.wav": ("pre_topic_silence", 0.45),
                     "audio/01-chunks/04.wav": ("topic", 6.0),
@@ -230,7 +237,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 def duration(path: Path) -> float:
                     path = Path(path)
                     if path.name == "narration-mastered.wav":
-                        return 27.6
+                        return 27.9
                     return files[str(path.relative_to(root))][1]
 
                 with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
@@ -246,18 +253,22 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.7))
                 self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.7, 7.7))
                 self.assertEqual(
+                    (events["post_prayer_silence"]["start"], events["post_prayer_silence"]["end"]),
+                    (7.7, 8.0),
+                )
+                self.assertEqual(
                     (events["channel_identity"]["start"], events["channel_identity"]["end"]),
-                    (7.7, 12.7),
+                    (8.0, 13.0),
                 )
                 self.assertEqual(
                     (events["pre_topic_silence"]["start"], events["pre_topic_silence"]["end"]),
-                    (12.7, 13.15),
+                    (13.0, 13.45),
                 )
-                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.15, 27.15))
-                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.15, 27.6))
+                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.45, 27.45))
+                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.45, 27.9))
                 self.assertEqual(
                     (events["final_silence"]["start"], events["final_silence"]["end"]),
-                    (27.15, 27.6),
+                    (27.45, 27.9),
                 )
                 self.assertEqual(events["outro"]["source"], "post_payoff_terminal_silence")
 
@@ -309,6 +320,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("PRAYER_SENTENCE", source)
 
     def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
+        self.assertEqual(identity_timing_profile("short")["post_prayer_silence_seconds"], 0.35)
+        self.assertEqual(identity_timing_profile("film")["post_prayer_silence_seconds"], 0.45)
+        self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.45)
         self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.20)
         self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
         self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 3.75)
