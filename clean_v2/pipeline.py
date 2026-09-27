@@ -3751,6 +3751,18 @@ GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT (all spoken formats):
   split would damage meaning. This is a performance rule, not a duration target.
 - Let important conclusions breathe: after a dense idea, prefer a real sentence stop before advancing.
   Do not flatten everything into clipped fragments and do not write long syntactic tangles that force rushed delivery.
+- Gemini 3.8 reads transcript text verbatim. Never put delivery directions, speaker names, stage directions,
+  markdown labels, or parenthetical acting notes inside spoken text. Performance direction belongs to structured
+  speech metadata owned by the voice runtime.
+- Use inline vocal tags only for a precise moment that genuinely improves natural delivery. Prefer <short pause>
+  or <breath>; normally use none, and never more than one such event in a short section. Never stack tags, never
+  use sound-effect tags, and never use a tag to compensate for weak writing.
+- Natural hesitation is allowed only when the thought itself calls for it. Do not manufacture filler words or fake
+  spontaneity. Prefer punctuation, sentence shape, and word choice to carry rhythm.
+- For inner_dialogue, keep one Charon voice and write believable self-questioning/self-correction without A:/B:
+  labels. Let the contrast come from the wording and rhythm, not from pretending there are two speakers.
+- For dialogue_qa, every A:/B: turn must be concise enough to sound like an actual exchange. A asks/challenges;
+  B explains. Do not add greetings, host/guest framing, names, or repeated acknowledgment phrases.
 """.strip()
 
 CONTENT_DEPTH_GUIDANCE = """
