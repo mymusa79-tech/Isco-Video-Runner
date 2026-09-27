@@ -2584,18 +2584,24 @@ def _tone_repair_prompt(
         if "content_depth:" in revision_note.casefold()
         else ""
     )
-    podcast_progression_repair_guidance = (
-        "- For podcast / خارج النص only, fix progression semantically, not cosmetically. s1 owns the "
-        "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
-        "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
-        "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
-        "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
-        "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
-        "too shallow. The final section must answer or deepen the exact opening tension with an earned "
-        "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
-        "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
-        + PODCAST_NABRA_PERFORMANCE_GUIDANCE
-        if str(brief.get("format") or "") == "podcast"
+    longform_progression_repair_guidance = (
+        (
+            "- For film and podcast, fix progression semantically, not cosmetically. s1 owns the "
+            "central tension. s2 must add a mechanism, cause, or distinction already supported by the approved "
+            "brief, locked plan, current script, and RESEARCH_BOUNDARIES that explains WHY the tension exists; "
+            "it must not rename or synonymize s1. s3, when present, must derive a new implication or resolution "
+            "from s2 rather than restating it; later sections must keep adding one new explanatory step. If two "
+            "adjacent sections could swap places without losing a causal/explanatory step, the repair is still "
+            "too shallow. The final section must answer or deepen the exact opening tension with an earned "
+            "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
+            "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
+            + (
+                PODCAST_NABRA_PERFORMANCE_GUIDANCE
+                if str(brief.get("format") or "") == "podcast"
+                else ""
+            )
+        )
+        if str(brief.get("format") or "") in {"film", "podcast"}
         else ""
     )
     return with_human_feel(with_channel_persona(f"""
@@ -2628,7 +2634,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
-{podcast_progression_repair_guidance}
+{longform_progression_repair_guidance}
 {nabra_safe_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {hook_lock_rule}
