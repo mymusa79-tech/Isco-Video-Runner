@@ -27,6 +27,12 @@ SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
+_PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
+
+
+def _contains_prayer_text(value: object) -> bool:
+    compact = " ".join(str(value or "").split()).strip()
+    return all(marker in compact for marker in _PRAYER_TEXT_MARKERS)
 
 
 def _beat_role(index: int, total: int) -> str:
@@ -228,6 +234,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         display_text_ar = " ".join(
             str(raw.get("display_text_ar") or "").split()
         ).strip()
+        if _contains_prayer_text(display_text_ar):
+            raise ValueError(
+                f"visual_story beat {beat_id} must not place prayer text in display_text_ar"
+            )
         if not display_text_ar:
             viewer_words = viewer_intent.split()
             if (
