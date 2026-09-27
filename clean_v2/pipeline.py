@@ -3022,12 +3022,61 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
     return destination
 
 
+def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
+    """Keep a Short to real semantic scenes without another model call or failure gate."""
+    result = copy.deepcopy(dict(story))
+    beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
+    max_beats = max(3, int(max_beats))
+    if len(beats) <= max_beats:
+        return result
+
+    section_order: list[str] = []
+    indexes_by_section: dict[str, list[int]] = {}
+    for index, beat in enumerate(beats):
+        section_id = str(beat.get("section_id") or "").strip()
+        if section_id not in indexes_by_section:
+            section_order.append(section_id)
+            indexes_by_section[section_id] = []
+        indexes_by_section[section_id].append(index)
+
+    keep: set[int] = {0, len(beats) - 1}
+    # Preserve at least one visual from every authored section.
+    for section_id in section_order:
+        indexes = indexes_by_section[section_id]
+        preferred = indexes[-1] if section_id == section_order[-1] else indexes[0]
+        keep.add(preferred)
+
+    # Add at most two genuinely authored extra states, balanced by section order.
+    while len(keep) < max_beats:
+        added = False
+        for section_id in section_order:
+            for index in indexes_by_section[section_id]:
+                if index in keep:
+                    continue
+                keep.add(index)
+                added = True
+                break
+            if len(keep) >= max_beats:
+                break
+        if not added:
+            break
+
+    selected = [copy.deepcopy(beats[index]) for index in sorted(keep)[:max_beats]]
+    for index, beat in enumerate(selected):
+        beat["role"] = "hook" if index == 0 else "payoff" if index == len(selected) - 1 else "body"
+    result["beats"] = selected
+    return result
+
+
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     plan = validate_plan(value, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
-    plan["visual_story"] = validate_visual_story(raw_story, plan)
+    visual_story = validate_visual_story(raw_story, plan)
+    if str(brief.get("format") or "") == "short":
+        visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+    plan["visual_story"] = visual_story
     return plan
 
 
