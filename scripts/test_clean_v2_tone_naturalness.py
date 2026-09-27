@@ -90,9 +90,15 @@ class FactualityAvailabilityBoundaryTests(unittest.TestCase):
 
         supported = _unsupported_quantified_research_claims(
             script,
-            [{"claim_scope": "في هذا المصدر وردت النسبة 90٪ لهذه النتيجة نفسها."}],
+            [{"claim_scope": "تنجح هذه الطريقة بنسبة 90٪ لهذه النتيجة وفق المصدر المعتمد."}],
         )
         self.assertEqual(supported, [])
+
+        unrelated_same_number = _unsupported_quantified_research_claims(
+            script,
+            [{"claim_scope": "أكمل 90٪ من المشاركين مهمة مختلفة لا علاقة لها بهذه الطريقة."}],
+        )
+        self.assertEqual(len(unrelated_same_number), 1)
 
 
 class CleanV2ToneNaturalnessTests(unittest.TestCase):
