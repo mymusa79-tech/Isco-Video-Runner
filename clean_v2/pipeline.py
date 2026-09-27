@@ -148,7 +148,7 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
         chunks: list[str] = []
         current = ""
         for line in dialogue_lines:
-            candidate = line if not current else f"{current}\\n{line}"
+            candidate = line if not current else f"{current}\n{line}"
             if len(candidate) <= max_chars:
                 current = candidate
                 continue
