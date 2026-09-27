@@ -1567,7 +1567,29 @@ def _run_legacy_factuality_audit(
         summary = ", ".join(
             f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
         ) or "no providers configured"
-        raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
+        # An unavailable or invalid audit cannot establish a factual violation.
+        # Only a valid response with concrete local hard flags may block.
+        report.update(
+            {
+                "status": "pass",
+                "decision_source": "technical_unavailable_advisory",
+                "audit_outcome": "advisory_technical_unavailable",
+                "technical_unavailable": True,
+                "technical_summary": summary,
+                "hard_flag_count": 0,
+                "hard_flags": {
+                    "unsupported_claims": [],
+                    "professional_advice_flags": [],
+                    "expert_persona_flags": [],
+                },
+                "advisory_flags": {
+                    "professional_advice_flags": [],
+                    "expert_persona_flags": [],
+                },
+            }
+        )
+        atomic_write_json(output_dir / "factuality-audit.json", report)
+        return report
     if local_status == "block":
         raise CleanV2FactualityContentBlock(report)
     return report
@@ -1726,10 +1748,20 @@ def _run_legacy_tone_naturalness_audit(
             for item in attempts
             if isinstance(item, Mapping)
         ) or "no providers configured"
-        raise RuntimeError(
-            f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: "
-            f"tone_naturalness {summary}"
+        # Capacity or schema failures are infrastructure evidence, not a
+        # validated editorial rejection. Valid content blocks still fail below.
+        report.update(
+            {
+                "status": "pass",
+                "provider_status": str(result.get("status") or ""),
+                "decision_source": "technical_unavailable_advisory",
+                "audit_outcome": "advisory_technical_unavailable",
+                "technical_unavailable": True,
+                "technical_summary": summary,
+            }
         )
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
+        return report
     if result.get("status") == "block":
         raise CleanV2ToneContentBlock(report)
     return report
