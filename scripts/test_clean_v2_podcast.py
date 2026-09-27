@@ -269,7 +269,7 @@ class PodcastTelegramTests(unittest.TestCase):
         self.assertIn("سؤال مركزي حقيقي", instruction)
         self.assertIn("يتغير فهم المستمع", instruction)
 
-    def test_materialized_podcast_brief_keeps_choice_simple_and_marks_female_narration(self) -> None:
+    def test_materialized_podcast_brief_uses_fixed_gemini_roster_and_allows_dialogue(self) -> None:
         request = {
             "schema_version": 1,
             "request_id": "req-podcast",
@@ -296,9 +296,11 @@ class PodcastTelegramTests(unittest.TestCase):
             )
         self.assertEqual(brief["format"], "podcast")
         self.assertEqual(brief["series_name"], "خارج النص")
-        self.assertIn("راوية أنثوية محايدة", brief["editorial_intent"])
+        self.assertIn("بصوت القناة الثابت", brief["editorial_intent"])
+        self.assertIn("حوارًا حقيقيًا", brief["editorial_intent"])
         self.assertIn("مستمع واحد", brief["editorial_intent"])
-        self.assertTrue(any("female narrator" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("Gemini 3.8 is the only voice provider" in item for item in brief["hard_constraints"]))
+        self.assertTrue(any("Orus" in item and "dialogue_qa" in item for item in brief["hard_constraints"]))
         self.assertTrue(any("simple-deep" in item for item in brief["hard_constraints"]))
         self.assertTrue(any("Arab/Muslim" in item for item in brief["hard_constraints"]))
 
