@@ -63,6 +63,43 @@ class PodcastFormatTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "between 2 and 5 for podcast"):
             validate_plan(self._plan(6), {"format": "podcast"})
 
+    def test_podcast_plan_can_choose_real_two_voice_dialogue_without_new_stage(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        candidate = {
+            **self._plan(3),
+            "narrative_format": "dialogue_qa",
+        }
+        validated = validate_plan(candidate, brief)
+        self.assertEqual(validated["narrative_format"], "dialogue_qa")
+
+        planning_prompt = _planning_prompt(brief)
+        self.assertIn("direct_cinematic", planning_prompt)
+        self.assertIn("question_answer", planning_prompt)
+        self.assertIn("dialogue_qa", planning_prompt)
+        self.assertIn("Orus", planning_prompt)
+        self.assertIn("Charon", planning_prompt)
+
+        script_prompt = _script_prompt(brief, validated)
+        self.assertIn("SELECTED_NARRATIVE_FORMAT: dialogue_qa", script_prompt)
+        self.assertIn("A:/B:", script_prompt)
+
+    def test_podcast_plan_rejects_unknown_voice_format(self) -> None:
+        brief = {
+            "format": "podcast",
+        }
+        candidate = {
+            **self._plan(3),
+            "narrative_format": "three_voice_panel",
+        }
+        with self.assertRaisesRegex(ContractError, "narrative_format"):
+            validate_plan(candidate, brief)
+
     def test_podcast_prompt_prioritizes_depth_audio_only_and_sparse_visuals(self) -> None:
         brief = {
             "approved_by_user": True,
