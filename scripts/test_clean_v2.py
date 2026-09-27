@@ -290,7 +290,8 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn("specific situation, tension, behavior, consequence, or", normalized_prompt)
         self.assertIn("forced shock/clickbait", normalized_prompt)
         self.assertIn("same core tension the script will develop", normalized_prompt.lower())
-        self.assertIn("do not optimize for a fixed word count or duration", normalized_prompt.lower())
+        self.assertIn("never an acceptance gate", normalized_prompt.lower())
+        self.assertIn("actual synthesized voice owns the final duration completely", normalized_prompt.lower())
 
     def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
         opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
@@ -1573,8 +1574,8 @@ class _InfrastructureRouter:
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
-        self.last_provider = "nabra:af_msa"
-        self.fallback_used = True
+        self.last_provider = "gemini-3.8:Charon"
+        self.fallback_used = False
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         self.calls += 1
@@ -2229,9 +2230,9 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(checkpoint["completed_stage"], "voice")
             self.assertEqual(
-                checkpoint["voice_provider"], "nabra:af_msa"
+                checkpoint["voice_provider"], "gemini-3.8:Charon"
             )
-            self.assertTrue(checkpoint["voice_fallback_used"])
+            self.assertFalse(checkpoint["voice_fallback_used"])
             self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
             self.assertFalse(
                 any(path.startswith("visuals/") for path in checkpoint["artifacts"])
