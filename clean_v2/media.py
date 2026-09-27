@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import math
@@ -29,6 +30,21 @@ MAX_TTS_AUDIO_BYTES = 64 * 1024 * 1024
 CHARON_MAX_ATTEMPTS = 3
 CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
+
+GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
+GEMINI38_PRIMARY_VOICE = "Charon"
+GEMINI38_QUESTIONER_VOICE = "Orus"
+GEMINI38_PROVIDER = "gemini-3.8:Charon"
+GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
+GEMINI38_NARRATOR_STYLE = (
+    "Natural adult Modern Standard Arabic. Warm, mature, intelligent and conversational; "
+    "calm confidence, human pacing, clear articulation, no announcer tone, no theatrical acting. "
+    "Respect punctuation and let completed thoughts breathe naturally."
+)
+GEMINI38_QUESTIONER_STYLE = (
+    "Natural Modern Standard Arabic questioner. Concise, intelligent and curious; "
+    "calm rather than confrontational, with natural conversational timing."
+)
 
 # Deliberately light continuity direction for every Charon call. The pinned Engine
 # already supplies the full Arabic performance preamble; this only prevents each
@@ -375,20 +391,150 @@ def _tts_failure_reason(exc: BaseException | None, *, missing: str) -> str:
     return f"{reason}_http_{status}" if status is not None else reason
 
 
+def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
+    """Parse A:/B: turns without ever exposing speaker labels to the TTS model.
+
+    The runtime identity injector may place the prayer/channel sentence between
+    dialogue turns. Unlabelled text is therefore owned by the main B/Charon voice.
+    """
+    source = str(transcript or "").strip()
+    if not source:
+        return []
+    marker = re.compile(r"(^|\\n|\\s)([AB]):\\s+", re.M)
+    matches = list(marker.finditer(source))
+    if not matches:
+        return []
+
+    turns: list[tuple[str, str]] = []
+    prefix = source[: matches[0].start()].strip()
+    if prefix:
+        turns.append(("B", prefix))
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        spoken = source[start:end].strip()
+        if spoken:
+            turns.append((match.group(2), spoken))
+    if not turns:
+        raise RuntimeError("Clean V2 dialogue voice contract has no spoken turns")
+    return turns
+
+
 def _spoken_voice_roles(transcript: str) -> dict[str, str]:
-    """Bind every supported narration shape to the fixed channel voice roster."""
-    speakers = set(_DIALOGUE_LABEL_RE.findall(transcript))
-    if speakers and speakers != {"A", "B"}:
-        raise RuntimeError(
-            "Clean V2 dialogue voice contract requires both A: and B: turns"
-        )
-    if speakers == {"A", "B"}:
+    """Bind every supported narration shape to the fixed Gemini voice roster."""
+    turns = _gemini38_dialogue_turns(transcript)
+    if turns:
         return {
             "mode": "dialogue_qa",
-            "questioner": "Orus",
-            "responder": "Charon",
+            "questioner": GEMINI38_QUESTIONER_VOICE,
+            "responder": GEMINI38_PRIMARY_VOICE,
         }
-    return {"mode": "single_narrator", "narrator": "Charon"}
+    return {"mode": "single_narrator", "narrator": GEMINI38_PRIMARY_VOICE}
+
+
+def _gemini38_synthesize(
+    api_key: str,
+    transcript: str,
+    output_path: Path,
+    *,
+    model: str,
+    primary_voice: str,
+    questioner_voice: str,
+) -> Path:
+    """Call the Gemini 3.8 TTS Interactions API using its native WAV contract."""
+    if model != GEMINI38_TTS_MODEL:
+        raise RuntimeError(
+            f"Clean V2 Gemini TTS model drift: expected={GEMINI38_TTS_MODEL} actual={model}"
+        )
+    if not api_key:
+        raise RuntimeError("Clean V2 Gemini TTS requires GEMINI_API_KEY")
+
+    try:
+        from google import genai
+    except ImportError as exc:
+        raise RuntimeError("google-genai is not installed") from exc
+
+    turns = _gemini38_dialogue_turns(transcript)
+    if turns:
+        content = []
+        for speaker, spoken in turns:
+            content.append(
+                {
+                    "type": "text",
+                    "text": spoken,
+                    "annotations": [
+                        {
+                            "type": "speech_metadata",
+                            "speaker": speaker,
+                            "style": (
+                                GEMINI38_QUESTIONER_STYLE
+                                if speaker == "A"
+                                else GEMINI38_NARRATOR_STYLE
+                            ),
+                        }
+                    ],
+                }
+            )
+        speech_config: Any = {
+            "mode": "conversational",
+            "speakers": [
+                {"speaker": "A", "voice": questioner_voice},
+                {"speaker": "B", "voice": primary_voice},
+            ],
+        }
+    else:
+        content = [
+            {
+                "type": "text",
+                "text": transcript.strip(),
+                "annotations": [
+                    {
+                        "type": "speech_metadata",
+                        "style": GEMINI38_NARRATOR_STYLE,
+                    }
+                ],
+            }
+        ]
+        speech_config = [{"voice": primary_voice}]
+
+    client = genai.Client(api_key=api_key)
+    interaction = client.interactions.create(
+        model=model,
+        input=[{"type": "user_input", "content": content}],
+        response_format={"type": "audio"},
+        generation_config={"speech_config": speech_config},
+    )
+    output_audio = getattr(interaction, "output_audio", None)
+    encoded = getattr(output_audio, "data", None)
+    if isinstance(encoded, bytes):
+        audio = encoded
+    elif isinstance(encoded, str) and encoded.strip():
+        audio = base64.b64decode(encoded)
+    else:
+        raise RuntimeError("Gemini 3.8 TTS returned no audio payload")
+
+    if len(audio) < 1024 or len(audio) > MAX_TTS_AUDIO_BYTES:
+        raise RuntimeError("Gemini 3.8 TTS returned an invalid audio size")
+    if not audio.startswith(b"RIFF"):
+        raise RuntimeError("Gemini 3.8 TTS unary output is not WAV/RIFF")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(f".{output_path.name}.gemini38.tmp.wav")
+    temporary.write_bytes(audio)
+    try:
+        with wave.open(str(temporary), "rb") as wav:
+            if (
+                wav.getnchannels() != 1
+                or wav.getsampwidth() != 2
+                or wav.getframerate() != 24000
+                or wav.getnframes() <= 0
+            ):
+                raise RuntimeError("Gemini 3.8 TTS returned an unexpected WAV format")
+        os.replace(temporary, output_path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return output_path
 
 
 def _assert_human_approved_voice_reference(
@@ -571,6 +717,113 @@ class AzureF0NeuralVoiceSynthesizer:
             temporary.unlink(missing_ok=True)
             raise
         return output_path
+
+
+class GeminiOnlyVoiceSynthesizer:
+    """Gemini 3.8 Flash TTS only. Any exhausted cloud failure fails the run closed."""
+
+    EXPECTED_PRIMARY_VOICE = GEMINI38_PRIMARY_VOICE
+    EXPECTED_QUESTIONER_VOICE = GEMINI38_QUESTIONER_VOICE
+    EXPECTED_TTS_MODEL = GEMINI38_TTS_MODEL
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        tts_model: str = GEMINI38_TTS_MODEL,
+    ) -> None:
+        self.api_key = str(api_key or "").strip()
+        self.tts_model = str(tts_model or "").strip() or GEMINI38_TTS_MODEL
+        self.last_provider: str | None = None
+        self.fallback_used: bool | None = None
+        self.charon_attempts = 0
+        self.voice_roles: dict[str, str] | None = None
+        self.voice_approval_status: str | None = None
+        self.voice_reference_profile: str | None = None
+
+    def synthesize(
+        self,
+        transcript: str,
+        output_path: Path,
+        *,
+        primary_only: bool = False,
+    ) -> Path:
+        del primary_only  # Gemini is the only allowed route, so fallback policy is invariant.
+        if not transcript.strip():
+            raise RuntimeError("cannot synthesize an empty transcript")
+        if self.tts_model != self.EXPECTED_TTS_MODEL:
+            raise RuntimeError(
+                "Clean V2 Gemini-only TTS model mismatch: "
+                f"expected={self.EXPECTED_TTS_MODEL} actual={self.tts_model}"
+            )
+
+        primary_voice, questioner_voice = _legacy_voice_identity()
+        if primary_voice != self.EXPECTED_PRIMARY_VOICE:
+            raise RuntimeError(
+                "Clean V2 primary voice identity mismatch: "
+                f"expected={self.EXPECTED_PRIMARY_VOICE} actual={primary_voice}"
+            )
+        if questioner_voice != self.EXPECTED_QUESTIONER_VOICE:
+            raise RuntimeError(
+                "Clean V2 questioner voice identity mismatch: "
+                f"expected={self.EXPECTED_QUESTIONER_VOICE} actual={questioner_voice}"
+            )
+
+        self.voice_roles = _spoken_voice_roles(transcript)
+        self.last_provider = None
+        self.fallback_used = False
+        self.voice_approval_status = None
+        self.voice_reference_profile = None
+        self.charon_attempts = 0
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        last_error: BaseException | None = None
+
+        if self.api_key:
+            for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
+                self.charon_attempts = attempt
+                try:
+                    _gemini38_synthesize(
+                        self.api_key,
+                        transcript,
+                        output_path,
+                        model=self.tts_model,
+                        primary_voice=primary_voice,
+                        questioner_voice=questioner_voice,
+                    )
+                    if not output_path.is_file() or output_path.stat().st_size < 1024:
+                        raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
+                    self.last_provider = GEMINI38_PROVIDER
+                    self.fallback_used = False
+                    self.voice_approval_status = "user_selected_gemini_3_8"
+                    self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
+                    print(
+                        f"Clean V2 voice provider selected: {self.last_provider} "
+                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
+                    )
+                    return output_path
+                except Exception as exc:
+                    last_error = exc
+                    output_path.unlink(missing_ok=True)
+                    print(
+                        "Clean V2 Gemini 3.8 TTS attempt failed: "
+                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
+                        f"error_type={type(exc).__name__} "
+                        f"detail={_tts_exception_detail(exc)}"
+                    )
+                    if attempt >= CHARON_MAX_ATTEMPTS:
+                        break
+                    delay = _charon_retry_delay(exc, attempt - 1)
+                    if delay is None:
+                        break
+                    time.sleep(delay)
+
+        reason = _tts_failure_reason(last_error, missing="missing_api_key")
+        raise VoiceInfrastructureError(
+            charon_attempts=self.charon_attempts,
+            charon_reason=reason,
+            secondary_reason="gemini_3_8_only_fail_closed_no_fallback",
+            piper_fallback_allowed=False,
+        )
 
 
 class GeminiPrimaryPiperFallbackSynthesizer:
