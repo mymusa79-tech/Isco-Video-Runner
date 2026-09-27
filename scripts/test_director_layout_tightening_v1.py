@@ -62,8 +62,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 self.assertNotIn("colorchannelmixer=aa=", filters)
                 self.assertNotIn("alpha=1", filters)
                 self.assertIn("tpad=stop_mode=clone", filters)
-                self.assertIn("ass='", filters)
-                self.assertNotIn("[prayer]overlay", filters)
+                self.assertNotIn("ass='", filters)
+                self.assertIn("[v1][prayer]overlay=(W-w)/2:(H-h)/2", filters)
+                self.assertIn("between(t,3.000,4.500)", filters)
                 self.assertIn("between(t,2.000,3.000)", filters)
                 self.assertIn("between(t,10.000,12.000)", filters)
 
@@ -87,24 +88,26 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             self.assertGreater(profile["intro_silence_seconds"], 0)
             self.assertGreater(profile["final_silence_seconds"], 0)
 
-    def test_rule_3_gold_keyword_is_materially_larger_than_white_body(self) -> None:
+    def test_rule_3_cairo_caption_is_large_static_offwhite_with_black_outline(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "القائمة أكبر مما تتوقع", "role": "hook"},
             {"start": 2.0, "end": 4.0, "text": "التردد يستهلك البداية", "role": "beat"},
             {"start": 4.0, "end": 6.0, "text": "مهمة واحدة تكفي", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertGreater(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
-        self.assertGreaterEqual(text_module.FOCUS_SCALE, 1.20)
-        self.assertIn(text_module.ACCENT_ASS, ass)
-        self.assertIn(r"\bord3", ass)
-        self.assertIn("Style: Shadow", ass)
-        self.assertEqual((text_module.CAPTION_SHADOW_X, text_module.CAPTION_SHADOW_Y), (4, 5))
-        self.assertEqual((text_module.CAPTION_EXTRUDE_X, text_module.CAPTION_EXTRUDE_Y), (2, 3))
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertIn(r"\fscx99\fscy99", ass)
+        self.assertEqual(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
+        self.assertEqual(text_module.FOCUS_SCALE, 1.00)
+        self.assertEqual(text_module.ACCENT_ASS, text_module.PRIMARY_ASS)
+        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn(",1,4,0,5,", ass)
+        self.assertNotIn("Style: Shadow", ass)
+        self.assertNotIn("Style: Extrusion", ass)
+        self.assertEqual((text_module.CAPTION_SHADOW_X, text_module.CAPTION_SHADOW_Y), (0, 0))
+        self.assertEqual((text_module.CAPTION_EXTRUDE_X, text_module.CAPTION_EXTRUDE_Y), (0, 0))
+        self.assertIn(r"\fad(140,200)", ass)
+        self.assertNotIn(r"\fscx99\fscy99", ass)
 
-    def test_rule_3b_arabic_caption_uses_static_white_gold_line_hierarchy(self) -> None:
+    def test_rule_3b_arabic_caption_uses_static_cairo_phrase_layout(self) -> None:
         events = [
             {
                 "start": 0.0,
@@ -127,11 +130,12 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         ]
         ass = text_module.build_rich_ass(events)
         self.assertIn(text_module.PRIMARY_ASS, ass)
-        self.assertIn(text_module.ACCENT_ASS, ass)
+        self.assertEqual(text_module.ACCENT_ASS, text_module.PRIMARY_ASS)
         self.assertIn(r"\N", ass)
-        self.assertIn(text_module.ARABIC_WORD_GAP, ass)
-        self.assertIn(r"\fad(150,200)", ass)
-        self.assertNotIn(r"\bord5", ass)
+        self.assertEqual(text_module.ARABIC_WORD_GAP, " ")
+        self.assertIn(r"\fad(140,200)", ass)
+        self.assertNotIn(r"\clip(", ass)
+        self.assertNotIn("Style: Shadow", ass)
 
     def test_rule_4_context_requires_specific_meaning_before_general_mood(self) -> None:
         plan = {
@@ -188,8 +192,12 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertNotIn("subscribe_combo", {item.mode for item in events})
         self.assertIn(events[0].mode, {"like", "comment"})
         source = inspect.getsource(cta_module._render)
-        self.assertIn("warm", inspect.getsource(cta_module.apply_visual_cta_assets))
-        self.assertIn("hue=h=38", source)
+        renderer_source = inspect.getsource(cta_module._render_arabic_subscribe_combo)
+        self.assertIn("red_offwhite_arabic_renderer_owned", inspect.getsource(cta_module.apply_visual_cta_assets))
+        self.assertNotIn("hue=h=38", source)
+        self.assertNotIn("SUBSCRIBED", renderer_source)
+        self.assertIn("اشترك", renderer_source)
+        self.assertIn("Cairo", inspect.getsource(cta_module._cairo_bold_font_path))
 
     def test_rule_5a_cta_action_differs_from_current_scene_action(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -255,6 +263,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         )
         self.assertTrue(events)
         self.assertTrue(all(item.y == cta_module.SHORT_CTA_Y for item in events))
+        self.assertTrue(all(item.x > 540 for item in events))
+        self.assertEqual(cta_module.SHORT_CTA_CENTER_X, 800)
+        self.assertEqual(cta_module.SHORT_CTA_CENTER_Y, 960)
         self.assertLess(cta_module.SHORT_CTA_Y, text_module.CAPTION_Y)
         self.assertEqual(cta_module.SFX_TARGET_REL_DB, -12.0)
         self.assertGreater(cta_module.SFX_TARGET_REL_DB, -22.0)
@@ -278,14 +289,13 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertTrue(podcast)
         self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in film))
         self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in podcast))
+        self.assertTrue(all(item.x > 960 for item in film))
+        self.assertTrue(all(item.x > 960 for item in podcast))
+        self.assertEqual(cta_module.HORIZONTAL_CTA_CENTER_X, 1570)
+        self.assertEqual(cta_module.HORIZONTAL_CTA_CENTER_Y, 540)
         self.assertLess(cta_module.HORIZONTAL_CTA_Y, cta_module.HORIZONTAL_KEY_TEXT_Y)
         self.assertLessEqual(len(podcast), 2)
         self.assertLessEqual(len(podcast), len(film))
-        for item in podcast:
-            if item.mode == "subscribe_combo":
-                self.assertEqual(item.x, 610)
-            else:
-                self.assertEqual(item.x, 908)
 
     def test_rule_6_captions_are_lower_center_above_bottom_15_percent(self) -> None:
         events = [

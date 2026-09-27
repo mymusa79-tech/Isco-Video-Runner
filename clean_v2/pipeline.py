@@ -4089,8 +4089,15 @@ section-level query across multiple beats and never put Arabic in stock_query_en
 Choose source_preference by what best communicates THIS beat, not by role. Hook, body, and payoff
 all follow the same semantic-quality rule: use ai_still when a controlled, distinctive, context-specific
 composition communicates the idea better; use stock_motion when real movement materially adds meaning.
-Never make all three roles look like the same setup. AI images MUST be image-only: no title, caption,
-letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned display text is added later.
+For an abstract psychological or cause/effect idea that stock cannot show literally, ai_still MAY use
+one simple concrete visual metaphor made from real objects or environments (for example one clear path
+emerging from clutter, one selected object among many, or a visible before-to-after state). Keep it
+cinematic and believable, not an infographic: no chart, diagram labels, icons, split-screen, floating
+symbols, or decorative complexity. Use this illustrative-metaphor option sparingly: normally at most
+one beat in a Short and one or two high-value turns in Film/Podcast, and only when it explains the idea
+better than ordinary footage. Never make all three roles look like the same setup. AI images MUST be
+image-only: no title, caption, letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned
+display text is added later.
 For short, normally use 2-4 AI still beats at most; for film, keep stock motion dominant and use up to
 4 AI anchors only at high-value idea turns; for podcast, remain sparse and normally use 2-3 AI anchors.
 All AI remains free-only and fails safely to quality-gated stock when unavailable. A recurring hook/payoff

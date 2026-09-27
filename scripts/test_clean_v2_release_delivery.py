@@ -302,6 +302,7 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
             {path.name for path in producers},
             {
                 "clean-v2-minimal-e2e.yml",
+                "clean-v2-podcast-one.yml",
                 "clean-v2-short-cohort.yml",
                 "clean-v2-short-final-one.yml",
                 "clean-v2-telegram-production.yml",

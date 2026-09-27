@@ -86,7 +86,8 @@ jobs:
             -o DPkg::Lock::Timeout=60
           )
           sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
-          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
+          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fontconfig fonts-noto-core
+          bash scripts/install_cairo_bold.sh
           cd engine
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .

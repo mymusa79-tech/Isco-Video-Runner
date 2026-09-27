@@ -11,15 +11,18 @@ from .media import probe_duration
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
-_COMBO = _ASSET_DIR / "subscribe_bell_reference.mp4"
 SFX_TARGET_REL_DB = -12.0
 SFX_MIN_REL_DB = -16.0
 SFX_MAX_REL_DB = -9.0
-SHORT_CTA_CENTER_X = 540
-SHORT_CTA_Y = 1080
-HORIZONTAL_CTA_CENTER_X = 960
-HORIZONTAL_CTA_Y = 500
+SHORT_CTA_CENTER_X = 800
+SHORT_CTA_CENTER_Y = 960
+SHORT_CTA_Y = 885
+HORIZONTAL_CTA_CENTER_X = 1570
+HORIZONTAL_CTA_CENTER_Y = 540
+HORIZONTAL_CTA_Y = 488
 HORIZONTAL_KEY_TEXT_Y = 770
+SHORT_COMBO_WIDTH = 520
+HORIZONTAL_COMBO_WIDTH = 560
 _ICON_BY_MODE = {
     "like": _ASSET_DIR / "like_ORIGINAL.png",
     "comment": _ASSET_DIR / "comment_ORIGINAL.png",
@@ -84,6 +87,84 @@ def _env() -> dict[str, str]:
 
 def _run(command: list[str]) -> None:
     subprocess.run(command, check=True, env=_env(), timeout=240)
+
+
+def _cairo_bold_font_path() -> Path:
+    local = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "fonts" / "isco-cairo" / "Cairo.ttf"
+    if local.is_file():
+        return local
+    proc = subprocess.run(
+        ["fc-match", "-f", "%{file}\n", "Cairo:weight=bold"],
+        check=False, capture_output=True, text=True, env=_env(), timeout=30,
+    )
+    candidate = Path((proc.stdout or "").splitlines()[0].strip()) if (proc.stdout or "").strip() else None
+    if candidate and candidate.is_file():
+        return candidate
+    raise RuntimeError("cairo_bold_font_missing_for_cta")
+
+
+def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
+    """Create one local Arabic Subscribe + Bell CTA. No provider call, no English UI."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise RuntimeError("pillow_missing_for_cta") from exc
+
+    width = SHORT_COMBO_WIDTH if fmt == "short" else HORIZONTAL_COMBO_WIDTH
+    height = 150 if fmt == "short" else 142
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    bell_size = height - 24
+    gap = 14
+    pill_width = width - bell_size - gap
+    pill_box = (0, 12, pill_width, height - 12)
+    bell_box = (pill_width + gap, 12, width, height - 12)
+
+    draw.rounded_rectangle(
+        pill_box,
+        radius=(height - 24) // 2,
+        fill=(214, 42, 51, 248),
+        outline=(244, 240, 233, 245),
+        width=3,
+    )
+    draw.ellipse(
+        bell_box,
+        fill=(246, 243, 237, 248),
+        outline=(24, 22, 20, 90),
+        width=2,
+    )
+
+    font_size = 62 if fmt == "short" else 58
+    font = ImageFont.truetype(
+        str(_cairo_bold_font_path()),
+        font_size,
+        layout_engine=ImageFont.Layout.RAQM,
+    )
+    text_x = pill_width // 2
+    text_y = height // 2 - 2
+    draw.text(
+        (text_x, text_y),
+        "اشترك",
+        font=font,
+        anchor="mm",
+        direction="rtl",
+        language="ar",
+        fill=(246, 243, 237, 255),
+        stroke_width=1,
+        stroke_fill=(110, 18, 25, 190),
+    )
+
+    bell = Image.open(_ICON_BY_MODE["bell"]).convert("RGBA")
+    target = bell_size - 42
+    bell.thumbnail((target, target), Image.Resampling.LANCZOS)
+    bx = bell_box[0] + (bell_size - bell.width) // 2
+    by = 12 + (bell_size - bell.height) // 2
+    canvas.alpha_composite(bell, (bx, by))
+
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, "PNG")
+    return destination
 
 
 def _mean_db(path: Path) -> float:
@@ -182,18 +263,32 @@ def _cta_conflicts_with_context(mode: str, context: str) -> bool:
     return any(token in normalized for token in _CTA_SEMANTIC_FAMILIES.get(mode, ()))
 
 
-def _event_with_mode(event: VisualCtaEvent, *, mode: str, fmt: str) -> VisualCtaEvent:
+def _cta_position(*, mode: str, fmt: str) -> tuple[int, int]:
+    """Anchor every CTA in the right-middle field, away from captions."""
     if fmt == "short":
-        x = 160 if mode == "subscribe_combo" else 465
-    else:
-        x = 610 if mode == "subscribe_combo" else 908
+        if mode == "subscribe_combo":
+            return (
+                max(40, min(1080 - SHORT_COMBO_WIDTH - 20, SHORT_CTA_CENTER_X - SHORT_COMBO_WIDTH // 2)),
+                SHORT_CTA_CENTER_Y - 88,
+            )
+        return (SHORT_CTA_CENTER_X - 75, SHORT_CTA_Y)
+    if mode == "subscribe_combo":
+        return (
+            max(40, min(1920 - HORIZONTAL_COMBO_WIDTH - 40, HORIZONTAL_CTA_CENTER_X - HORIZONTAL_COMBO_WIDTH // 2)),
+            HORIZONTAL_CTA_CENTER_Y - 99,
+        )
+    return (HORIZONTAL_CTA_CENTER_X - 52, HORIZONTAL_CTA_Y)
+
+
+def _event_with_mode(event: VisualCtaEvent, *, mode: str, fmt: str) -> VisualCtaEvent:
+    x, y = _cta_position(mode=mode, fmt=fmt)
     return VisualCtaEvent(
         mode=mode,
         start_seconds=event.start_seconds,
         end_seconds=event.end_seconds,
         x=x,
-        y=event.y,
-        asset="subscribe_bell_reference.mp4" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
+        y=y,
+        asset="arabic_subscribe_combo_renderer" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
     )
 
 
@@ -250,13 +345,14 @@ def _events(
         mode = _short_first_mode(script)
         if start >= duration - 3.0:
             return []
+        x, y = _cta_position(mode=mode, fmt=fmt)
         return [
             VisualCtaEvent(
                 mode=mode,
                 start_seconds=round(start, 3),
                 end_seconds=round(min(duration - 2.0, start + 1.35), 3),
-                x=465,
-                y=SHORT_CTA_Y,
+                x=x,
+                y=y,
                 asset=_ICON_BY_MODE[mode].name,
             )
         ]
@@ -293,14 +389,15 @@ def _events(
         start = max(12.0, duration * ratio)
         if start > duration - 15.0:
             continue
+        x, y = _cta_position(mode=mode, fmt=fmt)
         events.append(
             VisualCtaEvent(
                 mode=mode,
                 start_seconds=round(start, 3),
                 end_seconds=round(start + (3.5 if mode == "subscribe_combo" else 1.45), 3),
-                x=(610 if mode == "subscribe_combo" else 908),
-                y=HORIZONTAL_CTA_Y,
-                asset="subscribe_bell_reference.mp4" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
+                x=x,
+                y=y,
+                asset="arabic_subscribe_combo_renderer" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
             )
         )
         last_mode = mode
@@ -325,29 +422,31 @@ def _render(
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(video),
     ]
+    combo_path = dest.parent / ".arabic-subscribe-combo.png"
+    if any(event.mode == "subscribe_combo" for event in events):
+        _render_arabic_subscribe_combo(combo_path, fmt=fmt)
+
     input_specs: list[tuple[str, int, VisualCtaEvent]] = []
     next_index = 1
     for event in events:
         if event.mode == "subscribe_combo":
-            command.extend(["-i", str(_COMBO)])
+            command.extend(["-loop", "1", "-framerate", "30", "-i", str(combo_path)])
             input_specs.append(("combo", next_index, event))
         else:
             command.extend(["-loop", "1", "-framerate", "30", "-i", str(_ICON_BY_MODE[event.mode])])
             input_specs.append(("icon", next_index, event))
         next_index += 1
 
-    # one copy of the approved click for every single-icon event; combo keeps
-    # its own original click/audio from the user's reference video.
+    # One measured click per CTA event. The combined Arabic CTA is renderer-owned
+    # too, so it no longer inherits English reference-video audio or UI.
     click_specs: list[tuple[int, VisualCtaEvent]] = []
     for event in events:
-        if event.mode != "subscribe_combo":
-            command.extend(["-i", str(_CLICK)])
-            click_specs.append((next_index, event))
-            next_index += 1
+        command.extend(["-i", str(_CLICK)])
+        click_specs.append((next_index, event))
+        next_index += 1
 
     narration_mean_db = _mean_db(Path(narration_path))
     click_gain_db = _sfx_gain_db(source=_CLICK, narration_mean_db=narration_mean_db)
-    combo_gain_db = _sfx_gain_db(source=_COMBO, narration_mean_db=narration_mean_db)
 
     filters: list[str] = []
     current = "[0:v]"
@@ -366,25 +465,15 @@ def _render(
                 f"trim=duration={duration:.3f},setpts=PTS-STARTPTS+{event.start_seconds:.3f}/TB[{label}]"
             )
         else:
-            combo_width = 760 if fmt == "short" else 700
-            combo_duration = max(0.8, event.end_seconds - event.start_seconds)
-            palette_filter = (
-                "hue=h=38:s=0.72,eq=contrast=1.04:brightness=-0.01"
-                if fmt == "short"
-                else "null"
-            )
+            combo_duration = min(2.6 if fmt == "short" else 3.0, max(0.8, event.end_seconds - event.start_seconds))
+            fade_out = max(0.25, combo_duration - 0.20)
             filters.append(
-                f"[{input_index}:v]trim=start=0.45:duration={combo_duration:.3f},setpts=PTS-STARTPTS,"
-                "crop=1020:360:130:170,format=rgba,colorkey=0xFFFFFF:0.16:0.08,"
-                f"{palette_filter},scale={combo_width}:-1,"
-                f"setpts=PTS+{event.start_seconds:.3f}/TB[{label}]"
+                f"[{input_index}:v]format=rgba,"
+                f"fade=t=in:st=0:d=0.14:alpha=1,"
+                f"fade=t=out:st={fade_out:.3f}:d=0.20:alpha=1,"
+                f"trim=duration={combo_duration:.3f},"
+                f"setpts=PTS-STARTPTS+{event.start_seconds:.3f}/TB[{label}]"
             )
-            delay = int(round(event.start_seconds * 1000))
-            filters.append(
-                f"[{input_index}:a]atrim=start=0.45:duration={combo_duration:.3f},asetpts=PTS-STARTPTS,"
-                f"adelay={delay}|{delay},volume={combo_gain_db:.3f}dB[acombo{number}]"
-            )
-            audio_labels.append(f"[acombo{number}]")
 
         filters.append(
             f"{current}[{label}]overlay=x={event.x}:y={event.y}:eof_action=pass:format=auto[{out}]"
@@ -415,7 +504,10 @@ def _render(
         "-t", f"{probe_duration(video):.3f}",
         str(dest),
     ])
-    _run(command)
+    try:
+        _run(command)
+    finally:
+        combo_path.unlink(missing_ok=True)
 
 
 def apply_visual_cta_assets(
@@ -438,7 +530,7 @@ def apply_visual_cta_assets(
             "provider_calls_added": 0,
         }
 
-    required = [_CLICK, _COMBO, *_ICON_BY_MODE.values()]
+    required = [_CLICK, *_ICON_BY_MODE.values()]
     for asset in required:
         if not asset.is_file() or asset.stat().st_size <= 1024:
             raise RuntimeError(f"approved CTA asset missing: {asset.name}")
@@ -474,26 +566,28 @@ def apply_visual_cta_assets(
         "event_count": len(events),
         "short_max_two": fmt != "short" or len(events) <= 1,
         "short_combo_max_seconds": 2.6 if fmt == "short" else None,
-        "short_combo_palette": "warm_gold_dark_harmonized" if fmt == "short" else None,
+        "short_combo_palette": "red_offwhite_arabic_renderer_owned" if fmt == "short" else None,
         "one_action_per_normal_event": True,
-        "combo_is_single_approved_reference_asset": True,
+        "combo_is_single_approved_reference_asset": False,
+        "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell",
         "semantic_separation": True,
         "subscribe_delivery": "terminal_identity_outro_after_spoken_payoff",
         "semantic_separation_policy": "CTA action must differ from current narration/scene action family",
         "semantic_decisions": semantic_decisions,
-        "safe_zone_policy": "left_or_side_midfield_away_from_youtube_right_rail_and_bottom_ui",
+        "safe_zone_policy": "right_midfield_clear_of_caption_and_bottom_ui",
         "click_asset": _CLICK.name,
         "click_mix_policy": "measured_below_voice_above_background_music",
         "sfx_target_relative_db": SFX_TARGET_REL_DB,
         "sfx_allowed_relative_db": [SFX_MIN_REL_DB, SFX_MAX_REL_DB],
         "short_cta_position": (
-            {"center_x": SHORT_CTA_CENTER_X, "y": SHORT_CTA_Y, "caption_y": 1400}
+            {"center_x": SHORT_CTA_CENTER_X, "center_y": SHORT_CTA_CENTER_Y, "y": SHORT_CTA_Y, "caption_y": 1400}
             if fmt == "short"
             else None
         ),
         "horizontal_cta_position": (
             {
                 "center_x": HORIZONTAL_CTA_CENTER_X,
+                "center_y": HORIZONTAL_CTA_CENTER_Y,
                 "y": HORIZONTAL_CTA_Y,
                 "podcast_key_text_y": HORIZONTAL_KEY_TEXT_Y if fmt == "podcast" else None,
             }

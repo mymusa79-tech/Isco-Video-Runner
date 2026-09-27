@@ -24,9 +24,9 @@ from clean_v2.short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-RENDERER_VERSION = "clean-v2-sparse-key-text-3d-lite-v2"
+RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v3"
 MAX_EVENTS = 3
-FONT_SIZE = 96
+FONT_SIZE = 100
 TEXT_X = 960
 TEXT_Y = 770
 EXTRUDE = (2, 3)
@@ -35,7 +35,7 @@ DISPLAY_SECONDS = 4.2
 MAX_WORDS = 10
 
 FILM_MAX_EVENTS = 5
-FILM_FONT_SIZE = 116
+FILM_FONT_SIZE = 108
 FILM_TEXT_Y = 760
 FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
@@ -335,14 +335,12 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Shadow,{BODY_FONT},{font_size},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},{SHADOW_ASS},-1,0,0,0,100,100,0,0,1,0,0,5,100,100,0,1",
-        f"Style: Extrusion,{BODY_FONT},{font_size},{EXTRUSION_ASS},{EXTRUSION_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1",
         f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,100,100,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
-    common = r"\an5\fad(180,240)\fscx99\fscy99\t(0,140,\fscx100\fscy100)"
+    common = r"\an5\fad(180,240)"
     for item in events[:max_events]:
         text = _clean(item.get("text"))
         if not text:
@@ -350,20 +348,9 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
         plain = _plain_caption(text)
-        focus_size = min(150, max(font_size + 16, int(round(font_size * 1.18))))
-        face = _accent_caption(
-            text,
-            _accent_word_index(text),
-            body_size=font_size,
-            focus_size=focus_size,
-            role=str(item.get("role") or "turn"),
-        )
-        lines.extend(
-            [
-                f"Dialogue: 0,{start},{end},Shadow,,0,0,0,,{{{common}\\pos({TEXT_X + SHADOW[0]},{text_y + SHADOW[1]})}}{plain}",
-                f"Dialogue: 1,{start},{end},Extrusion,,0,0,0,,{{{common}\\pos({TEXT_X + EXTRUDE[0]},{text_y + EXTRUDE[1]})}}{plain}",
-                f"Dialogue: 2,{start},{end},Caption,,0,0,0,,{{{common}\\pos({TEXT_X},{text_y})}}{face}",
-            ]
+        lines.append(
+            f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
+            f"{{{common}\\pos({TEXT_X},{text_y})\\c{PRIMARY_ASS}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -443,26 +430,29 @@ def _apply_sparse_key_text(
         ass_path.unlink(missing_ok=True)
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_sparse_key_text_3d_lite",
+        "renderer": "ffmpeg_libass_sparse_key_text_cairo_bold",
         "renderer_version": RENDERER_VERSION,
         "status": "pass",
         "format": fmt,
         "event_count": len(events),
         "max_events": max_events,
         "events": events,
-        "accent_rgb": "#D7A85B",
-        "body_rgb": "#FFFFFF",
+        "accent_rgb": None,
+        "accent_enabled": False,
+        "body_rgb": "#F4F2EE",
         "font": BODY_FONT,
         "font_size": font_size,
-        "depth_layers": 3,
+        "depth_layers": 1,
         "black_text_box": False,
-        "shadow_offset": list(SHADOW),
-        "extrusion_offset": list(EXTRUDE),
-        "motion": "fade_180_240ms_scale_99_to_100",
+        "font_weight": "bold",
+        "outline_px": 3,
+        "shadow_offset": [0, 0],
+        "extrusion_offset": [0, 0],
+        "motion": "static_phrase_fade_180_240ms",
         "provider_calls_added": 0,
-        "style_source": "shared_clean_arabic_white_gold_line_hierarchy",
+        "style_source": "shared_cairo_bold_offwhite_black_outline",
         "text_source_policy": "visual_beat_display_text_ar_when_available_else_complete_script_sentence",
-        "rtl_policy": "full_phrase_static_white_then_gold_lines_no_directional_word_sweep",
+        "rtl_policy": "full_phrase_static_offwhite_cairo_bold_no_directional_word_sweep",
     }
 
 

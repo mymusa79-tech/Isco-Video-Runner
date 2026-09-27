@@ -70,6 +70,7 @@ from clean_v2.short_timed_text import (
     SAFE_Y_MIN,
     FOCUS_FONT,
     FOCUS_FONT_SIZE,
+    FOCUS_SCALE,
     MAX_DARK_SLATES,
     build_composition_hints,
     build_events_from_voice_timeline,
@@ -1285,7 +1286,7 @@ class ShortContractTests(unittest.TestCase):
 
 
 class ShortTimedTextTests(unittest.TestCase):
-    def test_tracked_3d_caption_uses_one_arabic_font_gold_focus_and_no_slate(self) -> None:
+    def test_static_cairo_caption_uses_one_arabic_font_and_no_slate(self) -> None:
         events = [
             {"start": 0.0, "end": 2.0, "text": "مرّ اليوم ولم أبدأ", "role": "hook"},
             {"start": 2.0, "end": 4.2, "text": "القائمة بدت أكبر مني", "role": "beat"},
@@ -1297,26 +1298,23 @@ class ShortTimedTextTests(unittest.TestCase):
 
         self.assertIsNone(slate_index)
         self.assertEqual(MAX_DARK_SLATES, 0)
-        self.assertEqual(ACCENT_ASS, "&H005BA8D7")
-        self.assertEqual(BODY_FONT, "Noto Sans Arabic")
+        self.assertEqual(ACCENT_ASS, PRIMARY_ASS)
+        self.assertEqual(BODY_FONT, "Cairo")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
-        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(FOCUS_FONT_SIZE / BODY_FONT_SIZE, 1.20)
-        self.assertIn("Style: Caption", ass)
-        self.assertIn("Style: Extrusion", ass)
-        self.assertIn("Style: Shadow", ass)
+        self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertNotIn("Style: Extrusion", ass)
+        self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
-        self.assertIn(ACCENT_ASS, ass)
         self.assertNotIn(r"\kf", ass)
         self.assertIn(PRIMARY_ASS, ass)
-        self.assertIn(r"\fscx99\fscy99", ass)
+        self.assertNotIn(r"\fscx99\fscy99", ass)
         self.assertNotIn("\u202B", ass)
-        self.assertEqual(ass.count("Dialogue:"), len(events) * 4)
-        self.assertIn(r"\clip(", ass)
-        self.assertIn(r"\t(0,", ass)
+        self.assertEqual(ass.count("Dialogue:"), len(events))
+        self.assertNotIn(r"\clip(", ass)
+        self.assertNotIn(r"\t(0,", ass)
         self.assertIn(r"\pos(540,1400)", ass)
-        self.assertIn(r"\pos(544,1405)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
@@ -1365,8 +1363,8 @@ class ShortTimedTextTests(unittest.TestCase):
             self.assertLessEqual(hint["x"], SAFE_X_MAX)
             self.assertGreaterEqual(hint["y"], SAFE_Y_MIN)
             self.assertLessEqual(hint["y"], SAFE_Y_MAX)
-            self.assertGreaterEqual(hint["font_size"], 112)
-            self.assertLessEqual(hint["font_size"], 158)
+            self.assertGreaterEqual(hint["font_size"], 150)
+            self.assertLessEqual(hint["font_size"], 202)
 
     def test_hook_type_is_larger_than_dense_beat_and_layout_stays_phrase_stable(self) -> None:
         events = [
@@ -1378,7 +1376,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertGreater(hints[0]["font_size"], hints[1]["font_size"])
         ass = build_rich_ass(events, layout_hints=hints)
         hook_pos = rf"\pos({hints[0]['x']},{hints[0]['y']})"
-        self.assertGreater(ass.count(hook_pos), 1)
+        self.assertEqual(ass.count(hook_pos), len(events))
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
