@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: gemini-planning-ab-20260928-correct-v2
+  group: gemini-planning-ab-20260928-correct-v3
   cancel-in-progress: true
 
 env:
@@ -22,7 +22,7 @@ env:
   STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
   GEMINI_CONTENT_MODEL: gemini-3.7-flash
   GEMINI_TTS_MODEL: gemini-3.8-flash-tts
-  ISCO_GEMINI_AB_ONLY: "1"
+  ISCO_GEMINI_AB_EXPERIMENT: "1"
   ISCO_GEMINI_AB_GEMINI_ONLY: "1"
   MISTRAL_FREE_ONLY: "true"
 
@@ -146,7 +146,6 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import os
-          os.environ["ISCO_GEMINI_AB_ONLY"] = "1"
           os.environ["ISCO_GEMINI_AB_GEMINI_ONLY"] = "1"
           from scripts import planning_stage_contract as p
           assert p._planning_provider_order() == ("gemini",), p._planning_provider_order()
@@ -168,7 +167,7 @@ jobs:
           ISCO_APPROVED_BRIEF_SHA256: ${{ env.STATIC_APPROVED_BRIEF_SHA256 }}
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
-          ISCO_GEMINI_AB_ONLY: "1"
+          ISCO_GEMINI_AB_EXPERIMENT: "1"
           ISCO_GEMINI_AB_GEMINI_ONLY: "1"
           MISTRAL_FREE_ONLY: "true"
         working-directory: engine
@@ -187,9 +186,7 @@ jobs:
               echo "===== A/B model=$model attempt=$attempt ====="
               rm -rf output
               mkdir -p output
-              export GEMINI_CONTENT_MODEL="gemini-3.7-flash"
-              export ISCO_GEMINI_AB_PLANNING_MODEL="$model"
-              export ISCO_GEMINI_AB_ATTEMPT="$attempt"
+              export GEMINI_CONTENT_MODEL="$model"
               log="$results/$model-attempt-$attempt.log"
               started="$(date +%s)"
               set +e
