@@ -10,6 +10,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from clean_v2.media import (
+    GEMINI38_INNER_REFLECTIVE_STYLE,
+    GEMINI38_INNER_RESOLVED_STYLE,
     GEMINI38_NARRATOR_STYLE,
     GEMINI38_PROVIDER,
     GEMINI38_QUESTIONER_STYLE,
@@ -68,12 +70,11 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
     def test_turn_metadata_styles_are_short_stable_and_persona_free(self) -> None:
         self.assertIn("Natural Modern Standard Arabic", GEMINI38_NARRATOR_STYLE)
         self.assertIn("conversational", GEMINI38_NARRATOR_STYLE)
-        self.assertNotIn("adult", GEMINI38_NARRATOR_STYLE.lower())
-        self.assertNotIn("male", GEMINI38_NARRATOR_STYLE.lower())
-        self.assertNotIn("female", GEMINI38_NARRATOR_STYLE.lower())
-        self.assertLess(len(GEMINI38_NARRATOR_STYLE), 220)
-        self.assertIn("lightly probing", GEMINI38_QUESTIONER_STYLE)
-        self.assertLess(len(GEMINI38_QUESTIONER_STYLE), 180)
+        self.assertIn("human pacing", GEMINI38_NARRATOR_STYLE)
+        self.assertIn("no announcer tone", GEMINI38_NARRATOR_STYLE)
+        self.assertIn("firm but calm", GEMINI38_QUESTIONER_STYLE)
+        self.assertIn("no second character", GEMINI38_INNER_REFLECTIVE_STYLE)
+        self.assertIn("Same exact Charon speaker and identity", GEMINI38_INNER_RESOLVED_STYLE)
 
     def test_success_uses_only_gemini38_charon(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -177,6 +178,48 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 "questioner": "Orus",
                 "responder": "Charon",
             },
+        )
+
+    def test_inner_dialogue_payload_keeps_one_charon_and_approved_progression(self) -> None:
+        captured: dict[str, object] = {}
+        audio = base64.b64encode(_wav_bytes()).decode("ascii")
+        response = json.dumps(
+            {"steps": [{"content": [{"type": "audio", "data": audio}]}]}
+        ).encode("utf-8")
+
+        def urlopen(request, timeout):
+            captured["request"] = request
+            return _FakeResponse(response)
+
+        transcript = (
+            "لماذا أؤجلها مرة أخرى؟ هل المشكلة فعلًا أنني كسول؟ "
+            "لا. ربما أنا أنتظر أن أشعر بالاستعداد قبل أن أبدأ."
+        )
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "clean_v2.media.urllib.request.urlopen", side_effect=urlopen
+        ):
+            _gemini38_synthesize(
+                "gemini-test-key",
+                transcript,
+                Path(temporary) / "inner.wav",
+                model=GEMINI38_TTS_MODEL,
+                primary_voice="Charon",
+                questioner_voice="Orus",
+                performance_mode="inner_dialogue",
+            )
+
+        payload = json.loads(captured["request"].data.decode("utf-8"))
+        self.assertEqual(payload["generation_config"]["speech_config"], [{"voice": "Charon"}])
+        parts = payload["input"][0]["content"]
+        self.assertGreaterEqual(len(parts), 2)
+        self.assertTrue(all("speaker" not in part["annotations"][0] for part in parts))
+        self.assertTrue(all(
+            part["annotations"][0]["style"] == GEMINI38_INNER_REFLECTIVE_STYLE
+            for part in parts[:-1]
+        ))
+        self.assertEqual(
+            parts[-1]["annotations"][0]["style"],
+            GEMINI38_INNER_RESOLVED_STYLE,
         )
 
     def test_gemini38_rest_single_voice_payload_uses_charon_without_speaker_metadata(self) -> None:
