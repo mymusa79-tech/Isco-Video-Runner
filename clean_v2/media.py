@@ -37,13 +37,12 @@ GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
 GEMINI38_NARRATOR_STYLE = (
-    "Natural adult Modern Standard Arabic. Warm, mature, intelligent and conversational; "
-    "calm confidence, human pacing, clear articulation, no announcer tone, no theatrical acting. "
-    "Respect punctuation and let completed thoughts breathe naturally."
+    "Natural Modern Standard Arabic; warm, calm, thoughtful and conversational; "
+    "clear articulation and human pacing; no announcer tone or theatrical delivery."
 )
 GEMINI38_QUESTIONER_STYLE = (
-    "Natural Modern Standard Arabic questioner. Concise, intelligent and curious; "
-    "calm rather than confrontational, with natural conversational timing."
+    "Natural Modern Standard Arabic; concise, curious, intelligent and conversational; "
+    "calm and lightly probing."
 )
 
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
