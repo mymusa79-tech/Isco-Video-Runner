@@ -2704,7 +2704,7 @@ def _tone_repair_prompt(
             "rather than merely rename it. If a targeted later section merely repeats the prior section, "
             "rewrite that local span so it delivers its own locked purpose and advances the same opening tension. "
             "If the targeted final section is flagged, make its local payoff wording directly answer the opening "
-            "tension before any practical action. Generic advice or paraphrase is not a payoff. "
+            "tension before any practical action. generic advice or paraphrase is not a payoff. "
             "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
             + (
                 PODCAST_NABRA_PERFORMANCE_GUIDANCE
