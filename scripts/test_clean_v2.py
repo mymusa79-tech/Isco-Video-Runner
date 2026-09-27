@@ -1758,10 +1758,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 chunk for chunk in chunks
                 if str(chunk.get("provider") or "") == "deterministic_silence"
             ]
-            self.assertEqual(len(silence_chunks), 3)
+            self.assertEqual(len(silence_chunks), 4)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
-                {"intro_silence", "pre_topic_silence", "final_silence"},
+                {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"},
             )
             self.assertTrue(
                 all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)
@@ -3276,7 +3276,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 self.assertEqual(outcome["result"]["best_available_primary_count"], 1)
                 self.assertEqual(
                     outcome["result"]["best_available_primary_semantic_floor"],
-                    0.70,
+                    0.78,
                 )
                 self.assertEqual(outcome["recovery"][0]["status"], "retained_primary")
                 self.assertEqual(
