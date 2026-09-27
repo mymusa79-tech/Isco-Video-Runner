@@ -6,6 +6,7 @@ import unittest
 from clean_v2 import (
     ai_still,
     contextual_cta,
+    cover_studio,
     media,
     podcast_key_text,
     short_timed_text,
@@ -80,6 +81,49 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         prayer = "اللهم صلِّ وسلِّم على نبينا محمد."
         self.assertTrue(short_timed_text._contains_prayer_text(prayer))
         self.assertTrue(podcast_key_text._contains_prayer_text(prayer))
+
+    def test_video_text_is_cairo_bold_box_free_and_two_lines_max(self) -> None:
+        self.assertEqual(short_timed_text.BODY_FONT, "Cairo")
+        self.assertEqual(short_timed_text.MAX_CAPTION_LINES, 2)
+        short_ass = short_timed_text.build_rich_ass(
+            [
+                {"start": 0.0, "end": 2.0, "text": "لماذا تعود إلى نفس النقطة كل مرة", "role": "hook"},
+                {"start": 2.0, "end": 4.0, "text": "السبب ليس ضعفك بل طريقة البداية", "role": "beat"},
+                {"start": 4.0, "end": 6.0, "text": "ابدأ بحركة واحدة واضحة فقط", "role": "payoff"},
+            ]
+        )
+        self.assertIn("Style: Caption,Cairo", short_ass)
+        self.assertNotIn("BorderStyle,3", short_ass)
+        self.assertLessEqual(short_ass.count(r"\N"), 3)
+
+        for fmt in ("film", "podcast"):
+            ass = podcast_key_text.build_ass(
+                [
+                    {"start": 0.0, "end": 3.0, "text": "لماذا تعود إلى نفس النقطة كل مرة", "role": "hook"},
+                    {"start": 4.0, "end": 7.0, "text": "هنا يبدأ التحول الحقيقي بهدوء", "role": "payoff"},
+                ],
+                fmt=fmt,
+            )
+            self.assertIn("Style: Caption,Cairo", ass)
+            self.assertIn(r"\fs", ass)
+            dialogue = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+            self.assertTrue(dialogue)
+            self.assertTrue(all(line.count(r"\N") <= 1 for line in dialogue))
+
+    def test_real_stock_motion_never_restarts_or_gets_back_and_forth_fx(self) -> None:
+        trim_source = inspect.getsource(media._trim_and_grade_clip)
+        body_source = inspect.getsource(media._build_section_body_segments)
+        self.assertNotIn("-stream_loop", trim_source)
+        self.assertIn("tpad=stop_mode=clone", trim_source)
+        self.assertIn("motion_mode=None", body_source)
+        self.assertNotIn('("push", "pan", "pull")', body_source)
+
+    def test_cover_studio_uses_pinned_cairo_bold_black(self) -> None:
+        self.assertEqual(cover_studio._FONT_NAMES["black"], ("Cairo.ttf",))
+        self.assertEqual(cover_studio._FONT_NAMES["bold"], ("Cairo.ttf",))
+        self.assertEqual(cover_studio._FONT_NAMES["medium"], ("Cairo.ttf",))
+        source = inspect.getsource(cover_studio._resolve_font)
+        self.assertIn('family = "Cairo"', source)
 
     def test_existing_tone_audit_rejects_shallow_copy_without_new_stage(self) -> None:
         scoped = inspect.getsource(tone_audit._scope_clean_v2_tone_prompt)
