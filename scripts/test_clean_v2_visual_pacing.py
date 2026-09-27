@@ -1348,6 +1348,8 @@ class ColorGradeIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root, mock.patch.dict(
             sys.modules, modules
+        ), mock.patch.object(
+            media_module, "probe_duration", return_value=6.0
         ), mock.patch.object(media_module, "_run", side_effect=fake_run):
             media_module._trim_and_grade_clip(
                 Path(root) / "source.mp4",
@@ -1370,6 +1372,8 @@ class ColorGradeIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root, mock.patch.dict(
             sys.modules, {"isco_video_agent.media.color": None}
+        ), mock.patch.object(
+            media_module, "probe_duration", return_value=6.0
         ), mock.patch.object(media_module, "_run", side_effect=fake_run):
             media_module._trim_and_grade_clip(
                 Path(root) / "source.mp4",
