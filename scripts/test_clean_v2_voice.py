@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from clean_v2.media import (
     AzureF0NeuralVoiceSynthesizer,
+    GeminiOnlyVoiceSynthesizer,
     GeminiPrimaryPiperFallbackSynthesizer,
     TtsProviderError,
     VoiceInfrastructureError,
@@ -124,7 +125,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             (root / "narration.txt").write_text(
                 "authoritative transcript\n", encoding="utf-8"
             )
-            synth = self._synthesizer(root)
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
             calls: list[str] = []
             s2_attempts = 0
 
@@ -159,7 +160,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
                 "clean_v2.media._legacy_voice_identity",
                 return_value=("Charon", "Orus"),
             ), patch(
-                "clean_v2.media._legacy_gemini_synthesize",
+                "clean_v2.media._gemini38_synthesize",
                 side_effect=gemini,
             ), patch(
                 "clean_v2.media.time.sleep"
@@ -183,7 +184,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
                 [call.args[0] for call in sleep.call_args_list],
                 [1.0, 2.0],
             )
-            self.assertEqual(result["voice_provider"], "gemini:Charon")
+            self.assertEqual(result["voice_provider"], "gemini-3.8:Charon")
             self.assertEqual(result["charon_tts_attempts"], 5)
             self.assertFalse(result["voice_fallback_used"])
             self.assertTrue(output.is_file())
@@ -210,15 +211,15 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             (root / "narration.txt").write_text(
                 "authoritative transcript\n", encoding="utf-8"
             )
-            synth = self._synthesizer(root)
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
             sentence = (
                 "هذه جملة عربية فصيحة طويلة نسبيًا لاختبار تقسيم الصوت عند حدود "
                 "طبيعية من دون تغيير أي كلمة في النص المنطوق."
             )
-            long_text = " ".join([sentence] * 9)
+            long_text = " ".join([sentence] * 45)
             chunks = _bounded_voice_chunks(long_text)
             self.assertEqual(len(chunks), 2)
-            self.assertTrue(all(len(chunk) <= 550 for chunk in chunks))
+            self.assertTrue(all(len(chunk) <= 4200 for chunk in chunks))
             self.assertEqual(
                 " ".join(" ".join(chunks).split()),
                 " ".join(long_text.split()),
@@ -250,7 +251,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
                 "clean_v2.media._legacy_voice_identity",
                 return_value=("Charon", "Orus"),
             ), patch(
-                "clean_v2.media._legacy_gemini_synthesize",
+                "clean_v2.media._gemini38_synthesize",
                 side_effect=gemini,
             ), patch(
                 "clean_v2.media.time.sleep"
