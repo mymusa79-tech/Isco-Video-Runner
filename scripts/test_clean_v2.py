@@ -2196,9 +2196,9 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(checkpoint["completed_stage"], "voice")
             self.assertEqual(
-                checkpoint["voice_provider"], "nabra:af_msa"
+                checkpoint["voice_provider"], "gemini:Charon"
             )
-            self.assertTrue(checkpoint["voice_fallback_used"])
+            self.assertFalse(checkpoint["voice_fallback_used"])
             self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
             self.assertFalse(
                 any(path.startswith("visuals/") for path in checkpoint["artifacts"])
