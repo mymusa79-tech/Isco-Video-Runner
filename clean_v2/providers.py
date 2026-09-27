@@ -49,8 +49,21 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 """.strip()
 
 
+_MISTRAL_PLANNING_COMPACT_SUFFIX = """
+MISTRAL_PLANNING_COMPACTNESS — mandatory:
+- Return the smallest valid plan that satisfies the existing schema; do not add commentary or optional detail.
+- For film, podcast, and short, create exactly ONE visual_story beat per planned section.
+- Keep headings, purposes, story-arc fields, retention fields, viewer_intent, meaning_target, shot_intent, and display_text concise.
+- semantic_must_have and semantic_should_avoid should normally contain ONE short item each unless a second item is essential.
+- stock_query_en must stay a compact search phrase, not a sentence or shot list.
+- Prefer concise valid JSON over elaboration. Never repeat the same idea across multiple fields.
+""".strip()
+
+
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
+    if provider == "mistral" and stage == "planning":
+        return prompt.rstrip() + "\n\n" + _MISTRAL_PLANNING_COMPACT_SUFFIX
     if (
         provider == "mistral"
         and stage == "script"
@@ -565,7 +578,10 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
             "beats": {
                 "type": "array",
                 "minItems": min_sections,
-                "maxItems": max_sections * 3,
+                # One beat per possible planned section is sufficient for the
+                # current Clean V2 visual-story contract and keeps the terminal
+                # Mistral fallback below its free-tier completion ceiling.
+                "maxItems": max_sections,
                 "items": {
                     "type": "object",
                     "properties": {
