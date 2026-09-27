@@ -2492,16 +2492,17 @@ def _representative_reference(
             + (0.0722 * stats.mean_b)
         )
         # Target a moderate/deep base rather than bright lifestyle stock.
-        exposure_penalty = abs(luma - 132.0) * 1.25
-        # Penalize strong warm/cool casts; the master LUT owns the subtle channel tint.
+        exposure_penalty = abs(luma - 128.0) * 1.20
+        # Penalize strong warm/cool casts aggressively; stock must not redefine
+        # the channel palette just because it is closer to the episode median.
         cast_penalty = (
-            abs(stats.mean_r - stats.mean_g) * 0.55
-            + abs(stats.mean_g - stats.mean_b) * 0.45
+            abs(stats.mean_r - stats.mean_g) * 1.00
+            + abs(stats.mean_g - stats.mean_b) * 0.80
         )
         # Prefer enough local contrast/depth to avoid flat washed-out references.
         spread = (stats.std_r + stats.std_g + stats.std_b) / 3.0
         flat_penalty = max(0.0, 48.0 - spread) * 0.85
-        bright_penalty = max(0.0, luma - 155.0) * 1.50
+        bright_penalty = max(0.0, luma - 150.0) * 1.60
         return exposure_penalty + cast_penalty + flat_penalty + bright_penalty
 
     return min(rows, key=lambda row: channel_distance(row[1]))[0]
