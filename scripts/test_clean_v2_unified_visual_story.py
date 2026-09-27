@@ -232,6 +232,45 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     prompt,
                 )
 
+    def test_writer_overlay_copy_never_becomes_generated_image_text(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = (
+            "hand holds card with Arabic text saying start now"
+        )
+        visual_story["beats"][0]["semantic_must_have"] = [
+            "card with readable Arabic text saying start now",
+            "hesitating hand",
+        ]
+        visual_story["beats"][0]["display_text_ar"] = "ابدأ بخطوة"
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"وهذا هو المعنى الذي يراه المشاهد في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+        first = bound["beats"][0]
+
+        self.assertEqual(first["display_text_ar"], "ابدأ بخطوة")
+        self.assertNotIn("Arabic text", first["shot_intent"])
+        self.assertNotIn("saying start now", first["shot_intent"])
+        self.assertTrue(
+            all("readable Arabic text" not in item for item in first["semantic_must_have"])
+        )
+        self.assertTrue(
+            any("readable text" in item for item in first["semantic_should_avoid"])
+        )
+        self.assertTrue(first.get("writer_anchor_ar"))
+
     def test_channel_visual_world_is_grounded_deep_and_progress_oriented_for_all_formats(self) -> None:
         self.assertIn("quiet premium depth", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
