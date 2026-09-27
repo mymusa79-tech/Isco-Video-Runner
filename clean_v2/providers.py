@@ -49,24 +49,9 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 """.strip()
 
 
-_MISTRAL_COMPACT_PLANNING_PROMPT_SUFFIX = """
-MISTRAL_PLANNING_COMPACTNESS:
-- Return the required JSON object only.
-- Keep every required field and section, but make values concise.
-- For film, podcast, and short use one visual_story beat per planned section.
-- Keep title <= 12 words; heading <= 8; promise, purpose, viewer_intent, and meaning_target <= 24.
-- Keep visual_world <= 45 words; each story_arc value <= 18; each retention_thread value <= 24.
-- Keep semantic_must_have and semantic_should_avoid to at most 2 short items each.
-- Keep shot_intent <= 30 words and stock/section visual queries <= 14 English words.
-- Remove duplicated explanations before returning the JSON.
-""".strip()
-
 
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
-    if provider == "mistral" and stage == "planning":
-        if any(token in prompt for token in ('"format":"film"', '"format":"podcast"', '"format":"short"')):
-            return prompt.rstrip() + "\n\n" + _MISTRAL_COMPACT_PLANNING_PROMPT_SUFFIX
     if (
         provider == "mistral"
         and stage == "script"
