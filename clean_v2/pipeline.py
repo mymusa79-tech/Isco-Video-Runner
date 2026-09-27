@@ -714,11 +714,11 @@ def _synthesize_continuous_nabra_voice(
         "bounded_inference": bool(result.get("bounded_inference", False)),
         "max_infer_chars": int(result.get("max_infer_chars", 0) or 0),
         "native_pause_tokens": True,
-        "technical_batch_seam_breath_ms": int(
-            result.get("technical_batch_seam_breath_ms", 0) or 0
+        "technical_batch_seam_crossfade_ms": int(
+            result.get("technical_batch_seam_crossfade_ms", 0) or 0
         ),
-        "technical_batch_seam_fade_ms": int(
-            result.get("technical_batch_seam_fade_ms", 0) or 0
+        "technical_batch_seam_silence_ms": int(
+            result.get("technical_batch_seam_silence_ms", 0) or 0
         ),
         "technical_batch_seam_count": max(
             0, int(result.get("inference_passes", 1) or 1) - 1
