@@ -15,9 +15,9 @@ MUSIC_TARGET_REL_DB = -19.0
 MUSIC_MIN_REL_DB = -21.0
 MUSIC_MAX_REL_DB = -17.0
 MUSIC_LEVELS_REL_DB = {
-    "short": (-19.0, -21.0, -17.0),
-    "film": (-20.0, -22.0, -18.0),
-    "podcast": (-21.0, -23.0, -19.0),
+    "short": (-21.0, -23.0, -19.0),
+    "film": (-23.0, -25.0, -21.0),
+    "podcast": (-24.0, -26.0, -22.0),
 }
 POST_MIX_LIMITER_LINEAR = 0.84
 LEVEL_TOLERANCE_DB = 1.0
@@ -193,7 +193,7 @@ def apply_topic_audio_polish(
         "prior_music_source": "ffmpeg pink+brown anoisesrc" if fmt == "short" else None,
         "prior_hook_sfx_source": "ffmpeg pink anoisesrc branch at 523.25Hz" if fmt == "short" else None,
         "mastering_fault": False,
-        "fix": "verified local CC0 topic-only music; generated noise/sfx disabled",
+        "fix": "verified instrumental-only dialogue bed; generated noise/sfx disabled",
     }
     library_report: dict[str, Any] = {}
     component: dict[str, Any] = {}
@@ -259,7 +259,7 @@ def apply_topic_audio_polish(
         "format": fmt,
         "status": status,
         "reason": reason,
-        "asset_origin": "verified_cc0_freepd_local_cache",
+        "asset_origin": "verified_cc0_freepd_instrumental_dialogue_bed",
         "external_download_required": bool(library_report.get("allow_download", False)),
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
