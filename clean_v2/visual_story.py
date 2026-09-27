@@ -124,6 +124,14 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "source_preference": "stock_motion",
             }
         )
+    # Provider-light/local fallback must not silently regress the production to
+    # stock-only. Keep motion footage dominant, but reserve two controlled
+    # explanatory anchors for the unresolved opening tension and earned payoff.
+    # The AI route itself remains free-only and fail-soft to audited stock.
+    if len(beats) >= 2:
+        beats[0]["source_preference"] = "ai_still"
+        beats[-1]["source_preference"] = "ai_still"
+
     return {
         "schema_version": 2,
         "visual_world": VISUAL_WORLD_DEFAULT,
