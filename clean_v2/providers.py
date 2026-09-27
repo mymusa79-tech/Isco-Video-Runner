@@ -524,7 +524,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     elif fmt == "moment":
         cta_schema = {"type": "string"}
     else:
-        cta_schema = planning_string(240)
+        cta_schema = planning_string(140)
     section_properties = {
         # validate_plan() deliberately synthesizes sN when id is omitted.
         "id": planning_string(40),
