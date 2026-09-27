@@ -542,7 +542,12 @@ class MistralPlanningSchemaTests(unittest.TestCase):
             ["heading", "purpose", "visual_query_en"],
         )
         self.assertNotIn("id", item["required"])
-        self.assertNotIn("maxLength", item["properties"]["heading"])
+        self.assertEqual(item["properties"]["heading"]["maxLength"], 120)
+        self.assertEqual(item["properties"]["purpose"]["maxLength"], 420)
+        self.assertEqual(item["properties"]["visual_query_en"]["maxLength"], 180)
+        self.assertEqual(schema["properties"]["title"]["maxLength"], 240)
+        self.assertEqual(schema["properties"]["promise"]["maxLength"], 400)
+        self.assertEqual(schema["properties"]["cta"]["maxLength"], 240)
         self.assertFalse(item["additionalProperties"])
 
     def test_podcast_schema_allows_two_to_five_sections(self) -> None:
@@ -593,20 +598,54 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
 
-    def test_mistral_planning_fallback_is_schema_compact_without_prompt_drift(self) -> None:
+    def test_mistral_long_planning_fallback_compacts_prompt_and_schema(self) -> None:
         prompt = _planning_prompt(self._brief_for("film"))
         provider_prompt = providers_module._provider_prompt(
             prompt,
             provider="mistral",
             stage="planning",
         )
-        self.assertEqual(provider_prompt, prompt)
+        self.assertNotEqual(provider_prompt, prompt)
+        self.assertLess(len(provider_prompt), len(prompt) * 0.6)
+        self.assertIn("APPROVED_BRIEF:\n", provider_prompt)
+        self.assertIn("\n\nBuild a simple production plan.", provider_prompt)
+        self.assertIn("Do NOT return visual_story", provider_prompt)
+        self.assertNotIn("HOOK VISUAL STOP-POWER", provider_prompt)
 
         schema = providers_module._mistral_planning_response_schema(provider_prompt)
         self.assertNotIn("visual_story", schema["properties"])
         self.assertNotIn("visual_story", schema["required"])
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
+        self.assertEqual(
+            schema["properties"]["sections"]["items"]["properties"]["purpose"]["maxLength"],
+            420,
+        )
+
+    def test_mistral_podcast_planning_uses_same_compact_last_resort_path(self) -> None:
+        prompt = _planning_prompt(self._brief_for("podcast"))
+        provider_prompt = providers_module._provider_prompt(
+            prompt,
+            provider="mistral",
+            stage="planning",
+        )
+        self.assertLess(len(provider_prompt), len(prompt) * 0.6)
+        self.assertIn('title end with " | خارج النص"', provider_prompt)
+        schema = providers_module._mistral_planning_response_schema(provider_prompt)
+        self.assertEqual(schema["properties"]["sections"]["minItems"], 2)
+        self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
+        self.assertEqual(schema["properties"]["promise"]["maxLength"], 400)
+
+    def test_mistral_short_planning_prompt_is_unchanged(self) -> None:
+        prompt = _planning_prompt(self._brief_for("short"))
+        provider_prompt = providers_module._provider_prompt(
+            prompt,
+            provider="mistral",
+            stage="planning",
+        )
+        self.assertEqual(provider_prompt, prompt)
+        schema = providers_module._mistral_planning_response_schema(provider_prompt)
+        self.assertNotIn("maxLength", schema["properties"]["promise"])
 
     def test_planning_schema_context_failure_is_no_wire(self) -> None:
         with mock.patch.object(
