@@ -4021,15 +4021,19 @@ new information or visible state earned in that beat; never repeat the prior int
 wording.
 {short_retention_instruction}
 
-Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
-remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
-or shot-count target. Every planned section must have at least one beat and at most three. For each
-beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
+Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. In this compact
+Planning contract, each planned section owns exactly ONE beat: capture that section's dominant visible
+idea/action in it instead of splitting sentence-level variations into extra beats. A beat may remain on
+one scene for as long as that idea continues; NEVER invent extra beats to hit a duration or shot-count
+target. Keep Planning concise: headings, purposes, story-arc fields, retention fields, viewer_intent,
+meaning_target, shot_intent, and display_text should each say only what is needed once. Normally use ONE
+short semantic_must_have cue and ONE short semantic_should_avoid cue; add a second only when essential.
+For each beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
-lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
-misleading substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete
-English visual description of the exact observable action/state for THIS beat, preferably about 6-14
-useful words; it must be specific enough to search directly and must not be mood-only language.
+lists concrete visible cues that prove that meaning; semantic_should_avoid lists generic or misleading
+substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete English visual
+description of the exact observable action/state for THIS beat, preferably about 6-14 useful words; it
+must be specific enough to search directly and must not be mood-only language.
 display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
 exact image/beat and expresses its visible meaning; never reuse the same display phrase on another beat,
 never describe an unrelated idea, and never ask the image generator to draw this text.
