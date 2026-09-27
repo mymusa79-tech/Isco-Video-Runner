@@ -1122,7 +1122,7 @@ def _render_ai_still(source: Path, destination: Path, *, fmt: str) -> Path:
     """Turn one generated still into a restrained clip for the shared renderer."""
     if fmt == "short":
         width, height = 1080, 1920
-    elif fmt == "film":
+    elif fmt in {"film", "podcast"}:
         width, height = 1920, 1080
     else:
         raise RuntimeError("ai_still_render_format_unsupported")
@@ -1246,8 +1246,9 @@ def _ai_still_prompt(
         f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
         f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
         f"{reference_rule}"
-        "Lived-in foreground, midground and background depth, warm-neutral practical light, "
-        "one clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
+        "Lived-in foreground, midground and background depth, restrained deep navy/charcoal shadow world, "
+        "soft practical light, ivory-neutral highlights and very limited warm-gold accents; never a blue wash. "
+        "One clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
         "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
     )
     mandatory_tail = (
@@ -2805,20 +2806,20 @@ COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.042
-MASTER_LOOK_SATURATION = 0.895
-MASTER_LOOK_WARM_R = 0.003
-MASTER_LOOK_WARM_G = 0.000
-MASTER_LOOK_WARM_B = -0.004
+MASTER_LOOK_CONTRAST = 1.055
+MASTER_LOOK_SATURATION = 0.875
+MASTER_LOOK_WARM_R = -0.006
+MASTER_LOOK_WARM_G = -0.003
+MASTER_LOOK_WARM_B = 0.008
 
-# One restrained local finishing pass after the shared deep warm-neutral LUT.
+# One restrained local finishing pass after the shared deep navy/charcoal LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-wakeful-depth-finish-v3"
+CINEMATIC_FINISH_VERSION = "clean-v2-navy-depth-finish-v4"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.040:brightness=-0.014:saturation=0.995:gamma=0.985,"
-    "unsharp=5:5:0.36:5:5:0.0,"
-    "vignette=PI/14"
+    "eq=contrast=1.055:brightness=-0.025:saturation=0.965:gamma=0.975,"
+    "unsharp=5:5:0.34:5:5:0.0,"
+    "vignette=PI/13"
 )
 
 
@@ -3070,7 +3071,7 @@ def _build_reference_color_plan(
 
 
 def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, float]:
-    """One restrained warm-neutral look shared by every final frame."""
+    """One restrained dark navy/charcoal look shared by every final frame."""
     luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
     r = luma + ((r - luma) * MASTER_LOOK_SATURATION)
     g = luma + ((g - luma) * MASTER_LOOK_SATURATION)
@@ -3092,7 +3093,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Wakeful Depth v3"',
+        'TITLE "Isco Navy Depth v4"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
@@ -3446,7 +3447,7 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "warm-neutral-master-v1.cube")
+        master_lut = _write_master_look_lut(work_dir / "navy-charcoal-master-v4.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
