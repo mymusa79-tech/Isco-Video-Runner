@@ -400,7 +400,7 @@ def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     source = str(transcript or "").strip()
     if not source:
         return []
-    marker = re.compile(r"(^|\\n|\\s)([AB]):\\s+", re.M)
+    marker = re.compile(r"(^|\n|\s)([AB]):\s+", re.M)
     matches = list(marker.finditer(source))
     if not matches:
         return []
