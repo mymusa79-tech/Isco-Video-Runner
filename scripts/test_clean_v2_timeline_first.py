@@ -302,6 +302,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
         command = run.call_args.args[0]
         filters = command[command.index("-filter_complex") + 1]
+        self.assertNotIn("-stream_loop", command)
         self.assertNotIn("colorchannelmixer=aa=", filters)
         self.assertNotIn("alpha=1", filters)
         self.assertIn("tpad=stop_mode=clone", filters)
