@@ -50,30 +50,14 @@ MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 
 
 
-_MISTRAL_LONGFORM_RETENTION_PROMPT_SUFFIX = """
-MISTRAL_FILM_PODCAST_RETENTION_COMPLIANCE — mandatory silent preflight before returning JSON:
-- Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
-- The first spoken hook must open the SAME concrete hook_tension. It must be topic-specific enough that it would become false or nonsensical if the episode topic were swapped.
-- Every middle section must add one new explanatory job already supported by the approved brief/plan: mechanism, cause, distinction, consequence, or lived example. Do not switch from the opened tension into generic advice.
-- The final section must explicitly deliver or deepen the SAME payoff_answer. Generic advice, a slogan, or an unrelated practical tip is not a payoff.
-- Silent acceptance check — do NOT output these labels; rewrite before returning until all three are true:
-  hook_genericness=false
-  hook_body_continuity=true
-  payoff_resolves_hook=true
-- BAD progression: hook opens a specific "why does this keep happening?" tension -> body drifts into broad environment/productivity advice -> ending gives a generic action.
-- GOOD progression: hook opens one concrete tension -> body explains the approved mechanism/turn in causal order -> ending states the concrete conclusion already promised by payoff_answer.
-- SPOKEN-MSA preflight: scan every changed sentence once for obvious grammar/agreement errors, malformed noun/adjective agreement, broken particles, and transcription-like wording. Fix those locally before returning JSON.
-- Do not invent facts, mechanisms, studies, diagnoses, or authority to satisfy progression. Use only material already present in APPROVED_BRIEF, LOCKED_PLAN, LOCKED_VISUAL_STORY, and APPROVED_RESEARCH_PACK.
-- Do not rely on the downstream Tone/Naturalness repair to rescue the draft. Return a script that is ready to pass those three retention checks on the first audit.
-""".strip()
-
 def _provider_prompt(prompt: str, *, provider: str, stage: str) -> str:
     """Add narrow provider-specific guidance without changing other provider prompts."""
-    if provider == "mistral" and stage == "script":
-        if "SHORT_FORMAT_CONTRACT:" in prompt:
-            return prompt.rstrip() + "\n\n" + _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX
-        if "For podcast / خارج النص" in prompt or "For film, do not write" in prompt:
-            return prompt.rstrip() + "\n\n" + _MISTRAL_LONGFORM_RETENTION_PROMPT_SUFFIX
+    if (
+        provider == "mistral"
+        and stage == "script"
+        and "SHORT_FORMAT_CONTRACT:" in prompt
+    ):
+        return prompt.rstrip() + "\n\n" + _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX
     return prompt
 
 
