@@ -572,6 +572,27 @@ class MistralPlanningSchemaTests(unittest.TestCase):
                 self.assertEqual(one["sections"][0]["id"], "s1")
                 self.assertEqual(five["sections"][-1]["id"], "s5")
 
+    def test_mistral_planning_prompt_adds_compact_last_resort_budget(self) -> None:
+        for fmt in ("film", "podcast", "short"):
+            with self.subTest(fmt=fmt):
+                base = _planning_prompt(self._brief_for(fmt))
+                scoped = providers_module._provider_prompt(
+                    base,
+                    provider="mistral",
+                    stage="planning",
+                )
+                self.assertIn("MISTRAL_PLANNING_COMPACTNESS", scoped)
+                self.assertIn("one visual_story beat per planned section", scoped)
+                self.assertIn("visual_world <= 45 words", scoped)
+                self.assertIn("stock/section visual queries <= 14 English words", scoped)
+                self.assertGreater(len(scoped), len(base))
+
+        base = _planning_prompt(self._brief_for("film"))
+        self.assertEqual(
+            providers_module._provider_prompt(base, provider="groq", stage="planning"),
+            base,
+        )
+
     def test_mistral_planning_call_passes_format_aware_strict_schema(self) -> None:
         prompt = _planning_prompt(self._brief_for("film"))
         expected = _plan()
