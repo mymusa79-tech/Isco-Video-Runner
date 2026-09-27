@@ -891,7 +891,9 @@ def _specific_beat_stock_query(value: object) -> str:
     return " ".join(useful[:14])
 
 
-HOOK_STOCK_RETRIEVAL_SUFFIX = "close up decisive action strong focal contrast"
+# Keep retrieval semantic. Visual drama is judged by existing Visual QA/rendering,
+# not by stuffing generic cinematic adjectives into the stock search.
+HOOK_STOCK_RETRIEVAL_SUFFIX = "close up"
 
 
 def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
@@ -926,6 +928,29 @@ def _channel_stock_query(query: str) -> str:
     return candidate if len(candidate) <= 96 else base
 
 
+_STOCK_RANK_STOP_TOKENS = frozenset({
+    "cinematic", "warm", "neutral", "natural", "practical", "light", "lighting",
+    "close", "up", "wide", "shot", "frame", "strong", "focal", "contrast",
+    "no", "face", "visible", "only", "soft", "depth", "dark", "bright",
+})
+
+
+def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
+    """Cheap semantic tie-breaker using metadata already returned by the same API call."""
+    query_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(query or "").casefold())
+        if len(token) > 2 and token not in _STOCK_RANK_STOP_TOKENS
+    }
+    if not query_tokens:
+        return 0.0
+    metadata_tokens = set(
+        re.findall(r"[a-z0-9]+", str(metadata or "").replace("-", " ").casefold())
+    )
+    matched = len(query_tokens & metadata_tokens)
+    return min(1.0, matched / float(min(6, max(1, len(query_tokens)))))
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -934,18 +959,22 @@ def _stock_local_rank_score(
     height: int,
     duration: float,
     portrait: bool,
+    query: str = "",
+    metadata: str = "",
 ) -> float:
-    """Legacy-inspired local ranking over results already returned by one search."""
+    """Rank one existing result page locally; no extra provider/search call."""
     count = max(1, int(count))
-    relevance = 1.0 - (max(0, int(index)) / count)
+    provider_relevance = 1.0 - (max(0, int(index)) / count)
+    semantic = _stock_metadata_semantic_score(query, metadata)
     orientation_ok = (height > width) if portrait else (width >= height)
     pixels = min(max(0, width * height), 1920 * 1080) / float(1920 * 1080)
     duration_fit = min(1.0, max(0.0, float(duration)) / 4.0)
     return (
-        relevance * 0.55
-        + (1.0 if orientation_ok else 0.0) * 0.20
+        provider_relevance * 0.42
+        + semantic * 0.23
+        + (1.0 if orientation_ok else 0.0) * 0.15
         + pixels * 0.15
-        + duration_fit * 0.10
+        + duration_fit * 0.05
     )
 
 
@@ -1138,6 +1167,8 @@ class StockVisualSource:
                         height=height,
                         duration=duration,
                         portrait=portrait,
+                        query=query,
+                        metadata=str(video.get("url") or ""),
                     ),
                     video,
                     selected,
@@ -1219,6 +1250,11 @@ class StockVisualSource:
                         height=int(selected.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        query=query,
+                        metadata=" ".join(
+                            str(item or "")
+                            for item in (hit.get("tags"), hit.get("pageURL"))
+                        ),
                     ),
                     hit,
                     selected,
