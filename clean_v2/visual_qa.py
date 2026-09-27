@@ -12,8 +12,8 @@ from clean_v2.visual_story import contextual_intent, fallback_visual_story, vali
 
 STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
-MAX_RETENTION_QUALITY_FLOOR_DROP = 0.08
-BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR = 0.70
+MAX_RETENTION_QUALITY_FLOOR_DROP = 0.05
+BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR = 0.78
 
 
 class CleanV2VisualQABlock(RuntimeError):
@@ -1035,12 +1035,11 @@ def run_final_cut_visual_qa(
                             cleanup_path.unlink(missing_ok=True)
                             cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
 
-                        # Restore the previously designed "best safe primary" rule
-                        # from PR #865, adapted to the current Phase-B candidate set:
-                        # if Vision itself marked the original PASS, it is at least
-                        # 0.70 semantic fit, and none of the bounded recoveries is
-                        # actually better, failing the entire video buys no quality.
-                        # BLOCK/unsafe/low-fit primaries still fail closed unchanged.
+                        # A merely usable generic stock clip is no longer enough.
+                        # Retain the original only when Vision marked it PASS and its
+                        # semantic fit is strong enough to communicate the exact beat,
+                        # not just the broad topic. BLOCK/unsafe/low-fit primaries
+                        # still fail closed unchanged.
                         primary_is_safe_best_available = (
                             str(primary_audit.get("status") or "").lower() == "pass"
                             and primary_floor >= BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
