@@ -7,8 +7,7 @@ from clean_v2 import ai_still, media
 from clean_v2.identity_sequence import identity_timing_profile
 from clean_v2.music_library import DIALOGUE_BED_TRACKS, _FORMAT_POOLS
 from clean_v2.nabra_voice import (
-    NABRA_BATCH_SEAM_BREATH_MS,
-    NABRA_BATCH_SEAM_FADE_MS,
+    NABRA_BATCH_SEAM_CROSSFADE_MS,
     NABRA_SPEED,
 )
 from clean_v2.pipeline import _planning_prompt, _script_prompt
@@ -70,10 +69,11 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
             for pool in format_pools.values():
                 self.assertTrue(set(pool).issubset(DIALOGUE_BED_TRACKS))
 
-    def test_nabra_keeps_reference_speed_and_masks_only_unavoidable_batch_seams(self) -> None:
+    def test_nabra_keeps_reference_speed_without_artificial_batch_silence(self) -> None:
         self.assertEqual(NABRA_SPEED, 0.87)
-        self.assertEqual(NABRA_BATCH_SEAM_BREATH_MS, 120)
-        self.assertEqual(NABRA_BATCH_SEAM_FADE_MS, 8)
+        self.assertEqual(NABRA_BATCH_SEAM_CROSSFADE_MS, 18)
+        source = inspect.getsource(ai_still.generate_cloudflare_ai_still)
+        self.assertNotIn("NABRA_BATCH_SEAM_BREATH_MS", inspect.getsource(__import__("clean_v2.nabra_voice", fromlist=["*"])))
 
     def test_dark_navy_channel_world_is_shared(self) -> None:
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
