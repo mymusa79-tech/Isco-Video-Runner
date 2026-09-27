@@ -61,13 +61,13 @@ class TimelineFirstDurationTests(unittest.TestCase):
                 self.assertEqual(final_gate["duration_delta_seconds"], 0.0)
                 self.assertIsNone(final_gate["editorial_target_seconds"])
 
-    def test_short_final_report_preserves_nabra_timeline_owner(self) -> None:
+    def test_short_final_report_preserves_gemini38_timeline_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self._write_timeline(
                 root,
                 31.5,
-                owner="measured_nabra_voice",
+                owner="measured_gemini38_voice",
             )
             _inspect_final_with_short_gate(
                 final_inspector=lambda _path: {
@@ -85,7 +85,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
             )
             self.assertEqual(
                 final_gate["timeline_owner"],
-                "measured_nabra_voice",
+                "measured_gemini38_voice",
             )
 
     def test_same_voice_owned_duration_contract_applies_to_film(self) -> None:
