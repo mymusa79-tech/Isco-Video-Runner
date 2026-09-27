@@ -4016,11 +4016,12 @@ materially affect retrieval. Use positive face-safe cues such as hands only, bac
 only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
 and keep each visual query concise and at most 260 characters. Keep the whole
 video's stock searches inside one restrained channel lighting world where semantically appropriate:
-natural practical light, moderate-to-deep exposure, soft directional contrast, and restrained warm-neutral tones.
+natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
+ivory-neutral highlights, and warm gold only as a restrained accent.
 The channel mood is grounded upward movement: clarity, effort, recovery, small wins and earned hope.
-Use mature brightness rather than glow: preserve highlight detail, avoid blown sun/window highlights, avoid a
-permanent golden-hour wash, keep saturation restrained, let warm gold appear as a controlled accent, and preserve
-richer midtone depth so the image feels lived-in rather than commercial. Do not make the world glossy, airy
+Use quiet premium darkness rather than gloom: preserve highlight detail, avoid blown sun/window highlights,
+avoid flat beige/washed-out warm-neutral stock, avoid a blanket blue cast, keep saturation restrained, and preserve
+rich midtone depth so the image feels lived-in, calm and expensive rather than commercial. Do not make the world glossy, airy
 lifestyle-ad bright, bubbly for its own sake, or melancholic for its own sake.
 {format_visual_profile}
 Do not mix obvious neon/night/cold-blue looks unless the topic itself requires them. Prefer environments,
@@ -4046,8 +4047,8 @@ shared by short, film, and podcast formats without erasing their separate pacing
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
-HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook may keep the same warm-neutral
-channel palette, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
+HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
+dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
 topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
 that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
 asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
@@ -4073,7 +4074,13 @@ wording.
 
 Create a new beat ONLY when the idea, feeling, or observable action genuinely changes. A beat may
 remain on one scene for as long as that idea continues; NEVER invent extra beats to hit a duration
-or shot-count target. Every planned section must have at least one beat and at most three. For each
+or shot-count target. Every planned section must have at least one beat and at most three.
+HUMAN EDITORIAL RHYTHM applies to short, film, and podcast: when one section genuinely contains
+multiple visible states such as setup -> interruption, cause -> consequence, attempt -> result, or
+decision -> action, represent those distinct states as separate semantic beats instead of stretching
+one generic stock clip across the whole section. Prefer a simple establish -> detail/cutaway ->
+consequence/payoff progression when the content supports it. Do not manufacture cuts where meaning
+has not changed, and do not let a single clip carry unrelated mechanism, example and payoff states. For each
 beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
@@ -4107,8 +4114,7 @@ CHANNEL VISUAL SIGNATURE is semantic and compositional, not merely a color grade
 specific to نداء اليقظة through visible movement from friction toward clarity/progress, tactile lived-in
 detail, purposeful directional light, layered depth, restrained confidence and an earned sense of upward
 movement. Do not hard-code one prop such as notebooks, doors or stairs across episodes; the signature is
-the meaningful state-change and composition, not a repeated object. Warm-neutral grading supports this
-identity but never substitutes for a specific scene.
+the meaningful state-change and composition, not a repeated object. The restrained navy/charcoal grade supports this identity but never substitutes for a specific scene.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
@@ -4194,8 +4200,11 @@ NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, req
 - Preserve meaningful diacritics already present in approved fixed lines; never strip them during repair.
 - Use punctuation as performance notation: commas for a light breath, sentence punctuation for a real
   idea boundary. Do not stack theatrical punctuation or write fragments merely to manufacture pauses.
-- Prefer sentences that can be spoken comfortably in one breath, with natural variation; do not flatten
-  everything into short clipped sentences and do not write long syntactic tangles that force rushed delivery.
+- Prefer sentences that can be spoken comfortably in one breath. Most spoken sentences should land around
+  8-22 Arabic words; rewrite sentences above roughly 28 words into two natural thoughts unless a shorter
+  split would damage meaning. This is a performance rule, not a duration target.
+- Let important conclusions breathe: after a dense idea, prefer a real sentence stop before advancing.
+  Do not flatten everything into clipped fragments and do not write long syntactic tangles that force rushed delivery.
 """.strip()
 
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
@@ -4268,7 +4277,13 @@ def _script_prompt(
         "count it before returning JSON. Do not shorten by breaking grammar or removing "
         "the specific tension. Do not optimize any sentence for a target duration."
         if fmt == "short"
-        else "Do not optimize for a fixed word count or duration."
+        else (
+            "For film and podcast, keep the complete first spoken hook sentence concise enough to land in one breath: "
+            "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses. "
+            "Do not optimize for a fixed runtime."
+            if fmt in {"film", "podcast"}
+            else "Do not optimize for a fixed word count or duration."
+        )
     )
     short_payoff_guidance = (
         "For short, express payoff_answer as descriptive resolution, then write the one "
