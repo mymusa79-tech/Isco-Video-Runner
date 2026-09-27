@@ -80,7 +80,7 @@ def _quality_candidate_readiness() -> tuple[set[str], dict[str, str]]:
     tts_model = _argv_value(
         "--tts-model",
         required=False,
-        default="gemini-3.1-flash-tts-preview",
+        default="gemini-3.8-flash-tts",
     )
 
     gemini_models = sorted({item.model for item in candidates if item.provider == "gemini"})
