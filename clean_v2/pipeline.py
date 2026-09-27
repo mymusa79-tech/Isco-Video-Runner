@@ -558,6 +558,30 @@ def _synthesize_sectioned_voice(
             elif (
                 fmt in IDENTITY_TIMELINE_FORMATS
                 and index == 1
+                and role == "prayer"
+            ):
+                timing = identity_timing_profile(fmt)
+                pause_path = chunk_path.parent / "post-prayer-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    pause_path,
+                    timing["post_prayer_silence_seconds"],
+                )
+                chunk_paths.append(pause_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(pause_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "post_prayer_silence",
+                    }
+                )
+            elif (
+                fmt in IDENTITY_TIMELINE_FORMATS
+                and index == 1
                 and role == "channel_identity"
             ):
                 timing = identity_timing_profile(fmt)
