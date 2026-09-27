@@ -84,7 +84,7 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     require("runner_image", f"runs-on: {EXPECTED_RUNNER_IMAGE}", "production runner image must be explicit, not a moving -latest alias")
     require("runner_sha_verify", 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "exact Runner checkout must be verified before execution")
     issues.extend(_canonical_engine_pin_issues(text))
-    require("post_piper_pip_check", 'python -m pip check # post-piper-certification', "dependency graph must be rechecked after Piper installation")
+    require("dependency_graph_check", "python -m pip check", "locked production dependencies must pass pip check before production")
     require("memory_restore_strict", "Require healthy restored cross-run memory", "production must not continue with an untrusted/empty fallback history")
     require("memory_restore_assert", 'test "${{ steps.restore_state.outputs.save_allowed }}" = "true"', "restored history must be explicitly proven save-safe")
     require("environment_preflight", "python scripts/environment_preflight.py", "runtime/media/environment capabilities must be certified before production")
