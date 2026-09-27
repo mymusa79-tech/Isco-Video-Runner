@@ -1413,7 +1413,13 @@ def _trusted_identity_for_factuality(
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
     definition = channel_definition(fmt, str(identity.get("opener") or ""))
     phrases: list[str] = []
-    for phrase in (PRAYER_SENTENCE, definition):
+    # Prayer, runtime channel definition/opener, and closer are all host-owned.
+    # Excluding them keeps factuality/tone judgment scoped to Writer-owned prose.
+    for phrase in (
+        PRAYER_SENTENCE,
+        definition,
+        str(identity.get("closer") or ""),
+    ):
         normalized = " ".join(str(phrase or "").split()).strip()
         if normalized and normalized not in phrases:
             phrases.append(normalized)
