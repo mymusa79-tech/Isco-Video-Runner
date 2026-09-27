@@ -517,29 +517,135 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-25T12:49:48Z"
+    },
+    {
+      "idea_id": "idea-b6c3bd30d9",
+      "title": "لماذا ننتظر الشعور المناسب قبل أن نتحرك؟",
+      "normalized_title": "لماذا ننتظر الشعور المناسب قبل ان نتحرك؟",
+      "market_query": "انتظار الدافع قبل العمل",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.489,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 90.0,
+        "median_views_per_day": 39.5,
+        "top_samples": [
+          {
+            "video_id": "C2THrkREt9M",
+            "title": "The Discipline Code: How to Build Habits That Actually Stick Every Day 🔥| Self-Discipline & Success✅",
+            "channel": "Mind Blowing Motive",
+            "published_at": "2026-09-03T03:15:40Z",
+            "views": 2229,
+            "views_per_day": 90.0
+          },
+          {
+            "video_id": "RKwERzvvATU",
+            "title": "How to Stop Feeling Stuck - Take Action & Move Your Life Forward - Elvira Guzman-Barnett",
+            "channel": "Awakening with Elvira Guzman-Barnett",
+            "published_at": "2026-08-31T15:43:28Z",
+            "views": 2107,
+            "views_per_day": 77.3
+          },
+          {
+            "video_id": "N63-UsgFMWM",
+            "title": "Deja de esperar la motivación",
+            "channel": "Financial Mentors TV - Español",
+            "published_at": "2026-09-13T16:00:38Z",
+            "views": 901,
+            "views_per_day": 63.3
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-27T21:38:19Z"
+    },
+    {
+      "idea_id": "idea-1dffada5b5",
+      "title": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+      "normalized_title": "لماذا تجعلنا كثرة الخيارات اقل حسمًا؟",
+      "market_query": "كثرة الخيارات وصعوبة القرار",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.418,
+      "market_evidence": {
+        "sample_count": 5,
+        "distinct_channels": 4,
+        "max_views_per_day": 86.9,
+        "median_views_per_day": 3.1,
+        "top_samples": [
+          {
+            "video_id": "b7X96liZ0g4",
+            "title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+            "channel": "Arab AI Studio",
+            "published_at": "2026-09-15T14:00:08Z",
+            "views": 1071,
+            "views_per_day": 86.9
+          },
+          {
+            "video_id": "-Dto_7_d7-c",
+            "title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
+            "channel": "لُبّ",
+            "published_at": "2026-09-20T17:02:47Z",
+            "views": 65,
+            "views_per_day": 9.0
+          },
+          {
+            "video_id": "pC4Hw7lRBmQ",
+            "title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
+            "channel": "لُبّ",
+            "published_at": "2026-09-21T10:06:55Z",
+            "views": 20,
+            "views_per_day": 3.1
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-27T21:38:18Z"
+    },
+    {
+      "idea_id": "idea-3acd0c729b",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-27T21:38:18Z"
+    },
+    {
+      "idea_id": "idea-e729ec7dba",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-27T21:38:18Z"
     }
   ],
   "sessions": {
-    "cda97410": {
-      "session_id": "cda97410",
-      "scope": "podcast",
-      "idea_ids": [
-        "idea-6bc09acdf7",
-        "idea-ead5c50eb7",
-        "idea-5f133b2080"
-      ],
-      "created_at": "2026-09-25T12:49:48Z"
-    },
-    "347a5f49": {
-      "session_id": "347a5f49",
+    "236a7d6a": {
+      "session_id": "236a7d6a",
       "scope": "short",
       "idea_ids": [
-        "idea-ad18a6a0f8",
-        "idea-0e48bc87b3",
-        "idea-b6fd6e4fe9"
+        "idea-b6c3bd30d9",
+        "idea-1dffada5b5"
       ],
-      "created_at": "2026-09-24T13:21:50Z",
-      "obsolete_at": "2026-09-25T12:49:42Z"
+      "created_at": "2026-09-27T21:38:19Z"
     },
     "62380029": {
       "session_id": "62380029",
@@ -551,6 +657,28 @@
       "source": "saved_library",
       "closed_at": "2026-09-26T14:28:26Z",
       "selected_index": 0
+    },
+    "cda97410": {
+      "session_id": "cda97410",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-6bc09acdf7",
+        "idea-ead5c50eb7",
+        "idea-5f133b2080"
+      ],
+      "created_at": "2026-09-25T12:49:48Z",
+      "obsolete_at": "2026-09-27T21:38:17Z"
+    },
+    "347a5f49": {
+      "session_id": "347a5f49",
+      "scope": "short",
+      "idea_ids": [
+        "idea-ad18a6a0f8",
+        "idea-0e48bc87b3",
+        "idea-b6fd6e4fe9"
+      ],
+      "created_at": "2026-09-24T13:21:50Z",
+      "obsolete_at": "2026-09-25T12:49:42Z"
     }
   },
   "requests": {
@@ -679,5 +807,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-26T22:44:02Z"
+  "updated_at": "2026-09-27T21:38:19Z"
 }
