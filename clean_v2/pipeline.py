@@ -54,7 +54,7 @@ from .short_format import (
 )
 
 
-from .visual_story import fallback_visual_story, validate_visual_story
+from .visual_story import bind_visual_story_to_script, fallback_visual_story, validate_visual_story
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
@@ -3579,6 +3579,25 @@ def _validate_script_for_brief(
     return script
 
 
+def _bind_writer_visual_story(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+    visual_story: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Make the accepted Writer output authoritative for downstream visual context."""
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    writer_script = _script_without_trusted_identity(script, trusted_identity)
+    bound = bind_visual_story_to_script(visual_story, plan, writer_script)
+    atomic_write_json(output_dir / "visual-story.json", bound)
+    return bound
+
+
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -4093,27 +4112,6 @@ Build ONE unified visual story for the whole video in this same Planning respons
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
-
-VISUAL QUALITY CONTRACT (Short, Film, and Podcast):
-- Design for the viewer, not for validators, gates, schemas, or stock-search convenience. The gates are safety nets;
-  they are not the creative target.
-- Every beat must earn its place by adding one distinct visible meaning, state, consequence, decision, or action.
-  If removing the beat loses no visual information, remove it. If the same beat could fit many unrelated
-  self-development topics after swapping a noun, rewrite it until it is topic-specific.
-- The visible scene must prove the narration's exact idea, not merely share its mood. Prefer one observable cause,
-  tension, choice, consequence, or result over generic atmosphere, productivity props, scenic filler, or symbolism
-  that needs explanation.
-- shot_intent is the execution brief: write one concrete English observable action/state, normally 6-14 useful
-  words, directly searchable or directly depictable. Do not hide weak semantics behind words such as cinematic,
-  inspiring, emotional, beautiful, premium, dramatic, or motivational.
-- The hook must be truthful, topic-specific, immediately readable with sound off, and visually repayable later.
-  The payoff must visibly resolve, answer, or advance the same central tension instead of ending on generic success.
-- Progress visually as meaning changes. Do not repeat the same dominant action family in adjacent beats unless the
-  repeated motif returns in a clearly changed state that proves progression.
-- Choose stock_motion versus ai_still only by which source communicates THIS beat more clearly, not by convenience.
-- Before returning JSON, do one silent self-check only: topic specificity, narration-to-visual match, semantic
-  progression, repeated action families, hook-to-payoff relationship, and generic-stock smell. Fix problems in-place;
-  do not output the review and do not create a second review stage or extra provider call.
 
 HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
 dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
@@ -4971,6 +4969,14 @@ class CleanV2Pipeline:
                     _read_json_object(output_dir / "script.json"),
                     plan,
                     brief,
+                    visual_story,
+                )
+                visual_story = _bind_writer_visual_story(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
                 )
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
@@ -5016,6 +5022,13 @@ class CleanV2Pipeline:
                             visual_story,
                         ),
                     ),
+                )
+                visual_story = _bind_writer_visual_story(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
                 )
                 fmt = str(brief["format"])
                 _apply_brand_signature(
@@ -5113,6 +5126,13 @@ class CleanV2Pipeline:
                 )
                 validate_short_hook_contract(script)
                 validate_short_script(script)
+            visual_story = _bind_writer_visual_story(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+                visual_story=visual_story,
+            )
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
                     output_dir,
@@ -5327,7 +5347,7 @@ class CleanV2Pipeline:
                         "estimated_section_seconds": section_estimated_seconds,
                         "note": (
                             "Provider metadata captured at acquisition. Film and Short timing comes from the measured "
-                            "voice-owned Timeline First contract, while scene changes come only from Planning visual beats. "
+                            "voice-owned Timeline First contract, while scene changes come from Writer-bound visual beats, with Planning retaining the original story structure. "
                             "Timing values allocate beat duration but never create extra scenes."
                         ),
                     },
