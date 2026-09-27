@@ -205,6 +205,26 @@ class PodcastFormatTests(unittest.TestCase):
 
 
 class PodcastGeminiRoutingTests(unittest.TestCase):
+    def test_production_entrypoint_is_gemini_38_only(self) -> None:
+        source = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
+        self.assertIn("GeminiOnlyVoiceSynthesizer", source)
+        self.assertIn("gemini-3.8-flash-tts", source)
+        self.assertNotIn("Nabra", source)
+        self.assertNotIn("PiperFallback", source)
+
+    def test_production_workflows_accept_only_gemini_38_voice(self) -> None:
+        for workflow in (
+            ".github/workflows/clean-v2-minimal-e2e.yml",
+            ".github/workflows/clean-v2-podcast-one.yml",
+            ".github/workflows/clean-v2-short-final-one.yml",
+            ".github/workflows/clean-v2-short-cohort.yml",
+            ".github/workflows/clean-v2-telegram-production.yml",
+        ):
+            source = Path(workflow).read_text(encoding="utf-8")
+            self.assertIn("gemini-3.8-flash-tts", source)
+            self.assertNotIn("nabra:af_msa", source)
+            self.assertNotIn("gemini-3.1-flash-tts-preview", source)
+
     def test_podcast_uses_gemini_38_only_and_never_falls_back(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer("key")
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
