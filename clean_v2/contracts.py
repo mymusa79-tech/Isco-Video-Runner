@@ -112,6 +112,15 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
+    narrative_format = str(value.get("narrative_format") or "direct_cinematic").strip()
+    if fmt in {"film", "podcast"} and narrative_format not in {
+        "direct_cinematic",
+        "question_answer",
+        "dialogue_qa",
+    }:
+        raise ContractError(
+            "plan narrative_format must be direct_cinematic, question_answer, or dialogue_qa"
+        )
     if fmt == "short" and cta:
         raise ContractError("short plan requires an empty social cta")
     if fmt not in {"moment", "short"}:
@@ -196,6 +205,8 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         "cta": cta[:700],
         "sections": sections,
     }
+    if fmt in {"film", "podcast"}:
+        result["narrative_format"] = narrative_format
     if cover_text:
         result["cover_text"] = cover_text
     return result
