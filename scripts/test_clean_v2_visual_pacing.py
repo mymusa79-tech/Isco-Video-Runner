@@ -72,6 +72,7 @@ class HookVisualStopPowerTests(unittest.TestCase):
             {
                 "role": "hook",
                 "viewer_intent": "see the hesitation",
+                "writer_anchor_ar": "أنت تعرف الخطوة، لكن يدك ما زالت مترددة قبل أن تبدأ.",
                 "meaning_target": "hand stops before opening notebook",
                 "shot_intent": "hand frozen above closed notebook",
             },
@@ -90,6 +91,8 @@ class HookVisualStopPowerTests(unittest.TestCase):
             with_reference=False,
         )
         self.assertIn("HOOK FRAME:", hook)
+        self.assertIn("Writer-bound spoken anchor (Arabic):", hook)
+        self.assertIn("يدك ما زالت مترددة", hook)
         self.assertIn("visually arresting but truthful", hook)
         self.assertIn("stronger local subject contrast", hook)
         self.assertNotIn("HOOK FRAME:", body)
