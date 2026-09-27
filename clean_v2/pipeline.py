@@ -4263,16 +4263,36 @@ NABRA-SAFE ARABIC WRITING CONTRACT (all spoken formats; harmless for Charon, req
 """.strip()
 
 CONTENT_DEPTH_GUIDANCE = """
-CONTENT DEPTH CONTRACT (Short, Film, and Podcast):
+WRITER QUALITY CONTRACT (Short, Film, and Podcast):
+- Write for the listener, not for validators, gates, or schema compliance. The gates are safety nets; they are
+  not the creative target. Do not produce awkward wording merely because it is easy to validate.
+- Every sentence must earn its place by doing at least one real job: add new meaning, explain a mechanism,
+  sharpen a distinction, reveal a consequence, move the central tension forward, or deliver an earned result.
+  If a sentence does none of these, remove it.
 - Every section must change the listener's understanding, not merely restate the topic in motivational language.
+  Before advancing, internally ask: what will the listener understand after this section that they did not
+  understand before? If there is no clear answer, rewrite or remove the section.
 - Prefer one concrete mechanism, tension, consequence, distinction, or lived example over broad advice.
-- Do not use generic lines that could fit dozens of unrelated self-development videos. If a sentence still works
+  Do not use generic lines that could fit dozens of unrelated self-development videos. If a sentence still works
   after replacing the episode topic with a different topic, rewrite it to become specific.
-- Move forward semantically: observation -> why it happens -> what it changes -> earned implication or action.
+- Move forward semantically: problem/tension -> why it happens -> what it changes -> earned implication or action.
   Adjacent sections must add a genuinely new step rather than paraphrasing the previous one.
-- Keep the language simple enough to hear once, but let the idea be deeper than the wording. Avoid slogan chains,
-  empty reassurance, recycled wisdom, and advice that arrives before the mechanism has been understood.
-- The payoff must depend on what the episode actually established. It must not be a generic motivational ending.
+- Do not give advice before the mechanism is understood. Avoid slogan chains, empty reassurance, recycled wisdom,
+  and generic commands such as trust yourself / keep going / think positively unless the script has first earned
+  them through a concrete explanation.
+- The hook must be topic-specific, honest, and repayable by the body. It must create a real unresolved reason to
+  continue without clickbait, and the later payoff must answer or deepen the exact same tension.
+- The payoff is not a summary. It must be a result the listener earned by staying: a new understanding, a resolved
+  contradiction, a sharper interpretation, or the single appropriate action allowed by the format contract.
+- Write natural spoken Modern Standard Arabic: human, clear, and easy to hear once. Do not sound like an article,
+  lecture, news script, generic motivational post, or ornate literary performance.
+- Never invent first-person experience, credentials, memories, or authority for the narrator unless explicitly
+  present in the approved brief. Narration contains meaning only; no camera directions or production notes.
+- Write for voice first. Prefer clean syntax, natural breath boundaries, and punctuation that supports meaning.
+  Use only the minimum diacritics needed to prevent a real pronunciation ambiguity.
+- Before returning JSON, do one silent self-check only: hook specificity/honesty, semantic progression, duplicate
+  ideas, advice-before-explanation, payoff quality, and spoken naturalness. Fix problems in-place; do not output
+  the review and do not create a second review stage.
 """.strip()
 
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
