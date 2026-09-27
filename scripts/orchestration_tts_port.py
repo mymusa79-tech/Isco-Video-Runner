@@ -19,8 +19,8 @@ from scripts import tts_durable_cache, voice_identity_observer, voice_mesh
 PORT_ID = "tts-runtime-port-v1"
 PORT_VERSION = 1
 STAGE_ID = "tts"
-PROVIDER_OWNER = "legacy-voice-mesh-core"
-RETRY_OWNER = "legacy-voice-mesh-core"
+PROVIDER_OWNER = "gemini38-voice-mesh-core"
+RETRY_OWNER = "gemini38-voice-mesh-core"
 CACHE_OWNER = "tts-durable-cache-semantics"
 
 
@@ -72,7 +72,7 @@ def install_tts_runtime_port() -> TTSRuntimePortEvidence:
     if orchestrator.synthesize_wav is not voice_mesh.synthesize:
         raise TTSRuntimePortError("Voice Mesh cloud boundary was not installed")
     if orchestrator.synthesize_local_wav is not voice_mesh.synthesize_local_wav:
-        raise TTSRuntimePortError("Voice Mesh local fallback boundary was not installed")
+        raise TTSRuntimePortError("Voice Mesh fail-closed local seam was not installed")
 
     tts_durable_cache.install_tts_durable_cache()
     cache_boundary = orchestrator._synthesize_tts_section
