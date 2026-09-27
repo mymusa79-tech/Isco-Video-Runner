@@ -288,7 +288,7 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
         # Supplying the same production values keeps this provider-free replay attached
         # to the real entrypoint instead of bypassing the model contract.
         env["GEMINI_CONTENT_MODEL"] = "gemini-3.7-flash"
-        env["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
+        env["GEMINI_TTS_MODEL"] = "gemini-3.8-flash-tts"
         for name in (
             "ISCO_CANONICAL_RUNTIME",
             "GITHUB_ACTIONS",
@@ -433,7 +433,7 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["GEMINI_CONTENT_MODEL"] = "gemini-3.7-flash"
-        env["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
+        env["GEMINI_TTS_MODEL"] = "gemini-3.8-flash-tts"
         for name in (
             "ISCO_CANONICAL_RUNTIME",
             "GITHUB_ACTIONS",
