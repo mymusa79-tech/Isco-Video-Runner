@@ -134,14 +134,14 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
         raise ValueError("voice chunk bound is too small")
 
     # Identity injection normalizes whitespace, so restore A:/B: boundaries locally.
-    dialogue_source = re.sub(r"(?<!\\S)([AB]):\\s+", r"\\n\\1: ", source).strip()
+    dialogue_source = re.sub(r"(?<!\S)([AB]):\s+", r"\n\1: ", source).strip()
     dialogue_lines = [
         " ".join(line.split())
         for line in dialogue_source.splitlines()
         if line.strip()
     ]
-    if any(re.match(r"^[AB]:\\s*\\S", line) for line in dialogue_lines):
-        if any(not re.match(r"^[AB]:\\s*\\S", line) for line in dialogue_lines):
+    if any(re.match(r"^[AB]:\s*\S", line) for line in dialogue_lines):
+        if any(not re.match(r"^[AB]:\s*\S", line) for line in dialogue_lines):
             raise RuntimeError("Clean V2 dialogue contains an unlabelled topic turn")
         if any(len(line) > max_chars for line in dialogue_lines):
             raise RuntimeError("Clean V2 dialogue turn exceeds Gemini TTS chunk bound")
@@ -167,7 +167,7 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
 
     sentences = [
         item.strip()
-        for item in re.split(r"(?<=[.!؟!])\\s+", normalized)
+        for item in re.split(r"(?<=[.!؟!])\s+", normalized)
         if item.strip()
     ]
     pieces: list[str] = []
