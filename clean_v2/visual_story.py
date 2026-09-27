@@ -33,8 +33,10 @@ _WRITER_INTENT_DROP_TOKENS = frozenset({
     "cinematic", "warm", "neutral", "lighting", "light", "shot", "frame",
     "composition", "depth", "foreground", "background", "soft", "natural",
     "premium", "dramatic", "emotional", "inspiring", "motivational", "beautiful",
-    "caption", "captions", "subtitle", "subtitles", "title", "titles",
-    "lettering", "typography", "watermark", "watermarks", "logo", "logos",
+    "text", "texts", "word", "words", "caption", "captions",
+    "subtitle", "subtitles", "title", "titles", "quote", "quotes",
+    "label", "labels", "lettering", "typography", "watermark", "watermarks",
+    "logo", "logos",
 })
 _EMBEDDED_TEXT_REQUEST_RE = re.compile(
     r"\b(?:with|showing|displaying|containing)\s+(?:readable\s+)?(?:arabic\s+)?"
@@ -51,8 +53,9 @@ def _strip_embedded_text_request(value: object) -> str:
     compact = " ".join(str(value or "").split()).strip()
     if not compact:
         return ""
-    stripped = _EMBEDDED_TEXT_REQUEST_RE.sub("", compact).strip(" ,;:-")
-    return stripped or compact
+    if not _EMBEDDED_TEXT_REQUEST_RE.search(compact):
+        return compact
+    return _EMBEDDED_TEXT_REQUEST_RE.sub("", compact).strip(" ,;:-")
 
 
 def _writer_searchable_intent(value: object) -> str:
