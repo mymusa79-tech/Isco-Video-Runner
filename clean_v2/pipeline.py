@@ -4350,7 +4350,7 @@ def _script_prompt(
         else (
             "For film and podcast, keep the complete first spoken hook sentence concise enough to land in one breath: "
             "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses. "
-            "Do not optimize for a fixed runtime."
+            "Do not optimize for a fixed word count or duration."
             if fmt in {"film", "podcast"}
             else "Do not optimize for a fixed word count or duration."
         )
