@@ -125,6 +125,24 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("punctuation as performance notation", film_script)
         self.assertIn("harmless for Charon, required for Nabra fallback", film_script)
 
+    def test_podcast_script_prompt_requires_specific_honest_non_generic_hook(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        podcast_prompt = _script_prompt(brief, self._plan(3))
+        self.assertIn("hook_specificity must be true", podcast_prompt)
+        self.assertIn("hook_honesty must be true", podcast_prompt)
+        self.assertIn("hook_genericness must be false", podcast_prompt)
+        self.assertIn("could be reused unchanged for many unrelated self-development episodes", podcast_prompt)
+
+        film_prompt = _script_prompt({**brief, "format": "film"}, self._plan(5))
+        self.assertNotIn("hook_specificity must be true", film_prompt)
+        self.assertNotIn("hook_genericness must be false", film_prompt)
+
     def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
         podcast_brief = {
             "approved_by_user": True,
