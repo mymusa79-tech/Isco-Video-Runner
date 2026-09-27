@@ -4320,6 +4320,23 @@ WRITER QUALITY CONTRACT (Short, Film, and Podcast):
   the review and do not create a second review stage.
 """.strip()
 
+LONGFORM_RETENTION_PREFLIGHT = """
+LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before returning JSON):
+- Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
+- The first spoken hook must open the SAME concrete hook_tension and stay topic-specific.
+- Every middle section must add one new explanatory job already supported by the approved brief/plan: mechanism, cause, distinction, consequence, or lived example. Do not drift into generic advice.
+- The final section must explicitly deliver or deepen the SAME payoff_answer. Generic advice, a slogan, or an unrelated practical tip is not a payoff.
+- Silent acceptance check — do NOT output these labels; rewrite before returning until all three are true:
+  hook_genericness=false
+  hook_body_continuity=true
+  payoff_resolves_hook=true
+- BAD progression: a specific opening tension, then broad unrelated advice, then a generic action.
+- GOOD progression: one concrete opening tension, then the approved mechanism/turn in order, then the concrete conclusion already promised by payoff_answer.
+- SPOKEN-MSA preflight: scan every sentence once for obvious grammar/agreement errors, malformed noun/adjective agreement, broken particles, and transcription-like wording. Fix those locally before returning JSON.
+- Do not invent facts, mechanisms, studies, diagnoses, or authority to satisfy progression. Use only approved material already present in the brief, plan, visual story, and research pack.
+- Return a first-pass script ready to satisfy the existing Tone/Naturalness checks; do not assume a later repair will rescue semantic drift.
+""".strip()
+
 PODCAST_NABRA_PERFORMANCE_GUIDANCE = """
 For podcast / خارج النص, apply the shared Nabra-safe contract especially strictly because Nabra af_msa
 is the primary narrator, not merely fallback. Keep the delivery simple-deep, conversational, and suitable
@@ -4341,7 +4358,7 @@ def _script_prompt(
             "For film, do not write toward a word-count target. Continue only while each section adds a new "
             "mechanism, consequence, example, distinction, or earned resolution, then stop. Keep the final "
             "runtime natural rather than padding a long-form label with filler.\n"
-            + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE
+            + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE
         )
     elif fmt == "podcast":
         length = (
@@ -4366,7 +4383,7 @@ def _script_prompt(
             "answer or deepen the exact opening tension with an earned conclusion that depends on the reasoning "
             "built before it; generic advice and synonymous restatement are not progression. The episode must "
             "work as audio alone. Let punctuation create breathing room so Nabra sounds conversational rather "
-            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
+            "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + NABRA_SAFE_WRITING_GUIDANCE + "\n" + PODCAST_NABRA_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
         length = (
