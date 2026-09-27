@@ -31,7 +31,6 @@ from clean_v2.media import (
     SHORT_CUT_DISSOLVE_SECONDS,
     SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
-    SHORT_STOCK_ASSET_MAX,
     StockVisualSource,
     VoiceInfrastructureError,
 )
@@ -1157,7 +1156,9 @@ class ShortContractTests(unittest.TestCase):
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
         self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
-        self.assertIn("_short_motion_filter", inspect.getsource(media_module._trim_and_grade_clip))
+        trim_source = inspect.getsource(media_module._trim_and_grade_clip)
+        self.assertNotIn("_short_motion_filter", trim_source)
+        self.assertNotIn("-stream_loop", trim_source)
         self.assertNotIn(
             "_expand_short_visual_sequence",
             inspect.getsource(media_module.render_video),
