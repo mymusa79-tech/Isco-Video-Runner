@@ -51,7 +51,28 @@ _AI_IMAGE_TEXT_AVOID = (
     "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
 )
 _ACTION_FAMILY_TERMS = {
-    "writing": ("write", "writing", "written", "pen", "notebook", "journal", "typing", "keyboard", "note"),
+    # Treat common productivity stationery as one visual family. This is intentionally
+    # local and conservative: it prevents notebook -> sticky notes -> checklist from
+    # masquerading as visual variety without adding another model/provider call.
+    "writing": (
+        "write",
+        "writing",
+        "written",
+        "pen",
+        "pencil",
+        "notebook",
+        "journal",
+        "note",
+        "notes",
+        "sticky",
+        "checklist",
+        "paper",
+        "page",
+        "planner",
+        "list",
+        "typing",
+        "keyboard",
+    ),
     "walking": ("walk", "walking", "steps", "corridor", "path"),
     "phone": ("phone", "smartphone", "screen", "notification", "scroll", "scrolling"),
     "door": ("door", "doorway", "handle", "threshold"),
@@ -551,7 +572,7 @@ def bind_visual_story_to_script(
                 section = section_by_id.get(section_id) or {}
                 alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
                 alternate_family = _visual_action_family(alternate)
-                if alternate and alternate_family and alternate_family != current_family:
+                if alternate and alternate_family != current_family:
                     beat["shot_intent"] = alternate
                     beat["stock_query_en"] = alternate
                     current_family = alternate_family
@@ -587,7 +608,9 @@ def bind_visual_story_to_script(
                 avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
             beat["semantic_should_avoid"] = avoids[:4]
             beat["writer_anchor_ar"] = anchor
-            prior_action_family = current_family or prior_action_family
+            # Adjacency is literal: an intervening unrelated beat breaks the family
+            # chain. Do not carry an older family across a genuinely different scene.
+            prior_action_family = current_family
 
     return story
 
