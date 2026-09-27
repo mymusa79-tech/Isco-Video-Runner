@@ -8,7 +8,6 @@ from scripts import provider_preflight
 
 CANONICAL_CONTENT_MODEL = "gemini-3.7-flash"
 CANONICAL_TTS_MODEL = "gemini-3.8-flash-tts"
-_AB_ALLOWED_CONTENT_MODELS = frozenset({"gemini-3.7-flash", "gemini-3.8-flash"})
 
 
 def _required_env(name: str) -> str:
@@ -34,21 +33,11 @@ def install_production_model_contract(orchestrator_module) -> dict[str, str]:
     content_model = _required_env("GEMINI_CONTENT_MODEL")
     tts_model = _required_env("GEMINI_TTS_MODEL")
 
-    ab_experiment = str(os.environ.get("ISCO_GEMINI_AB_EXPERIMENT") or "").strip() == "1"
-    if ab_experiment:
-        if content_model not in _AB_ALLOWED_CONTENT_MODELS:
-            raise RuntimeError(
-                "Gemini A/B experiment content model is not approved: "
-                f"requested={content_model!r} allowed={sorted(_AB_ALLOWED_CONTENT_MODELS)!r}"
-            )
-        effective_content_model = content_model
-    else:
-        if content_model != CANONICAL_CONTENT_MODEL:
-            raise RuntimeError(
-                "V4 production content model contract drift: "
-                f"requested={content_model!r} canonical={CANONICAL_CONTENT_MODEL!r}"
-            )
-        effective_content_model = CANONICAL_CONTENT_MODEL
+    if content_model != CANONICAL_CONTENT_MODEL:
+        raise RuntimeError(
+            "V4 production content model contract drift: "
+            f"requested={content_model!r} canonical={CANONICAL_CONTENT_MODEL!r}"
+        )
     if tts_model != CANONICAL_TTS_MODEL:
         raise RuntimeError(
             "V4 production TTS model contract drift: "
@@ -57,7 +46,7 @@ def install_production_model_contract(orchestrator_module) -> dict[str, str]:
 
     # Runner owns production policy. Replace, do not append to, the Engine's legacy
     # dry-run whitelist so a stale alias can never become the production truth again.
-    orchestrator_module.FREE_CONTENT_MODELS = {effective_content_model}
+    orchestrator_module.FREE_CONTENT_MODELS = {CANONICAL_CONTENT_MODEL}
     orchestrator_module.FREE_TTS_MODELS = {CANONICAL_TTS_MODEL}
 
     # Exercise the exact guard that failed Run #135, not a parallel imitation.
@@ -65,12 +54,12 @@ def install_production_model_contract(orchestrator_module) -> dict[str, str]:
 
     engine_network_model = engine_gemini._content_model(content_model)
     preflight_network_model = provider_preflight._gemini_runtime_content_model(content_model)
-    if engine_network_model != effective_content_model:
+    if engine_network_model != CANONICAL_CONTENT_MODEL:
         raise RuntimeError(
             "Engine Gemini resolver drift: "
             f"requested={content_model!r} resolved={engine_network_model!r}"
         )
-    if preflight_network_model != effective_content_model:
+    if preflight_network_model != CANONICAL_CONTENT_MODEL:
         raise RuntimeError(
             "Runner provider-preflight resolver drift: "
             f"requested={content_model!r} resolved={preflight_network_model!r}"
