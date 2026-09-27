@@ -47,6 +47,28 @@ _EMBEDDED_TEXT_REQUEST_RE = re.compile(
 _AI_IMAGE_TEXT_AVOID = (
     "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
 )
+_ACTION_FAMILY_TERMS = {
+    "writing": ("write", "writing", "written", "pen", "notebook", "journal", "typing", "keyboard", "note"),
+    "walking": ("walk", "walking", "steps", "corridor", "path"),
+    "phone": ("phone", "smartphone", "screen", "notification", "scroll", "scrolling"),
+    "door": ("door", "doorway", "handle", "threshold"),
+    "window": ("window", "curtain", "glass"),
+    "sitting": ("sit", "sitting", "chair", "desk"),
+}
+
+
+def _visual_action_family(value: object) -> str:
+    tokens = set(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
+    if not tokens:
+        return ""
+    best_name = ""
+    best_score = 0
+    for name, terms in _ACTION_FAMILY_TERMS.items():
+        score = sum(term in tokens for term in terms)
+        if score > best_score:
+            best_name = name
+            best_score = score
+    return best_name if best_score > 0 else ""
 
 
 def _strip_embedded_text_request(value: object) -> str:
@@ -472,11 +494,16 @@ def bind_visual_story_to_script(
         ).strip()
         for item in raw_sections
     }
+    plan_sections = [
+        item for item in (plan.get("sections") or []) if isinstance(item, Mapping)
+    ]
     expected_ids = [
         str(item.get("id") or "").strip()
-        for item in (plan.get("sections") or [])
-        if isinstance(item, Mapping)
+        for item in plan_sections
     ]
+    section_by_id = {
+        str(item.get("id") or "").strip(): item for item in plan_sections
+    }
     if set(narration_by_id) != set(expected_ids) or any(
         not narration_by_id.get(section_id) for section_id in expected_ids
     ):
@@ -492,6 +519,7 @@ def bind_visual_story_to_script(
         if section_id in beats_by_section:
             beats_by_section[section_id].append(beat)
 
+    prior_action_family = ""
     for section_id in expected_ids:
         section_beats = beats_by_section[section_id]
         if not section_beats:
@@ -512,6 +540,28 @@ def bind_visual_story_to_script(
             if direct or fallback:
                 beat["shot_intent"] = direct or fallback
 
+            current_family = _visual_action_family(beat.get("shot_intent"))
+            if current_family and current_family == prior_action_family:
+                section = section_by_id.get(section_id) or {}
+                alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
+                alternate_family = _visual_action_family(alternate)
+                if alternate and alternate_family and alternate_family != current_family:
+                    beat["shot_intent"] = alternate
+                    beat["stock_query_en"] = alternate
+                    current_family = alternate_family
+                else:
+                    avoids = [
+                        str(item).strip()
+                        for item in (beat.get("semantic_should_avoid") or [])
+                        if str(item).strip()
+                    ]
+                    repeat_avoid = (
+                        f"repeat of previous {current_family} action/composition"
+                    )
+                    if repeat_avoid not in avoids:
+                        avoids.insert(0, repeat_avoid)
+                    beat["semantic_should_avoid"] = avoids[:4]
+
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
             # copy only in display_text_ar for the renderer-owned overlay path.
@@ -531,6 +581,7 @@ def bind_visual_story_to_script(
                 avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
             beat["semantic_should_avoid"] = avoids[:4]
             beat["writer_anchor_ar"] = anchor
+            prior_action_family = current_family or prior_action_family
 
     return validate_visual_story(story, plan)
 
