@@ -150,7 +150,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
     def test_model_drift_is_rejected_before_provider_call(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer(
             "gemini-test-key",
-            tts_model="gemini-3.1-flash-tts-preview",
+            tts_model="retired-tts-model",
         )
         with tempfile.TemporaryDirectory() as temporary, patch(
             "clean_v2.media._gemini38_synthesize"
@@ -399,7 +399,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
 
     def test_retired_fallback_workflows_are_absent(self) -> None:
         root = Path(".github/workflows")
-        self.assertFalse((root / "piper-isolation.yml").exists())
+        self.assertFalse((root / "retired-local-voice-isolation.yml").exists())
         self.assertFalse((root / "voice-fallback-acceptance.yml").exists())
 
 
