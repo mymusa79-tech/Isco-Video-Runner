@@ -252,11 +252,7 @@ def _identity_events(
         [
             {
                 "kind": "intro",
-                "source": (
-                    "measured_native_nabra_pause"
-                    if str(intro_silence.get("provider") or "") == "nabra_native_pause"
-                    else "measured_intro_silence"
-                ),
+                "source": "measured_intro_silence",
                 "start": intro_start,
                 "end": intro_end,
             },
@@ -301,11 +297,7 @@ def _identity_events(
         events.append(
             {
                 "kind": "final_silence",
-                "source": (
-                    "measured_native_nabra_pause"
-                    if str(final_silence.get("provider") or "") == "nabra_native_pause"
-                    else "measured_silence_chunk"
-                ),
+                "source": "measured_silence_chunk",
                 "start": float(final_silence["start"]),
                 "end": float(final_silence["end"]),
             }
@@ -348,11 +340,7 @@ def build_voice_owned_timeline(
         "contract_id": CONTRACT_ID,
         "source": CONTRACT_ID,
         "format": fmt,
-        "timeline_owner": (
-            "measured_nabra_voice"
-            if voice_provider == "nabra:af_msa"
-            else "measured_charon_voice"
-        ),
+        "timeline_owner": "measured_gemini38_voice",
         "voice_seconds_measured": round(voice_seconds, 3),
         "safety_maximum_seconds": maximum,
         "editorial_target_seconds": None,
