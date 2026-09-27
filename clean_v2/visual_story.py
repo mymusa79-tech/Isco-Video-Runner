@@ -552,7 +552,11 @@ def bind_visual_story_to_script(
             direct = _writer_searchable_intent(beat.get("shot_intent"))
             fallback = _writer_searchable_intent(beat.get("stock_query_en"))
             if direct or fallback:
-                beat["shot_intent"] = direct or fallback
+                resolved_intent = direct or fallback
+                beat["shot_intent"] = resolved_intent
+                # Retrieval must follow the final observable Writer-bound intent.
+                # Keeping a stale Planning query reopens the exact post-#943 drift.
+                beat["stock_query_en"] = resolved_intent
 
             current_family = _visual_action_family(beat.get("shot_intent"))
             if current_family and current_family == prior_action_family:
@@ -625,26 +629,6 @@ def contextual_intent(
     if current_index is None:
         return str(fallback_intent or "").strip()[:300]
 
-    # Keep the legacy continuity contract while adding exact-meaning evidence.
-    # Neighbor labels come first so the 300-char canonical evidence cap can never
-    # truncate the following beat or the hook-to-payoff continuity instruction.
-    current = _context_fragment(
-        beats[current_index].get("shot_intent") or fallback_intent,
-        "current beat",
-        18,
-    )
-    previous = _context_fragment(
-        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
-        "story opening",
-        14,
-    )
-    following = _context_fragment(
-        beats[current_index + 1].get("shot_intent")
-        if current_index + 1 < len(beats)
-        else "",
-        "story arrival",
-        14,
-    )
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
     current_family = _visual_action_family(
@@ -655,38 +639,48 @@ def contextual_intent(
         if current_index > 0
         else ""
     )
+
+    # Concrete neighboring actions are the primary continuity evidence. Keep the
+    # family metadata compact so it cannot crowd these details out of 300 chars.
+    current = _context_fragment(
+        current_beat.get("shot_intent") or fallback_intent,
+        "current beat",
+        24,
+    )
+    previous = _context_fragment(
+        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
+        "story opening",
+        22,
+    )
+    following = _context_fragment(
+        beats[current_index + 1].get("shot_intent")
+        if current_index + 1 < len(beats)
+        else "",
+        "story arrival",
+        22,
+    )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        12,
+        16,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
-        "concrete evidence",
-        10,
+        "concrete",
+        12,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
-        "generic mood",
-        8,
-    )
-    family_rule = (
-        " No adjacent same-family repeat unless a changed hook/payoff motif."
-        if current_family and current_family == previous_family
-        else ""
-    )
-    hook_rule = (
-        " Hook must show an unresolved observable tension."
-        if role == "hook"
-        else ""
+        "generic",
+        10,
     )
     context = (
-        f"Role:{role}. Family:{current_family or 'other'}. PrevFamily:{previous_family or 'none'}. "
+        f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
         f"Current: {current}. Previous: {previous}. Next: {following}. "
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        "Judge specific meaning before mood. "
         "Same hook-to-payoff arc: judge continuity."
-        f"{family_rule}{hook_rule}"
     )
     return context[:300].rstrip()
