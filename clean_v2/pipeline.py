@@ -296,6 +296,7 @@ def _synthesize_sectioned_voice(
     identity_closer: str = "",
     require_charon_only: bool = False,
     podcast_promo: Mapping[str, str] | None = None,
+    performance_mode: str = "",
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
 
@@ -402,14 +403,30 @@ def _synthesize_sectioned_voice(
                 chunk_dir.mkdir(parents=True, exist_ok=True)
                 chunk_path = chunk_dir / f"{chunk_index:02d}.wav"
             try:
+                chunk_role = roles[chunk_index - 1]
+                effective_performance_mode = ""
+                if str(performance_mode or "") == "inner_dialogue":
+                    fixed_identity_closer = " ".join(str(identity_closer or "").split()).strip()
+                    is_fixed_identity_outro = (
+                        chunk_role == "outro"
+                        and bool(fixed_identity_closer)
+                        and " ".join(chunk_text.split()).strip() == fixed_identity_closer
+                    )
+                    if chunk_role in {"hook", "topic", "outro"} and not is_fixed_identity_outro:
+                        effective_performance_mode = "inner_dialogue"
                 if require_charon_only:
                     voice_synthesizer.synthesize(
                         chunk_text,
                         chunk_path,
                         primary_only=True,
+                        performance_mode=effective_performance_mode,
                     )
                 else:
-                    voice_synthesizer.synthesize(chunk_text, chunk_path)
+                    voice_synthesizer.synthesize(
+                        chunk_text,
+                        chunk_path,
+                        performance_mode=effective_performance_mode,
+                    )
             except Exception:
                 atomic_write_json(
                     report_path,
@@ -797,6 +814,21 @@ _AUDIT_NARRATIVE_FORMAT_OVERRIDES = {
     # manifests).
     "inner_dialogue": "inner_monologue",
 }
+
+
+def _voice_performance_mode_for_brief(
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any] | None = None,
+) -> str:
+    """Choose only a local Gemini performance mode; never a new provider or stage."""
+    if str(brief.get("format") or "") == "short":
+        return (
+            "inner_dialogue"
+            if str(select_short_template(brief)["template"]) == "inner_dialogue"
+            else ""
+        )
+    selected = str((plan or {}).get("narrative_format") or "").strip()
+    return "inner_dialogue" if selected == "inner_dialogue" else ""
 
 
 def _audit_narrative_format_for_brief(
@@ -4686,6 +4718,10 @@ class CleanV2Pipeline:
                         ),
                         identity_closer=str(identity_runtime.get("closer") or ""),
                         podcast_promo=podcast_promo,
+                        performance_mode=_voice_performance_mode_for_brief(
+                            brief,
+                            plan,
+                        ),
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
