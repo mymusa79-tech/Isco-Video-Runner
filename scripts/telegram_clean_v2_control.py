@@ -1494,9 +1494,9 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "language": "ar",
         "audience": "Arabic-speaking adults",
         "editorial_intent": (
-            "برنامج خارج النص: حديث عربي فصيح طبيعي لراوية أنثوية محايدة، بسيط في لغته وعميق في فكرته، "
+            "برنامج خارج النص: حديث عربي فصيح طبيعي بصوت Gemini الرئيسي الثابت، بسيط في لغته وعميق في فكرته، "
             "يبدو كحديث مباشر مع مستمع واحد لا كمقال أو محاضرة، ويتقدم دون حشو أو تجارب شخصية مختلقة، "
-            "ويظل مفهومًا صوتيًا دون الصورة."
+            "ويدعم الحوار المنظم عند الحاجة بصوت Orus للسائل وCharon للصوت الرئيسي، ويظل مفهومًا صوتيًا دون الصورة."
             if fmt == "podcast"
             else "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، "
             "مع تجنب المبالغة والادعاءات غير المدعومة."
@@ -1505,10 +1505,10 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "hard_constraints": [
             "No fabricated facts.",
             "Use research_pack only within each source claim_scope.",
-            "One natural Arabic narrator only.",
+            "Use the fixed Gemini voice roster only; Charon is primary and Orus is used only for dialogue_qa questions.",
             *(
                 [
-                    "Podcast narration uses one neutral female narrator and must not invent first-person experiences.",
+                    "Podcast narration uses the fixed Gemini 3.8 voice roster and must not invent first-person experiences.",
                     "Outside Text narration must sound conversational and simple-deep, never like an article, lecture, or numbered list.",
                     "Selected visuals must remain modest and respectful for a broad Arab/Muslim audience.",
                 ]
