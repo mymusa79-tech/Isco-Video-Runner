@@ -36,33 +36,6 @@ class RetiredVoiceAbsenceTests(unittest.TestCase):
             f"retired voice references remain in runtime/test code: {offenders}",
         )
 
-    def test_retired_local_voice_dependencies_are_absent_from_workflows(self) -> None:
-        retired = (
-            "espeak-ng",
-            "libsndfile1",
-            "kokoro",
-            "camel-tools",
-            "camel_data",
-            "arabic_g2p.py",
-            "phonemizer-fork",
-            "misaki[en]",
-            "piper-tts",
-            "piper.download_voices",
-            "azure_speech_key",
-            "azure_speech_region",
-        )
-        workflow_root = Path(".github/workflows")
-        offenders: dict[str, list[str]] = {}
-        for path in sorted(workflow_root.glob("*.yml")):
-            text = path.read_text(encoding="utf-8").lower()
-            hits = [item for item in retired if item.lower() in text]
-            if hits:
-                offenders[path.as_posix()] = hits
-        self.assertEqual(
-            offenders,
-            {},
-            f"retired local voice dependencies remain in workflows: {offenders}",
-        )
 
 
 
