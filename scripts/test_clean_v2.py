@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 import shutil
@@ -32,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2Pipeline,
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
+    LONGFORM_SCRIPT_MAX_TOKENS,
     _audit_narrative_format_for_brief,
     _factuality_repair_prompt,
     _factuality_target_section_ids,
@@ -264,6 +266,23 @@ class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
             text_audit_module._scope_professional_advice_prompt(
                 "Rules changed unexpectedly; no legacy professional advice rule here."
             )
+
+
+class LongformScriptTokenBudgetTests(unittest.TestCase):
+    def test_script_stage_uses_the_raised_budget_for_film_and_podcast_only(self) -> None:
+        source = inspect.getsource(CleanV2Pipeline.run)
+        self.assertIn(
+            'max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else 2500',
+            source,
+        )
+
+    def test_budget_leaves_real_headroom_above_the_old_7500_ceiling(self) -> None:
+        # 30 minutes of Arabic narration is roughly 13,000-15,000 output
+        # tokens once JSON section metadata overhead is included (see the
+        # constant's own comment in clean_v2/pipeline.py) - this just guards
+        # against an accidental revert back toward the old, truncation-prone
+        # 7500 ceiling that motivated raising it in the first place.
+        self.assertGreater(LONGFORM_SCRIPT_MAX_TOKENS, 15000)
 
 
 class ScriptPromptFactualityRuleTests(unittest.TestCase):
