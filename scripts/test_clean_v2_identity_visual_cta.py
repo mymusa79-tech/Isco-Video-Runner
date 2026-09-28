@@ -4,9 +4,11 @@ import unittest
 from types import SimpleNamespace
 
 from clean_v2.identity_sequence import (
+    PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     assert_spoken_identity,
+    identity_timing_profile,
     inject_spoken_identity,
 )
 from clean_v2.visual_cta import _events
@@ -57,6 +59,35 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertIn(f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION}", first)
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
+
+    def test_podcast_spoken_order_keeps_listener_hook_before_fixed_house_identity(self) -> None:
+        sections = [
+            {
+                "id": "s1",
+                "narration": (
+                    "A: لماذا أعرف ما أريد ومع ذلك لا أتحرك؟ "
+                    "B: لأن وضوح الهدف لا يلغي احتكاك البداية."
+                ),
+            },
+            {
+                "id": "s2",
+                "narration": "B: هنا يبدأ الفرق حين تصبح أول حركة قابلة للتنفيذ.",
+            },
+        ]
+        inject_spoken_identity(sections, fmt="podcast", opener="ignored dynamic opener")
+        first = sections[0]["narration"]
+        self.assertTrue(first.startswith("A: لماذا أعرف ما أريد"))
+        self.assertEqual(first.count(PRAYER_SENTENCE), 1)
+        self.assertEqual(first.count(PODCAST_CHANNEL_DEFINITION), 1)
+        self.assertLess(first.index(PRAYER_SENTENCE), first.index(PODCAST_CHANNEL_DEFINITION))
+        self.assertIn("B: لأن وضوح الهدف", first)
+        assert_spoken_identity(sections, fmt="podcast", opener="ignored dynamic opener")
+
+        timing = identity_timing_profile("podcast")
+        self.assertEqual(timing["post_hook_silence_seconds"], 0.45)
+        self.assertEqual(timing["intro_silence_seconds"], 1.25)
+        self.assertEqual(timing["post_prayer_silence_seconds"], 0.25)
+        self.assertEqual(timing["pre_topic_silence_seconds"], 0.35)
 
     def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
         script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
