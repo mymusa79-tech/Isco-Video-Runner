@@ -4,11 +4,16 @@ import unittest
 
 from clean_v2.pipeline import _validate_script_for_brief
 from clean_v2.providers import ProviderAdapter, ProviderRouter
-from clean_v2.short_format import SHORT_HOOK_MAX_WORDS, ShortFormatError, validate_short_hook_contract
+from clean_v2.short_format import (
+    SHORT_HOOK_MAX_WORDS,
+    SHORT_HOOK_RESCUE_MAX_WORDS,
+    ShortFormatError,
+    validate_short_hook_contract,
+)
 
 
 class ShortHookRichCeilingRegressionTests(unittest.TestCase):
-    def test_over_18_word_hook_is_rejected_before_provider_output_acceptance(self) -> None:
+    def test_19_word_hook_uses_bounded_rescue_and_21_plus_stays_closed(self) -> None:
         brief = {
             "approved_by_user": True,
             "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
@@ -37,22 +42,26 @@ class ShortHookRichCeilingRegressionTests(unittest.TestCase):
                 {"id": "s3", "narration": "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."},
             ],
         }
-        valid = {
+        hard_overlong = {
             "title": "شورت",
             "sections": [
-                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s1", "narration": "هذا هوك طويل جدًا لأنه يشرح الفكرة بتفاصيل كثيرة لا نحتاجها الآن ويواصل الكلام حتى يتجاوز الحد الصلب بوضوح من دون حاجة فعلية."},
                 {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب، فنؤجل الحركة نفسها دون أن نلاحظ."},
                 {"id": "s3", "narration": "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."},
             ],
         }
 
         self.assertEqual(SHORT_HOOK_MAX_WORDS, 18)
-        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=19 maximum=18"):
-            validate_short_hook_contract(overlong)
+        self.assertEqual(SHORT_HOOK_RESCUE_MAX_WORDS, 20)
+        rescued = validate_short_hook_contract(overlong)
+        self.assertEqual(rescued["hook_words"], 19)
+        self.assertTrue(rescued["rescue_headroom_used"])
+        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=23 maximum=20"):
+            validate_short_hook_contract(hard_overlong)
 
         router = ProviderRouter((
             ProviderAdapter("groq", lambda _prompt, _tokens: overlong),
-            ProviderAdapter("mistral", lambda _prompt, _tokens: valid),
+            ProviderAdapter("mistral", lambda _prompt, _tokens: hard_overlong),
         ))
         accepted = router.route(
             stage="script",
@@ -60,12 +69,12 @@ class ShortHookRichCeilingRegressionTests(unittest.TestCase):
             max_tokens=400,
             validator=lambda value: _validate_script_for_brief(value, plan, brief),
         )
-        self.assertEqual(accepted["title"], valid["title"])
-        self.assertEqual(accepted["sections"], valid["sections"])
+        self.assertEqual(accepted["title"], overlong["title"])
+        self.assertEqual(accepted["sections"], overlong["sections"])
         self.assertEqual(accepted["schema_version"], 1)
         self.assertEqual(
             [(event["provider"], event["result"]) for event in router.events],
-            [("groq", "invalid_output"), ("mistral", "success")],
+            [("groq", "success")],
         )
 
 

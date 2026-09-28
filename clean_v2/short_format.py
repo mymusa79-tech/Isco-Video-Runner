@@ -10,6 +10,10 @@ SHORT_HEIGHT = 1920
 # owns runtime; this distant ceiling is operational runaway protection only.
 SHORT_DURATION_SAFETY_MAX_SECONDS = 120.0
 SHORT_HOOK_MAX_WORDS = 18
+# Emergency acceptance headroom only. Production normalization always attempts a
+# conservative local trim back to SHORT_HOOK_MAX_WORDS first. Keeping this
+# separate prevents providers from treating 20 words as the writing target.
+SHORT_HOOK_RESCUE_MAX_WORDS = 20
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
 SHORT_HOOK_PREFERRED_MAX_WORDS = 16
 
@@ -938,9 +942,9 @@ def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     if not hook:
         raise ShortFormatError("short_hook_missing")
     hook_words = _word_count(hook)
-    if hook_words > SHORT_HOOK_MAX_WORDS:
+    if hook_words > SHORT_HOOK_RESCUE_MAX_WORDS:
         raise ShortFormatError(
-            f"short_hook_too_long words={hook_words} maximum={SHORT_HOOK_MAX_WORDS}"
+            f"short_hook_too_long words={hook_words} maximum={SHORT_HOOK_RESCUE_MAX_WORDS}"
         )
 
     hook_key = _semantic_key(hook)
@@ -950,7 +954,13 @@ def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise ShortFormatError("short_hook_must_not_start_with_greeting")
 
-    return {"hook": hook, "hook_words": hook_words}
+    return {
+        "hook": hook,
+        "hook_words": hook_words,
+        "editorial_maximum_words": SHORT_HOOK_MAX_WORDS,
+        "rescue_maximum_words": SHORT_HOOK_RESCUE_MAX_WORDS,
+        "rescue_headroom_used": hook_words > SHORT_HOOK_MAX_WORDS,
+    }
 
 
 def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
@@ -1176,6 +1186,8 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "hook": {
             "first_spoken_sentence": True,
             "maximum_words": SHORT_HOOK_MAX_WORDS,
+            "rescue_maximum_words": SHORT_HOOK_RESCUE_MAX_WORDS,
+            "rescue_policy": "safe_local_trim_first_then_accept_19_20_only",
             "greeting_forbidden": True,
         },
         "voice": {
