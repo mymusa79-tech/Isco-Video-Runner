@@ -22,7 +22,13 @@ from clean_v2.media import (
     _gemini38_synthesize,
     _spoken_voice_roles,
 )
-from clean_v2.pipeline import STAGES, _Journal, _bounded_voice_chunks, _synthesize_sectioned_voice
+from clean_v2.pipeline import (
+    STAGES,
+    _Journal,
+    _bounded_voice_chunks,
+    _reattach_dialogue_speaker_label,
+    _synthesize_sectioned_voice,
+)
 
 
 def _write_audio(path: Path, marker: bytes = b"G") -> Path:
@@ -373,6 +379,37 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         for chunk in chunks:
             for line in chunk.splitlines():
                 self.assertRegex(line, r"^[AB]:\s*\S")
+
+    def test_reattach_dialogue_speaker_label_keeps_open_turn_labelled(self) -> None:
+        # Reproduces the live production failure (podcast Run #25): the prayer
+        # sentence sits inside speaker A's opening turn, not between turns, so
+        # slicing at the prayer boundary strips A's label from the turn's
+        # continuation ("حتى بعد أن نقرر التوقف عنها..."). Left unlabelled and
+        # then followed by a real "B:" turn, _bounded_voice_chunks correctly
+        # rejects the mix as inconsistent dialogue.
+        hook = "A: لماذا نعود إلى تلك العادة التي نعرف أنها تؤذينا؟"
+        continuation = (
+            "حتى بعد أن نقرر التوقف عنها، لماذا نعود؟ "
+            "B: لأن تلك العادة لم تكن مجرد اختيار، بل كانت حلًا غير مرئي لمشكلة لم نلاحظها."
+        )
+        relabelled = _reattach_dialogue_speaker_label(hook, continuation)
+        self.assertTrue(relabelled.startswith("A: "))
+        chunks = _bounded_voice_chunks(relabelled, max_chars=400)
+        for chunk in chunks:
+            for line in chunk.splitlines():
+                self.assertRegex(line, r"^[AB]:\s*\S")
+
+    def test_reattach_dialogue_speaker_label_is_noop_when_already_labelled(self) -> None:
+        self.assertEqual(
+            _reattach_dialogue_speaker_label("A: سؤال بلا إجابة بعد.", "B: هذا هو الجواب."),
+            "B: هذا هو الجواب.",
+        )
+
+    def test_reattach_dialogue_speaker_label_is_noop_for_plain_monologue(self) -> None:
+        self.assertEqual(
+            _reattach_dialogue_speaker_label("خطاف عادي بلا تسمية متحدث.", "بقية الجملة العادية."),
+            "بقية الجملة العادية.",
+        )
 
     def test_voice_failure_journal_records_gemini_only_no_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

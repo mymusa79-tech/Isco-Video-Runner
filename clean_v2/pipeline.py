@@ -347,6 +347,24 @@ def _write_silence_like(reference: Path, destination: Path, seconds: float) -> P
     return destination
 
 
+def _reattach_dialogue_speaker_label(previous_turn_text: str, continuation_text: str) -> str:
+    """Keep a still-open A/B dialogue turn labelled after it is split mid-turn.
+
+    The prayer sentence (and, for film/long-form, the channel-identity sentence)
+    is spliced inside speaker A's opening turn, not between turns. Slicing the
+    section text at that splice point strips the "A:"/"B:" prefix from the
+    remainder whenever the turn continues past it, leaving a mix of an
+    unlabelled continuation followed by a properly labelled later turn -
+    exactly what `_bounded_voice_chunks` rejects as inconsistent dialogue.
+    """
+    if not continuation_text or re.match(r"^[AB]:\s*\S", continuation_text):
+        return continuation_text
+    speaker = re.match(r"^([AB]):\s*\S", previous_turn_text)
+    if not speaker:
+        return continuation_text
+    return f"{speaker.group(1)}: {continuation_text}"
+
+
 def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) -> list[str]:
     """Split long narration at natural boundaries while preserving dialogue turns."""
     source = str(text or "").strip()
@@ -561,7 +579,10 @@ def _synthesize_sectioned_voice(
                 # Outside the Text V8: A asks first, the branded intro plays,
                 # prayer follows, then B answers directly. The visual intro already
                 # says "بودكاست من نداء اليقظة", so no extra spoken brand sentence.
-                after_prayer = section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
+                after_prayer = _reattach_dialogue_speaker_label(
+                    hook_text,
+                    section_text[prayer_pos + len(PRAYER_SENTENCE):].strip(),
+                )
                 voice_units.extend(
                     [
                         ("hook", hook_text),
@@ -576,7 +597,10 @@ def _synthesize_sectioned_voice(
                     raise RuntimeError(
                         "Timeline First requires explicit hook/prayer/identity voice units"
                     )
-                after_definition = section_text[definition_pos + len(definition):].strip()
+                after_definition = _reattach_dialogue_speaker_label(
+                    hook_text,
+                    section_text[definition_pos + len(definition):].strip(),
+                )
                 voice_units.extend(
                     [
                         ("hook", hook_text),
