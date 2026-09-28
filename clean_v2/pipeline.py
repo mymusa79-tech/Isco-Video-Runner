@@ -5160,6 +5160,10 @@ class CleanV2Pipeline:
                 )
                 validate_short_hook_contract(script)
                 validate_short_script(script)
+            elif str(brief["format"]) == "podcast":
+                # Tone repair must not silently collapse خارج النص back into a
+                # generic one-voice monologue or let the listener proxy dominate.
+                _validate_podcast_listener_proxy_script(script)
             visual_story = _bind_writer_visual_story(
                 output_dir=output_dir,
                 brief=brief,
