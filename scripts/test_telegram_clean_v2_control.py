@@ -567,6 +567,69 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         )
         self.assertNotIn("artifact_url", delivery)
 
+    def test_podcast_research_prompt_matches_fixed_listener_proxy_identity(self):
+        instruction = control._scope_research_instruction("podcast")
+        self.assertIn("listener-proxy", instruction)
+        self.assertIn("المستمع A", instruction)
+        self.assertIn("صوت القناة B", instruction)
+        self.assertIn("المضيف/الضيف", instruction)
+        self.assertIn("قائمة نصائح", instruction)
+
+    def test_scope_keyboard_hides_redundant_bundle_choice(self):
+        rows = control.scope_keyboard()
+        callbacks = [button["callback_data"] for row in rows for button in row]
+        self.assertEqual(
+            callbacks,
+            ["scope:long", "scope:short", "scope:podcast", "main:home"],
+        )
+        labels = [button["text"] for row in rows for button in row]
+        self.assertFalse(any("Long + Short" in label for label in labels))
+        self.assertFalse(any("scope:bundle" == callback for callback in callbacks))
+
+    def test_long_and_podcast_confirmation_explain_automatic_derived_short(self):
+        long_text = control.render_selection_confirmation(
+            {"scope": "long", "approved_topic": "موضوع طويل", "research_pack": []}
+        )
+        podcast_text = control.render_selection_confirmation(
+            {"scope": "podcast", "approved_topic": "موضوع بودكاست", "research_pack": []}
+        )
+        self.assertIn("يحاول استخراج شورت تلقائيًا", long_text)
+        self.assertIn("يحاول استخراج شورت تلقائيًا", podcast_text)
+
+    def test_podcast_materialized_brief_locks_listener_proxy_contract(self):
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-podcast",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "podcast",
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعرف ما يجب فعله ولا نفعله؟",
+            "research_pack": [],
+            "idea_id": "idea-podcast",
+            "selected_at": control.utc_now(),
+            "status": "dispatched",
+            "confirmed_at": control.utc_now(),
+            "dispatched_at": control.utc_now(),
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"]["req-podcast"] = request
+        with tempfile.TemporaryDirectory() as tmp:
+            brief = control.materialize_brief(
+                state,
+                "req-podcast",
+                request["request_sha256"],
+                "podcast",
+                Path(tmp) / "brief.json",
+            )
+        self.assertIn("listener-proxy", brief["editorial_intent"])
+        self.assertIn("Orus", brief["editorial_intent"])
+        self.assertIn("Charon", brief["editorial_intent"])
+        joined = "\n".join(brief["hard_constraints"])
+        self.assertIn("fixed listener-proxy dialogue", joined)
+        self.assertIn("immediate B answer", joined)
+        self.assertNotIn("question_answer stays one voice", joined)
+
     def test_bundle_research_prompt_requires_long_and_derived_short_fit(self):
         instruction = control._scope_research_instruction("bundle")
         self.assertIn("حلقة طويلة", instruction)

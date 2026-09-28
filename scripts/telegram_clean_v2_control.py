@@ -568,10 +568,12 @@ def _scope_research_instruction(scope: str) -> str:
         )
     if scope == "podcast":
         return (
-            "اختر أفكارًا لبرنامج «خارج النص» غير سطحية: لكل فكرة سؤال مركزي حقيقي، زاوية غير مبتذلة، "
-            "وتطور فكري أو سردي واضح لا يمكن اختزاله في نصيحة قصيرة. يجب أن يتغير فهم المستمع "
-            "بين بداية الحلقة ونهايتها. تجنب العناوين العامة والقوائم التحفيزية؛ يجب أن تستحق الفكرة "
-            "الاستماع لحلقة كاملة وأن تعمل صوتيًا وحدها."
+            "اختر أفكارًا لبرنامج «خارج النص» تناسب هويته الثابتة كحوار listener-proxy: "
+            "لكل فكرة سؤال مركزي حقيقي يستطيع المستمع A أن يقوله بجملة قصيرة وطبيعية، "
+            "ويملك صوت القناة B إجابة متدرجة تكشف السبب أو المفارقة أو الطبقة الخفية مباشرة ثم تتعمق دون حشو. "
+            "يجب أن يتغير فهم المستمع بوضوح بين البداية والنهاية، وأن تكون الفكرة قابلة للبحث "
+            "وليست مجرد موضوع عام أو قائمة نصائح أو تحفيزًا عامًا. تجنب أسلوب المضيف/الضيف، المقابلات المصطنعة، "
+            "العناوين من نوع «5 طرق»، والتناوب الآلي بين السؤال والجواب. يجب أن تستحق الفكرة حلقة كاملة وأن تعمل صوتيًا وحدها."
         )
     return "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
 
@@ -883,10 +885,12 @@ def render_main_menu() -> str:
 
 
 def scope_keyboard() -> list[list[dict[str, str]]]:
+    # Film and Podcast already attempt one zero-call derived Short after the
+    # certified parent succeeds. Keep legacy "bundle" backend compatibility for
+    # old saved/state records, but do not expose a duplicate choice in Telegram.
     return [
-        [{"text": "🎬 Long فقط", "callback_data": "scope:long"}],
-        [{"text": "🎬➕⚡ Long + Short", "callback_data": "scope:bundle"}],
-        [{"text": "⚡ Short فقط", "callback_data": "scope:short"}],
+        [{"text": "🎬 فيديو طويل", "callback_data": "scope:long"}],
+        [{"text": "⚡ شورت", "callback_data": "scope:short"}],
         [{"text": "🎙️ خارج النص", "callback_data": "scope:podcast"}],
         [{"text": "↩️ الرئيسية", "callback_data": "main:home"}],
     ]
@@ -924,7 +928,12 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
 
 
 def render_selection_confirmation(request: dict[str, Any]) -> str:
-    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط", "podcast": "خارج النص (بودكاست)"}[str(request["scope"])]
+    scope_label = {
+        "long": "فيديو طويل — يحاول استخراج شورت تلقائيًا بعد نجاح الطويل",
+        "bundle": "فيديو طويل + شورت (خيار قديم)",
+        "short": "شورت مستقل",
+        "podcast": "خارج النص — يحاول استخراج شورت تلقائيًا بعد نجاح الحلقة",
+    }[str(request["scope"])]
     pack = [item for item in request.get("research_pack", []) if isinstance(item, dict)]
     lines = [
         "✅ تم اختيار الفكرة وحفظ مصادر البحث",
@@ -1494,9 +1503,11 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "language": "ar",
         "audience": "Arabic-speaking adults",
         "editorial_intent": (
-            "برنامج خارج النص: حديث عربي فصيح طبيعي بصوت القناة الثابت، بسيط في لغته وعميق في فكرته، "
-            "يبدو كحديث مباشر مع مستمع واحد لا كمقال أو محاضرة، ويتقدم دون حشو أو تجارب شخصية مختلقة، "
-            "ويدعم السرد الأحادي أو سؤال-جواب أو حوارًا حقيقيًا عندما يخدم الفكرة، ويظل مفهومًا صوتيًا دون الصورة."
+            "برنامج خارج النص: حوار listener-proxy ثابت بالعربية الفصحى الطبيعية وبصوت القناة الثابت، ويقدّم حوارًا حقيقيًا مع مستمع واحد. "
+            "A بصوت Orus يمثل ذلك المستمع بسؤال أو اعتراض قصير ومحدد عند الحاجة فقط، وB بصوت Charon هو صوت القناة ويحمل الشرح الأساسي. "
+            "يبدأ الموضوع بسؤال مركزي حقيقي، ثم يجيب B على نفس التوتر مباشرة بعد هوية البرنامج ويتقدم طبقة بعد طبقة "
+            "حتى يتغير فهم المستمع. لا مضيف/ضيف، لا مجاملات، لا تناوب آلي، لا قائمة نصائح، ولا محاضرة؛ "
+            "الحلقة يجب أن تبقى مفهومة وممتعة صوتيًا دون الصورة."
             if fmt == "podcast"
             else "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، "
             "مع تجنب المبالغة والادعاءات غير المدعومة."
@@ -1508,8 +1519,9 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
             "Gemini 3.8 is the only voice provider: Charon is the primary narrator; Orus is allowed only when Planning selects dialogue_qa.",
             *(
                 [
-                    "Podcast narration must not invent first-person experiences; question_answer stays one voice, while dialogue_qa may use only Charon and Orus.",
-                    "Outside Text narration must sound conversational and simple-deep, never like an article, lecture, or numbered list.",
+                    "Outside Text uses fixed listener-proxy dialogue: Orus is A (the sparse listener question/objection) and Charon is B (the channel voice carrying the answer).",
+                    "Every A turn must unlock a genuinely new layer and receive an immediate B answer; never use A as a host, interviewer, or filler speaker.",
+                    "Outside Text must stay conversational and simple-deep; it must not become a monologue, host/guest interview, lecture, or numbered-list episode, and must never invent first-person experiences.",
                     "Selected visuals must remain modest and respectful for a broad Arab/Muslim audience.",
                 ]
                 if fmt == "podcast"
