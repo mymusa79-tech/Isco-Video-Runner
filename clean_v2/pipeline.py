@@ -34,6 +34,8 @@ from .contracts import (
     validate_script,
 )
 from .media import (
+    GEMINI38_LITE_TTS_MODEL,
+    GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
     concat_wav_parts,
     inspect_final,
@@ -531,6 +533,52 @@ def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
     narration_path: Path,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Whole-job Gemini 3.8 TTS fallback: one model per narration, never mixed.
+
+    A narration is many voice_synthesizer.synthesize() calls (one per
+    section/chunk). If any of them exhausts gemini-3.8-flash-tts, the whole
+    job is thrown away - every chunk/section file already written this
+    attempt is deleted - and the entire narration is resynthesized from
+    scratch on gemini-3.8-flash-lite-tts instead, so the final narration.wav
+    is always 100% one model tier, never a mix of the two. Only after that
+    second, all-or-nothing pass also fails does the run fail closed.
+    """
+    original_model = str(getattr(voice_synthesizer, "tts_model", GEMINI38_TTS_MODEL) or GEMINI38_TTS_MODEL)
+    models_to_try = [original_model]
+    if GEMINI38_LITE_TTS_MODEL not in models_to_try:
+        models_to_try.append(GEMINI38_LITE_TTS_MODEL)
+
+    audio_dir = narration_path.parent / "audio"
+    report_path = narration_path.parent / "voice-sections.json"
+
+    for pass_index, model in enumerate(models_to_try):
+        if pass_index > 0:
+            # Discard every section/chunk file this run produced so far -
+            # the restart is whole-job, not a per-chunk substitution.
+            shutil.rmtree(audio_dir, ignore_errors=True)
+            narration_path.unlink(missing_ok=True)
+            report_path.unlink(missing_ok=True)
+        voice_synthesizer.tts_model = model
+        try:
+            return _synthesize_sectioned_voice_pass(
+                voice_synthesizer,
+                sections,
+                narration_path,
+                **kwargs,
+            )
+        except VoiceInfrastructureError:
+            if pass_index + 1 < len(models_to_try):
+                continue
+            raise
+    raise AssertionError("unreachable: models_to_try is never empty")
+
+
+def _synthesize_sectioned_voice_pass(
+    voice_synthesizer: Any,
+    sections: list[dict[str, Any]],
+    narration_path: Path,
     *,
     fmt: str = "",
     identity_definition: str = "",
@@ -540,6 +588,11 @@ def _synthesize_sectioned_voice(
     performance_mode: str = "",
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
+
+    Single-pass, single-model: every chunk in this call uses whichever model
+    voice_synthesizer.tts_model is currently set to. Called only by
+    _synthesize_sectioned_voice, which owns switching models between whole
+    passes on primary exhaustion.
 
     Script sections remain the semantic boundary. Long sections are split locally at
     sentence/word boundaries only to reduce TTS timeout surface; no AI or wording

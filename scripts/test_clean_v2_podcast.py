@@ -308,7 +308,7 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
                 synth.synthesize("هذا نص بودكاست عربي.", Path(tmp) / "voice.wav")
 
         self.assertIn(
-            "gemini_3_8_flash_and_lite_exhausted_fail_closed",
+            "gemini_3_8_only_fail_closed_no_fallback",
             raised.exception.secondary_reason,
         )
         self.assertFalse(raised.exception.fallback_used)

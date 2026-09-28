@@ -505,16 +505,22 @@ class VoiceInfrastructureError(RuntimeError):
 class GeminiOnlyVoiceSynthesizer:
     """Gemini 3.8 Flash TTS family only, same Charon/Orus voices throughout.
 
-    Primary is gemini-3.8-flash-tts. If it is exhausted after its bounded
-    same-model retries, one bounded pass on gemini-3.8-flash-lite-tts is
-    tried next - same voices, same speech config, same free-tier API key.
-    Any other exhausted cloud failure fails the run closed; no third-party
-    vendor or different voice identity is ever used.
+    Tries exactly one model per call: whichever `tts_model` this instance is
+    currently configured with. It never substitutes a different model or
+    vendor mid-call - any exhausted cloud failure after bounded same-model
+    retries raises VoiceInfrastructureError and fails that call closed.
+
+    A narration made of several of these calls (one per section/chunk) must
+    never end up mixing gemini-3.8-flash-tts and gemini-3.8-flash-lite-tts
+    audio in the same job. That whole-job decision - try the primary model
+    throughout, and only on exhaustion discard everything and redo the
+    entire narration on gemini-3.8-flash-lite-tts instead - belongs to the
+    caller (see _synthesize_sectioned_voice), which reconfigures tts_model
+    between full passes rather than asking this class to switch mid-job.
     """
 
     EXPECTED_PRIMARY_VOICE = GEMINI38_PRIMARY_VOICE
     EXPECTED_QUESTIONER_VOICE = GEMINI38_QUESTIONER_VOICE
-    EXPECTED_TTS_MODEL = GEMINI38_TTS_MODEL
 
     def __init__(
         self,
@@ -539,13 +545,13 @@ class GeminiOnlyVoiceSynthesizer:
         primary_only: bool = False,
         performance_mode: str = "",
     ) -> Path:
-        del primary_only  # Gemini is the only allowed route, so fallback policy is invariant.
+        del primary_only  # Model selection is owned by the caller's whole-job pass, not per call.
         if not transcript.strip():
             raise RuntimeError("cannot synthesize an empty transcript")
-        if self.tts_model != self.EXPECTED_TTS_MODEL:
+        if self.tts_model not in _GEMINI38_ALLOWED_TTS_MODELS:
             raise RuntimeError(
-                "Clean V2 Gemini-only TTS model mismatch: "
-                f"expected={self.EXPECTED_TTS_MODEL} actual={self.tts_model}"
+                "Clean V2 Gemini-only TTS model drift: "
+                f"allowed={sorted(_GEMINI38_ALLOWED_TTS_MODELS)} actual={self.tts_model}"
             )
 
         primary_voice = self.EXPECTED_PRIMARY_VOICE
@@ -553,103 +559,58 @@ class GeminiOnlyVoiceSynthesizer:
 
         self.voice_roles = _spoken_voice_roles(transcript)
         self.last_provider = None
-        self.fallback_used = False
+        self.fallback_used = self.tts_model != GEMINI38_TTS_MODEL
         self.voice_approval_status = None
         self.voice_reference_profile = None
         self.charon_attempts = 0
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        last_error: BaseException | None = None
 
         if self.api_key:
-            ok, _primary_error = self._attempt_model(
-                self.tts_model,
-                transcript,
-                output_path,
-                primary_voice=primary_voice,
-                questioner_voice=questioner_voice,
-                performance_mode=performance_mode,
-            )
-            if ok:
-                self.last_provider = GEMINI38_PROVIDER
-                self.fallback_used = False
-                self.voice_approval_status = "user_selected_gemini_3_8"
-                self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
-                print(f"Clean V2 voice provider selected: {self.last_provider}")
-                return output_path
+            for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
+                self.charon_attempts = attempt
+                try:
+                    _gemini38_synthesize(
+                        self.api_key,
+                        transcript,
+                        output_path,
+                        model=self.tts_model,
+                        primary_voice=primary_voice,
+                        questioner_voice=questioner_voice,
+                        performance_mode=performance_mode,
+                    )
+                    if not output_path.is_file() or output_path.stat().st_size < 1024:
+                        raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
+                    self.last_provider = GEMINI38_PROVIDER
+                    self.voice_approval_status = "user_selected_gemini_3_8"
+                    self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
+                    print(
+                        f"Clean V2 voice provider selected: {self.last_provider} "
+                        f"model={self.tts_model} fallback={self.fallback_used} "
+                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
+                    )
+                    return output_path
+                except Exception as exc:
+                    last_error = exc
+                    output_path.unlink(missing_ok=True)
+                    print(
+                        "Clean V2 Gemini TTS attempt failed: "
+                        f"model={self.tts_model} attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
+                        f"error_type={type(exc).__name__} "
+                        f"detail={_tts_exception_detail(exc)}"
+                    )
+                    if attempt >= CHARON_MAX_ATTEMPTS:
+                        break
+                    delay = _charon_retry_delay(exc, attempt - 1)
+                    if delay is None:
+                        break
+                    time.sleep(delay)
 
-            ok, lite_error = self._attempt_model(
-                GEMINI38_LITE_TTS_MODEL,
-                transcript,
-                output_path,
-                primary_voice=primary_voice,
-                questioner_voice=questioner_voice,
-                performance_mode=performance_mode,
-            )
-            if ok:
-                self.last_provider = GEMINI38_PROVIDER
-                self.fallback_used = True
-                self.voice_approval_status = "user_selected_gemini_3_8"
-                self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
-                print(
-                    f"Clean V2 voice provider selected: {self.last_provider} "
-                    f"model={GEMINI38_LITE_TTS_MODEL} fallback=true"
-                )
-                return output_path
-            reason = _tts_failure_reason(lite_error, missing="missing_api_key")
-            raise VoiceInfrastructureError(
-                charon_attempts=self.charon_attempts,
-                charon_reason=reason,
-                secondary_reason="gemini_3_8_flash_and_lite_exhausted_fail_closed",
-            )
-
-        reason = _tts_failure_reason(None, missing="missing_api_key")
+        reason = _tts_failure_reason(last_error, missing="missing_api_key")
         raise VoiceInfrastructureError(
             charon_attempts=self.charon_attempts,
             charon_reason=reason,
         )
-
-    def _attempt_model(
-        self,
-        model: str,
-        transcript: str,
-        output_path: Path,
-        *,
-        primary_voice: str,
-        questioner_voice: str,
-        performance_mode: str,
-    ) -> tuple[bool, BaseException | None]:
-        """Bounded same-model retry loop. Returns (success, last_error)."""
-        last_error: BaseException | None = None
-        for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
-            self.charon_attempts += 1
-            try:
-                _gemini38_synthesize(
-                    self.api_key,
-                    transcript,
-                    output_path,
-                    model=model,
-                    primary_voice=primary_voice,
-                    questioner_voice=questioner_voice,
-                    performance_mode=performance_mode,
-                )
-                if not output_path.is_file() or output_path.stat().st_size < 1024:
-                    raise RuntimeError(f"Gemini TTS produced an empty narration file (model={model})")
-                return True, None
-            except Exception as exc:
-                last_error = exc
-                output_path.unlink(missing_ok=True)
-                print(
-                    "Clean V2 Gemini TTS attempt failed: "
-                    f"model={model} attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
-                    f"error_type={type(exc).__name__} "
-                    f"detail={_tts_exception_detail(exc)}"
-                )
-                if attempt >= CHARON_MAX_ATTEMPTS:
-                    break
-                delay = _charon_retry_delay(exc, attempt - 1)
-                if delay is None:
-                    break
-                time.sleep(delay)
-        return False, last_error
 
 
 def _get_json(
