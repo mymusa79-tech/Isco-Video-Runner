@@ -4136,8 +4136,11 @@ English visual description of the exact observable action/state for THIS beat, p
 useful words; it must be specific enough to search directly and must not be mood-only language.
 display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
 exact image/beat and expresses its visible meaning. It should compress a specific insight, tension, or
-consequence from this episode, not a generic motivational slogan. Never place the prayer sentence or any
-variant of الصلاة على النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
+consequence from this episode, not a generic motivational slogan. For podcast / خارج النص, make the hook
+display text the short listener-proxy A question when possible; use at most one later A-question/turn phrase
+and reserve the payoff text for one concise B conclusion. Do not turn every B answer into on-screen text
+and never expose visible A:/B: speaker labels. Never place the prayer sentence or any variant of الصلاة على
+النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
 Never reuse the same display phrase on another beat, never describe an unrelated idea, and never ask the
 image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
