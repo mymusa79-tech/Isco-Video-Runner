@@ -199,78 +199,122 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 )
             )
 
-    def test_film_and_podcast_use_the_same_measured_silence_sequence(self) -> None:
-        for fmt in ("film", "podcast"):
-            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                narration = root / "narration-mastered.wav"
-                narration.write_bytes(b"master")
-                files = {
-                    "audio/01-chunks/01.wav": ("hook", 4.0),
-                    "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.70),
-                    "audio/01-chunks/02.wav": ("prayer", 3.0),
-                    "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.30),
-                    "audio/01-chunks/03.wav": ("channel_identity", 5.0),
-                    "audio/01-chunks/pre-topic-silence.wav": ("pre_topic_silence", 0.45),
-                    "audio/01-chunks/04.wav": ("topic", 6.0),
-                    "audio/02-chunks/01.wav": ("topic", 5.0),
-                    "audio/02-chunks/02.wav": ("outro", 3.0),
-                    "audio/02-chunks/final-silence.wav": ("final_silence", 0.45),
-                }
-                sections = [{"id": "s1", "chunks": []}, {"id": "s2", "chunks": []}]
-                section_for = {
-                    relative: (0 if "01-chunks" in relative else 1)
-                    for relative in files
-                }
-                for relative, (role, _seconds) in files.items():
-                    path = root / relative
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(b"audio")
-                    sections[section_for[relative]]["chunks"].append(
-                        {"file": relative, "role": role}
-                    )
-                (root / "voice-sections.json").write_text(
-                    json.dumps({"status": "pass", "sections": sections}),
-                    encoding="utf-8",
+    def test_podcast_sequence_starts_music_window_with_first_B_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"master")
+            files = {
+                "audio/01-chunks/01.wav": ("hook", 4.0),
+                "audio/01-chunks/post-hook-silence.wav": ("post_hook_silence", 0.75),
+                "audio/01-chunks/intro-silence.wav": ("intro_silence", 6.0),
+                "audio/01-chunks/02.wav": ("prayer", 3.0),
+                "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.65),
+                "audio/01-chunks/03.wav": ("topic", 6.0),
+                "audio/02-chunks/01.wav": ("topic", 5.0),
+                "audio/02-chunks/02.wav": ("outro", 3.0),
+                "audio/02-chunks/final-silence.wav": ("final_silence", 6.5),
+            }
+            sections = [{"id": "s1", "chunks": []}, {"id": "s2", "chunks": []}]
+            for relative, (role, _seconds) in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"audio")
+                section_index = 0 if "01-chunks" in relative else 1
+                sections[section_index]["chunks"].append({"file": relative, "role": role})
+            (root / "voice-sections.json").write_text(
+                json.dumps({"status": "pass", "sections": sections}),
+                encoding="utf-8",
+            )
+
+            def duration(path: Path) -> float:
+                path = Path(path)
+                if path.name == "narration-mastered.wav":
+                    return 34.9
+                return files[str(path.relative_to(root))][1]
+
+            with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
+                report = build_voice_owned_timeline(
+                    output_dir=root,
+                    narration_path=narration,
+                    fmt="podcast",
+                    require_identity=True,
                 )
 
-                def duration(path: Path) -> float:
-                    path = Path(path)
-                    if path.name == "narration-mastered.wav":
-                        return 27.9
-                    return files[str(path.relative_to(root))][1]
+            events = {row["kind"]: row for row in report["identity_events"]}
+            self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
+            self.assertEqual(
+                (events["post_hook_silence"]["start"], events["post_hook_silence"]["end"]),
+                (4.0, 4.75),
+            )
+            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.75, 10.75))
+            self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (10.75, 13.75))
+            self.assertEqual(
+                (events["post_prayer_silence"]["start"], events["post_prayer_silence"]["end"]),
+                (13.75, 14.4),
+            )
+            self.assertNotIn("channel_identity", events)
+            self.assertNotIn("pre_topic_silence", events)
+            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (14.4, 28.4))
+            self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (28.4, 34.9))
+            self.assertEqual(
+                (events["final_silence"]["start"], events["final_silence"]["end"]),
+                (28.4, 34.9),
+            )
 
-                with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
-                    report = build_voice_owned_timeline(
-                        output_dir=root,
-                        narration_path=narration,
-                        fmt=fmt,
-                        require_identity=True,
-                    )
+    def test_film_keeps_existing_measured_identity_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"master")
+            files = {
+                "audio/01-chunks/01.wav": ("hook", 4.0),
+                "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.70),
+                "audio/01-chunks/02.wav": ("prayer", 3.0),
+                "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.30),
+                "audio/01-chunks/03.wav": ("channel_identity", 5.0),
+                "audio/01-chunks/pre-topic-silence.wav": ("pre_topic_silence", 0.45),
+                "audio/01-chunks/04.wav": ("topic", 6.0),
+                "audio/02-chunks/01.wav": ("topic", 5.0),
+                "audio/02-chunks/02.wav": ("outro", 3.0),
+                "audio/02-chunks/final-silence.wav": ("final_silence", 0.45),
+            }
+            sections = [{"id": "s1", "chunks": []}, {"id": "s2", "chunks": []}]
+            for relative, (role, _seconds) in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"audio")
+                section_index = 0 if "01-chunks" in relative else 1
+                sections[section_index]["chunks"].append({"file": relative, "role": role})
+            (root / "voice-sections.json").write_text(
+                json.dumps({"status": "pass", "sections": sections}),
+                encoding="utf-8",
+            )
 
-                events = {row["kind"]: row for row in report["identity_events"]}
-                self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
-                self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.7))
-                self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.7, 7.7))
-                self.assertEqual(
-                    (events["post_prayer_silence"]["start"], events["post_prayer_silence"]["end"]),
-                    (7.7, 8.0),
+            def duration(path: Path) -> float:
+                path = Path(path)
+                if path.name == "narration-mastered.wav":
+                    return 27.9
+                return files[str(path.relative_to(root))][1]
+
+            with mock.patch("clean_v2.timeline_first.probe_duration", side_effect=duration):
+                report = build_voice_owned_timeline(
+                    output_dir=root,
+                    narration_path=narration,
+                    fmt="film",
+                    require_identity=True,
                 )
-                self.assertEqual(
-                    (events["channel_identity"]["start"], events["channel_identity"]["end"]),
-                    (8.0, 13.0),
-                )
-                self.assertEqual(
-                    (events["pre_topic_silence"]["start"], events["pre_topic_silence"]["end"]),
-                    (13.0, 13.45),
-                )
-                self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.45, 27.45))
-                self.assertEqual((events["outro"]["start"], events["outro"]["end"]), (27.45, 27.9))
-                self.assertEqual(
-                    (events["final_silence"]["start"], events["final_silence"]["end"]),
-                    (27.45, 27.9),
-                )
-                self.assertEqual(events["outro"]["source"], "post_payoff_terminal_silence")
+
+            events = {row["kind"]: row for row in report["identity_events"]}
+            self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
+            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.7))
+            self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.7, 7.7))
+            self.assertEqual(
+                (events["channel_identity"]["start"], events["channel_identity"]["end"]),
+                (8.0, 13.0),
+            )
+            self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.45, 27.45))
+
 
     def test_identity_animation_preserves_the_story_world_beneath_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -322,13 +366,12 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 path.write_bytes(b"A" * 2048)
                 assets[name] = path
             timeline = {
-                "voice_seconds_measured": 12.0,
+                "voice_seconds_measured": 15.0,
                 "identity_events": [
-                    {"kind": "intro", "start": 2.0, "end": 3.45},
-                    {"kind": "prayer", "start": 3.45, "end": 5.2},
-                    {"kind": "channel_identity", "start": 5.2, "end": 6.4},
-                    {"kind": "outro", "start": 10.0, "end": 11.0},
-                    {"kind": "final_silence", "start": 11.0, "end": 12.0},
+                    {"kind": "intro", "start": 2.0, "end": 8.0},
+                    {"kind": "prayer", "start": 8.0, "end": 10.0},
+                    {"kind": "outro", "start": 10.0, "end": 15.0},
+                    {"kind": "final_silence", "start": 10.0, "end": 15.0},
                 ],
             }
             with mock.patch(
@@ -347,6 +390,10 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("fade=t=out:", filters)
         self.assertIn("[0:v][intro]overlay", filters)
         self.assertIn("[v1][prayer]overlay", filters)
+        self.assertIn("[v2][outro]overlay", filters)
+        self.assertIn("[1:a]atrim", filters)
+        self.assertIn("[3:a]atrim", filters)
+        self.assertIn("[0:a][aintro][aoutro]amix", filters)
 
     def test_prayer_uses_existing_image_only_without_duplicate_caption_layer(self) -> None:
         source = Path("clean_v2/timeline_render.py").read_text(encoding="utf-8")
@@ -358,11 +405,12 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
     def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
         self.assertEqual(identity_timing_profile("short")["post_prayer_silence_seconds"], 0.35)
         self.assertEqual(identity_timing_profile("film")["post_prayer_silence_seconds"], 0.45)
-        self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.35)
-        self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.45)
+        self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.65)
+        self.assertEqual(identity_timing_profile("podcast")["intro_silence_seconds"], 6.00)
+        self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.00)
         self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.20)
         self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
-        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 3.00)
+        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 6.50)
 
 
 class FinalCompositionVisualQATests(unittest.TestCase):
