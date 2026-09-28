@@ -2817,7 +2817,6 @@ def _build_section_body_segments(
     width: int,
     height: int,
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
-    short_motion_lite: bool = False,
     grade_filters: Mapping[str, str] | None = None,
 ) -> list[Path]:
     """Match/trim every body clip, then dissolve adjacent same-section clips."""
@@ -2993,7 +2992,6 @@ def render_video(
                     if fmt == "short"
                     else COHESION_DISSOLVE_SECONDS
                 ),
-                short_motion_lite=(fmt == "short"),
                 grade_filters=grade_filters,
             )
         else:
