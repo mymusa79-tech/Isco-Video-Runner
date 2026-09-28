@@ -681,11 +681,12 @@ def contextual_intent(
         priority_rule = "Hook must show an unresolved observable tension; not generic activity/prop. "
     elif current_family and current_family == previous_family:
         priority_rule = "Repeat: adjacent same-family fails unless changed-state motif. "
-    context = (
+    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    head = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
         f"{priority_rule}"
         f"Current:{current}. Prev:{previous}. Next:{following}. "
-        f"Meaning:{meaning}. Must show:{must_have}. Avoid:{should_avoid}. "
-        "Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+        f"Meaning:{meaning}. Must show:{must_have}. Avoid:{should_avoid}."
     )
-    return context[:300].rstrip()
+    head_limit = max(0, 300 - len(tail))
+    return head[:head_limit].rstrip() + tail
