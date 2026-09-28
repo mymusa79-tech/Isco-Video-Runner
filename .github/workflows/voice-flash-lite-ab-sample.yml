@@ -2,6 +2,8 @@ name: Voice Flash-Lite A/B Sample (one-off)
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["claude/voice-flash-lite-ab-sample-20260928"]
 
 permissions:
   contents: read
