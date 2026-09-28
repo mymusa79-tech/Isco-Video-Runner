@@ -650,15 +650,23 @@ _SAFE_HOOK_INCOMPLETE_KEYS = {
 }
 
 
-def _safe_short_hook_trim_candidate(hook: str) -> str | None:
-    """Return a conservative local trim only for a 1-4 word hook overrun."""
-    words = _clean(hook).split()
-    overrun = len(words) - SHORT_HOOK_MAX_WORDS
+def _safe_word_boundary_trim_candidate(
+    text: str, *, max_words: int, terminal: str = "."
+) -> str | None:
+    """Return a conservative local trim only for a 1-4 word overrun past max_words.
+
+    Generalized from the Short hook rescue (PR #955): finds the last natural pause
+    point (existing punctuation or a boundary conjunction) at or after
+    _SAFE_HOOK_TRIM_MIN_WORDS words in, cuts there, and closes with `terminal`
+    (a period for a declarative line like a hook, "؟" for a question).
+    """
+    words = _clean(text).split()
+    overrun = len(words) - max_words
     if overrun < 1 or overrun > _SAFE_HOOK_TRIM_MAX_OVERRUN:
         return None
 
     candidates: list[int] = []
-    ceiling = min(SHORT_HOOK_MAX_WORDS, len(words))
+    ceiling = min(max_words, len(words))
     for index in range(ceiling):
         word = words[index]
         position = index + 1
@@ -681,12 +689,23 @@ def _safe_short_hook_trim_candidate(hook: str) -> str | None:
         if not last or _semantic_key(last) in _SAFE_HOOK_INCOMPLETE_KEYS:
             continue
 
-        text = " ".join(kept).strip()
-        text = re.sub(r"[،,؛;:.!?؟!]+$", "", text).strip()
-        if not text or _word_count(text) > SHORT_HOOK_MAX_WORDS:
+        candidate_text = " ".join(kept).strip()
+        candidate_text = re.sub(r"[،,؛;:.!?؟!]+$", "", candidate_text).strip()
+        if not candidate_text or _word_count(candidate_text) > max_words:
             continue
-        return text + "."
+        return candidate_text + terminal
     return None
+
+
+def _safe_short_hook_trim_candidate(hook: str) -> str | None:
+    """Return a conservative local trim only for a 1-4 word hook overrun."""
+    return _safe_word_boundary_trim_candidate(hook, max_words=SHORT_HOOK_MAX_WORDS)
+
+
+def safe_word_boundary_trim(text: str, *, max_words: int, terminal: str = ".") -> str | None:
+    """Public entry point so other formats can reuse the Short hook rescue heuristic
+    (PR #955) for their own word-count ceilings, instead of reinventing it."""
+    return _safe_word_boundary_trim_candidate(text, max_words=max_words, terminal=terminal)
 
 
 def apply_safe_short_hook_trim(script: dict[str, Any]) -> bool:
