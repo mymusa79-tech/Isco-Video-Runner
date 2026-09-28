@@ -16,6 +16,8 @@ from clean_v2.identity_sequence import (
 from clean_v2.media import GeminiOnlyVoiceSynthesizer, VoiceInfrastructureError, _gemini38_dialogue_turns
 from clean_v2.pipeline import (
     CleanV2Pipeline,
+    PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS,
+    PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS,
     _factuality_repair_prompt,
     _isolate_podcast_promo_unit,
     _planning_prompt,
@@ -24,6 +26,7 @@ from clean_v2.pipeline import (
     _select_podcast_promo_excerpt,
     _tone_repair_prompt,
     _validate_podcast_listener_proxy_script,
+    normalize_podcast_listener_proxy_script,
 )
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
@@ -258,6 +261,101 @@ class PodcastListenerProxyContractTests(unittest.TestCase):
                     }
                 ]
             })
+
+
+class PodcastListenerProxyQuestionRescueTests(unittest.TestCase):
+    """Run #26: Mistral (the only provider left once gemini/groq/openrouter are
+    exhausted) produced a 20-word listener-proxy question against the 18-word
+    ceiling, with no alternative provider to retry against. This mirrors the
+    Short hook rescue (PR #955) that closed the same failure family for Short.
+    """
+
+    _OVERLONG_20_WORD_QUESTION = (
+        "طيب لكن كيف نفهم بالضبط لماذا نعود دائمًا إلى نفس القديمة العادة، "
+        "رغم أننا نعرف جيدًا تمامًا أنها تؤذينا بشدة؟"
+    )
+    _UNRESCUABLE_23_WORD_QUESTION = (
+        "طيب لكن كيف نفهم بالضبط لماذا نعود دائمًا إلى نفس القديمة السيئة جدًا العادة، "
+        "رغم أننا نعرف جيدًا تمامًا أنها تؤذينا بشدة فعلاً؟"
+    )
+    _S1_ANSWER = (
+        "لأن المعرفة وحدها لا تغيّر نمط الفعل؛ الذي يغيّره هو رد صغير يتكرر في اللحظة "
+        "نفسها، ويحتاج تكرارًا واعيًا حتى يثبت في السلوك اليومي فعلاً."
+    )
+    _S2_TURN = (
+        "A: طيب، فما الذي يتغير أولًا في هذه الحالة؟ "
+        "B: يتغير أولًا ردك الصغير في اللحظة نفسها، ثم يصبح هذا الرد أسهل كلما تكرر "
+        "في السياق نفسه، حتى يتحول تدريجيًا إلى عادة جديدة راسخة."
+    )
+
+    def test_run26_twenty_word_question_rescued_by_boundary_trim(self) -> None:
+        self.assertEqual(len(self._OVERLONG_20_WORD_QUESTION.split()), 20)
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"A: {self._OVERLONG_20_WORD_QUESTION} B: {self._S1_ANSWER}",
+                },
+                {"id": "s2", "narration": self._S2_TURN},
+            ]
+        }
+
+        report = normalize_podcast_listener_proxy_script(script)
+        self.assertTrue(report["question_trimmed"])
+
+        trimmed_narration = script["sections"][0]["narration"]
+        self.assertNotIn(self._OVERLONG_20_WORD_QUESTION, trimmed_narration)
+        self.assertTrue(trimmed_narration.startswith("A: "))
+        self.assertIn(self._S1_ANSWER, trimmed_narration)
+
+        trimmed_question = trimmed_narration[len("A: ") : trimmed_narration.index(" B: ")]
+        self.assertLessEqual(
+            len(trimmed_question.split()), PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS
+        )
+        self.assertTrue(trimmed_question.endswith("؟"))
+
+        result = _validate_podcast_listener_proxy_script(script)
+        self.assertEqual(result["status"], "pass")
+
+    def test_normalize_leaves_a_compliant_question_untouched(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"A: طيب، فما الذي يتغير أولًا؟ B: {self._S1_ANSWER}",
+                },
+            ]
+        }
+        original = script["sections"][0]["narration"]
+
+        report = normalize_podcast_listener_proxy_script(script)
+        self.assertFalse(report["question_trimmed"])
+        self.assertEqual(script["sections"][0]["narration"], original)
+
+    def test_overrun_beyond_rescue_window_is_left_untrimmed_and_fails_closed(self) -> None:
+        self.assertEqual(len(self._UNRESCUABLE_23_WORD_QUESTION.split()), 23)
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"A: {self._UNRESCUABLE_23_WORD_QUESTION} B: {self._S1_ANSWER}",
+                },
+                {"id": "s2", "narration": self._S2_TURN},
+            ]
+        }
+
+        report = normalize_podcast_listener_proxy_script(script)
+        self.assertFalse(report["question_trimmed"])
+        self.assertIn(self._UNRESCUABLE_23_WORD_QUESTION, script["sections"][0]["narration"])
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            (
+                "podcast_listener_proxy_question_too_long words=23 "
+                f"maximum={PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS}"
+            ),
+        ):
+            _validate_podcast_listener_proxy_script(script)
 
 
 class PodcastGeminiRoutingTests(unittest.TestCase):

@@ -49,6 +49,7 @@ from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
     normalize_short_script_candidate,
+    safe_word_boundary_trim,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -3545,6 +3546,12 @@ def _locked_short_payoff_answer(visual_story: Mapping[str, Any] | None) -> str:
 
 _PODCAST_DIALOGUE_TURN_RE = re.compile(r"(?<!\S)([AB]):\s+")
 
+PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS = 18
+# Emergency acceptance headroom only, mirroring SHORT_HOOK_RESCUE_MAX_WORDS (PR #955).
+# normalize_podcast_listener_proxy_script always attempts a conservative local trim
+# back to PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS first (Run #26).
+PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS = 20
+
 
 def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
     source = " ".join(str(narration or "").split()).strip()
@@ -3564,6 +3571,52 @@ def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
             raise RuntimeError("podcast_listener_proxy_empty_turn")
         turns.append((match.group(1), spoken))
     return turns
+
+
+def normalize_podcast_listener_proxy_script(script: dict[str, Any]) -> dict[str, bool]:
+    """Trim only a tiny (1-4 word) listener-proxy question overrun at a proven safe
+    Arabic sentence boundary, mirroring the Short hook rescue (PR #955) that closed
+    the same failure family for Short. Closes Run #26 for Podcast: when every
+    provider but Mistral is exhausted, Mistral's questioner turn can overrun
+    PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS by a couple of words with no
+    alternative provider left to retry against.
+    """
+    question_trimmed = False
+    sections = script.get("sections")
+    if not isinstance(sections, list):
+        return {"question_trimmed": False}
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        narration = section.get("narration")
+        if not isinstance(narration, str) or not narration:
+            continue
+        try:
+            turns = _podcast_listener_proxy_turns(narration)
+        except RuntimeError:
+            continue
+        collapsed = " ".join(narration.split()).strip()
+        changed = False
+        for speaker, spoken in turns:
+            if (
+                speaker != "A"
+                or len(spoken.split()) <= PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS
+                or spoken not in collapsed
+            ):
+                continue
+            candidate = safe_word_boundary_trim(
+                spoken,
+                max_words=PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS,
+                terminal="؟",
+            )
+            if candidate is None:
+                continue
+            collapsed = collapsed.replace(spoken, candidate, 1)
+            changed = True
+        if changed:
+            section["narration"] = collapsed
+            question_trimmed = True
+    return {"question_trimmed": question_trimmed}
 
 
 def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[str, Any]:
@@ -3600,9 +3653,10 @@ def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[s
         if speaker == "A":
             a_turns += 1
             a_words += words
-            if words > 18:
+            if words > PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS:
                 raise RuntimeError(
-                    f"podcast_listener_proxy_question_too_long words={words} maximum=18"
+                    "podcast_listener_proxy_question_too_long "
+                    f"words={words} maximum={PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS}"
                 )
         else:
             b_words += words
@@ -3640,6 +3694,7 @@ def _validate_script_for_brief(
         validate_short_hook_contract(script)
         validate_short_script(script)
     elif fmt == "podcast":
+        normalize_podcast_listener_proxy_script(script)
         _validate_podcast_listener_proxy_script(script)
     return script
 
@@ -5348,6 +5403,7 @@ class CleanV2Pipeline:
             elif str(brief["format"]) == "podcast":
                 # Tone repair must not silently collapse خارج النص back into a
                 # generic one-voice monologue or let the listener proxy dominate.
+                normalize_podcast_listener_proxy_script(script)
                 _validate_podcast_listener_proxy_script(script)
             visual_story = _bind_writer_visual_story(
                 output_dir=output_dir,
