@@ -23,6 +23,7 @@ from clean_v2.pipeline import (
     _script_prompt,
     _select_podcast_promo_excerpt,
     _tone_repair_prompt,
+    _validate_podcast_listener_proxy_script,
 )
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
@@ -202,6 +203,39 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertEqual(joined.count(PODCAST_CHANNEL_DEFINITION), 1)
         self.assertTrue(sections[-1]["narration"].endswith(closer))
         assert_spoken_identity(sections, fmt="podcast", closer=closer)
+
+
+class PodcastListenerProxyContractTests(unittest.TestCase):
+    def test_listener_question_is_immediately_answered_by_charon_role(self) -> None:
+        report = _validate_podcast_listener_proxy_script({
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ B: لأن المعرفة وحدها لا تغيّر نمط الفعل.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "A: طيب، فما الذي يتغير أولًا؟ B: يتغير أولًا ردك الصغير في اللحظة نفسها.",
+                },
+            ]
+        })
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["first_speaker"], "A")
+        self.assertEqual(report["voices"], {"A": "Orus", "B": "Charon"})
+
+    def test_consecutive_listener_questions_fail_closed(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "podcast_listener_proxy_hook_requires_immediate_charon_answer",
+        ):
+            _validate_podcast_listener_proxy_script({
+                "sections": [
+                    {
+                        "id": "s1",
+                        "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ A: وهل المشكلة في الدافع؟ B: ليست المشكلة في المعرفة وحدها.",
+                    }
+                ]
+            })
 
 
 class PodcastGeminiRoutingTests(unittest.TestCase):
