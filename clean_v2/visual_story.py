@@ -650,7 +650,7 @@ def contextual_intent(
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        14,
+        24,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
@@ -678,9 +678,9 @@ def contextual_intent(
     )
     priority_rule = ""
     if role == "hook":
-        priority_rule = "Hook: unresolved visible tension; not generic prop. "
+        priority_rule = "Hook must show an unresolved observable tension; not generic prop. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat family fails unless changed-state motif. "
+        priority_rule = "Repeat: same family fails unless changed-state motif. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     head = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
