@@ -315,7 +315,8 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertNotIn("-stream_loop", render_source)
         self.assertIn("tpad=stop_mode=clone", render_source)
         self.assertIn("tpad=stop_mode=clone", trim_source)
-        self.assertIn("motion_mode=None", body_source)
+        self.assertNotIn("short_motion_lite", body_source)
+        self.assertNotIn("motion_mode", body_source)
         self.assertNotIn('("push", "pan", "pull")', body_source)
 
     # 24: in-video text has one shared readable identity, not boxes or 3+ lines.
@@ -360,8 +361,8 @@ class RuntimeActivation26Tests(unittest.TestCase):
 
     # 26: the selected editorial type reaches the actual voice call.
     def test_26_shared_type_to_gemini_performance_runtime(self) -> None:
-        produce_source = inspect.getsource(__import__("clean_v2.pipeline", fromlist=["CleanV2Pipeline"]).CleanV2Pipeline.produce)
-        self.assertIn("performance_mode=_voice_performance_mode_for_brief", produce_source)
+        run_source = inspect.getsource(__import__("clean_v2.pipeline", fromlist=["CleanV2Pipeline"]).CleanV2Pipeline.run)
+        self.assertIn("performance_mode=_voice_performance_mode_for_brief", run_source)
 
         for expected, brief in SHORT_CASES.items():
             self.assertEqual(_voice_performance_mode_for_brief(brief, None), expected)
