@@ -32,10 +32,19 @@ CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
 
 GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
+GEMINI38_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
+_GEMINI38_ALLOWED_TTS_MODELS = frozenset({GEMINI38_TTS_MODEL, GEMINI38_LITE_TTS_MODEL})
 GEMINI38_PRIMARY_VOICE = "Charon"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
+# Reviewed by ear against flash-tts:Charon: on gemini-3.8-flash-lite-tts,
+# Algenib reads better in Arabic than lite-Charon. Orus stays the fixed
+# questioner voice on both models; only the primary/answering voice changes
+# when the whole narration falls back to the lite pass.
+GEMINI38_LITE_PRIMARY_VOICE = "Algenib"
+GEMINI38_LITE_PROVIDER = "gemini-3.8:Algenib"
+GEMINI38_LITE_REFERENCE_PROFILE = "gemini-3.8-flash-lite-tts:Algenib:Orus"
 GEMINI38_NARRATOR_STYLE = (
     "Natural Modern Standard Arabic adult narrator. Warm, mature, intelligent and conversational; "
     "calm confidence, human pacing, clear articulation, no announcer tone."
@@ -295,9 +304,9 @@ def _gemini38_synthesize(
     performance_mode: str = "",
 ) -> Path:
     """Call Gemini 3.8 TTS directly over REST; no SDK upgrade is required."""
-    if model != GEMINI38_TTS_MODEL:
+    if model not in _GEMINI38_ALLOWED_TTS_MODELS:
         raise RuntimeError(
-            f"Clean V2 Gemini TTS model drift: expected={GEMINI38_TTS_MODEL} actual={model}"
+            f"Clean V2 Gemini TTS model drift: allowed={sorted(_GEMINI38_ALLOWED_TTS_MODELS)} actual={model}"
         )
     if not api_key:
         raise RuntimeError("Clean V2 Gemini TTS requires GEMINI_API_KEY")
@@ -501,11 +510,29 @@ class VoiceInfrastructureError(RuntimeError):
 
 
 class GeminiOnlyVoiceSynthesizer:
-    """Gemini 3.8 Flash TTS only. Any exhausted cloud failure fails the run closed."""
+    """Gemini 3.8 Flash TTS family only.
+
+    Tries exactly one model per call: whichever `tts_model` this instance is
+    currently configured with. It never substitutes a different model or
+    vendor mid-call - any exhausted cloud failure after bounded same-model
+    retries raises VoiceInfrastructureError and fails that call closed.
+
+    The questioner voice (Orus) is fixed on both models. The primary/
+    answering voice is Charon on gemini-3.8-flash-tts, but Algenib on
+    gemini-3.8-flash-lite-tts - reviewed by ear and picked because it reads
+    better in Arabic than lite-Charon on that model.
+
+    A narration made of several of these calls (one per section/chunk) must
+    never end up mixing gemini-3.8-flash-tts and gemini-3.8-flash-lite-tts
+    audio in the same job. That whole-job decision - try the primary model
+    throughout, and only on exhaustion discard everything and redo the
+    entire narration on gemini-3.8-flash-lite-tts instead - belongs to the
+    caller (see _synthesize_sectioned_voice), which reconfigures tts_model
+    between full passes rather than asking this class to switch mid-job.
+    """
 
     EXPECTED_PRIMARY_VOICE = GEMINI38_PRIMARY_VOICE
     EXPECTED_QUESTIONER_VOICE = GEMINI38_QUESTIONER_VOICE
-    EXPECTED_TTS_MODEL = GEMINI38_TTS_MODEL
 
     def __init__(
         self,
@@ -530,21 +557,24 @@ class GeminiOnlyVoiceSynthesizer:
         primary_only: bool = False,
         performance_mode: str = "",
     ) -> Path:
-        del primary_only  # Gemini is the only allowed route, so fallback policy is invariant.
+        del primary_only  # Model selection is owned by the caller's whole-job pass, not per call.
         if not transcript.strip():
             raise RuntimeError("cannot synthesize an empty transcript")
-        if self.tts_model != self.EXPECTED_TTS_MODEL:
+        if self.tts_model not in _GEMINI38_ALLOWED_TTS_MODELS:
             raise RuntimeError(
-                "Clean V2 Gemini-only TTS model mismatch: "
-                f"expected={self.EXPECTED_TTS_MODEL} actual={self.tts_model}"
+                "Clean V2 Gemini-only TTS model drift: "
+                f"allowed={sorted(_GEMINI38_ALLOWED_TTS_MODELS)} actual={self.tts_model}"
             )
 
-        primary_voice = self.EXPECTED_PRIMARY_VOICE
+        is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
+        primary_voice = GEMINI38_LITE_PRIMARY_VOICE if is_lite else self.EXPECTED_PRIMARY_VOICE
         questioner_voice = self.EXPECTED_QUESTIONER_VOICE
+        provider = GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
+        reference_profile = GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
 
         self.voice_roles = _spoken_voice_roles(transcript)
         self.last_provider = None
-        self.fallback_used = False
+        self.fallback_used = self.tts_model != GEMINI38_TTS_MODEL
         self.voice_approval_status = None
         self.voice_reference_profile = None
         self.charon_attempts = 0
@@ -566,12 +596,12 @@ class GeminiOnlyVoiceSynthesizer:
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
-                    self.last_provider = GEMINI38_PROVIDER
-                    self.fallback_used = False
+                    self.last_provider = provider
                     self.voice_approval_status = "user_selected_gemini_3_8"
-                    self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
+                    self.voice_reference_profile = reference_profile
                     print(
                         f"Clean V2 voice provider selected: {self.last_provider} "
+                        f"model={self.tts_model} fallback={self.fallback_used} "
                         f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
                     )
                     return output_path
@@ -579,8 +609,8 @@ class GeminiOnlyVoiceSynthesizer:
                     last_error = exc
                     output_path.unlink(missing_ok=True)
                     print(
-                        "Clean V2 Gemini 3.8 TTS attempt failed: "
-                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
+                        "Clean V2 Gemini TTS attempt failed: "
+                        f"model={self.tts_model} attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
                         f"error_type={type(exc).__name__} "
                         f"detail={_tts_exception_detail(exc)}"
                     )

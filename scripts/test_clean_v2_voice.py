@@ -12,6 +12,8 @@ from unittest.mock import patch
 from clean_v2.media import (
     GEMINI38_INNER_REFLECTIVE_STYLE,
     GEMINI38_INNER_RESOLVED_STYLE,
+    GEMINI38_LITE_PROVIDER,
+    GEMINI38_LITE_TTS_MODEL,
     GEMINI38_NARRATOR_STYLE,
     GEMINI38_PROVIDER,
     GEMINI38_QUESTIONER_STYLE,
@@ -133,10 +135,12 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 with self.assertRaises(VoiceInfrastructureError) as raised:
                     synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
+        # A single call only ever tries the model it is configured with - no
+        # mid-call substitution. The whole-job fallback to lite-tts (and its
+        # all-or-nothing restart) lives in the orchestrator, not this class.
         self.assertEqual(tts.call_count, 1)
         sleep.assert_not_called()
         self.assertFalse(raised.exception.fallback_used)
-        self.assertIn("gemini_3_8_only_fail_closed_no_fallback", raised.exception.secondary_reason)
 
     def test_persistent_gemini_failure_is_terminal_after_bounded_retries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -153,6 +157,27 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         self.assertFalse(raised.exception.fallback_used)
         self.assertIn("fallback=false", str(raised.exception))
 
+    def test_synthesize_uses_algenib_and_reports_fallback_used_on_lite_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiOnlyVoiceSynthesizer(
+                "gemini-test-key", tts_model=GEMINI38_LITE_TTS_MODEL
+            )
+            with patch(
+                "clean_v2.media._gemini38_synthesize",
+                side_effect=lambda _key, _text, path, **_kwargs: _write_audio(Path(path)),
+            ) as tts:
+                synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
+
+        # Reviewed by ear: Algenib reads better than lite-Charon in Arabic on
+        # the lite model, so the lite pass uses Algenib as the primary voice
+        # while Orus stays the fixed questioner - and the reported provider
+        # identity reflects that voice honestly instead of claiming Charon.
+        self.assertEqual(tts.call_args.kwargs.get("model"), GEMINI38_LITE_TTS_MODEL)
+        self.assertEqual(tts.call_args.kwargs.get("primary_voice"), "Algenib")
+        self.assertEqual(tts.call_args.kwargs.get("questioner_voice"), "Orus")
+        self.assertEqual(synth.last_provider, GEMINI38_LITE_PROVIDER)
+        self.assertTrue(synth.fallback_used)
+
     def test_model_drift_is_rejected_before_provider_call(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer(
             "gemini-test-key",
@@ -161,7 +186,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, patch(
             "clean_v2.media._gemini38_synthesize"
         ) as tts:
-            with self.assertRaisesRegex(RuntimeError, "model mismatch"):
+            with self.assertRaisesRegex(RuntimeError, "model drift"):
                 synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
         tts.assert_not_called()
 
@@ -365,6 +390,61 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         )
         self.assertEqual(report["voice_provider"], GEMINI38_PROVIDER)
         self.assertFalse(report["voice_fallback_used"])
+
+    def test_sectioned_voice_discards_partial_primary_output_and_restarts_whole_job_on_lite(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def tts(_key, transcript, path, *, model, **_kwargs):
+            calls.append((transcript, model))
+            if model == GEMINI38_TTS_MODEL and transcript == "القسم الثاني.":
+                # Primary is exhausted partway through the narration - s1
+                # already succeeded on primary before this.
+                raise RuntimeError("quota exhausted")
+            return _write_audio(Path(path))
+
+        sections = [
+            {"id": "s1", "narration": "القسم الأول."},
+            {"id": "s2", "narration": "القسم الثاني."},
+        ]
+
+        def concat_audio(inputs, target):
+            return _write_audio(Path(target), b"J")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch("clean_v2.media._gemini38_synthesize", side_effect=tts), patch(
+                "clean_v2.media.time.sleep"
+            ), patch(
+                "clean_v2.pipeline.concat_wav_parts", side_effect=concat_audio
+            ):
+                report = _synthesize_sectioned_voice(
+                    synth,
+                    sections,
+                    root / "narration.wav",
+                    require_charon_only=True,
+                )
+
+        # s1 succeeds on primary, s2 exhausts primary's 3 bounded attempts,
+        # then the WHOLE narration - s1 included - is resynthesized from
+        # scratch on lite: s1 is never reused from the discarded pass, and
+        # the final result is 100% one model tier, never a mix of the two.
+        self.assertEqual(
+            [item for item in calls if item[1] == GEMINI38_TTS_MODEL],
+            [("القسم الأول.", GEMINI38_TTS_MODEL)] + [("القسم الثاني.", GEMINI38_TTS_MODEL)] * 3,
+        )
+        self.assertEqual(
+            [item for item in calls if item[1] == GEMINI38_LITE_TTS_MODEL],
+            [("القسم الأول.", GEMINI38_LITE_TTS_MODEL), ("القسم الثاني.", GEMINI38_LITE_TTS_MODEL)],
+        )
+        # The whole-job lite pass uses Algenib, not Charon, so the reported
+        # provider identity must reflect that rather than claim Charon.
+        self.assertEqual(report["voice_provider"], GEMINI38_LITE_PROVIDER)
+        self.assertTrue(report["voice_fallback_used"])
+        for section in report["sections"]:
+            self.assertTrue(section["fallback_used"])
 
     def test_dialogue_chunking_preserves_complete_turns(self) -> None:
         source = (

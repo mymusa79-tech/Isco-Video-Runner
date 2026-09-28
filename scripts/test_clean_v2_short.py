@@ -1858,7 +1858,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
 
-    def test_mid_run_gemini_failure_fails_closed_without_voice_substitution(self) -> None:
+    def test_mid_run_gemini_failure_restarts_whole_job_on_lite_then_fails_closed(self) -> None:
         calls = {"count": 0}
 
         def fake_gemini38(api_key, transcript, output_path, **_kwargs):
@@ -1906,7 +1906,14 @@ class ShortPipelineSeamTests(unittest.TestCase):
                 (root / "voice-sections.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(calls["count"], 2)
+        # Pass 1 (primary): s1 succeeds (call 1), s2 fails once and breaks
+        # immediately (call 2, no retry delay) - the whole job is discarded
+        # and restarted on gemini-3.8-flash-lite-tts. Pass 2: s1 fails on its
+        # very first attempt this time (call 3, since the fake only ever
+        # succeeds once, globally) and breaks before ever reaching s2 -
+        # confirming the restart reruns the whole narration from scratch,
+        # never resuming or mixing partial output from pass 1.
+        self.assertEqual(calls["count"], 3)
         self.assertEqual(persisted["status"], "failed")
         self.assertEqual(persisted["reason"], "gemini_3_8_voice_failed_closed")
         self.assertFalse(narration.exists())

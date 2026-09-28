@@ -34,6 +34,9 @@ from .contracts import (
     validate_script,
 )
 from .media import (
+    GEMINI38_LITE_PROVIDER,
+    GEMINI38_LITE_TTS_MODEL,
+    GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
     concat_wav_parts,
     inspect_final,
@@ -325,6 +328,7 @@ STAGES = (
 VOICE_CHUNK_MAX_CHARS = 5000
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -531,6 +535,52 @@ def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
     narration_path: Path,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Whole-job Gemini 3.8 TTS fallback: one model per narration, never mixed.
+
+    A narration is many voice_synthesizer.synthesize() calls (one per
+    section/chunk). If any of them exhausts gemini-3.8-flash-tts, the whole
+    job is thrown away - every chunk/section file already written this
+    attempt is deleted - and the entire narration is resynthesized from
+    scratch on gemini-3.8-flash-lite-tts instead, so the final narration.wav
+    is always 100% one model tier, never a mix of the two. Only after that
+    second, all-or-nothing pass also fails does the run fail closed.
+    """
+    original_model = str(getattr(voice_synthesizer, "tts_model", GEMINI38_TTS_MODEL) or GEMINI38_TTS_MODEL)
+    models_to_try = [original_model]
+    if GEMINI38_LITE_TTS_MODEL not in models_to_try:
+        models_to_try.append(GEMINI38_LITE_TTS_MODEL)
+
+    audio_dir = narration_path.parent / "audio"
+    report_path = narration_path.parent / "voice-sections.json"
+
+    for pass_index, model in enumerate(models_to_try):
+        if pass_index > 0:
+            # Discard every section/chunk file this run produced so far -
+            # the restart is whole-job, not a per-chunk substitution.
+            shutil.rmtree(audio_dir, ignore_errors=True)
+            narration_path.unlink(missing_ok=True)
+            report_path.unlink(missing_ok=True)
+        voice_synthesizer.tts_model = model
+        try:
+            return _synthesize_sectioned_voice_pass(
+                voice_synthesizer,
+                sections,
+                narration_path,
+                **kwargs,
+            )
+        except VoiceInfrastructureError:
+            if pass_index + 1 < len(models_to_try):
+                continue
+            raise
+    raise AssertionError("unreachable: models_to_try is never empty")
+
+
+def _synthesize_sectioned_voice_pass(
+    voice_synthesizer: Any,
+    sections: list[dict[str, Any]],
+    narration_path: Path,
     *,
     fmt: str = "",
     identity_definition: str = "",
@@ -540,6 +590,11 @@ def _synthesize_sectioned_voice(
     performance_mode: str = "",
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
+
+    Single-pass, single-model: every chunk in this call uses whichever model
+    voice_synthesizer.tts_model is currently set to. Called only by
+    _synthesize_sectioned_voice, which owns switching models between whole
+    passes on primary exhaustion.
 
     Script sections remain the semantic boundary. Long sections are split locally at
     sentence/word boundaries only to reduce TTS timeout surface; no AI or wording
@@ -734,7 +789,7 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if provider != GEMINI38_VOICE_PROVIDER:
+            if provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
                 raise RuntimeError(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=gemini_3_8_only_provider_drift "
                     f"actual={provider}"
@@ -3245,7 +3300,7 @@ def _write_resume_checkpoint(
         "artifacts": artifacts,
     }
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
-        if voice_provider != GEMINI38_VOICE_PROVIDER:
+        if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
             raise RuntimeError("Clean V2 checkpoint voice provider is not Gemini 3.8")
         if not isinstance(voice_fallback_used, bool):
             raise RuntimeError("Clean V2 checkpoint voice fallback state is invalid")
@@ -5276,11 +5331,10 @@ class CleanV2Pipeline:
                         _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
-                if (
-                    voice_provider != GEMINI38_VOICE_PROVIDER
-                    or voice_fallback_used is not False
+                if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS or not isinstance(
+                    voice_fallback_used, bool
                 ):
-                    raise RuntimeError("Clean V2 resume voice must be Gemini 3.8 with no fallback")
+                    raise RuntimeError("Clean V2 resume voice must stay within the Gemini 3.8 TTS family")
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -5317,10 +5371,7 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
-                if (
-                    voice_provider != GEMINI38_VOICE_PROVIDER
-                    or voice_fallback_used is not False
-                ):
+                if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
                     raise RuntimeError(
                         "GEMINI_3_8_ONLY_VOICE_CONTRACT "
                         f"provider={voice_provider} fallback={voice_fallback_used}"
