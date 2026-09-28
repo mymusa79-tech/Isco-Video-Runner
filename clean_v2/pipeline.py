@@ -179,6 +179,8 @@ _PODCAST_FIXED_PROFILE = {
         "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
         "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
         "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
+        "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
         "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
     ),
     "visual": (
