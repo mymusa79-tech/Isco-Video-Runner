@@ -10,7 +10,7 @@ PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
 SHORT_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
 PODCAST_CHANNEL_DEFINITION = "وهذا «خارج النص» من نداء اليقظة؛ نسأل كما نفكر، بعيدًا عن الإجابات الجاهزة."
-PODCAST_CHANNEL_DEFINITION = "وهنا في خارج النص من نداء اليقظة، نقول السؤال الذي غالبًا يبقى داخلنا."
+PODCAST_CHANNEL_DEFINITION = "وهنا في خارج النص من نداء اليقظة، نسأل ما نفكر فيه ولا نقوله عادةً."
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
