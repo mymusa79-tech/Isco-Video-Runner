@@ -9,6 +9,7 @@ from typing import Any, Mapping
 PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
 SHORT_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
+PODCAST_CHANNEL_DEFINITION = "وهنا في خارج النص من نداء اليقظة، نقول السؤال الذي غالبًا يبقى داخلنا."
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
@@ -37,11 +38,14 @@ _TIMING_PROFILES = {
         "final_silence_seconds": 3.50,
     },
     "podcast": {
-        "post_hook_silence_seconds": 1.15,
-        "intro_silence_seconds": 2.20,
-        "post_prayer_silence_seconds": 0.45,
-        "pre_topic_silence_seconds": 0.95,
-        "final_silence_seconds": 3.75,
+        # Listener-proxy flow: keep the cold question alive through a short identity
+        # sting, then let Charon move prayer -> series identity -> first answer
+        # without the long reset used by the main Film format.
+        "post_hook_silence_seconds": 0.75,
+        "intro_silence_seconds": 1.45,
+        "post_prayer_silence_seconds": 0.35,
+        "pre_topic_silence_seconds": 0.45,
+        "final_silence_seconds": 3.00,
     },
 }
 
@@ -124,8 +128,8 @@ def identity_asset_paths(
         root = Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
         intro = _ensure_podcast_identity_asset(
             root / "podcast_intro.mp4",
-            subtitle="نداء اليقظة",
-            duration=2.0,
+            subtitle="من نداء اليقظة",
+            duration=1.5,
         )
         outro = _ensure_podcast_identity_asset(
             root / "podcast_outro.mp4",
@@ -146,6 +150,8 @@ def _first_sentence(text: str) -> str:
 def channel_definition(fmt: str, opener: str = "") -> str:
     if fmt == "short":
         return SHORT_CHANNEL_DEFINITION
+    if fmt == "podcast":
+        return PODCAST_CHANNEL_DEFINITION
     candidate = " ".join(str(opener or "").split()).strip()
     return candidate or LONG_CHANNEL_DEFINITION
 
