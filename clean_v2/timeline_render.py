@@ -60,12 +60,6 @@ def render_identity_composition(
     if fmt == "podcast":
         identity_start, identity_end = bounds("channel_identity")
         identity_duration = max(0.001, identity_end - identity_start)
-        fade_seconds = min(0.18, max(0.05, prayer_duration / 4.0))
-        fade_out_start = max(0.0, prayer_duration - fade_seconds)
-        prayer_fade = (
-            f"fade=t=in:st=0:d={fade_seconds:.2f}:alpha=1,"
-            f"fade=t=out:st={fade_out_start:.3f}:d={fade_seconds:.2f}:alpha=1,"
-        )
         filters = (
             f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},setsar=1,fps=30,format=rgba,split=2[introbase][identitybase];"
@@ -76,7 +70,7 @@ def render_identity_composition(
             f"trim=duration={identity_duration:.3f},"
             f"setpts=PTS-STARTPTS+{identity_start:.3f}/TB[identity];"
             f"[2:v]scale={prayer_width}:-1,format=rgba,"
-            f"trim=duration={prayer_duration:.3f},{prayer_fade}"
+            f"trim=duration={prayer_duration:.3f},"
             f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
             f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
