@@ -533,7 +533,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             prompt = _planning_prompt(brief)
             self.assertIn("LOCKED NARRATIVE PROFILE", prompt)
             self.assertIn("narrative_format=dialogue_qa", prompt)
-            self.assertIn("Treat A turns as moments of uncertainty/pressure", prompt)
+            self.assertIn("A listener-proxy turn does NOT force a scene cut", prompt)
+            self.assertIn("Never fake two hosts", prompt)
 
     def test_writer_and_voice_use_the_same_locked_narrative_profile(self) -> None:
         film = _brief("film")
@@ -560,7 +561,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         )
         self.assertIn("A maps to Orus", podcast_prompt)
         self.assertIn("B maps to Charon", podcast_prompt)
-        self.assertIn("Never alternate mechanically line-by-line", podcast_prompt)
+        self.assertIn("Use A sparingly", podcast_prompt)
+        self.assertIn("A is sparse and short", podcast_prompt)
         self.assertEqual(
             _voice_performance_mode_for_brief(podcast, planned_podcast),
             "podcast_listener_proxy_qa",
