@@ -3393,7 +3393,7 @@ def _locked_short_payoff_answer(visual_story: Mapping[str, Any] | None) -> str:
     return " ".join(str(thread.get("payoff_answer") or "").split()).strip()
 
 
-_PODCAST_DIALOGUE_TURN_RE = re.compile(r"(?<!\\S)([AB]):\\s+")
+_PODCAST_DIALOGUE_TURN_RE = re.compile(r"(?<!\S)([AB]):\s+")
 
 
 def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
