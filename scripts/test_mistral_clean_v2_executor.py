@@ -350,7 +350,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
 
         return fail
 
-    def test_planning_and_script_use_exact_four_provider_order(self) -> None:
+    def test_planning_and_script_use_exact_five_provider_order(self) -> None:
         for stage in ("planning", "script"):
             with self.subTest(stage=stage):
                 order: list[str] = []
@@ -387,11 +387,16 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     )
 
                 self.assertEqual(result, {"ok": True})
+                # gemini_flash_lite has no key in this test process, so it fails
+                # closed with a NoWireFailure (no network attempt, no wire count)
+                # between gemini and groq - it never reaches the mocked `order`.
                 self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
                 self.assertEqual(
                     [item["provider"] for item in router.events],
-                    ["gemini", "groq", "openrouter", "mistral"],
+                    ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
                 )
+                self.assertEqual(router.events[1]["reason"], "missing_api_key")
+                self.assertEqual(router.events[1]["wire_attempted"], False)
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
 
     def test_run243_mistral_planning_invalid_json_gets_one_bounded_same_provider_retry(self) -> None:
@@ -585,8 +590,8 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         self.assertTrue(any(ch.isalpha() for ch in result["alternate_query"]))
         self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
-            [item["reason"] for item in router.events[:3]],
-            ["http_503", "http_400", "http_429"],
+            [item["reason"] for item in router.events[:4]],
+            ["http_503", "missing_api_key", "http_400", "http_429"],
         )
         self.assertEqual(router.events[-1]["provider"], "mistral")
         self.assertEqual(router.events[-1]["result"], "success")
@@ -768,7 +773,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
             [item["provider"] for item in router.events],
-            ["gemini", "groq", "openrouter", "mistral"],
+            ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
         )
         self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
         sleep.assert_not_called()

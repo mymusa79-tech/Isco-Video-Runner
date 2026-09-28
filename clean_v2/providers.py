@@ -248,10 +248,29 @@ def _parse_json_object(raw: str, provider: str) -> dict[str, Any]:
 
 
 def _gemini_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
+    return _gemini_call_with_model(prompt, max_tokens, model=model, response_schema=response_schema)
+
+
+def _gemini_flash_lite_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    # gemini-3.1-flash-lite shares GEMINI_API_KEY's free tier with the primary
+    # gemini-3.7-flash model but carries a far higher daily request quota
+    # (~500/day vs. ~20/day), so it sits between "gemini" and "groq" as a
+    # same-family fallback that only fires once the primary model is exhausted.
+    model = str(os.environ.get("GEMINI_FLASH_LITE_CONTENT_MODEL") or "gemini-3.1-flash-lite").strip()
+    return _gemini_call_with_model(prompt, max_tokens, model=model, response_schema=response_schema)
+
+
+def _gemini_call_with_model(
+    prompt: str,
+    max_tokens: int,
+    *,
+    model: str,
+    response_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     key = _read_secret("GEMINI_API_KEY")
     if not key:
         raise NoWireFailure("missing_api_key")
-    model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
     if not model:
         raise NoWireFailure("missing_model")
     body = _post_json(
@@ -886,6 +905,7 @@ class ProviderAdapter:
 def default_adapters() -> tuple[ProviderAdapter, ...]:
     return (
         ProviderAdapter("gemini", _gemini_call),
+        ProviderAdapter("gemini_flash_lite", _gemini_flash_lite_call),
         ProviderAdapter("groq", _groq_stage_call, accepts_stage=True),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
