@@ -327,6 +327,14 @@ STAGES = (
 
 VOICE_CHUNK_MAX_CHARS = 5000
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
+# A ceiling, not a target: the script prompt already tells the model to stop
+# once the topic is genuinely answered, so a short topic still produces a
+# short script and spends far fewer tokens than this. Raised from 7500 so a
+# podcast episode using the prompt's own stated 10-30 minute editorial range
+# does not truncate near the top of that range: 30 minutes of Arabic
+# narration is roughly 13,000-15,000 output tokens once JSON section
+# metadata overhead is included, so this leaves real headroom above that.
+LONGFORM_SCRIPT_MAX_TOKENS = 18000
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
 _GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
 
@@ -5185,7 +5193,7 @@ class CleanV2Pipeline:
                             transitions=identity.get("transitions"),
                             identity_opener=str(identity.get("opener") or ""),
                         ),
-                        max_tokens=7500 if brief["format"] in {"film", "podcast"} else 2500,
+                        max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else 2500,
                         validator=lambda value: _validate_script_for_brief(
                             value,
                             plan,
