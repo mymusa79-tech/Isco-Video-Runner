@@ -3393,6 +3393,80 @@ def _locked_short_payoff_answer(visual_story: Mapping[str, Any] | None) -> str:
     return " ".join(str(thread.get("payoff_answer") or "").split()).strip()
 
 
+_PODCAST_DIALOGUE_TURN_RE = re.compile(r"(?<!\\S)([AB]):\\s+")
+
+
+def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
+    source = " ".join(str(narration or "").split()).strip()
+    for fixed in (PRAYER_SENTENCE, PODCAST_CHANNEL_DEFINITION):
+        source = " ".join(source.replace(fixed, " ").split()).strip()
+    matches = list(_PODCAST_DIALOGUE_TURN_RE.finditer(source))
+    if not matches:
+        return []
+    if source[: matches[0].start()].strip():
+        raise RuntimeError("podcast_listener_proxy_unlabelled_prefix")
+    turns: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        spoken = source[start:end].strip()
+        if not spoken:
+            raise RuntimeError("podcast_listener_proxy_empty_turn")
+        turns.append((match.group(1), spoken))
+    return turns
+
+
+def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[str, Any]:
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise RuntimeError("podcast_listener_proxy_requires_sections")
+    all_turns: list[tuple[str, str]] = []
+    for section in sections:
+        if not isinstance(section, Mapping):
+            raise RuntimeError("podcast_listener_proxy_section_invalid")
+        turns = _podcast_listener_proxy_turns(section.get("narration"))
+        if not turns:
+            raise RuntimeError("podcast_listener_proxy_requires_labelled_dialogue")
+        all_turns.extend(turns)
+
+    if not all_turns or all_turns[0][0] != "A":
+        raise RuntimeError("podcast_listener_proxy_hook_must_be_listener_A")
+    first_question = all_turns[0][1]
+    if "؟" not in first_question and "?" not in first_question:
+        raise RuntimeError("podcast_listener_proxy_hook_must_be_question")
+    if not any(speaker == "B" for speaker, _spoken in all_turns[1:]):
+        raise RuntimeError("podcast_listener_proxy_requires_charon_answer")
+
+    a_words = 0
+    b_words = 0
+    a_turns = 0
+    for speaker, spoken in all_turns:
+        words = len(spoken.split())
+        if speaker == "A":
+            a_turns += 1
+            a_words += words
+            if words > 18:
+                raise RuntimeError(
+                    f"podcast_listener_proxy_question_too_long words={words} maximum=18"
+                )
+        else:
+            b_words += words
+    total = a_words + b_words
+    if total and a_words / total > 0.35:
+        raise RuntimeError("podcast_listener_proxy_questioner_dominates_episode")
+
+    return {
+        "status": "pass",
+        "mode": "listener_proxy_qa",
+        "first_speaker": "A",
+        "questioner_turns": a_turns,
+        "questioner_words": a_words,
+        "answer_words": b_words,
+        "questioner_share": round(a_words / max(1, total), 4),
+        "voices": {"A": "Orus", "B": "Charon"},
+    }
+
+
 def _validate_script_for_brief(
     value: Any,
     plan: Mapping[str, Any],
@@ -3400,7 +3474,8 @@ def _validate_script_for_brief(
     visual_story: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
-    if str(brief.get("format") or "") == "short":
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
         # One deterministic owner repairs only certified local Short shapes, then
         # the unchanged strict validators decide acceptance for every provider.
         normalize_short_script_candidate(
@@ -3409,6 +3484,8 @@ def _validate_script_for_brief(
         )
         validate_short_hook_contract(script)
         validate_short_script(script)
+    elif fmt == "podcast":
+        _validate_podcast_listener_proxy_script(script)
     return script
 
 
@@ -3866,10 +3943,25 @@ make complete sense with the screen closed.
 The episode title must be specific to THIS episode and carry its real tension or promise; append
 " | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
 
-Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
-remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
-feeling, place, or observable action; never change imagery merely because a sentence ended. The
-visuals support the narration and must never carry information required to understand the episode.
+خارج النص has one fixed listener-proxy dialogue identity. The first spoken sentence MUST be A: and
+must be one short, concrete question the listener plausibly has in their own head. B: is the established
+Charon channel voice and carries the real explanation. A is sparse: use a short question, doubt, or
+objection only when it unlocks a genuinely new layer; never use A as a host, interviewer, co-presenter,
+or setup machine. Do not alternate A/B mechanically after every sentence. The runtime will insert the
+prayer and fixed خارج النص definition between the first A hook and B's first answer, so B's first words
+must pick up the SAME noun/tension from the hook naturally rather than restarting the topic.
+
+Keep the visual companion deliberately sparse and audio-first. For section 1, use TWO semantic beats:
+(1) the A-hook beat is a close/medium no-face unresolved detail, interrupted action, or visible consequence
+that makes the listener's question readable with sound off; (2) the first B-answer beat changes scale,
+context, action or state to reveal new information and begin answering it. Do NOT use microphones,
+podcast studios, two empty chairs, waveform graphics, or fake host/guest imagery just because the audio
+contains two voices. After the opening pair, default to ONE visual beat per section and add a second only
+for a genuine major change in meaning or observable state. Never cut merely because A speaks again.
+Question turns may stay over the current scene unless the question itself opens a new visual idea.
+Favor a recurring grammar of unresolved detail -> contextual reveal -> consequence -> earned release,
+with calm contained medium/wide compositions, tactile real environments, side light and breathing room.
+The visuals support the narration and must never carry information required to understand the episode.
 Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction, not
 as manufactured suspense. payoff_answer must resolve or deepen that question honestly, while the
 visual motif remains supportive and non-essential to a listener with the screen closed.
