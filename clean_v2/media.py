@@ -52,6 +52,53 @@ GEMINI38_INNER_RESOLVED_STYLE = (
     "Same exact Charon speaker and identity. Slightly clearer and steadier as the thought resolves, "
     "still private and conversational, never motivational-speaker delivery."
 )
+GEMINI38_LISTENER_PROXY_STYLE = (
+    "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
+    "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
+)
+GEMINI38_PODCAST_ANSWER_STYLE = (
+    "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
+    "simple-deep conversational delivery, unhurried but not sleepy, never announcer or lecture tone."
+)
+GEMINI38_PERFORMANCE_STYLES = {
+    "why_reframe": (
+        "Same Charon identity. Clear and lightly incisive: open the mistaken frame with controlled tension, "
+        "then become warmer and steadier as the useful reframe lands. Never salesy or preachy."
+    ),
+    "micro_story": (
+        "Same Charon identity. Natural story-bearing cadence with concrete forward motion and small pauses at real turns; "
+        "intimate and observant, never dramatic acting."
+    ),
+    "quote_reflection": (
+        "Same Charon identity. Measured and spacious with restrained emphasis around the approved quote and its meaning; "
+        "calm, clear and reflective without becoming sad or solemn."
+    ),
+    "direct_cinematic": (
+        "Same Charon identity. Grounded forward-moving narration: confident, warm and clear, with gradual lift toward the payoff."
+    ),
+    "question_answer": (
+        "Same Charon identity. Curious self-questioning followed by clear explanatory answers; vary question and answer cadence naturally, "
+        "never sound like an FAQ host."
+    ),
+    "problem_reveal_solution": (
+        "Same Charon identity. Focused and concrete: controlled concern on the problem, sharper clarity on the mechanism, "
+        "then practical calm on the resolution."
+    ),
+    "story_analysis": (
+        "Same Charon identity. Observational narrative warmth through the scene, then a slightly more analytical but still human tone "
+        "when extracting meaning; no documentary announcer delivery."
+    ),
+    "paradox": (
+        "Same Charon identity. Calm intellectual tension when holding two apparently conflicting ideas, then measured confidence as the contradiction resolves."
+    ),
+    "hypothesis_test": (
+        "Same Charon identity. Curious and evidence-minded, lightly provisional during the test and measured at the conclusion; "
+        "never overstate certainty."
+    ),
+    "connected_list": (
+        "Same Charon identity. Clear cumulative momentum where each reason or step adds weight; avoid numbered-list cadence or punchy listicle delivery."
+    ),
+}
 
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
 
@@ -257,6 +304,7 @@ def _gemini38_synthesize(
 
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
+        listener_proxy = str(performance_mode or "") == "podcast_listener_proxy_qa"
         content: list[dict[str, Any]] = []
         for speaker, spoken in turns:
             content.append(
@@ -268,9 +316,9 @@ def _gemini38_synthesize(
                             "type": "speech_metadata",
                             "speaker": speaker,
                             "style": (
-                                GEMINI38_QUESTIONER_STYLE
+                                (GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
                                 if speaker == "A"
-                                else GEMINI38_NARRATOR_STYLE
+                                else (GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
                             ),
                         }
                     ],
@@ -313,6 +361,10 @@ def _gemini38_synthesize(
                     }
                 )
         else:
+            resolved_style = GEMINI38_PERFORMANCE_STYLES.get(
+                str(performance_mode or ""),
+                GEMINI38_NARRATOR_STYLE,
+            )
             content = [
                 {
                     "type": "text",
@@ -320,7 +372,7 @@ def _gemini38_synthesize(
                     "annotations": [
                         {
                             "type": "speech_metadata",
-                            "style": GEMINI38_NARRATOR_STYLE,
+                            "style": resolved_style,
                         }
                     ],
                 }
