@@ -92,12 +92,13 @@ def _dialogue_candidates(value: object, *, max_words: int) -> dict[str, list[str
 
 
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
-    """Select only complete authored sentences; never manufacture display fragments."""
+    """Select complete display sentences without exposing internal A:/B: labels."""
     candidates: list[str] = []
     for sentence in _sentences(value):
-        words = len(sentence.split())
+        display = re.sub(r"^[AB]:\s*", "", sentence, flags=re.I).strip()
+        words = len(display.split())
         if 3 <= words <= max_words:
-            candidates.append(sentence)
+            candidates.append(display)
     return candidates
 
 
