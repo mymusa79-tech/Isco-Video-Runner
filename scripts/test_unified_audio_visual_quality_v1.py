@@ -112,6 +112,13 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
             self.assertTrue(dialogue)
             self.assertTrue(all(line.count(r"\N") <= 1 for line in dialogue))
 
+    def test_podcast_sparse_key_text_never_exposes_internal_speaker_labels(self) -> None:
+        candidates = podcast_key_text._compact_candidates(
+            "A: لماذا لا أبدأ رغم أنني أعرف ما أريد؟ B: لأن أول خطوة ما زالت أكبر من اللازم."
+        )
+        self.assertTrue(candidates)
+        self.assertTrue(all(not item.startswith(("A:", "B:")) for item in candidates))
+
     def test_real_stock_motion_never_restarts_or_gets_back_and_forth_fx(self) -> None:
         trim_source = inspect.getsource(media._trim_and_grade_clip)
         body_source = inspect.getsource(media._build_section_body_segments)
