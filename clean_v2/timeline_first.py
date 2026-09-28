@@ -264,7 +264,7 @@ def _identity_events(
                 "end": float(hook["end"]),
             }
         )
-    if post_hook_silence is not None:
+    if fmt == "podcast" and post_hook_silence is not None:
         events.append(
             {
                 "kind": "post_hook_silence",
