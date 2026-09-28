@@ -34,7 +34,13 @@ from clean_v2.media import (
     StockVisualSource,
     VoiceInfrastructureError,
 )
-from clean_v2.providers import ProviderAdapter, ProviderRouter, _provider_prompt, _safe_validator_reason
+from clean_v2.providers import (
+    ProviderAdapter,
+    ProviderRouter,
+    ProviderWireFailure,
+    _provider_prompt,
+    _safe_validator_reason,
+)
 from clean_v2.audio_mastering import GEMINI_CORRECTIVE_FILTER, GEMINI_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
@@ -82,6 +88,7 @@ from clean_v2.short_voice_owned_timeline import (
 from clean_v2.short_format import (
     SHORT_HEIGHT,
     SHORT_HOOK_MAX_WORDS,
+    SHORT_HOOK_RESCUE_MAX_WORDS,
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     SHORT_SECTION_COUNT,
     SHORT_WIDTH,
@@ -861,7 +868,7 @@ class ShortContractTests(unittest.TestCase):
             [("mistral", "success")],
         )
 
-    def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
+    def test_provider_router_rejects_hook_above_rescue_ceiling(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
         overlong = {
@@ -869,7 +876,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {
                     "id": "s1",
-                    "narration": "هذا هوك طويل جدًا لأنه يشرح الفكرة بتفاصيل كثيرة لا نحتاجها الآن ويواصل الكلام حتى يتجاوز الحد الصلب بوضوح.",
+                    "narration": "هذا هوك طويل جدًا لأنه يشرح الفكرة بتفاصيل كثيرة لا نحتاجها الآن ويواصل الكلام حتى يتجاوز الحد الصلب بوضوح من دون حاجة فعلية.",
                 },
                 {
                     "id": "s2",
@@ -919,8 +926,93 @@ class ShortContractTests(unittest.TestCase):
         )
         self.assertIn("shortformaterror", str(router.events[0]["reason"]))
         self.assertEqual(SHORT_HOOK_MAX_WORDS, 18)
+        self.assertEqual(SHORT_HOOK_RESCUE_MAX_WORDS, 20)
         with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
             validate_short_hook_contract(overlong)
+
+    def test_provider_outage_family_accepts_19_word_mistral_hook_as_last_resort(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك وتستمر في التأجيل دون فهم ما يمنعك الآن.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "أحيانًا يصبح انتظار الشعور المناسب هو ما يؤخر أول حركة بسيطة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+
+        def fail(reason: str, status: int):
+            def call(_prompt, _tokens):
+                raise ProviderWireFailure(reason, http_status=status)
+            return call
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", fail("http_503", 503)),
+                ProviderAdapter("groq", fail("http_429", 429)),
+                ProviderAdapter("openrouter", lambda _prompt, _tokens: candidate),
+                ProviderAdapter("mistral", lambda _prompt, _tokens: candidate),
+            )
+        )
+        router._rate_limited_for_run.add("openrouter")
+        accepted = router.route(
+            stage="script",
+            prompt=_script_prompt(brief, plan),
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        report = validate_short_hook_contract(accepted)
+        self.assertEqual(report["hook_words"], 19)
+        self.assertTrue(report["rescue_headroom_used"])
+        self.assertEqual(report["editorial_maximum_words"], 18)
+        self.assertEqual(report["rescue_maximum_words"], 20)
+        self.assertEqual(
+            [(event["provider"], event["result"]) for event in router.events],
+            [
+                ("gemini", "failed"),
+                ("groq", "failed"),
+                ("openrouter", "unavailable"),
+                ("mistral", "success"),
+            ],
+        )
+
+    def test_short_hook_rescue_headroom_accepts_20_words_without_safe_boundary(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        value = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك وتستمر في التأجيل دون فهم ما يمنعك الآن فعلًا.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "أحيانًا يصبح انتظار الشعور المناسب هو ما يؤخر أول حركة بسيطة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+
+        accepted = _validate_script_for_brief(value, plan, brief)
+        report = validate_short_hook_contract(accepted)
+        self.assertEqual(report["hook_words"], 20)
+        self.assertTrue(report["rescue_headroom_used"])
+        self.assertEqual(report["rescue_maximum_words"], 20)
 
     def test_small_hook_overrun_trims_only_at_safe_boundary(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -975,7 +1067,7 @@ class ShortContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ShortFormatError,
-            r"short_hook_too_long words=22 maximum=18",
+            r"short_hook_too_long words=22 maximum=20",
         ):
             _validate_script_for_brief(value, plan, brief)
 
