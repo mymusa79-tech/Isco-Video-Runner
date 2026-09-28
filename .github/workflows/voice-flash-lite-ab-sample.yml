@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Generate Charon/Orus samples on both TTS models
+      - name: Generate alternate-voice samples on gemini-3.8-flash-lite-tts
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -29,14 +29,22 @@ jobs:
           import wave
 
           API_KEY = os.environ["GEMINI_API_KEY"]
-          MODELS = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]
+          MODEL = "gemini-3.8-flash-lite-tts"
+          # Candidate replacements for the primary/Charon role on the lite
+          # model only - Orus stays fixed as the questioner for a like-for-like
+          # comparison. Characteristics per Google's own voice list:
+          #   Umbriel: easy-going and calm
+          #   Iapetus: clear and articulate
+          #   Schedar: even and balanced
+          #   Algenib: gravelly texture
+          CANDIDATE_VOICES = ["Umbriel", "Iapetus", "Schedar", "Algenib"]
 
           QUESTIONER_STYLE = (
               "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
               "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
           )
           ANSWER_STYLE = (
-              "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
+              "Same established channel voice. Calm, close and thoughtful, answering one listener directly; "
               "simple-deep conversational delivery, unhurried but not sleepy, never announcer or lecture tone."
           )
           QUESTION = "ليش أرجع لنفس النقطة كل مرة رغم إني أعرف الحل؟"
@@ -61,17 +69,17 @@ jobs:
                   ],
               },
           ]
-          speech_config = {
-              "mode": "conversational",
-              "speakers": [
-                  {"speaker": "A", "voice": "Orus"},
-                  {"speaker": "B", "voice": "Charon"},
-              ],
-          }
 
-          for model in MODELS:
+          for voice in CANDIDATE_VOICES:
+              speech_config = {
+                  "mode": "conversational",
+                  "speakers": [
+                      {"speaker": "A", "voice": "Orus"},
+                      {"speaker": "B", "voice": voice},
+                  ],
+              }
               payload = {
-                  "model": model,
+                  "model": MODEL,
                   "input": [{"type": "user_input", "content": content}],
                   "response_format": {"type": "audio"},
                   "generation_config": {"speech_config": speech_config},
@@ -90,7 +98,7 @@ jobs:
                   with urllib.request.urlopen(request, timeout=180) as response:
                       body = response.read(64 * 1024 * 1024)
               except urllib.error.HTTPError as exc:
-                  print(f"{model}: HTTP {exc.code} - {exc.read().decode('utf-8', 'replace')}")
+                  print(f"{voice}: HTTP {exc.code} - {exc.read().decode('utf-8', 'replace')}")
                   continue
 
               decoded = json.loads(body.decode("utf-8"))
@@ -103,16 +111,16 @@ jobs:
                   if encoded:
                       break
               if not encoded:
-                  print(f"{model}: no audio payload returned")
+                  print(f"{voice}: no audio payload returned")
                   continue
 
               audio = base64.b64decode(encoded, validate=True)
-              out_name = f"sample-{model}.wav"
+              out_name = f"sample-lite-{voice}.wav"
               with open(out_name, "wb") as fh:
                   fh.write(audio)
               with wave.open(out_name, "rb") as wav:
                   duration = wav.getnframes() / float(wav.getframerate())
-              print(f"{model}: wrote {out_name} ({len(audio)} bytes, {duration:.1f}s)")
+              print(f"{voice}: wrote {out_name} ({len(audio)} bytes, {duration:.1f}s)")
           PY
 
       - name: Upload samples
