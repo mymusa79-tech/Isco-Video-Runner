@@ -3001,7 +3001,9 @@ def render_video(
 
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
         for path in opening_paths_for_render:
-            command.extend(["-stream_loop", "-1", "-i", str(path)])
+            # Opening Director must obey the same one-pass stock rule as the body.
+            # Never restart a short source from frame zero to fill an opening slot.
+            command.extend(["-i", str(path)])
         for segment in body_segments:
             command.extend(["-i", str(segment)])
         command.extend(["-i", str(narration_path)])
@@ -3021,6 +3023,10 @@ def render_video(
             )
             if grade:
                 vf = f"{vf},{grade}"
+            source_seconds = max(0.01, probe_duration(opening_path))
+            hold_seconds = max(0.0, float(clip_seconds) - source_seconds)
+            if hold_seconds > 0.01:
+                vf = f"{vf},tpad=stop_mode=clone:stop_duration={hold_seconds:.3f}"
             vf = f"{vf},trim=duration={clip_seconds:.3f},setpts=PTS-STARTPTS"
             filters.append(f"[{input_index}:v]{vf}[{label}]")
             input_index += 1
