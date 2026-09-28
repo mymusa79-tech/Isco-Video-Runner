@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
 from .identity_sequence import (
+    PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
@@ -3448,6 +3449,25 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     return report
 
 
+def _podcast_fixed_identity(output_dir: Path) -> dict[str, Any]:
+    """Keep خارج النص recognisable without spending a provider call on identity copy."""
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-podcast-fixed-identity",
+        "status": "pass",
+        "reason": "listener_proxy_house_identity",
+        "canonical_opener": PODCAST_CHANNEL_DEFINITION,
+        "canonical_closer": "",
+        "opener": PODCAST_CHANNEL_DEFINITION,
+        "closer": "",
+        "prayer_sentence": PRAYER_SENTENCE,
+        "transitions": [],
+        "provider_calls_added": 0,
+    }
+    atomic_write_json(output_dir / "narrative-identity.json", report)
+    return report
+
+
 def _run_short_duration_gate(
     *,
     output_dir: Path,
@@ -4909,6 +4929,11 @@ class CleanV2Pipeline:
                     identity = journal.run(
                         IDENTITY_STAGE,
                         lambda: _short_identity_not_applicable(output_dir),
+                    )
+                elif str(brief["format"]) == "podcast":
+                    identity = journal.run(
+                        IDENTITY_STAGE,
+                        lambda: _podcast_fixed_identity(output_dir),
                     )
                 else:
                     identity = journal.run(
