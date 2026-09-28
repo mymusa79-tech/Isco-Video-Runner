@@ -326,6 +326,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 "identity_events": [
                     {"kind": "intro", "start": 2.0, "end": 3.45},
                     {"kind": "prayer", "start": 3.45, "end": 5.2},
+                    {"kind": "channel_identity", "start": 5.2, "end": 6.4},
                     {"kind": "outro", "start": 10.0, "end": 11.0},
                     {"kind": "final_silence", "start": 11.0, "end": 12.0},
                 ],
