@@ -2535,8 +2535,9 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
-- All host-owned locks other than an explicitly hook_quality-flagged hook remain exact; spend
-  repair effort only on the listed tone/naturalness defects, not on unrelated anchors.
+- All host-owned locks remain exact except the hook itself in the specific case where the hook
+  lock rule above allows replacing it; spend repair effort only on the listed tone/naturalness
+  defects, not on unrelated anchors.
 - Preserve all approved factual claims and their research boundaries. Do not add, remove,
   strengthen, quantify, or invent claims, studies, experts, quotations, diagnoses, or authority.
 - Tone repair is NOT permission to explain the science again. Never introduce a concrete study
