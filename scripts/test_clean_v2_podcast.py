@@ -8,7 +8,7 @@ from unittest import mock
 
 from clean_v2.contracts import ContractError, SUPPORTED_FORMATS, validate_plan
 from clean_v2.identity_sequence import (
-    LONG_CHANNEL_DEFINITION,
+    PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     assert_spoken_identity,
     inject_spoken_identity,
@@ -199,7 +199,7 @@ class PodcastFormatTests(unittest.TestCase):
         inject_spoken_identity(sections, fmt="podcast", closer=closer)
         joined = "\n".join(item["narration"] for item in sections)
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(joined.count(LONG_CHANNEL_DEFINITION), 1)
+        self.assertEqual(joined.count(PODCAST_CHANNEL_DEFINITION), 1)
         self.assertTrue(sections[-1]["narration"].endswith(closer))
         assert_spoken_identity(sections, fmt="podcast", closer=closer)
 
@@ -368,6 +368,39 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertNotIn("Style: Extrusion", ass)
         self.assertNotIn("&H005BA8D7", ass)
         self.assertNotIn("drawbox", ass)
+
+    def test_listener_proxy_key_text_prefers_a_questions_and_hides_labels(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ B: لأن المعرفة وحدها لا تغيّر نمط الفعل.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "A: طيب، فما الذي يتغير أولًا؟ B: يتغير أولًا ردك الصغير في اللحظة نفسها.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "B: حين يتغير ردك، يبدأ السلوك كله بالتحرك.",
+                },
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 10.0},
+                {"section_id": "s2", "start": 10.0, "end": 20.0},
+                {"section_id": "s3", "start": 20.0, "end": 30.0},
+            ],
+        }
+        events = build_podcast_key_text_events(script=script, timeline=timeline)
+        self.assertEqual(events[0]["text"], "لماذا أعرف ما يجب فعله ولا أتحرك؟")
+        self.assertEqual(events[1]["text"], "طيب، فما الذي يتغير أولًا؟")
+        self.assertEqual(events[-1]["text"], "حين يتغير ردك، يبدأ السلوك كله بالتحرك.")
+        ass = build_podcast_key_text_ass(events)
+        self.assertNotIn("A:", ass)
+        self.assertNotIn("B:", ass)
 
     def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:
         script = {
