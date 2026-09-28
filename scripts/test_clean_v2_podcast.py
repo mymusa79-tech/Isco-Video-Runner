@@ -193,7 +193,7 @@ class PodcastFormatTests(unittest.TestCase):
             self.assertIn("minimal diacritics", repair_prompt)
             self.assertIn("comfortable to say in one breath", repair_prompt)
 
-    def test_podcast_reuses_long_identity_without_a_new_identity_system(self) -> None:
+    def test_podcast_uses_v8_visual_branding_without_repeating_brand_in_speech(self) -> None:
         sections = [
             {"id": "s1", "narration": "لماذا نعود إلى ما قررنا تركه؟ نبدأ من وظيفة السلوك نفسه."},
             {"id": "s2", "narration": "عندما نفهم الوظيفة يصبح التغيير أوضح."},
@@ -202,7 +202,7 @@ class PodcastFormatTests(unittest.TestCase):
         inject_spoken_identity(sections, fmt="podcast", closer=closer)
         joined = "\n".join(item["narration"] for item in sections)
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(joined.count(PODCAST_CHANNEL_DEFINITION), 1)
+        self.assertEqual(joined.count(PODCAST_CHANNEL_DEFINITION), 0)
         self.assertTrue(sections[-1]["narration"].endswith(closer))
         assert_spoken_identity(sections, fmt="podcast", closer=closer)
 
