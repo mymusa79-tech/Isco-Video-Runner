@@ -2183,6 +2183,19 @@ def _validate_and_apply_script_patches(
                     # Hook-quality repair is deliberately narrow: one replacement of
                     # the complete first spoken sentence, then the normal full audit
                     # reruns. No other locked anchor is opened.
+                    #
+                    # Known fragility (Run #135, pre-dates PR #963/#964, still open):
+                    # this is a single bounded rescue attempt for a genuine hook
+                    # defect, and every check below (exact original-hook match,
+                    # <=220 chars, exactly one sentence) must pass in one shot. By
+                    # the time this path runs, Mistral is typically the only
+                    # provider left, and a plausible rewrite that drifts from this
+                    # strict shape (e.g. two sentences, a trailing space, a stray
+                    # character) is rejected outright with no second try, collapsing
+                    # an otherwise-legitimate repair. Needs a real design (e.g. a
+                    # bounded local reformat of an otherwise-valid rewrite before
+                    # rejecting it, the same spirit as safe_word_boundary_trim for
+                    # Short/Podcast) rather than an immediate fix here.
                     replacement_hook = " ".join(replace.split()).strip()
                     if (
                         hook_quality_fix_used
