@@ -3434,8 +3434,13 @@ def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[s
     first_question = all_turns[0][1]
     if "؟" not in first_question and "?" not in first_question:
         raise RuntimeError("podcast_listener_proxy_hook_must_be_question")
-    if not any(speaker == "B" for speaker, _spoken in all_turns[1:]):
-        raise RuntimeError("podcast_listener_proxy_requires_charon_answer")
+    if len(all_turns) < 2 or all_turns[1][0] != "B":
+        raise RuntimeError("podcast_listener_proxy_hook_requires_immediate_charon_answer")
+    for index, (speaker, _spoken) in enumerate(all_turns):
+        if speaker == "A" and (
+            index + 1 >= len(all_turns) or all_turns[index + 1][0] != "B"
+        ):
+            raise RuntimeError("podcast_listener_proxy_question_requires_immediate_answer")
 
     a_words = 0
     b_words = 0
