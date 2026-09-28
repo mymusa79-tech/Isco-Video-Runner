@@ -39,14 +39,20 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                     path = root / f"{name}.asset"
                     path.write_bytes(b"A" * 2048)
                     assets[name] = path
+                identity_events = [
+                    {"kind": "intro", "start": 2.0, "end": 3.0},
+                    {"kind": "prayer", "start": 3.0, "end": 4.5},
+                    {"kind": "outro", "start": 10.0, "end": 11.25},
+                    {"kind": "final_silence", "start": 11.25, "end": 12.0},
+                ]
+                if fmt == "podcast":
+                    identity_events.insert(
+                        2,
+                        {"kind": "channel_identity", "start": 4.5, "end": 5.5},
+                    )
                 timeline = {
                     "voice_seconds_measured": 12.0,
-                    "identity_events": [
-                        {"kind": "intro", "start": 2.0, "end": 3.0},
-                        {"kind": "prayer", "start": 3.0, "end": 4.5},
-                        {"kind": "outro", "start": 10.0, "end": 11.25},
-                        {"kind": "final_silence", "start": 11.25, "end": 12.0},
-                    ],
+                    "identity_events": identity_events,
                 }
                 with mock.patch(
                     "clean_v2.timeline_render.identity_asset_paths", return_value=assets
