@@ -645,26 +645,26 @@ def contextual_intent(
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
         "current beat",
-        28,
+        20,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        16,
+        14,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        16,
+        14,
     )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific",
-        12,
+        10,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
@@ -678,15 +678,15 @@ def contextual_intent(
     )
     priority_rule = ""
     if role == "hook":
-        priority_rule = "Hook must show an unresolved observable tension; not generic activity/prop. "
+        priority_rule = "Hook: unresolved visible tension; not generic prop. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat: adjacent same-family fails unless changed-state motif. "
+        priority_rule = "Repeat family fails unless changed-state motif. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     head = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
         f"{priority_rule}"
-        f"Current:{current}. Prev:{previous}. Next:{following}. "
-        f"Meaning:{meaning}. Must show:{must_have}. Avoid:{should_avoid}."
+        f"Current: {current}. Previous: {previous}. Next: {following}. "
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}."
     )
     head_limit = max(0, 300 - len(tail))
     return head[:head_limit].rstrip() + tail
