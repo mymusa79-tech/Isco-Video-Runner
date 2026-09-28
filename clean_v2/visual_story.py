@@ -640,57 +640,52 @@ def contextual_intent(
         else ""
     )
 
-    # Concrete neighboring actions are the primary continuity evidence. Keep the
-    # family metadata compact so it cannot crowd these details out of 300 chars.
+    # Keep all legacy context labels plus the new hook/family rule inside the
+    # existing 300-char provider contract. These labels are compatibility surface.
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
         "current beat",
-        24,
+        18,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        22,
+        16,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        22,
+        16,
     )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
-        "specific visible meaning",
-        16,
+        "specific",
+        12,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
         "concrete",
-        12,
+        10,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
         "generic",
-        10,
+        8,
     )
-    priority_rules: list[str] = []
+    priority_rule = ""
     if role == "hook":
-        priority_rules.append(
-            "Hook must show an unresolved observable tension/consequence, not generic activity/prop."
-        )
-    if current_family and current_family == previous_family:
-        priority_rules.append(
-            "Adjacent same-family repetition fails unless a changed-state hook/payoff motif."
-        )
-    rule_text = " ".join(priority_rules)
+        priority_rule = "Hook must show an unresolved observable tension; not generic activity/prop. "
+    elif current_family and current_family == previous_family:
+        priority_rule = "Repeat: adjacent same-family fails unless changed-state motif. "
     context = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
-        f"{rule_text} "
-        f"Current:{current}. Next:{following}. Meaning:{meaning}. "
-        f"Must:{must_have}. Avoid:{should_avoid}. "
-        "Judge specific meaning before mood; preserve hook-to-payoff continuity."
+        f"{priority_rule}"
+        f"Current: {current}. Previous: {previous}. Next: {following}. "
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        "Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     )
     return context[:300].rstrip()
