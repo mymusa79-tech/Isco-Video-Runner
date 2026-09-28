@@ -134,6 +134,26 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("hook_body_continuity=true", film_script)
         self.assertIn("payoff_resolves_hook=true", film_script)
 
+    def test_podcast_prompt_states_the_exact_18_word_a_turn_cap(self) -> None:
+        # Run #26 failed with "podcast_listener_proxy_question_too_long words=20
+        # maximum=18" - the validator's hard cap was never actually stated as a
+        # number anywhere in the prompt ("keep A concise", "12-24 Arabic words"
+        # for the hook, "short" for every other turn), so a provider had no way
+        # to know the real limit it would be judged against.
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        script = _script_prompt(brief, self._plan(3))
+        self.assertIn("18 Arabic words", script)
+        self.assertIn("Every single A turn", script)
+
+        film_script = _script_prompt({**brief, "format": "film"}, self._plan(5))
+        self.assertNotIn("18 Arabic words", film_script)
+
     def test_podcast_tone_repair_prompt_requires_forward_reasoning_without_broadening_other_formats(self) -> None:
         podcast_brief = {
             "approved_by_user": True,
