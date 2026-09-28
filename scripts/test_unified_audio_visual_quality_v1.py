@@ -115,7 +115,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         body_source = inspect.getsource(media._build_section_body_segments)
         self.assertNotIn("-stream_loop", trim_source)
         self.assertIn("tpad=stop_mode=clone", trim_source)
-        self.assertIn("motion_mode=None", body_source)
+        self.assertNotIn("motion_mode=", body_source)
         self.assertNotIn('("push", "pan", "pull")', body_source)
 
     def test_cover_studio_uses_pinned_cairo_bold_black(self) -> None:
