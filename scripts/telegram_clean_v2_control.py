@@ -571,7 +571,7 @@ def _scope_research_instruction(scope: str) -> str:
             "اختر أفكارًا لبرنامج «خارج النص» تناسب هويته الثابتة كحوار listener-proxy: "
             "لكل فكرة سؤال مركزي حقيقي يستطيع المستمع A أن يقوله بجملة قصيرة وطبيعية، "
             "ويملك صوت القناة B إجابة متدرجة تكشف السبب أو المفارقة أو الطبقة الخفية مباشرة ثم تتعمق دون حشو. "
-            "يجب أن يوجد فرق واضح بين ما يفهمه المستمع في البداية وما يفهمه في النهاية، وأن تكون الفكرة قابلة للبحث "
+            "يجب أن يتغير فهم المستمع بوضوح بين البداية والنهاية، وأن تكون الفكرة قابلة للبحث "
             "وليست مجرد موضوع عام أو قائمة نصائح أو تحفيزًا عامًا. تجنب أسلوب المضيف/الضيف، المقابلات المصطنعة، "
             "العناوين من نوع «5 طرق»، والتناوب الآلي بين السؤال والجواب. يجب أن تستحق الفكرة حلقة كاملة وأن تعمل صوتيًا وحدها."
         )
@@ -1503,8 +1503,8 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "language": "ar",
         "audience": "Arabic-speaking adults",
         "editorial_intent": (
-            "برنامج خارج النص: حوار listener-proxy ثابت بالعربية الفصحى الطبيعية. A بصوت Orus يمثل المستمع "
-            "بسؤال أو اعتراض قصير ومحدد عند الحاجة فقط، وB بصوت Charon هو صوت القناة ويحمل الشرح الأساسي. "
+            "برنامج خارج النص: حوار listener-proxy ثابت بالعربية الفصحى الطبيعية وبصوت القناة الثابت، يبدو كحوارًا حقيقيًا مع مستمع واحد. "
+            "A بصوت Orus يمثل ذلك المستمع بسؤال أو اعتراض قصير ومحدد عند الحاجة فقط، وB بصوت Charon هو صوت القناة ويحمل الشرح الأساسي. "
             "يبدأ الموضوع بسؤال مركزي حقيقي، ثم يجيب B على نفس التوتر مباشرة بعد هوية البرنامج ويتقدم طبقة بعد طبقة "
             "حتى يتغير فهم المستمع. لا مضيف/ضيف، لا مجاملات، لا تناوب آلي، لا قائمة نصائح، ولا محاضرة؛ "
             "الحلقة يجب أن تبقى مفهومة وممتعة صوتيًا دون الصورة."
@@ -1521,7 +1521,7 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
                 [
                     "Outside Text uses fixed listener-proxy dialogue: Orus is A (the sparse listener question/objection) and Charon is B (the channel voice carrying the answer).",
                     "Every A turn must unlock a genuinely new layer and receive an immediate B answer; never use A as a host, interviewer, or filler speaker.",
-                    "Outside Text must not become a monologue, host/guest interview, lecture, or numbered-list episode, and must never invent first-person experiences.",
+                    "Outside Text must stay conversational and simple-deep; it must not become a monologue, host/guest interview, lecture, or numbered-list episode, and must never invent first-person experiences.",
                     "Selected visuals must remain modest and respectful for a broad Arab/Muslim audience.",
                 ]
                 if fmt == "podcast"
