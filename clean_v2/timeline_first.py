@@ -219,7 +219,6 @@ def _identity_events(
             hook is None
             or prayer is None
             or identity is None
-            or post_hook_silence is None
             or intro_silence is None
             or post_prayer_silence is None
             or pre_topic_silence is None
