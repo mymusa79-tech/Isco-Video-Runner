@@ -1577,7 +1577,15 @@ class _FakeVoice:
         self.last_provider = "gemini-3.8:Charon"
         self.fallback_used = False
 
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
+    def synthesize(
+        self,
+        transcript: str,
+        output_path: Path,
+        *,
+        primary_only: bool = False,
+        performance_mode: str = "",
+    ) -> Path:
+        del primary_only, performance_mode
         self.calls += 1
         if not transcript.strip():
             raise RuntimeError("empty fixture transcript")
