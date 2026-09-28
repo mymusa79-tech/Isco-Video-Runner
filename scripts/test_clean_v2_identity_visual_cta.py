@@ -86,10 +86,10 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         assert_spoken_identity(sections, fmt="podcast", opener="ignored dynamic opener")
 
         timing = identity_timing_profile("podcast")
-        self.assertEqual(timing["post_hook_silence_seconds"], 0.45)
-        self.assertEqual(timing["intro_silence_seconds"], 1.25)
-        self.assertEqual(timing["post_prayer_silence_seconds"], 0.25)
-        self.assertEqual(timing["pre_topic_silence_seconds"], 0.35)
+        self.assertEqual(timing["post_hook_silence_seconds"], 0.75)
+        self.assertEqual(timing["intro_silence_seconds"], 1.45)
+        self.assertEqual(timing["post_prayer_silence_seconds"], 0.35)
+        self.assertEqual(timing["pre_topic_silence_seconds"], 0.45)
 
     def test_podcast_identity_card_returns_during_measured_definition_only(self) -> None:
         source = inspect.getsource(timeline_render.render_identity_composition)
