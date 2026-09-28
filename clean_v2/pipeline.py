@@ -4441,7 +4441,7 @@ def _script_prompt(
     identity_handoff = (
         SHORT_CHANNEL_DEFINITION
         if fmt == "short"
-        else " ".join(str(identity_opener or "").split()).strip()
+        else channel_definition(fmt, identity_opener)
     )
     identity_handoff_guidance = ""
     if identity_handoff:
