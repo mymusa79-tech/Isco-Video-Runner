@@ -394,6 +394,137 @@ class ProviderCapacityMemoryTests(unittest.TestCase):
         self.assertFalse(cached[0]["wire_attempted"])
 
 
+class GeminiFlashLiteFallbackTests(unittest.TestCase):
+    def test_flash_lite_sits_between_gemini_and_groq(self) -> None:
+        names = [adapter.name for adapter in providers_module.default_adapters()]
+        self.assertEqual(
+            names,
+            ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
+        )
+
+    def test_gemini_quota_exhaustion_falls_through_to_flash_lite_before_groq(self) -> None:
+        calls: list[str] = []
+
+        def gemini_rate_limited(_prompt, _tokens, **_kwargs):
+            calls.append("gemini")
+            raise ProviderWireFailure("http_429", http_status=429, retry_after_seconds=None)
+
+        def flash_lite_succeeds(_prompt, _tokens, **_kwargs):
+            calls.append("gemini_flash_lite")
+            return {"ok": True}
+
+        def groq_should_not_run(_prompt, _tokens, stage):
+            calls.append("groq")
+            raise AssertionError("groq must not be reached when flash-lite succeeds")
+
+        with (
+            mock.patch.object(providers_module, "_gemini_call", side_effect=gemini_rate_limited),
+            mock.patch.object(
+                providers_module, "_gemini_flash_lite_call", side_effect=flash_lite_succeeds
+            ),
+            mock.patch.object(providers_module, "_groq_stage_call", side_effect=groq_should_not_run),
+        ):
+            router = ProviderRouter(providers_module.default_adapters())
+            result = router.route(
+                stage="script",
+                prompt="prompt",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls, ["gemini", "gemini_flash_lite"])
+
+    def test_flash_lite_is_never_called_when_gemini_succeeds(self) -> None:
+        def gemini_succeeds(_prompt, _tokens, **_kwargs):
+            return {"ok": True}
+
+        def flash_lite_should_not_run(_prompt, _tokens, **_kwargs):
+            raise AssertionError("gemini_flash_lite must not run when gemini succeeds")
+
+        with (
+            mock.patch.object(providers_module, "_gemini_call", side_effect=gemini_succeeds),
+            mock.patch.object(
+                providers_module,
+                "_gemini_flash_lite_call",
+                side_effect=flash_lite_should_not_run,
+            ),
+        ):
+            router = ProviderRouter(providers_module.default_adapters())
+            result = router.route(
+                stage="script",
+                prompt="prompt",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, {"ok": True})
+
+    def test_flash_lite_reuses_gemini_api_key_and_defaults_to_the_lite_model(self) -> None:
+        captured: dict[str, object] = {}
+
+        def post_json(url, *, headers, payload, timeout):
+            captured["url"] = url
+            captured["headers"] = headers
+            return {
+                "candidates": [
+                    {"content": {"parts": [{"text": "{\"ok\": true}"}]}, "finishReason": "STOP"}
+                ]
+            }
+
+        with (
+            mock.patch.object(providers_module, "_read_secret", return_value="gem-key"),
+            mock.patch.object(providers_module, "_post_json", side_effect=post_json),
+            mock.patch.dict(os.environ, {}, clear=False),
+        ):
+            os.environ.pop("GEMINI_FLASH_LITE_CONTENT_MODEL", None)
+            result = providers_module._gemini_flash_lite_call("prompt", 100)
+
+        self.assertEqual(result, {"ok": True})
+        self.assertIn("gemini-3.1-flash-lite", captured["url"])
+        self.assertEqual(captured["headers"], {"x-goog-api-key": "gem-key"})
+
+    def test_flash_lite_rate_limit_is_cached_independently_from_primary_gemini(self) -> None:
+        calls = {"gemini": 0, "gemini_flash_lite": 0, "groq": 0}
+
+        def gemini_rate_limited(_prompt, _tokens, **_kwargs):
+            calls["gemini"] += 1
+            raise ProviderWireFailure("http_429", http_status=429, retry_after_seconds=None)
+
+        def flash_lite_rate_limited(_prompt, _tokens, **_kwargs):
+            calls["gemini_flash_lite"] += 1
+            raise ProviderWireFailure("http_429", http_status=429, retry_after_seconds=None)
+
+        def groq_succeeds(_prompt, _tokens, stage):
+            calls["groq"] += 1
+            return {"ok": True}
+
+        with (
+            mock.patch.object(providers_module, "_gemini_call", side_effect=gemini_rate_limited),
+            mock.patch.object(
+                providers_module, "_gemini_flash_lite_call", side_effect=flash_lite_rate_limited
+            ),
+            mock.patch.object(providers_module, "_groq_stage_call", side_effect=groq_succeeds),
+        ):
+            router = ProviderRouter(providers_module.default_adapters())
+            router.route(
+                stage="planning",
+                prompt="planning",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+            router.route(
+                stage="script",
+                prompt="script",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(calls, {"gemini": 1, "gemini_flash_lite": 1, "groq": 2})
+        self.assertIn("gemini", router._rate_limited_for_run)
+        self.assertIn("gemini_flash_lite", router._rate_limited_for_run)
+
+
 class GroqJsonModeContractTests(unittest.TestCase):
     def test_gptoss_json_mode_hides_reasoning(self) -> None:
         captured: dict[str, object] = {}
