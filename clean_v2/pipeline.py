@@ -23,6 +23,7 @@ from .identity_sequence import (
     inject_spoken_identity,
 )
 from .contracts import (
+    LONGFORM_NARRATIVE_FORMATS,
     atomic_write_json,
     compute_brief_sha256,
     load_approved_brief,
@@ -69,6 +70,216 @@ _PLANNING_FACTUALITY_RULE = (
     "quotes, experts or causation. If evidence is insufficient, use a modest non-technical observation or "
     "omit the claim."
 )
+
+# One lightweight editorial registry: no provider call, stage, or alternate pipeline.
+# Film selects one of the nine established narrative shapes from approved input only.
+# Podcast/خارج النص deliberately keeps one fixed house style instead of rotating shapes.
+_LONGFORM_PROFILE_ORDER = (
+    "story_analysis",
+    "hypothesis_test",
+    "paradox",
+    "dialogue_qa",
+    "inner_dialogue",
+    "problem_reveal_solution",
+    "connected_list",
+    "question_answer",
+    "direct_cinematic",
+)
+_LONGFORM_PROFILE_SIGNALS: dict[str, tuple[tuple[str, int], ...]] = {
+    "direct_cinematic": (),
+    "question_answer": (
+        ("لماذا", 3), ("كيف", 2), ("هل", 2), ("سؤال", 4),
+        ("ماذا", 1), ("ما الذي", 2),
+    ),
+    "dialogue_qa": (
+        ("حوار", 7), ("سؤال وجواب", 8), ("اعتراض", 6), ("جدل", 5),
+        ("وجهتا نظر", 7), ("وجهتي نظر", 7), ("مقابل", 3),
+    ),
+    "inner_dialogue": (
+        ("قلت لنفسي", 8), ("أقول لنفسي", 8), ("في داخلي", 6),
+        ("صوت داخلي", 6), ("ماذا لو", 5), ("أعتقد", 4), ("اشعر", 4),
+        ("أشعر", 4), ("الخوف", 3), ("التردد", 4), ("الدافع", 2),
+    ),
+    "problem_reveal_solution": (
+        ("مشكلة", 5), ("تفشل", 6), ("فشل", 5), ("السبب", 5),
+        ("فخ", 5), ("حل", 3), ("لماذا تفشل", 7), ("استنزاف", 3),
+        ("تعطّل", 4), ("تعطل", 4),
+    ),
+    "story_analysis": (
+        ("قصة", 9), ("رحلة", 5), ("تجربة", 5), ("حدث", 5),
+        ("رجل", 3), ("امرأة", 3), ("شخص", 2), ("بدأ من جديد", 6),
+        ("سقط", 3), ("عاد", 3),
+    ),
+    "paradox": (
+        ("مفارقة", 9), ("رغم", 5), ("كلما", 6), ("عكس", 5),
+        ("تناقض", 7), ("لماذا كلما", 8),
+    ),
+    "hypothesis_test": (
+        ("هل فعلا", 9), ("هل فعلًا", 9), ("هل حقا", 9), ("هل حقًا", 9),
+        ("هل صحيح", 8), ("ماذا يحدث لو", 8), ("فرضية", 9),
+        ("اختبار", 6), ("نجرب", 5), ("نجرّب", 5),
+    ),
+    "connected_list": (
+        ("أسباب", 8), ("اسباب", 8), ("علامات", 8), ("خطوات", 8),
+        ("طرق", 7), ("عادات", 4), ("أشياء", 4), ("اشياء", 4),
+    ),
+}
+_LONGFORM_PROFILES: dict[str, dict[str, str]] = {
+    "direct_cinematic": {
+        "writing": "One flowing argument: immediate tension -> progressive understanding -> earned resolution. No chapter-list delivery.",
+        "visual": "Progress through environment -> action/detail -> consequence/payoff. Favor real motion and spatial progression; change shot family only when meaning changes.",
+        "voice": "direct_cinematic",
+    },
+    "question_answer": {
+        "writing": "One Charon narrator asks sincere progressively deeper questions and answers them; never a flat FAQ and never A:/B: labels.",
+        "visual": "Each question opens a visible uncertainty/tension; its answer must reveal new observable evidence, consequence, or wider context. Alternate scale or environment rather than repeating one prop.",
+        "voice": "question_answer",
+    },
+    "dialogue_qa": {
+        "writing": "A:/B: only. A is a concise intelligent challenger/questioner; B is the thoughtful answer. Every turn advances the same argument; no host/guest filler.",
+        "visual": "Use a restrained two-position visual grammar without faces: challenge beats favor tighter unresolved details; answer beats widen or reveal consequence/context. Do not fake a studio interview.",
+        "voice": "dialogue_qa",
+    },
+    "inner_dialogue": {
+        "writing": "One Charon voice: felt friction -> believable self-question -> self-correction -> earned clarity. Never A:/B: labels or motivational preaching.",
+        "visual": "Tight tactile friction -> pause/negative space -> changed action/state -> release. Keep the world intimate but not gloomy; the payoff must visibly change the opening state.",
+        "voice": "inner_dialogue",
+    },
+    "problem_reveal_solution": {
+        "writing": "Show the concrete problem, reveal the hidden mechanism, then derive one practical resolution. Advice comes only after mechanism.",
+        "visual": "Problem state -> causal/mechanism cue -> intervention/change -> visible result. Do not illustrate every noun; each beat must prove the next causal step.",
+        "voice": "problem_reveal_solution",
+    },
+    "story_analysis": {
+        "writing": "Enter a concrete scene/event, let something change, analyze what it reveals, then land the implication. Never invent autobiography.",
+        "visual": "Maintain scene continuity long enough to feel like a real mini-story, then use a distinct analytical cutaway and a consequence/payoff. Avoid unrelated montage.",
+        "voice": "story_analysis",
+    },
+    "paradox": {
+        "writing": "Open with one truthful contradiction, examine both sides, then resolve why both can appear true. Do not force a clever paradox.",
+        "visual": "Use paired opposites or the same kind of action in visibly different states/results, then converge on one resolving image. Avoid decorative symbolism.",
+        "voice": "paradox",
+    },
+    "hypothesis_test": {
+        "writing": "State one plausible hypothesis, test it against approved everyday evidence/reasoning, then reach a measured conclusion. Never overclaim causation.",
+        "visual": "Claim/state -> observable test/comparison -> evidence/consequence -> conclusion. Favor consistent real-world conditions over unrelated cinematic montage.",
+        "voice": "hypothesis_test",
+    },
+    "connected_list": {
+        "writing": "A connected sequence of reasons/steps where each item changes the argument. Never numbered clickbait, repeated setup, or interchangeable tips.",
+        "visual": "Each reason/step gets a genuinely different action/environment family while retaining one visual world; progression matters more than counting items.",
+        "voice": "connected_list",
+    },
+}
+_PODCAST_FIXED_PROFILE = {
+    "narrative_format": "direct_cinematic",
+    "writing": (
+        "خارج النص fixed house style: one thoughtful Charon voice speaking simply and deeply to one listener; "
+        "calm conversational progression, no numbered delivery, no rotating narrative gimmick, no A:/B: labels."
+    ),
+    "visual": (
+        "One ثابت خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
+        "environments, side light and breathing room. Visual changes follow idea changes, never Short-like kinetics or Film-like journey montage."
+    ),
+    "voice": "podcast_fixed",
+}
+
+
+def _narrative_semantic_key(value: object) -> str:
+    text = " ".join(str(value or "").split()).casefold()
+    text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", text)
+    text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه"}))
+    return " ".join(re.sub(r"[^\w\u0600-\u06ff]+", " ", text).split())
+
+
+def _narrative_signal_score(text: object, signals: tuple[tuple[str, int], ...]) -> int:
+    normalized = f" {_narrative_semantic_key(text)} "
+    return sum(
+        weight
+        for phrase, weight in signals
+        if f" {_narrative_semantic_key(phrase)} " in normalized
+    )
+
+
+def _approved_longform_selection_text(brief: Mapping[str, Any]) -> tuple[str, str]:
+    topic = " ".join(str(brief.get("approved_topic") or "").split()).strip()
+    context_values = [
+        brief.get("editorial_intent"),
+        brief.get("emotional_goal"),
+        brief.get("emotional_arc"),
+    ]
+    pack = brief.get("research_pack")
+    if isinstance(pack, list):
+        for row in pack[:6]:
+            if isinstance(row, Mapping):
+                context_values.extend((row.get("source_title"), row.get("claim_scope")))
+    context = " ".join(" ".join(str(value or "").split()) for value in context_values if value)
+    return topic, context
+
+
+def _select_longform_narrative_profile(brief: Mapping[str, Any]) -> dict[str, Any]:
+    fmt = str(brief.get("format") or "").strip()
+    if fmt == "podcast":
+        return {
+            **_PODCAST_FIXED_PROFILE,
+            "selection_basis": "podcast_fixed_house_style",
+            "scores": {"direct_cinematic": 1},
+            "extra_ai_calls": 0,
+        }
+    if fmt != "film":
+        return {
+            "narrative_format": "",
+            "writing": "",
+            "visual": "",
+            "voice": "",
+            "selection_basis": "not_longform",
+            "scores": {},
+            "extra_ai_calls": 0,
+        }
+
+    topic, context = _approved_longform_selection_text(brief)
+    if not topic:
+        raise RuntimeError("film_narrative_profile_requires_approved_topic")
+    scores: dict[str, int] = {"direct_cinematic": 2}
+    for name in LONGFORM_NARRATIVE_FORMATS:
+        if name == "direct_cinematic":
+            continue
+        signals = _LONGFORM_PROFILE_SIGNALS.get(name, ())
+        scores[name] = 3 * _narrative_signal_score(topic, signals) + _narrative_signal_score(context, signals)
+
+    topic_key = f" {_narrative_semantic_key(topic)} "
+    if " هل " in topic_key and " ام " in topic_key:
+        scores["dialogue_qa"] += 9
+    if re.search(r"(^|\s)\d+[\s:：-]", topic):
+        scores["connected_list"] += 7
+
+    # Specialized structures are fail-closed unless the approved input itself
+    # contains enough evidence that the shape is natural rather than decorative.
+    minimum_specialized = {
+        "dialogue_qa": 10,
+        "story_analysis": 12,
+        "paradox": 12,
+        "hypothesis_test": 12,
+        "connected_list": 12,
+    }
+    for name, floor in minimum_specialized.items():
+        if scores.get(name, 0) < floor:
+            scores[name] = -100
+
+    best = max(scores.values())
+    selected = next(name for name in _LONGFORM_PROFILE_ORDER if scores.get(name, -100) == best)
+    if selected not in _LONGFORM_PROFILES:
+        selected = "direct_cinematic"
+    profile = _LONGFORM_PROFILES[selected]
+    return {
+        "narrative_format": selected,
+        "writing": profile["writing"],
+        "visual": profile["visual"],
+        "voice": profile["voice"],
+        "selection_basis": "approved_topic_plus_approved_context_deterministic_v1",
+        "scores": scores,
+        "extra_ai_calls": 0,
+    }
 QUALITY_STAGE = "final_master_qc"
 # Audio mastering is a deterministic ffmpeg transformation, not a content-judgment
 # gate, so it is deliberately NOT in QUALITY_STAGES: a failure here is always a
