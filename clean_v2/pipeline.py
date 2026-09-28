@@ -179,6 +179,7 @@ _PODCAST_FIXED_PROFILE = {
         "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
         "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
         "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "Every single A turn, including the opening question, MUST be 18 Arabic words or fewer - count it before writing B's answer. "
         "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
         "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
         "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
@@ -4469,7 +4470,13 @@ def _script_prompt(
             f"- visual_grammar={longform_profile['visual']}\n"
             f"- voice_mode={longform_profile['voice']}\n"
             "Write the actual narration in this shape; do not merely preserve the label in metadata. "
-            "For dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map voices, and keep A concise."
+            + (
+                "For podcast dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map "
+                "voices. Every single A turn in the whole episode, not just the opening question, has a hard "
+                "maximum of 18 Arabic words - count each one before returning JSON."
+                if fmt == "podcast"
+                else "For dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map voices, and keep A concise."
+            )
         )
         if fmt in {"film", "podcast"}
         else ""
@@ -4490,10 +4497,16 @@ def _script_prompt(
         "the specific tension. Do not optimize any sentence for a target duration."
         if fmt == "short"
         else (
-            "For film and podcast, keep the complete first spoken hook sentence concise enough to land in one breath: "
-            "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses."
-            if fmt in {"film", "podcast"}
-            else "Do not optimize for a fixed word count or duration."
+            "For podcast, the complete first spoken A question (the hook) has a hard maximum of 18 Arabic words - "
+            "the same cap the validator enforces on every A turn in the episode; count it before returning JSON. "
+            "Specific to this episode, one concrete tension, no stacked clauses, land it in one breath."
+            if fmt == "podcast"
+            else (
+                "For film, keep the complete first spoken hook sentence concise enough to land in one breath: "
+                "normally 12-24 Arabic words, specific to this episode, with one concrete tension and no stacked clauses."
+                if fmt == "film"
+                else "Do not optimize for a fixed word count or duration."
+            )
         )
     )
     short_payoff_guidance = (

@@ -178,7 +178,12 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         film_script = " ".join(_script_prompt(_brief("film"), _plan()).split())
         podcast_script = " ".join(_script_prompt(_brief("podcast"), _plan()).split())
         self.assertIn("12-24 Arabic words", film_script)
-        self.assertIn("12-24 Arabic words", podcast_script)
+        # Podcast no longer shares film's 12-24-word hook guidance: podcast's
+        # listener-proxy A turns (including the opening hook question) are
+        # bound by a real 18-word validator cap, so the prompt states that
+        # exact number instead of a range that would legitimize a rejection.
+        self.assertNotIn("12-24 Arabic words", podcast_script)
+        self.assertIn("18 Arabic words", podcast_script)
 
     def test_podcast_has_the_same_free_ai_still_route_as_film(self) -> None:
         generator_source = inspect.getsource(ai_still.generate_cloudflare_ai_still)
