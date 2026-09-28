@@ -199,47 +199,61 @@ def _identity_events(
     prayer = _one_role(units, "prayer")
     identity = _one_role(units, "channel_identity")
     outro = _one_role(units, "outro")
+    post_hook_silence = _one_role(units, "post_hook_silence")
     intro_silence = _one_role(units, "intro_silence")
     post_prayer_silence = _one_role(units, "post_prayer_silence")
     pre_topic_silence = _one_role(units, "pre_topic_silence")
     final_silence = _one_role(units, "final_silence")
 
-    identity_missing_silence = fmt in {"short", "film", "podcast"} and (
-        intro_silence is None
-        or post_prayer_silence is None
-        or pre_topic_silence is None
-        or final_silence is None
-    )
-    if require_identity and (
-        hook is None
-        or prayer is None
-        or identity is None
-        or outro is None
-        or identity_missing_silence
-    ):
+    if fmt == "podcast":
+        missing = (
+            hook is None
+            or prayer is None
+            or post_hook_silence is None
+            or intro_silence is None
+            or post_prayer_silence is None
+            or final_silence is None
+        )
+    else:
+        missing = (
+            hook is None
+            or prayer is None
+            or identity is None
+            or post_hook_silence is None
+            or intro_silence is None
+            or post_prayer_silence is None
+            or pre_topic_silence is None
+            or final_silence is None
+        )
+    if require_identity and missing:
         raise TimelineFirstError(
             "TIMELINE_FIRST_IDENTITY_AUDIO_BOUNDS_MISSING "
             f"hook={hook is not None} prayer={prayer is not None} "
-            f"identity={identity is not None} outro={outro is not None} "
+            f"identity={identity is not None} post_hook_silence={post_hook_silence is not None} "
             f"intro_silence={intro_silence is not None} "
             f"post_prayer_silence={post_prayer_silence is not None} "
             f"pre_topic_silence={pre_topic_silence is not None} "
             f"final_silence={final_silence is not None}"
         )
-    if prayer is None or identity is None:
+    if prayer is None or intro_silence is None or post_prayer_silence is None:
         return []
 
     intro_start = float(intro_silence["start"])
     intro_end = float(intro_silence["end"])
-    topic_start = float(pre_topic_silence["end"])
+    if fmt == "podcast":
+        # V8 podcast flow: prayer breath ends exactly where B begins answering.
+        # The body music window therefore opens on the first answer sample.
+        topic_start = float(post_prayer_silence["end"])
+    else:
+        if identity is None or pre_topic_silence is None:
+            return []
+        topic_start = float(pre_topic_silence["end"])
+
     final_silence_start = (
         float(final_silence["start"])
         if fmt in {"short", "film", "podcast"} and final_silence is not None
         else voice_seconds
     )
-    # Spoken closing/payoff remains visible on the story world. The opaque visual
-    # outro is reserved for the terminal silence, after the viewer has received
-    # the complete useful line.
     topic_end = final_silence_start
     events: list[dict[str, Any]] = []
     if hook is not None:
@@ -249,6 +263,15 @@ def _identity_events(
                 "source": "measured_voice_chunk",
                 "start": float(hook["start"]),
                 "end": float(hook["end"]),
+            }
+        )
+    if post_hook_silence is not None:
+        events.append(
+            {
+                "kind": "post_hook_silence",
+                "source": "measured_structural_silence",
+                "start": float(post_hook_silence["start"]),
+                "end": float(post_hook_silence["end"]),
             }
         )
     events.extend(
@@ -271,20 +294,25 @@ def _identity_events(
                 "start": float(post_prayer_silence["start"]),
                 "end": float(post_prayer_silence["end"]),
             },
-            {
-                "kind": "channel_identity",
-                "source": "measured_voice_chunk",
-                "start": float(identity["start"]),
-                "end": float(identity["end"]),
-            },
-            {
-                "kind": "pre_topic_silence",
-                "source": "measured_structural_silence",
-                "start": float(pre_topic_silence["start"]),
-                "end": float(pre_topic_silence["end"]),
-            },
         ]
     )
+    if fmt != "podcast":
+        events.extend(
+            [
+                {
+                    "kind": "channel_identity",
+                    "source": "measured_voice_chunk",
+                    "start": float(identity["start"]),
+                    "end": float(identity["end"]),
+                },
+                {
+                    "kind": "pre_topic_silence",
+                    "source": "measured_structural_silence",
+                    "start": float(pre_topic_silence["start"]),
+                    "end": float(pre_topic_silence["end"]),
+                },
+            ]
+        )
     if topic_end > topic_start:
         events.append(
             {
@@ -321,7 +349,6 @@ def _identity_events(
             }
         )
     return events
-
 
 def build_voice_owned_timeline(
     *,
