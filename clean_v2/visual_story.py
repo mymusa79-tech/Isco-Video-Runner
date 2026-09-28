@@ -676,11 +676,21 @@ def contextual_intent(
         "generic",
         10,
     )
+    priority_rules: list[str] = []
+    if role == "hook":
+        priority_rules.append(
+            "Hook must show an unresolved observable tension/consequence, not generic activity/prop."
+        )
+    if current_family and current_family == previous_family:
+        priority_rules.append(
+            "Adjacent same-family repetition fails unless a changed-state hook/payoff motif."
+        )
+    rule_text = " ".join(priority_rules)
     context = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
-        f"Current: {current}. Previous: {previous}. Next: {following}. "
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        "Judge specific meaning before mood. "
-        "Same hook-to-payoff arc: judge continuity."
+        f"{rule_text} "
+        f"Current:{current}. Next:{following}. Meaning:{meaning}. "
+        f"Must:{must_have}. Avoid:{should_avoid}. "
+        "Judge specific meaning before mood; preserve hook-to-payoff continuity."
     )
     return context[:300].rstrip()
