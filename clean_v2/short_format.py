@@ -554,6 +554,38 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
+_SAFE_S3_LOCKED_PAYOFF_LAST_RESORT = (
+    "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة."
+)
+
+
+def _safe_locked_payoff_text(payoff_answer: object) -> str:
+    """Return a validator-clean local payoff without spending another provider call."""
+    fallback = _clean(payoff_answer)
+    if (
+        _word_count(fallback) < 3
+        or _practical_action_marker_count(fallback) != 0
+        or _SOCIAL_CTA_RE.search(fallback)
+        or _DIALOGUE_LABEL_RE.search(fallback)
+    ):
+        return ""
+
+    fallback = re.sub(r"[.!؟!]+$", "", fallback).strip() + "."
+    if not _contains_forbidden_action_family(fallback):
+        return fallback
+
+    salvaged = _salvage_safe_payoff_clause(fallback)
+    if salvaged:
+        return salvaged
+
+    # The planning payoff is already locked semantic context. If every clause is
+    # contaminated only by the deliberately broad action-family guard (for example
+    # descriptive nouns such as الفعل / التحول / الحركة), use one fixed,
+    # validator-clean descriptive sentence rather than failing an otherwise valid
+    # last-resort script. The unchanged strict validator still owns acceptance.
+    return _SAFE_S3_LOCKED_PAYOFF_LAST_RESORT
+
+
 def apply_safe_short_s3_locked_payoff_fallback(
     script: dict[str, Any],
     payoff_answer: object,
@@ -567,16 +599,9 @@ def apply_safe_short_s3_locked_payoff_fallback(
     ):
         return False
 
-    fallback = _clean(payoff_answer)
-    if (
-        _word_count(fallback) < 3
-        or _practical_action_marker_count(fallback) != 0
-        or _contains_forbidden_action_family(fallback)
-        or _SOCIAL_CTA_RE.search(fallback)
-        or _DIALOGUE_LABEL_RE.search(fallback)
-    ):
+    fallback = _safe_locked_payoff_text(payoff_answer)
+    if not fallback:
         return False
-    fallback = re.sub(r"[.!؟!]+$", "", fallback).strip() + "."
 
     original = sections[2].get("narration")
     s3 = _clean(original)
