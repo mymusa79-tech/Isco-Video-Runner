@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import unittest
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from clean_v2.identity_sequence import (
     identity_timing_profile,
     inject_spoken_identity,
 )
+from clean_v2 import timeline_render
 from clean_v2.visual_cta import _events
 
 
@@ -88,6 +90,13 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(timing["intro_silence_seconds"], 1.25)
         self.assertEqual(timing["post_prayer_silence_seconds"], 0.25)
         self.assertEqual(timing["pre_topic_silence_seconds"], 0.35)
+
+    def test_podcast_identity_card_returns_during_measured_definition_only(self) -> None:
+        source = inspect.getsource(timeline_render.render_identity_composition)
+        self.assertIn('if fmt == "podcast"', source)
+        self.assertIn('bounds("channel_identity")', source)
+        self.assertIn("[v2][identity]overlay=0:0", source)
+        self.assertIn("[v3][outro]overlay=0:0", source)
 
     def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
         script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
