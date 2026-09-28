@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
 PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
 SHORT_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
-PODCAST_CHANNEL_DEFINITION = "وهنا في خارج النص من نداء اليقظة، نسأل ما نفكر فيه ولا نقوله عادةً."
+PODCAST_CHANNEL_DEFINITION = "بودكاست من نداء اليقظة"
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
 _SHORT_OUTRO = _ASSET_DIR / "short_outro.mp4"
 _LONG_INTRO = _ASSET_DIR / "long_intro.mp4"
 _LONG_OUTRO = _ASSET_DIR / "long_outro.mp4"
+_PODCAST_INTRO = _ASSET_DIR / "podcast_intro.mp4"
+_PODCAST_OUTRO = _ASSET_DIR / "podcast_outro.mp4"
 _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
@@ -38,14 +38,16 @@ _TIMING_PROFILES = {
         "final_silence_seconds": 3.50,
     },
     "podcast": {
-        # Listener-proxy flow: keep the cold question alive through a short identity
-        # sting, then let Charon move prayer -> series identity -> first answer
-        # without the long reset used by the main Film format.
+        # Outside the Text has its own deliberate podcast rhythm:
+        # listener A asks -> breath -> 6s branded intro -> prayer -> breath ->
+        # Charon answers directly in the topic. Body music starts with that answer.
         "post_hook_silence_seconds": 0.75,
-        "intro_silence_seconds": 1.45,
-        "post_prayer_silence_seconds": 0.35,
-        "pre_topic_silence_seconds": 0.45,
-        "final_silence_seconds": 3.00,
+        "intro_silence_seconds": 6.00,
+        "post_prayer_silence_seconds": 0.65,
+        # Kept in the shared profile schema but intentionally unused for podcast:
+        # there is no extra spoken channel-definition beat after the prayer.
+        "pre_topic_silence_seconds": 0.00,
+        "final_silence_seconds": 6.50,
     },
 }
 
@@ -56,86 +58,14 @@ def identity_timing_profile(fmt: str) -> dict[str, float]:
     return dict(_TIMING_PROFILES[fmt])
 
 
-def _podcast_identity_ass(*, subtitle: str, duration: float) -> str:
-    rle, pdf = "\u202b", "\u202c"
-    return f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Title,Cairo,96,&H005BA8D7,&H005BA8D7,&H00111820,&H00000000,-1,0,0,0,100,100,0,0,1,3,2,5,60,60,0,1
-Style: Sub,Cairo,38,&H00F2F2F2,&H00F2F2F2,&H00111820,&H00000000,0,0,0,0,100,100,0,0,1,2,1,5,60,60,0,1
-
-[Events]
-Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
-Dialogue: 0,0:00:00.00,0:00:{duration:05.2f},Title,,0,0,0,,{{\\an5\\pos(960,500)}}{rle}خارج النص{pdf}
-Dialogue: 0,0:00:00.00,0:00:{duration:05.2f},Sub,,0,0,0,,{{\\an5\\pos(960,620)}}{rle}{subtitle}{pdf}
-"""
-
-
-def _ensure_podcast_identity_asset(
-    destination: Path,
-    *,
-    subtitle: str,
-    duration: float,
-) -> Path:
-    if destination.is_file() and destination.stat().st_size > 1024:
-        return destination
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    ass_path = destination.with_suffix(".ass")
-    temporary = destination.with_suffix(".tmp.mp4")
-    ass_path.write_text(
-        _podcast_identity_ass(subtitle=subtitle, duration=duration),
-        encoding="utf-8",
-    )
-    try:
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", f"color=c=#111820:s=1920x1080:r=30:d={duration:.2f}",
-                "-vf", f"ass={ass_path.resolve()}",
-                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(temporary),
-            ],
-            check=True,
-            timeout=120,
-            env={
-                key: value
-                for key, value in os.environ.items()
-                if "TOKEN" not in key.upper() and "API_KEY" not in key.upper()
-            },
-        )
-        if not temporary.is_file() or temporary.stat().st_size <= 1024:
-            raise RuntimeError("podcast identity asset generation produced empty output")
-        os.replace(temporary, destination)
-    finally:
-        ass_path.unlink(missing_ok=True)
-        temporary.unlink(missing_ok=True)
-    return destination
-
-
 def identity_asset_paths(
     fmt: str,
     *,
     runtime_dir: Path | None = None,
 ) -> dict[str, Path]:
-    """Swap only identity assets by format; timing stays shared for all formats."""
+    """Return fixed local identity assets; no runtime card generation or provider call."""
+    del runtime_dir
     intro, outro, _width, _height = _asset_pair(fmt)
-    if fmt == "podcast":
-        root = Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
-        intro = _ensure_podcast_identity_asset(
-            root / "podcast_intro.mp4",
-            subtitle="من نداء اليقظة",
-            duration=1.5,
-        )
-        outro = _ensure_podcast_identity_asset(
-            root / "podcast_outro.mp4",
-            subtitle="مساحة لفهم ما وراء الفكرة",
-            duration=4.0,
-        )
     return {"intro": intro, "prayer": _PRAYER_IMAGE, "outro": outro}
 
 
@@ -151,6 +81,8 @@ def channel_definition(fmt: str, opener: str = "") -> str:
     if fmt == "short":
         return SHORT_CHANNEL_DEFINITION
     if fmt == "podcast":
+        # Visual V8 intro owns the series/channel branding. This value remains
+        # available as metadata but is intentionally not inserted into speech.
         return PODCAST_CHANNEL_DEFINITION
     candidate = " ".join(str(opener or "").split()).strip()
     return candidate or LONG_CHANNEL_DEFINITION
@@ -172,7 +104,11 @@ def inject_spoken_identity(
         return
 
     definition = channel_definition(fmt, opener)
-    identity_block = f"{PRAYER_SENTENCE} {definition}".strip()
+    identity_block = (
+        PRAYER_SENTENCE
+        if fmt == "podcast"
+        else f"{PRAYER_SENTENCE} {definition}".strip()
+    )
     closer = " ".join(str(closer or "").split()).strip()
 
     for section in sections:
@@ -228,15 +164,18 @@ def assert_spoken_identity(
 
     if joined.count(PRAYER_SENTENCE) != 1:
         raise RuntimeError("identity sequence requires exactly one approved prayer sentence")
-    if joined.count(definition) != 1:
+    if fmt != "podcast" and joined.count(definition) != 1:
         raise RuntimeError("identity sequence requires exactly one channel-definition sentence")
 
     first = str(sections[0].get("narration") or "")
     hook = _first_sentence(first)
     prayer_pos = first.find(PRAYER_SENTENCE)
-    definition_pos = first.find(definition)
-    if not hook or prayer_pos < len(hook) or definition_pos <= prayer_pos:
-        raise RuntimeError("identity sequence order must be hook -> prayer -> channel definition")
+    if not hook or prayer_pos < len(hook):
+        raise RuntimeError("identity sequence order must begin hook -> prayer")
+    if fmt != "podcast":
+        definition_pos = first.find(definition)
+        if definition_pos <= prayer_pos:
+            raise RuntimeError("identity sequence order must be hook -> prayer -> channel definition")
 
     if fmt in {"film", "podcast"}:
         closer = " ".join(str(closer or "").split()).strip()
@@ -250,5 +189,5 @@ def _asset_pair(fmt: str) -> tuple[Path, Path, int, int]:
     if fmt == "film":
         return _LONG_INTRO, _LONG_OUTRO, 1920, 1080
     if fmt == "podcast":
-        return Path("podcast_intro.mp4"), Path("podcast_outro.mp4"), 1920, 1080
+        return _PODCAST_INTRO, _PODCAST_OUTRO, 1920, 1080
     raise RuntimeError(f"identity media unsupported format: {fmt}")
