@@ -1997,8 +1997,14 @@ def _repair_target_section_ids(
         anchor = str(cta_plan.get("anchor_section_id") or "").strip()
         if anchor in ordered_ids:
             targets.add(anchor)
-    if "hook_quality:" in lowered and ordered_ids:
-        targets.add(ordered_ids[0])
+    if _HOOK_QUALITY_REPAIR_PREFIX in lowered and ordered_ids:
+        if _hook_text_itself_is_defective(revision_note):
+            targets.add(ordered_ids[0])
+        if "payoff_resolves_hook" in lowered:
+            # A hook/payoff mismatch is owned by the closing section, not the hook -
+            # target it explicitly rather than relying on a "closing payoff" phrase
+            # happening to appear in some other flag's own wording.
+            targets.add(ordered_ids[-1])
 
     if "repeated_not_x_but_y" in revision_note:
         for item in sections:
@@ -2024,6 +2030,31 @@ def _repair_target_section_ids(
 
 _HOOK_WORD_FIX_MAX_CHARS = 40
 _HOOK_QUALITY_REPAIR_PREFIX = "hook_quality:"
+_HOOK_OWN_TEXT_DEFECT_FIELDS = (
+    "hook_specificity",
+    "hook_honesty",
+    "hook_curiosity",
+    "hook_genericness",
+)
+
+
+def _hook_text_itself_is_defective(revision_note: str) -> bool:
+    """True only when the hook's own wording was flagged - not just its relationship
+    to the rest of the script (payoff_resolves_hook, hook_body_continuity).
+
+    Run #27 exposed the gap this closes: a hook that had already passed every one of
+    its own checks (specificity/honesty/curiosity/genericness all clean) still got
+    blocked purely on payoff_resolves_hook=false - the closing section didn't resolve
+    it. The repair prompt used to treat any "hook_quality:" flag as license to fully
+    rewrite the hook, discarding one that had already cleared its own scrutiny; the
+    rewrite landed on a more generic phrasing and failed the same way on re-audit,
+    for a different reason. A hook/payoff mismatch is just as fixable from the payoff
+    side, which carries far less risk once the hook itself is already sound.
+    """
+    lowered = revision_note.casefold()
+    if _HOOK_QUALITY_REPAIR_PREFIX not in lowered:
+        return False
+    return any(field in lowered for field in _HOOK_OWN_TEXT_DEFECT_FIELDS)
 
 
 def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
@@ -2081,7 +2112,7 @@ def _validate_and_apply_script_patches(
     audit_verified_terms = _audit_verified_repair_terms(revision_note)
     hook_word_fix_used = False
     hook_quality_fix_used = False
-    hook_quality_repair_allowed = _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold()
+    hook_quality_repair_allowed = _hook_text_itself_is_defective(revision_note)
     opener = str(identity.get("opener") or "").strip()
     closer = str(identity.get("closer") or "").strip()
     spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
@@ -2412,14 +2443,22 @@ def _tone_repair_prompt(
     allowed_patch_section_ids = _repair_target_section_ids(
         script, revision_note, cta_plan
     )
-    if _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold():
+    if _hook_text_itself_is_defective(revision_note):
         hook_lock_rule = (
             "- The hook itself is the audited defect. Replace the complete first spoken hook sentence "
             "exactly once with a more specific, honest, naturally curious hook about the SAME approved "
             "topic. Calm is acceptable; forced shock/clickbait is not. Do not alter the sentence after it."
         )
     else:
-        hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
+        hook_lock_rule = (
+            f"- Preserve this first spoken hook sentence exactly: {hook}\n"
+            "- If REVISION_NOTE flags payoff_resolves_hook or hook_body_continuity without any other "
+            "hook_quality reason, the hook itself already passed its own checks: fix the mismatch by "
+            "adjusting the closing/body content to actually resolve or continue this SAME hook, not by "
+            "rewriting the hook."
+        ) if _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold() else (
+            f"- Preserve this first spoken hook sentence exactly: {hook}"
+        )
     gemini_spoken_repair_guidance = (
         "- Preserve the shared Gemini 3.8 spoken-Arabic writing contract in every changed phrase: keep intentional "
         "minimal diacritics and useful punctuation, avoid fully vocalizing prose, and prefer pronunciation-safe "
