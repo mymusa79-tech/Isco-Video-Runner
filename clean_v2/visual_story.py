@@ -645,7 +645,7 @@ def contextual_intent(
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
         "current beat",
-        18,
+        28,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
