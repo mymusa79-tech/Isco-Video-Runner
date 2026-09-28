@@ -683,10 +683,9 @@ def contextual_intent(
         priority_rule = "Repeat: adjacent same-family fails unless changed-state motif. "
     context = (
         f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
-        "Same hook-to-payoff arc: judge continuity. "
         f"{priority_rule}"
-        f"Current: {current}. Previous: {previous}. Next: {following}. "
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        "Judge specific meaning before mood."
+        f"Current:{current}. Prev:{previous}. Next:{following}. "
+        f"Meaning:{meaning}. Must show:{must_have}. Avoid:{should_avoid}. "
+        "Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     )
     return context[:300].rstrip()
