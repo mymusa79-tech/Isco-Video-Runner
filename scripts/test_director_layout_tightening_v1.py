@@ -85,8 +85,8 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(short_outro.name, "short_outro.mp4")
         self.assertEqual(film_intro.name, "long_intro.mp4")
         self.assertEqual(film_outro.name, "long_outro.mp4")
-        self.assertEqual(podcast_intro.name, "podcast_intro.mp4")
-        self.assertEqual(podcast_outro.name, "podcast_outro.mp4")
+        self.assertEqual(podcast_intro.name, "podcast_intro_v8.mp4")
+        self.assertEqual(podcast_outro.name, "podcast_outro_v8.mp4")
         self.assertEqual(len({short_intro.name, film_intro.name, podcast_intro.name}), 3)
         self.assertEqual(len({short_outro.name, film_outro.name, podcast_outro.name}), 3)
         for fmt in ("short", "film", "podcast"):
