@@ -34,6 +34,7 @@ from .contracts import (
     validate_script,
 )
 from .media import (
+    GEMINI38_LITE_PROVIDER,
     GEMINI38_LITE_TTS_MODEL,
     GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
@@ -327,6 +328,7 @@ STAGES = (
 VOICE_CHUNK_MAX_CHARS = 5000
 IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -787,7 +789,7 @@ def _synthesize_sectioned_voice_pass(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if provider != GEMINI38_VOICE_PROVIDER:
+            if provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
                 raise RuntimeError(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=gemini_3_8_only_provider_drift "
                     f"actual={provider}"
@@ -3298,7 +3300,7 @@ def _write_resume_checkpoint(
         "artifacts": artifacts,
     }
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
-        if voice_provider != GEMINI38_VOICE_PROVIDER:
+        if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
             raise RuntimeError("Clean V2 checkpoint voice provider is not Gemini 3.8")
         if not isinstance(voice_fallback_used, bool):
             raise RuntimeError("Clean V2 checkpoint voice fallback state is invalid")
@@ -5329,10 +5331,10 @@ class CleanV2Pipeline:
                         _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
-                if voice_provider != GEMINI38_VOICE_PROVIDER or not isinstance(
+                if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS or not isinstance(
                     voice_fallback_used, bool
                 ):
-                    raise RuntimeError("Clean V2 resume voice must stay within the Gemini 3.8 Charon/Orus family")
+                    raise RuntimeError("Clean V2 resume voice must stay within the Gemini 3.8 TTS family")
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -5369,7 +5371,7 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
-                if voice_provider != GEMINI38_VOICE_PROVIDER:
+                if voice_provider not in _GEMINI38_ALLOWED_VOICE_PROVIDERS:
                     raise RuntimeError(
                         "GEMINI_3_8_ONLY_VOICE_CONTRACT "
                         f"provider={voice_provider} fallback={voice_fallback_used}"

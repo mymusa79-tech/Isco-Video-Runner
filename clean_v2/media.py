@@ -38,6 +38,13 @@ GEMINI38_PRIMARY_VOICE = "Charon"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
+# Reviewed by ear against flash-tts:Charon: on gemini-3.8-flash-lite-tts,
+# Algenib reads better in Arabic than lite-Charon. Orus stays the fixed
+# questioner voice on both models; only the primary/answering voice changes
+# when the whole narration falls back to the lite pass.
+GEMINI38_LITE_PRIMARY_VOICE = "Algenib"
+GEMINI38_LITE_PROVIDER = "gemini-3.8:Algenib"
+GEMINI38_LITE_REFERENCE_PROFILE = "gemini-3.8-flash-lite-tts:Algenib:Orus"
 GEMINI38_NARRATOR_STYLE = (
     "Natural Modern Standard Arabic adult narrator. Warm, mature, intelligent and conversational; "
     "calm confidence, human pacing, clear articulation, no announcer tone."
@@ -503,12 +510,17 @@ class VoiceInfrastructureError(RuntimeError):
 
 
 class GeminiOnlyVoiceSynthesizer:
-    """Gemini 3.8 Flash TTS family only, same Charon/Orus voices throughout.
+    """Gemini 3.8 Flash TTS family only.
 
     Tries exactly one model per call: whichever `tts_model` this instance is
     currently configured with. It never substitutes a different model or
     vendor mid-call - any exhausted cloud failure after bounded same-model
     retries raises VoiceInfrastructureError and fails that call closed.
+
+    The questioner voice (Orus) is fixed on both models. The primary/
+    answering voice is Charon on gemini-3.8-flash-tts, but Algenib on
+    gemini-3.8-flash-lite-tts - reviewed by ear and picked because it reads
+    better in Arabic than lite-Charon on that model.
 
     A narration made of several of these calls (one per section/chunk) must
     never end up mixing gemini-3.8-flash-tts and gemini-3.8-flash-lite-tts
@@ -554,8 +566,11 @@ class GeminiOnlyVoiceSynthesizer:
                 f"allowed={sorted(_GEMINI38_ALLOWED_TTS_MODELS)} actual={self.tts_model}"
             )
 
-        primary_voice = self.EXPECTED_PRIMARY_VOICE
+        is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
+        primary_voice = GEMINI38_LITE_PRIMARY_VOICE if is_lite else self.EXPECTED_PRIMARY_VOICE
         questioner_voice = self.EXPECTED_QUESTIONER_VOICE
+        provider = GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
+        reference_profile = GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
 
         self.voice_roles = _spoken_voice_roles(transcript)
         self.last_provider = None
@@ -581,9 +596,9 @@ class GeminiOnlyVoiceSynthesizer:
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
-                    self.last_provider = GEMINI38_PROVIDER
+                    self.last_provider = provider
                     self.voice_approval_status = "user_selected_gemini_3_8"
-                    self.voice_reference_profile = GEMINI38_REFERENCE_PROFILE
+                    self.voice_reference_profile = reference_profile
                     print(
                         f"Clean V2 voice provider selected: {self.last_provider} "
                         f"model={self.tts_model} fallback={self.fallback_used} "

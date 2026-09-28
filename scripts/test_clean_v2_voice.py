@@ -12,6 +12,7 @@ from unittest.mock import patch
 from clean_v2.media import (
     GEMINI38_INNER_REFLECTIVE_STYLE,
     GEMINI38_INNER_RESOLVED_STYLE,
+    GEMINI38_LITE_PROVIDER,
     GEMINI38_LITE_TTS_MODEL,
     GEMINI38_NARRATOR_STYLE,
     GEMINI38_PROVIDER,
@@ -156,7 +157,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         self.assertFalse(raised.exception.fallback_used)
         self.assertIn("fallback=false", str(raised.exception))
 
-    def test_synthesize_reports_fallback_used_from_its_configured_model(self) -> None:
+    def test_synthesize_uses_algenib_and_reports_fallback_used_on_lite_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             synth = GeminiOnlyVoiceSynthesizer(
                 "gemini-test-key", tts_model=GEMINI38_LITE_TTS_MODEL
@@ -167,8 +168,14 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             ) as tts:
                 synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
+        # Reviewed by ear: Algenib reads better than lite-Charon in Arabic on
+        # the lite model, so the lite pass uses Algenib as the primary voice
+        # while Orus stays the fixed questioner - and the reported provider
+        # identity reflects that voice honestly instead of claiming Charon.
         self.assertEqual(tts.call_args.kwargs.get("model"), GEMINI38_LITE_TTS_MODEL)
-        self.assertEqual(synth.last_provider, GEMINI38_PROVIDER)
+        self.assertEqual(tts.call_args.kwargs.get("primary_voice"), "Algenib")
+        self.assertEqual(tts.call_args.kwargs.get("questioner_voice"), "Orus")
+        self.assertEqual(synth.last_provider, GEMINI38_LITE_PROVIDER)
         self.assertTrue(synth.fallback_used)
 
     def test_model_drift_is_rejected_before_provider_call(self) -> None:
@@ -432,7 +439,9 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             [item for item in calls if item[1] == GEMINI38_LITE_TTS_MODEL],
             [("القسم الأول.", GEMINI38_LITE_TTS_MODEL), ("القسم الثاني.", GEMINI38_LITE_TTS_MODEL)],
         )
-        self.assertEqual(report["voice_provider"], GEMINI38_PROVIDER)
+        # The whole-job lite pass uses Algenib, not Charon, so the reported
+        # provider identity must reflect that rather than claim Charon.
+        self.assertEqual(report["voice_provider"], GEMINI38_LITE_PROVIDER)
         self.assertTrue(report["voice_fallback_used"])
         for section in report["sections"]:
             self.assertTrue(section["fallback_used"])
