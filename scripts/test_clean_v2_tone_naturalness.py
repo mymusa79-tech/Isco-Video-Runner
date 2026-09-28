@@ -260,6 +260,127 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertIn("Replace the complete first spoken hook sentence exactly once", prompt)
         self.assertIn("Calm is acceptable; forced shock/clickbait is not", prompt)
 
+    def test_run27_payoff_mismatch_alone_targets_closing_section_not_hook(self):
+        # Run #27: the hook passed every one of its own checks (specificity/honesty/
+        # curiosity/genericness all clean) - only payoff_resolves_hook was false. The
+        # repair used to treat this as "the hook is the defect" anyway, rewrote an
+        # already-good hook, and the rewrite came back flagged hook_genericness=true
+        # on re-audit. The fix owns the mismatch from the closing/payoff side instead.
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟ هذا شرح كافٍ."},
+                {"id": "s2", "narration": "هذه خاتمة لا ترتبط مباشرة بسؤال البداية."},
+            ],
+        }
+        revision = "- [tone] hook_quality: payoff_resolves_hook=false"
+
+        self.assertEqual(
+            _repair_target_section_ids(script, revision, {}),
+            ("s2",),
+        )
+
+        prompt = _tone_repair_prompt(
+            brief={"format": "podcast", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertIn(
+            "Preserve this first spoken hook sentence exactly", prompt
+        )
+        self.assertNotIn("Replace the complete first spoken hook sentence", prompt)
+        self.assertIn("fix the mismatch by adjusting the closing/body content", prompt)
+
+        # Isolate the hard hook-lock enforcement itself (independent of the section-
+        # scope check above) by explicitly allowing s1 as a target: even then, a full
+        # hook rewrite must still be rejected for a payoff-only mismatch.
+        with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s1",
+                            "find": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+                            "replace": "هل تكرر نفس الخطأ رغم معرفتك بنتيجته؟",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note=revision,
+                allowed_section_ids=("s1",),
+            )
+
+    def test_run27_hook_body_continuity_alone_also_preserves_the_hook(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [{"id": "s1", "heading": "h", "purpose": "p", "visual_query_en": "desk"}],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [{"id": "s1", "narration": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟ شرح."}],
+        }
+        revision = "- [tone] hook_quality: hook_body_continuity=false"
+
+        prompt = _tone_repair_prompt(
+            brief={"format": "podcast", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertIn(
+            "Preserve this first spoken hook sentence exactly", prompt
+        )
+        self.assertNotIn("Replace the complete first spoken hook sentence", prompt)
+
+    def test_genuine_hook_defect_combined_with_payoff_mismatch_targets_both(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذا شرح كافٍ للاختبار."},
+                {"id": "s2", "narration": "خاتمة لا ترتبط بالسؤال."},
+            ],
+        }
+        revision = (
+            "- [tone] hook_quality: failed hook_genericness, payoff_resolves_hook"
+        )
+
+        self.assertEqual(
+            _repair_target_section_ids(script, revision, {}),
+            ("s1", "s2"),
+        )
+
+        prompt = _tone_repair_prompt(
+            brief={"format": "podcast", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertIn("Replace the complete first spoken hook sentence exactly once", prompt)
+
     def test_first_spoken_sentence_is_runtime_hook(self):
         script = {
             "sections": [
