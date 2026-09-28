@@ -24,7 +24,7 @@ from clean_v2.short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v3"
+RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v4"
 MAX_EVENTS = 3
 FONT_SIZE = 94
 HOOK_FONT_SIZE = 108
@@ -61,15 +61,34 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").replace("\n", " ").split()).strip()
 
 
+def _strip_speaker_label(value: object) -> str:
+    return re.sub(r"^(?:A|B):\s*", "", _clean(value)).strip()
+
+
 def _sentences(value: object) -> list[str]:
     text = _clean(value)
     if not text:
         return []
     return [
-        part.strip()
+        _strip_speaker_label(part)
         for part in re.split(r"(?<=[.!؟!])\s+", text)
         if part.strip() and not _contains_prayer_text(part)
     ]
+
+
+def _dialogue_candidates(value: object, *, max_words: int) -> dict[str, list[str]]:
+    source = _clean(value)
+    matches = list(re.finditer(r"(?:^|\s)([AB]):\s+", source))
+    result: dict[str, list[str]] = {"A": [], "B": []}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        turn = _clean(source[start:end])
+        for sentence in _sentences(turn):
+            words = len(sentence.split())
+            if 3 <= words <= max_words:
+                result[match.group(1)].append(sentence)
+    return result
 
 
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
@@ -93,7 +112,14 @@ def _pick_text(
     closer = _clean(closer)
     if closer and text.endswith(closer):
         text = text[: -len(closer)].strip()
+    dialogue = _dialogue_candidates(text, max_words=max_words)
     candidates = _compact_candidates(text, max_words=max_words)
+    if role == "hook" and dialogue["A"]:
+        return dialogue["A"][0]
+    if role == "turn" and dialogue["A"]:
+        return dialogue["A"][0]
+    if role == "payoff" and dialogue["B"]:
+        return dialogue["B"][-1]
     if not candidates:
         return ""
     if role == "hook":
@@ -487,6 +513,8 @@ def _apply_sparse_key_text(
         "style_source": "shared_cairo_bold_offwhite_black_outline",
         "text_source_policy": "visual_beat_display_text_ar_when_available_else_complete_script_sentence",
         "rtl_policy": "full_phrase_static_offwhite_cairo_bold_no_directional_word_sweep",
+        "burned_in_policy": "listener_question_plus_sparse_key_lines_not_full_transcript",
+        "speaker_labels_visible": False,
     }
 
 
