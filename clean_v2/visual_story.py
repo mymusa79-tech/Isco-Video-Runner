@@ -51,7 +51,15 @@ _AI_IMAGE_TEXT_AVOID = (
     "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
 )
 _ACTION_FAMILY_TERMS = {
-    "writing": ("write", "writing", "written", "pen", "notebook", "journal", "typing", "keyboard", "note"),
+    # Treat visually interchangeable productivity props as ONE scene family.
+    # This closes the real #143 failure: notebook -> sticky notes -> notebook
+    # looked repetitive even though the authored search strings were different.
+    "stationery": (
+        "write", "writing", "written", "pen", "pencil", "notebook", "journal",
+        "note", "notes", "sticky", "paper", "page", "planner", "checklist",
+        "worksheet", "tasklist",
+    ),
+    "typing": ("type", "typing", "keyboard", "laptop", "computer"),
     "walking": ("walk", "walking", "steps", "corridor", "path"),
     "phone": ("phone", "smartphone", "screen", "notification", "scroll", "scrolling"),
     "door": ("door", "doorway", "handle", "threshold"),
@@ -544,14 +552,21 @@ def bind_visual_story_to_script(
             direct = _writer_searchable_intent(beat.get("shot_intent"))
             fallback = _writer_searchable_intent(beat.get("stock_query_en"))
             if direct or fallback:
-                beat["shot_intent"] = direct or fallback
+                resolved_intent = direct or fallback
+                beat["shot_intent"] = resolved_intent
+                # Retrieval must follow the final observable Writer-bound intent.
+                # Keeping a stale Planning query reopens the exact post-#943 drift.
+                beat["stock_query_en"] = resolved_intent
 
             current_family = _visual_action_family(beat.get("shot_intent"))
             if current_family and current_family == prior_action_family:
                 section = section_by_id.get(section_id) or {}
                 alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
                 alternate_family = _visual_action_family(alternate)
-                if alternate and alternate_family and alternate_family != current_family:
+                if alternate and alternate_family != current_family:
+                    # An unclassified alternate is still useful diversity. Requiring a
+                    # second named family caused obviously different scenes (for example
+                    # bookshelf/environment) to be ignored in favor of repeated stationery.
                     beat["shot_intent"] = alternate
                     beat["stock_query_en"] = alternate
                     current_family = alternate_family
@@ -587,7 +602,9 @@ def bind_visual_story_to_script(
                 avoids.insert(0, _AI_IMAGE_TEXT_AVOID)
             beat["semantic_should_avoid"] = avoids[:4]
             beat["writer_anchor_ar"] = anchor
-            prior_action_family = current_family or prior_action_family
+            # Track the scene that will actually be searched. An unclassified but
+            # genuinely different alternate must break the prior-family chain.
+            prior_action_family = current_family
 
     return story
 
@@ -612,48 +629,64 @@ def contextual_intent(
     if current_index is None:
         return str(fallback_intent or "").strip()[:300]
 
-    # Keep the legacy continuity contract while adding exact-meaning evidence.
-    # Neighbor labels come first so the 300-char canonical evidence cap can never
-    # truncate the following beat or the hook-to-payoff continuity instruction.
+    current_beat = beats[current_index]
+    role = str(current_beat.get("role") or "").strip() or "body"
+    current_family = _visual_action_family(
+        current_beat.get("shot_intent") or fallback_intent
+    )
+    previous_family = (
+        _visual_action_family(beats[current_index - 1].get("shot_intent"))
+        if current_index > 0
+        else ""
+    )
+
+    # Keep all legacy context labels plus the new hook/family rule inside the
+    # existing 300-char provider contract. These labels are compatibility surface.
     current = _context_fragment(
-        beats[current_index].get("shot_intent") or fallback_intent,
+        current_beat.get("shot_intent") or fallback_intent,
         "current beat",
-        32,
+        20,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        28,
+        24,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        28,
+        14,
     )
-    current_beat = beats[current_index]
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
-        "specific visible meaning",
-        24,
+        "specific",
+        10,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
-        "concrete evidence",
-        20,
+        "concrete",
+        10,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
-        "generic mood",
-        17,
+        "generic",
+        8,
     )
-    context = (
+    priority_rule = ""
+    if role == "hook":
+        priority_rule = "Hook must show an unresolved observable tension; not generic prop. "
+    elif current_family and current_family == previous_family:
+        priority_rule = "Repeat: same family fails unless changed-state motif. "
+    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    head = (
+        f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
+        f"{priority_rule}"
         f"Current: {current}. Previous: {previous}. Next: {following}. "
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        "Judge specific meaning before mood. "
-        "Same hook-to-payoff arc: judge continuity."
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}."
     )
-    return context[:300].rstrip()
+    head_limit = max(0, 300 - len(tail))
+    return head[:head_limit].rstrip() + tail

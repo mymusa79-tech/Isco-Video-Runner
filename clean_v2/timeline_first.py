@@ -200,11 +200,13 @@ def _identity_events(
     identity = _one_role(units, "channel_identity")
     outro = _one_role(units, "outro")
     intro_silence = _one_role(units, "intro_silence")
+    post_prayer_silence = _one_role(units, "post_prayer_silence")
     pre_topic_silence = _one_role(units, "pre_topic_silence")
     final_silence = _one_role(units, "final_silence")
 
     identity_missing_silence = fmt in {"short", "film", "podcast"} and (
         intro_silence is None
+        or post_prayer_silence is None
         or pre_topic_silence is None
         or final_silence is None
     )
@@ -220,6 +222,7 @@ def _identity_events(
             f"hook={hook is not None} prayer={prayer is not None} "
             f"identity={identity is not None} outro={outro is not None} "
             f"intro_silence={intro_silence is not None} "
+            f"post_prayer_silence={post_prayer_silence is not None} "
             f"pre_topic_silence={pre_topic_silence is not None} "
             f"final_silence={final_silence is not None}"
         )
@@ -261,6 +264,12 @@ def _identity_events(
                 "source": "measured_voice_chunk",
                 "start": float(prayer["start"]),
                 "end": float(prayer["end"]),
+            },
+            {
+                "kind": "post_prayer_silence",
+                "source": "measured_structural_silence",
+                "start": float(post_prayer_silence["start"]),
+                "end": float(post_prayer_silence["end"]),
             },
             {
                 "kind": "channel_identity",

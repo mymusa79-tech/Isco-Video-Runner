@@ -8,7 +8,7 @@ from unittest import mock
 
 from clean_v2.contracts import ContractError, SUPPORTED_FORMATS, validate_plan
 from clean_v2.identity_sequence import (
-    LONG_CHANNEL_DEFINITION,
+    PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     assert_spoken_identity,
     inject_spoken_identity,
@@ -23,6 +23,7 @@ from clean_v2.pipeline import (
     _script_prompt,
     _select_podcast_promo_excerpt,
     _tone_repair_prompt,
+    _validate_podcast_listener_proxy_script,
 )
 from clean_v2.podcast_key_text import PodcastKeyTextError, apply_podcast_key_text
 from clean_v2.podcast_key_text import build_ass as build_podcast_key_text_ass
@@ -85,8 +86,10 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("visual motif remains supportive and non-essential", planning)
         self.assertIn("without erasing their separate pacing and audio rules", planning)
         self.assertIn("dialogue_qa", planning)
-        self.assertIn("question_answer", planning)
-        self.assertIn("duration targets, or visual complexity", planning)
+        self.assertIn("narrative_format=dialogue_qa", planning)
+        self.assertIn("podcast_listener_proxy_qa", planning)
+        self.assertIn("A listener-proxy turn does NOT force a scene cut", planning)
+        self.assertNotIn("narrative_format=question_answer", planning)
         self.assertNotIn("payoff_answer must be a descriptive resolution", planning)
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("fixed Gemini 3.8", script)
@@ -199,9 +202,42 @@ class PodcastFormatTests(unittest.TestCase):
         inject_spoken_identity(sections, fmt="podcast", closer=closer)
         joined = "\n".join(item["narration"] for item in sections)
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(joined.count(LONG_CHANNEL_DEFINITION), 1)
+        self.assertEqual(joined.count(PODCAST_CHANNEL_DEFINITION), 1)
         self.assertTrue(sections[-1]["narration"].endswith(closer))
         assert_spoken_identity(sections, fmt="podcast", closer=closer)
+
+
+class PodcastListenerProxyContractTests(unittest.TestCase):
+    def test_listener_question_is_immediately_answered_by_charon_role(self) -> None:
+        report = _validate_podcast_listener_proxy_script({
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ B: لأن المعرفة وحدها لا تغيّر نمط الفعل؛ الذي يغيّره هو رد صغير يتكرر في اللحظة نفسها.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "A: طيب، فما الذي يتغير أولًا؟ B: يتغير أولًا ردك الصغير في اللحظة نفسها، ثم يصبح هذا الرد أسهل كلما تكرر في السياق نفسه.",
+                },
+            ]
+        })
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["first_speaker"], "A")
+        self.assertEqual(report["voices"], {"A": "Orus", "B": "Charon"})
+
+    def test_consecutive_listener_questions_fail_closed(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "podcast_listener_proxy_hook_requires_immediate_charon_answer",
+        ):
+            _validate_podcast_listener_proxy_script({
+                "sections": [
+                    {
+                        "id": "s1",
+                        "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ A: وهل المشكلة في الدافع؟ B: ليست المشكلة في المعرفة وحدها.",
+                    }
+                ]
+            })
 
 
 class PodcastGeminiRoutingTests(unittest.TestCase):
@@ -368,6 +404,39 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertNotIn("Style: Extrusion", ass)
         self.assertNotIn("&H005BA8D7", ass)
         self.assertNotIn("drawbox", ass)
+
+    def test_listener_proxy_key_text_prefers_a_questions_and_hides_labels(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "A: لماذا أعرف ما يجب فعله ولا أتحرك؟ B: لأن المعرفة وحدها لا تغيّر نمط الفعل.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "A: طيب، فما الذي يتغير أولًا؟ B: يتغير أولًا ردك الصغير في اللحظة نفسها.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "B: حين يتغير ردك، يبدأ السلوك كله بالتحرك.",
+                },
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 10.0},
+                {"section_id": "s2", "start": 10.0, "end": 20.0},
+                {"section_id": "s3", "start": 20.0, "end": 30.0},
+            ],
+        }
+        events = build_podcast_key_text_events(script=script, timeline=timeline)
+        self.assertEqual(events[0]["text"], "لماذا أعرف ما يجب فعله ولا أتحرك؟")
+        self.assertEqual(events[1]["text"], "طيب، فما الذي يتغير أولًا؟")
+        self.assertEqual(events[-1]["text"], "حين يتغير ردك، يبدأ السلوك كله بالتحرك.")
+        ass = build_podcast_key_text_ass(events)
+        self.assertNotIn("A:", ass)
+        self.assertNotIn("B:", ass)
 
     def test_local_3d_render_failure_is_wrapped_for_pipeline_fail_soft(self) -> None:
         script = {

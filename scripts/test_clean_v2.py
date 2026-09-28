@@ -1577,7 +1577,15 @@ class _FakeVoice:
         self.last_provider = "gemini-3.8:Charon"
         self.fallback_used = False
 
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
+    def synthesize(
+        self,
+        transcript: str,
+        output_path: Path,
+        *,
+        primary_only: bool = False,
+        performance_mode: str = "",
+    ) -> Path:
+        del primary_only, performance_mode
         self.calls += 1
         if not transcript.strip():
             raise RuntimeError("empty fixture transcript")
@@ -1792,10 +1800,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 chunk for chunk in chunks
                 if str(chunk.get("provider") or "") == "deterministic_silence"
             ]
-            self.assertEqual(len(silence_chunks), 4)
+            self.assertEqual(len(silence_chunks), 5)
             self.assertEqual(
                 {str(chunk.get("role") or "") for chunk in silence_chunks},
-                {"post_hook_silence", "intro_silence", "pre_topic_silence", "final_silence"},
+                {"post_hook_silence", "intro_silence", "post_prayer_silence", "pre_topic_silence", "final_silence"},
             )
             self.assertTrue(
                 all(int(chunk.get("chars") or 0) == 0 for chunk in silence_chunks)

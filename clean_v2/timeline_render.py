@@ -53,34 +53,67 @@ def render_identity_composition(
     outro_start, outro_end = bounds("outro")
 
     final_silence_start, final_silence_end = bounds("final_silence")
+    intro_duration = max(0.001, intro_end - intro_start)
+    prayer_duration = max(0.001, prayer_end - prayer_start)
     outro_duration = max(0.001, outro_end - outro_start)
     freeze_duration = max(0.0, final_silence_end - final_silence_start)
-    filters = (
-        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-        f"trim=duration={intro_end - intro_start:.3f},"
-        f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-        f"[2:v]scale={prayer_width}:-1,format=rgba,"
-        f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
-        f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-        f"trim=duration={outro_duration:.3f},"
-        f"tpad=stop_mode=clone:stop_duration={freeze_duration:.3f},"
-        f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
-        f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
-        f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
-        f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
-        f"[v2][outro]overlay=0:0:"
-        f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"
-    )
+    if fmt == "podcast":
+        identity_start, identity_end = bounds("channel_identity")
+        identity_duration = max(0.001, identity_end - identity_start)
+        filters = (
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,fps=30,format=rgba,split=2[introbase][identitybase];"
+            f"[introbase]tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
+            f"trim=duration={intro_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
+            f"[identitybase]tpad=stop_mode=clone:stop_duration={identity_duration:.3f},"
+            f"trim=duration={identity_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{identity_start:.3f}/TB[identity];"
+            f"[2:v]scale={prayer_width}:-1,format=rgba,"
+            f"trim=duration={prayer_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
+            f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+            f"tpad=stop_mode=clone:stop_duration={outro_duration + freeze_duration:.3f},"
+            f"trim=duration={outro_duration + freeze_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
+            f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
+            f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
+            f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
+            f"[v2][identity]overlay=0:0:"
+            f"enable='between(t,{identity_start:.3f},{identity_end:.3f})'[v3];"
+            f"[v3][outro]overlay=0:0:"
+            f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"
+        )
+    else:
+        filters = (
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+            f"tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
+            f"trim=duration={intro_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
+            f"[2:v]scale={prayer_width}:-1,format=rgba,"
+            f"trim=duration={prayer_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
+            f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
+            f"tpad=stop_mode=clone:stop_duration={outro_duration + freeze_duration:.3f},"
+            f"trim=duration={outro_duration + freeze_duration:.3f},"
+            f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
+            f"[0:v][intro]overlay=0:0:enable='between(t,{intro_start:.3f},{intro_end:.3f})'[v1];"
+            f"[v1][prayer]overlay=(W-w)/2:(H-h)/2:"
+            f"enable='between(t,{prayer_start:.3f},{prayer_end:.3f})'[v2];"
+            f"[v2][outro]overlay=0:0:"
+            f"enable='between(t,{outro_start:.3f},{final_silence_end:.3f})'[vout]"
+        )
 
     subprocess.run(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(source),
-            "-stream_loop", "-1", "-i", str(assets["intro"]),
+            "-i", str(assets["intro"]),
             "-loop", "1", "-framerate", "30", "-i", str(assets["prayer"]),
-            "-stream_loop", "-1", "-i", str(assets["outro"]),
+            "-i", str(assets["outro"]),
             "-filter_complex", filters,
             "-map", "[vout]", "-map", "0:a:0",
             "-t", f"{voice_seconds:.3f}",

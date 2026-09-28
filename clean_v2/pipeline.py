@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
 from .identity_sequence import (
+    PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
@@ -23,6 +24,7 @@ from .identity_sequence import (
     inject_spoken_identity,
 )
 from .contracts import (
+    LONGFORM_NARRATIVE_FORMATS,
     atomic_write_json,
     compute_brief_sha256,
     load_approved_brief,
@@ -69,6 +71,224 @@ _PLANNING_FACTUALITY_RULE = (
     "quotes, experts or causation. If evidence is insufficient, use a modest non-technical observation or "
     "omit the claim."
 )
+
+# One lightweight editorial registry: no provider call, stage, or alternate pipeline.
+# Film selects one of the nine established narrative shapes from approved input only.
+# Podcast/خارج النص deliberately keeps one fixed house style instead of rotating shapes.
+_LONGFORM_PROFILE_ORDER = (
+    "story_analysis",
+    "hypothesis_test",
+    "paradox",
+    "dialogue_qa",
+    "inner_dialogue",
+    "problem_reveal_solution",
+    "connected_list",
+    "question_answer",
+    "direct_cinematic",
+)
+_LONGFORM_PROFILE_SIGNALS: dict[str, tuple[tuple[str, int], ...]] = {
+    "direct_cinematic": (),
+    "question_answer": (
+        ("لماذا", 3), ("كيف", 2), ("هل", 2), ("سؤال", 4),
+        ("ماذا", 1), ("ما الذي", 2),
+    ),
+    "dialogue_qa": (
+        ("حوار", 7), ("سؤال وجواب", 8), ("اعتراض", 6), ("جدل", 5),
+        ("وجهتا نظر", 7), ("وجهتي نظر", 7), ("مقابل", 3),
+    ),
+    "inner_dialogue": (
+        ("قلت لنفسي", 8), ("أقول لنفسي", 8), ("في داخلي", 6),
+        ("صوت داخلي", 6), ("ماذا لو", 5), ("أعتقد", 4), ("اشعر", 4),
+        ("أشعر", 4), ("الخوف", 3), ("التردد", 4), ("الدافع", 2),
+    ),
+    "problem_reveal_solution": (
+        ("مشكلة", 5), ("تفشل", 6), ("فشل", 5), ("السبب", 5),
+        ("فخ", 5), ("حل", 3), ("لماذا تفشل", 7), ("استنزاف", 3),
+        ("تعطّل", 4), ("تعطل", 4),
+    ),
+    "story_analysis": (
+        ("قصة", 9), ("رحلة", 5), ("تجربة", 5), ("حدث", 5),
+        ("رجل", 3), ("امرأة", 3), ("شخص", 2), ("بدأ من جديد", 6),
+        ("سقط", 3), ("عاد", 3),
+    ),
+    "paradox": (
+        ("مفارقة", 9), ("رغم", 5), ("كلما", 6), ("عكس", 5),
+        ("تناقض", 7), ("لماذا كلما", 8),
+    ),
+    "hypothesis_test": (
+        ("هل فعلا", 9), ("هل فعلًا", 9), ("هل حقا", 9), ("هل حقًا", 9),
+        ("هل صحيح", 8), ("ماذا يحدث لو", 8), ("فرضية", 9),
+        ("اختبار", 6), ("نجرب", 5), ("نجرّب", 5),
+    ),
+    "connected_list": (
+        ("أسباب", 8), ("اسباب", 8), ("علامات", 8), ("خطوات", 8),
+        ("طرق", 7), ("عادات", 4), ("أشياء", 4), ("اشياء", 4),
+    ),
+}
+_LONGFORM_PROFILES: dict[str, dict[str, str]] = {
+    "direct_cinematic": {
+        "writing": "One flowing argument: immediate tension -> progressive understanding -> earned resolution. No chapter-list delivery.",
+        "visual": "Progress through environment -> action/detail -> consequence/payoff. Favor real motion and spatial progression; change shot family only when meaning changes.",
+        "voice": "direct_cinematic",
+    },
+    "question_answer": {
+        "writing": "One Charon narrator asks sincere progressively deeper questions and answers them; never a flat FAQ and never A:/B: labels.",
+        "visual": "Each question opens a visible uncertainty/tension; its answer must reveal new observable evidence, consequence, or wider context. Alternate scale or environment rather than repeating one prop.",
+        "voice": "question_answer",
+    },
+    "dialogue_qa": {
+        "writing": "A:/B: only. A is a concise intelligent challenger/questioner; B is the thoughtful answer. Every turn advances the same argument; no host/guest filler.",
+        "visual": "Use a restrained two-position visual grammar without faces: challenge beats favor tighter unresolved details; answer beats widen or reveal consequence/context. Do not fake a studio interview.",
+        "voice": "dialogue_qa",
+    },
+    "inner_dialogue": {
+        "writing": "One Charon voice: felt friction -> believable self-question -> self-correction -> earned clarity. Never A:/B: labels or motivational preaching.",
+        "visual": "Tight tactile friction -> pause/negative space -> changed action/state -> release. Keep the world intimate but not gloomy; the payoff must visibly change the opening state.",
+        "voice": "inner_dialogue",
+    },
+    "problem_reveal_solution": {
+        "writing": "Show the concrete problem, reveal the hidden mechanism, then derive one practical resolution. Advice comes only after mechanism.",
+        "visual": "Problem state -> causal/mechanism cue -> intervention/change -> visible result. Do not illustrate every noun; each beat must prove the next causal step.",
+        "voice": "problem_reveal_solution",
+    },
+    "story_analysis": {
+        "writing": "Enter a concrete scene/event, let something change, analyze what it reveals, then land the implication. Never invent autobiography.",
+        "visual": "Maintain scene continuity long enough to feel like a real mini-story, then use a distinct analytical cutaway and a consequence/payoff. Avoid unrelated montage.",
+        "voice": "story_analysis",
+    },
+    "paradox": {
+        "writing": "Open with one truthful contradiction, examine both sides, then resolve why both can appear true. Do not force a clever paradox.",
+        "visual": "Use paired opposites or the same kind of action in visibly different states/results, then converge on one resolving image. Avoid decorative symbolism.",
+        "voice": "paradox",
+    },
+    "hypothesis_test": {
+        "writing": "State one plausible hypothesis, test it against approved everyday evidence/reasoning, then reach a measured conclusion. Never overclaim causation.",
+        "visual": "Claim/state -> observable test/comparison -> evidence/consequence -> conclusion. Favor consistent real-world conditions over unrelated cinematic montage.",
+        "voice": "hypothesis_test",
+    },
+    "connected_list": {
+        "writing": "A connected sequence of reasons/steps where each item changes the argument. Never numbered clickbait, repeated setup, or interchangeable tips.",
+        "visual": "Each reason/step gets a genuinely different action/environment family while retaining one visual world; progression matters more than counting items.",
+        "voice": "connected_list",
+    },
+}
+_PODCAST_FIXED_PROFILE = {
+    "narrative_format": "dialogue_qa",
+    "writing": (
+        "خارج النص fixed listener-proxy dialogue: A speaks for the listener, asking the concrete question, doubt, "
+        "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
+        "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
+        "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
+    ),
+    "visual": (
+        "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
+        "environments, side light and breathing room. A listener-proxy turn does NOT force a scene cut: keep the current unresolved "
+        "scene when the idea has not changed, show the short A question as sparse Cairo key text for only a few seconds, then let the "
+        "text disappear as B answers. Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
+        "state; when useful, move from a tighter unresolved detail on A to a wider/revealing context on B. Never fake two hosts, a studio "
+        "interview, split-screen conversation, waveform wallpaper, or Short-like kinetic cutting. The visual layer must remain optional "
+        "to understanding and feel like one continuous room around the conversation."
+    ),
+    "voice": "podcast_listener_proxy_qa",
+}
+
+
+def _narrative_semantic_key(value: object) -> str:
+    text = " ".join(str(value or "").split()).casefold()
+    text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", text)
+    text = text.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه"}))
+    return " ".join(re.sub(r"[^\w\u0600-\u06ff]+", " ", text).split())
+
+
+def _narrative_signal_score(text: object, signals: tuple[tuple[str, int], ...]) -> int:
+    normalized = f" {_narrative_semantic_key(text)} "
+    return sum(
+        weight
+        for phrase, weight in signals
+        if f" {_narrative_semantic_key(phrase)} " in normalized
+    )
+
+
+def _approved_longform_selection_text(brief: Mapping[str, Any]) -> tuple[str, str]:
+    topic = " ".join(str(brief.get("approved_topic") or "").split()).strip()
+    context_values = [
+        brief.get("editorial_intent"),
+        brief.get("emotional_goal"),
+        brief.get("emotional_arc"),
+    ]
+    pack = brief.get("research_pack")
+    if isinstance(pack, list):
+        for row in pack[:6]:
+            if isinstance(row, Mapping):
+                context_values.extend((row.get("source_title"), row.get("claim_scope")))
+    context = " ".join(" ".join(str(value or "").split()) for value in context_values if value)
+    return topic, context
+
+
+def _select_longform_narrative_profile(brief: Mapping[str, Any]) -> dict[str, Any]:
+    fmt = str(brief.get("format") or "").strip()
+    if fmt == "podcast":
+        return {
+            **_PODCAST_FIXED_PROFILE,
+            "selection_basis": "podcast_fixed_house_style",
+            "scores": {"direct_cinematic": 1},
+            "extra_ai_calls": 0,
+        }
+    if fmt != "film":
+        return {
+            "narrative_format": "",
+            "writing": "",
+            "visual": "",
+            "voice": "",
+            "selection_basis": "not_longform",
+            "scores": {},
+            "extra_ai_calls": 0,
+        }
+
+    topic, context = _approved_longform_selection_text(brief)
+    if not topic:
+        raise RuntimeError("film_narrative_profile_requires_approved_topic")
+    scores: dict[str, int] = {"direct_cinematic": 2}
+    for name in LONGFORM_NARRATIVE_FORMATS:
+        if name == "direct_cinematic":
+            continue
+        signals = _LONGFORM_PROFILE_SIGNALS.get(name, ())
+        scores[name] = 3 * _narrative_signal_score(topic, signals) + _narrative_signal_score(context, signals)
+
+    topic_key = f" {_narrative_semantic_key(topic)} "
+    if " هل " in topic_key and " ام " in topic_key:
+        scores["dialogue_qa"] += 9
+    if re.search(r"(^|\s)\d+[\s:：-]", topic):
+        scores["connected_list"] += 7
+
+    # Specialized structures are fail-closed unless the approved input itself
+    # contains enough evidence that the shape is natural rather than decorative.
+    minimum_specialized = {
+        "dialogue_qa": 10,
+        "story_analysis": 12,
+        "paradox": 12,
+        "hypothesis_test": 12,
+        "connected_list": 12,
+    }
+    for name, floor in minimum_specialized.items():
+        if scores.get(name, 0) < floor:
+            scores[name] = -100
+
+    best = max(scores.values())
+    selected = next(name for name in _LONGFORM_PROFILE_ORDER if scores.get(name, -100) == best)
+    if selected not in _LONGFORM_PROFILES:
+        selected = "direct_cinematic"
+    profile = _LONGFORM_PROFILES[selected]
+    return {
+        "narrative_format": selected,
+        "writing": profile["writing"],
+        "visual": profile["visual"],
+        "voice": profile["voice"],
+        "selection_basis": "approved_topic_plus_approved_context_deterministic_v1",
+        "scores": scores,
+        "extra_ai_calls": 0,
+    }
 QUALITY_STAGE = "final_master_qc"
 # Audio mastering is a deterministic ffmpeg transformation, not a content-judgment
 # gate, so it is deliberately NOT in QUALITY_STAGES: a failure here is always a
@@ -405,15 +625,19 @@ def _synthesize_sectioned_voice(
             try:
                 chunk_role = roles[chunk_index - 1]
                 effective_performance_mode = ""
-                if str(performance_mode or "") == "inner_dialogue":
+                requested_performance_mode = str(performance_mode or "").strip()
+                if requested_performance_mode:
                     fixed_identity_closer = " ".join(str(identity_closer or "").split()).strip()
                     is_fixed_identity_outro = (
                         chunk_role == "outro"
                         and bool(fixed_identity_closer)
                         and " ".join(chunk_text.split()).strip() == fixed_identity_closer
                     )
-                    if chunk_role in {"hook", "topic", "outro"} and not is_fixed_identity_outro:
-                        effective_performance_mode = "inner_dialogue"
+                    # Prayer + channel definition keep the neutral established Charon
+                    # identity. Editorial performance begins at the hook and topic,
+                    # while a fixed identity closer never inherits a dramatic mode.
+                    if chunk_role in {"hook", "topic", "promo_short", "outro"} and not is_fixed_identity_outro:
+                        effective_performance_mode = requested_performance_mode
                 if require_charon_only:
                     if effective_performance_mode:
                         voice_synthesizer.synthesize(
@@ -553,6 +777,30 @@ def _synthesize_sectioned_voice(
                         "charon_attempts": 0,
                         "fallback_used": False,
                         "role": "intro_silence",
+                    }
+                )
+            elif (
+                fmt in IDENTITY_TIMELINE_FORMATS
+                and index == 1
+                and role == "prayer"
+            ):
+                timing = identity_timing_profile(fmt)
+                pause_path = chunk_path.parent / "post-prayer-silence.wav"
+                _write_silence_like(
+                    chunk_path,
+                    pause_path,
+                    timing["post_prayer_silence_seconds"],
+                )
+                chunk_paths.append(pause_path)
+                chunk_reports.append(
+                    {
+                        "chunk": len(chunk_reports) + 1,
+                        "file": str(pause_path.relative_to(narration_path.parent)),
+                        "chars": 0,
+                        "provider": "deterministic_silence",
+                        "charon_attempts": 0,
+                        "fallback_used": False,
+                        "role": "post_prayer_silence",
                     }
                 )
             elif (
@@ -833,15 +1081,18 @@ def _voice_performance_mode_for_brief(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any] | None = None,
 ) -> str:
-    """Choose only a local Gemini performance mode; never a new provider or stage."""
-    if str(brief.get("format") or "") == "short":
-        return (
-            "inner_dialogue"
-            if str(select_short_template(brief)["template"]) == "inner_dialogue"
-            else ""
-        )
+    """Map the locked editorial type to Gemini style metadata only.
+
+    Voice identity stays fixed: Charon is the channel voice; Orus appears only
+    in explicit dialogue_qa turns. No provider, call-count, or stage change.
+    """
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
+        return str(select_short_template(brief)["template"])
+    if fmt == "podcast":
+        return "podcast_listener_proxy_qa"
     selected = str((plan or {}).get("narrative_format") or "").strip()
-    return "inner_dialogue" if selected == "inner_dialogue" else ""
+    return selected if selected in LONGFORM_NARRATIVE_FORMATS else "direct_cinematic"
 
 
 def _audit_narrative_format_for_brief(
@@ -3022,12 +3273,100 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
     return destination
 
 
+def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
+    """Keep a Short to real semantic scenes without another model call or failure gate."""
+    result = copy.deepcopy(dict(story))
+    beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
+    max_beats = max(3, int(max_beats))
+    if len(beats) <= max_beats:
+        return result
+
+    section_order: list[str] = []
+    indexes_by_section: dict[str, list[int]] = {}
+    for index, beat in enumerate(beats):
+        section_id = str(beat.get("section_id") or "").strip()
+        if section_id not in indexes_by_section:
+            section_order.append(section_id)
+            indexes_by_section[section_id] = []
+        indexes_by_section[section_id].append(index)
+
+    keep: set[int] = {0, len(beats) - 1}
+    # Preserve at least one visual from every authored section.
+    for section_id in section_order:
+        indexes = indexes_by_section[section_id]
+        preferred = indexes[-1] if section_id == section_order[-1] else indexes[0]
+        keep.add(preferred)
+
+    # Add at most two genuinely authored extra states, balanced by section order.
+    while len(keep) < max_beats:
+        added = False
+        for section_id in section_order:
+            for index in indexes_by_section[section_id]:
+                if index in keep:
+                    continue
+                keep.add(index)
+                added = True
+                break
+            if len(keep) >= max_beats:
+                break
+        if not added:
+            break
+
+    selected = [copy.deepcopy(beats[index]) for index in sorted(keep)[:max_beats]]
+    for index, beat in enumerate(selected):
+        beat["role"] = "hook" if index == 0 else "payoff" if index == len(selected) - 1 else "body"
+    result["beats"] = selected
+    return result
+
+
+def _bound_ai_still_preferences(
+    story: Mapping[str, Any],
+    *,
+    fmt: str,
+) -> dict[str, Any]:
+    """Keep free AI stills sparse; excess beats fall back to stock motion locally."""
+    result = copy.deepcopy(dict(story))
+    beats = [item for item in (result.get("beats") or []) if isinstance(item, dict)]
+    max_ai = 2 if fmt in {"short", "film", "podcast"} else 1
+    ai_indexes = [
+        index
+        for index, beat in enumerate(beats)
+        if str(beat.get("source_preference") or "") == "ai_still"
+    ]
+    if len(ai_indexes) <= max_ai:
+        return result
+
+    priority = [
+        index for index in ai_indexes
+        if str(beats[index].get("role") or "") in {"hook", "payoff"}
+    ]
+    priority.extend(index for index in ai_indexes if index not in priority)
+    keep = set(priority[:max_ai])
+    for index in ai_indexes:
+        if index not in keep:
+            beats[index]["source_preference"] = "stock_motion"
+    result["beats"] = beats
+    return result
+
+
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     plan = validate_plan(value, brief)
+    fmt = str(brief.get("format") or "")
+    if fmt in {"film", "podcast"}:
+        # The profile is selected from approved input before provider output. Keep
+        # the plan metadata aligned locally instead of spending another repair call
+        # if a model returns a different supported label.
+        plan["narrative_format"] = str(
+            _select_longform_narrative_profile(brief)["narrative_format"]
+        )
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
-    plan["visual_story"] = validate_visual_story(raw_story, plan)
+    visual_story = validate_visual_story(raw_story, plan)
+    if fmt == "short":
+        visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+    visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
+    plan["visual_story"] = visual_story
     return plan
 
 
@@ -3054,6 +3393,85 @@ def _locked_short_payoff_answer(visual_story: Mapping[str, Any] | None) -> str:
     return " ".join(str(thread.get("payoff_answer") or "").split()).strip()
 
 
+_PODCAST_DIALOGUE_TURN_RE = re.compile(r"(?<!\S)([AB]):\s+")
+
+
+def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
+    source = " ".join(str(narration or "").split()).strip()
+    for fixed in (PRAYER_SENTENCE, PODCAST_CHANNEL_DEFINITION):
+        source = " ".join(source.replace(fixed, " ").split()).strip()
+    matches = list(_PODCAST_DIALOGUE_TURN_RE.finditer(source))
+    if not matches:
+        return []
+    if source[: matches[0].start()].strip():
+        raise RuntimeError("podcast_listener_proxy_unlabelled_prefix")
+    turns: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        spoken = source[start:end].strip()
+        if not spoken:
+            raise RuntimeError("podcast_listener_proxy_empty_turn")
+        turns.append((match.group(1), spoken))
+    return turns
+
+
+def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[str, Any]:
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise RuntimeError("podcast_listener_proxy_requires_sections")
+    all_turns: list[tuple[str, str]] = []
+    for section in sections:
+        if not isinstance(section, Mapping):
+            raise RuntimeError("podcast_listener_proxy_section_invalid")
+        turns = _podcast_listener_proxy_turns(section.get("narration"))
+        if not turns:
+            raise RuntimeError("podcast_listener_proxy_requires_labelled_dialogue")
+        all_turns.extend(turns)
+
+    if not all_turns or all_turns[0][0] != "A":
+        raise RuntimeError("podcast_listener_proxy_hook_must_be_listener_A")
+    first_question = all_turns[0][1]
+    if "؟" not in first_question and "?" not in first_question:
+        raise RuntimeError("podcast_listener_proxy_hook_must_be_question")
+    if len(all_turns) < 2 or all_turns[1][0] != "B":
+        raise RuntimeError("podcast_listener_proxy_hook_requires_immediate_charon_answer")
+    for index, (speaker, _spoken) in enumerate(all_turns):
+        if speaker == "A" and (
+            index + 1 >= len(all_turns) or all_turns[index + 1][0] != "B"
+        ):
+            raise RuntimeError("podcast_listener_proxy_question_requires_immediate_answer")
+
+    a_words = 0
+    b_words = 0
+    a_turns = 0
+    for speaker, spoken in all_turns:
+        words = len(spoken.split())
+        if speaker == "A":
+            a_turns += 1
+            a_words += words
+            if words > 18:
+                raise RuntimeError(
+                    f"podcast_listener_proxy_question_too_long words={words} maximum=18"
+                )
+        else:
+            b_words += words
+    total = a_words + b_words
+    if total and a_words / total > 0.35:
+        raise RuntimeError("podcast_listener_proxy_questioner_dominates_episode")
+
+    return {
+        "status": "pass",
+        "mode": "listener_proxy_qa",
+        "first_speaker": "A",
+        "questioner_turns": a_turns,
+        "questioner_words": a_words,
+        "answer_words": b_words,
+        "questioner_share": round(a_words / max(1, total), 4),
+        "voices": {"A": "Orus", "B": "Charon"},
+    }
+
+
 def _validate_script_for_brief(
     value: Any,
     plan: Mapping[str, Any],
@@ -3061,7 +3479,8 @@ def _validate_script_for_brief(
     visual_story: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
-    if str(brief.get("format") or "") == "short":
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
         # One deterministic owner repairs only certified local Short shapes, then
         # the unchanged strict validators decide acceptance for every provider.
         normalize_short_script_candidate(
@@ -3070,6 +3489,8 @@ def _validate_script_for_brief(
         )
         validate_short_hook_contract(script)
         validate_short_script(script)
+    elif fmt == "podcast":
+        _validate_podcast_listener_proxy_script(script)
     return script
 
 
@@ -3101,6 +3522,25 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
         "canonical_opener": SHORT_CHANNEL_DEFINITION,
         "canonical_closer": "",
         "opener": SHORT_CHANNEL_DEFINITION,
+        "closer": "",
+        "prayer_sentence": PRAYER_SENTENCE,
+        "transitions": [],
+        "provider_calls_added": 0,
+    }
+    atomic_write_json(output_dir / "narrative-identity.json", report)
+    return report
+
+
+def _podcast_fixed_identity(output_dir: Path) -> dict[str, Any]:
+    """Keep خارج النص recognisable without spending a provider call on identity copy."""
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-podcast-fixed-identity",
+        "status": "pass",
+        "reason": "listener_proxy_house_identity",
+        "canonical_opener": PODCAST_CHANNEL_DEFINITION,
+        "canonical_closer": "",
+        "opener": PODCAST_CHANNEL_DEFINITION,
         "closer": "",
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
@@ -3484,6 +3924,7 @@ def _inspect_final_with_short_gate(
 
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
+    longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         section_requirement = "exactly 5 sections"
     elif fmt == "podcast":
@@ -3507,10 +3948,25 @@ make complete sense with the screen closed.
 The episode title must be specific to THIS episode and carry its real tension or promise; append
 " | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
 
-Keep the visual companion deliberately sparse. Default to ONE visual beat per section and let a scene
-remain as long as the same idea continues. Add a second beat only for a genuine major change in idea,
-feeling, place, or observable action; never change imagery merely because a sentence ended. The
-visuals support the narration and must never carry information required to understand the episode.
+خارج النص has one fixed listener-proxy dialogue identity. The first spoken sentence MUST be A: and
+must be one short, concrete question the listener plausibly has in their own head. B: is the established
+Charon channel voice and carries the real explanation. A is sparse: use a short question, doubt, or
+objection only when it unlocks a genuinely new layer; never use A as a host, interviewer, co-presenter,
+or setup machine. Do not alternate A/B mechanically after every sentence. The runtime will insert the
+prayer and fixed خارج النص definition between the first A hook and B's first answer, so B's first words
+must pick up the SAME noun/tension from the hook naturally rather than restarting the topic.
+
+Keep the visual companion deliberately sparse and audio-first. For section 1, use TWO semantic beats:
+(1) the A-hook beat is a close/medium no-face unresolved detail, interrupted action, or visible consequence
+that makes the listener's question readable with sound off; (2) the first B-answer beat changes scale,
+context, action or state to reveal new information and begin answering it. Do NOT use microphones,
+podcast studios, two empty chairs, waveform graphics, or fake host/guest imagery just because the audio
+contains two voices. After the opening pair, default to ONE visual beat per section and add a second only
+for a genuine major change in meaning or observable state. Never cut merely because A speaks again.
+Question turns may stay over the current scene unless the question itself opens a new visual idea.
+Favor a recurring grammar of unresolved detail -> contextual reveal -> consequence -> earned release,
+with calm contained medium/wide compositions, tactile real environments, side light and breathing room.
+The visuals support the narration and must never carry information required to understand the episode.
 Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction, not
 as manufactured suspense. payoff_answer must resolve or deepen that question honestly, while the
 visual motif remains supportive and non-essential to a listener with the screen closed.
@@ -3540,19 +3996,15 @@ visual motif remains supportive and non-essential to a listener with the screen 
         else ""
     )
     longform_narrative_format_instruction = (
-        """
-For film and podcast only, choose exactly one narrative_format that best serves THIS topic without
-adding a new production stage:
-- direct_cinematic: default for a clear flowing explanation.
-- question_answer: one narrator asks and answers progressively deeper questions; no A:/B: labels.
-- dialogue_qa: use only when a real two-position exchange improves understanding. A is the concise
-  questioner/challenger and B is the fixed primary channel voice; both must advance the argument.
-- inner_dialogue: one voice representing believable internal conflict; never A:/B: labels.
-- problem_reveal_solution, story_analysis, paradox, hypothesis_test, or connected_list only when the
-  topic naturally earns that structure.
-Do not pick dialogue_qa merely for novelty. The selected format changes writing shape only; it does
-not add providers, stages, duration targets, or visual complexity.
-"""
+        (
+            "LOCKED NARRATIVE PROFILE — do not choose or substitute another narrative_format.\n"
+            f"- narrative_format={longform_profile['narrative_format']}\n"
+            f"- writing_shape={longform_profile['writing']}\n"
+            f"- visual_grammar={longform_profile['visual']}\n"
+            f"- voice_mode={longform_profile['voice']}\n"
+            "Return exactly the locked narrative_format above. This profile is selected locally from the approved topic "
+            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script."
+        )
         if fmt in {"film", "podcast"}
         else ""
     )
@@ -3572,13 +4024,15 @@ not add providers, stages, duration targets, or visual complexity.
             "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
             "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
             "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
-            "or turning the whole film into a scenic motivational montage."
+            "or turning the whole film into a scenic motivational montage. "
+            + str(longform_profile.get("visual") or "")
         ),
         "podcast": (
-            "FORMAT VISUAL PROFILE — PODCAST: favor calm contained compositions, steady medium/wide framing, "
+            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: favor calm contained compositions, steady medium/wide framing, "
             "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
             "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
-            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad."
+            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad. "
+            + str(longform_profile.get("visual") or "")
         ),
     }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
@@ -3637,12 +4091,23 @@ asymmetry, and stronger local focal contrast than the body. Do not open on a pas
 coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
 Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
 
-VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, sticky notes, checklist and writing
-belong to one action family; laptop/keyboard/typing to another; walking/movement to another.
-Do not place the same dominant action family in consecutive beats and normally use one family no more
-than twice. The only intentional repeat may be the hook/payoff motif when its state visibly changes.
-Prefer an observable progression such as stuck -> choosing -> moving -> completed, so every new shot
-adds information instead of showing another angle of the same productivity prop.
+HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage. Treat the hook
+as the first shot of a tiny visual sequence, not as an illustration of one noun from the narration:
+show an observable unresolved moment or visible consequence first; then make the next beat reveal a
+different action, environment, scale, or state that advances the same tension. The first body beat must
+not repeat the hook's dominant scene/action family. A deliberate family return is reserved for a later
+hook/payoff motif only when its state has visibly changed. Search wording should prioritize the concrete
+observable state/action; composition, grade and channel styling are enforced locally and must not bloat
+a stock query with generic cinematic adjectives.
+
+VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, paper, page, planner, sticky notes,
+checklist and writing belong to ONE stationery family; laptop/keyboard/typing to another;
+walking/movement to another. Do not place the same dominant action family in consecutive beats and
+normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
+when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
+completed, so every new shot adds information instead of showing another angle of the same productivity prop.
+For Short specifically, use 3-5 semantic visual beats total. Never invent extra cuts to reach a shot-count
+target; if three strong scenes carry the complete miniature story, keep three.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
@@ -3676,8 +4141,11 @@ English visual description of the exact observable action/state for THIS beat, p
 useful words; it must be specific enough to search directly and must not be mood-only language.
 display_text_ar must be a unique natural Arabic phrase of about 2-7 words that belongs to THIS
 exact image/beat and expresses its visible meaning. It should compress a specific insight, tension, or
-consequence from this episode, not a generic motivational slogan. Never place the prayer sentence or any
-variant of الصلاة على النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
+consequence from this episode, not a generic motivational slogan. For podcast / خارج النص, make the hook
+display text the short listener-proxy A question when possible; use at most one later A-question/turn phrase
+and reserve the payoff text for one concise B conclusion. Do not turn every B answer into on-screen text
+and never expose visible A:/B: speaker labels. Never place the prayer sentence or any variant of الصلاة على
+النبي in display_text_ar; prayer copy belongs only to the dedicated prayer visual.
 Never reuse the same display phrase on another beat, never describe an unrelated idea, and never ask the
 image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
@@ -3695,8 +4163,10 @@ one beat in a Short and one or two high-value turns in Film/Podcast, and only wh
 better than ordinary footage. Never make all three roles look like the same setup. AI images MUST be
 image-only: no title, caption, letters, words, UI, logo, watermark, or generated Arabic text; renderer-owned
 display text is added later.
-For short, normally use 2-4 AI still beats at most; for film, keep stock motion dominant and use up to
-4 AI anchors only at high-value idea turns; for podcast, remain sparse and normally use 2-3 AI anchors.
+Keep AI stills sparse and inside the same scene budget, never as extra cuts. For Short, normally use
+0-1 AI still and use at most 2 only when a deliberate hook/payoff motif benefits from a controlled matched
+pair. For Film, keep stock motion dominant and use at most 2 AI anchors at high-value abstract or causal
+turns. For Podcast, normally use 0-1 and at most 2 when the idea genuinely needs a controlled visual anchor.
 All AI remains free-only and fails safely to quality-gated stock when unavailable. A recurring hook/payoff
 motif may return in a visibly changed state, but body AI beats must not be forced into the same environment.
 
@@ -3861,10 +4331,17 @@ LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before retu
 """.strip()
 
 PODCAST_GEMINI_PERFORMANCE_GUIDANCE = """
-For podcast / خارج النص, write for Gemini 3.8 Flash TTS and the fixed Charon main voice. If the approved
-narrative format is dialogue_qa, preserve explicit A:/B: turns so A maps to Orus and B maps to Charon.
-For question_answer and ordinary narration, keep one narrator and do not invent speaker labels. Keep
-the delivery simple-deep, conversational, and natural without theatrical punctuation or acting.
+For podcast / خارج النص, use the fixed listener-proxy dialogue house style with Gemini 3.8.
+A maps to Orus and represents the listener's own concrete question, doubt, or objection. B maps to Charon
+and remains the established channel voice. Preserve explicit A:/B: labels only at turn boundaries.
+A is sparse and short: normally one natural sentence, preferably 4-14 Arabic words, only when it unlocks
+the next layer. B carries the substance in a fuller answer before A returns. Never alternate mechanically
+line-by-line. No greetings, names, host/guest framing, thanks, fake agreement, jokes inserted for chemistry,
+or staged interview filler. A must sound like a real listener thinking aloud, not a prompt engineered to
+feed B's answer. The first hook should normally be an A question/objection that a real listener could have
+thought before pressing play, and B's first topic sentence after prayer/identity must answer that SAME
+question immediately rather than restarting the episode. Keep both voices simple, deep, conversational,
+and non-theatrical.
 """.strip()
 
 
@@ -3877,6 +4354,7 @@ def _script_prompt(
     identity_opener: str = "",
 ) -> str:
     fmt = str(brief["format"])
+    longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         length = (
             "For the main long episode, 3-20 minutes is a normal editorial range, never an acceptance gate. "
@@ -3922,6 +4400,19 @@ def _script_prompt(
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
+    longform_profile_context = (
+        (
+            "LOCKED NARRATIVE PERFORMANCE PROFILE:\n"
+            f"- narrative_format={longform_profile['narrative_format']}\n"
+            f"- writing_shape={longform_profile['writing']}\n"
+            f"- visual_grammar={longform_profile['visual']}\n"
+            f"- voice_mode={longform_profile['voice']}\n"
+            "Write the actual narration in this shape; do not merely preserve the label in metadata. "
+            "For dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map voices, and keep A concise."
+        )
+        if fmt in {"film", "podcast"}
+        else ""
+    )
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
     story_json = json.dumps(
@@ -3955,7 +4446,7 @@ def _script_prompt(
     identity_handoff = (
         SHORT_CHANNEL_DEFINITION
         if fmt == "short"
-        else " ".join(str(identity_opener or "").split()).strip()
+        else channel_definition(fmt, identity_opener)
     )
     identity_handoff_guidance = ""
     if identity_handoff:
@@ -4024,6 +4515,8 @@ naturally; the Outro visual occupies the measured final voice unit instead of ad
 {identity_handoff_guidance}
 
 {short_context}
+
+{longform_profile_context}
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
 {_PLANNING_FACTUALITY_RULE}
@@ -4537,6 +5030,11 @@ class CleanV2Pipeline:
                         IDENTITY_STAGE,
                         lambda: _short_identity_not_applicable(output_dir),
                     )
+                elif str(brief["format"]) == "podcast":
+                    identity = journal.run(
+                        IDENTITY_STAGE,
+                        lambda: _podcast_fixed_identity(output_dir),
+                    )
                 else:
                     identity = journal.run(
                         IDENTITY_STAGE,
@@ -4670,6 +5168,10 @@ class CleanV2Pipeline:
                 )
                 validate_short_hook_contract(script)
                 validate_short_script(script)
+            elif str(brief["format"]) == "podcast":
+                # Tone repair must not silently collapse خارج النص back into a
+                # generic one-voice monologue or let the listener proxy dominate.
+                _validate_podcast_listener_proxy_script(script)
             visual_story = _bind_writer_visual_story(
                 output_dir=output_dir,
                 brief=brief,

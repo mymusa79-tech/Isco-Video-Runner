@@ -52,6 +52,53 @@ GEMINI38_INNER_RESOLVED_STYLE = (
     "Same exact Charon speaker and identity. Slightly clearer and steadier as the thought resolves, "
     "still private and conversational, never motivational-speaker delivery."
 )
+GEMINI38_LISTENER_PROXY_STYLE = (
+    "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
+    "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
+)
+GEMINI38_PODCAST_ANSWER_STYLE = (
+    "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
+    "simple-deep conversational delivery, unhurried but not sleepy, never announcer or lecture tone."
+)
+GEMINI38_PERFORMANCE_STYLES = {
+    "why_reframe": (
+        "Same Charon identity. Clear and lightly incisive: open the mistaken frame with controlled tension, "
+        "then become warmer and steadier as the useful reframe lands. Never salesy or preachy."
+    ),
+    "micro_story": (
+        "Same Charon identity. Natural story-bearing cadence with concrete forward motion and small pauses at real turns; "
+        "intimate and observant, never dramatic acting."
+    ),
+    "quote_reflection": (
+        "Same Charon identity. Measured and spacious with restrained emphasis around the approved quote and its meaning; "
+        "calm, clear and reflective without becoming sad or solemn."
+    ),
+    "direct_cinematic": (
+        "Same Charon identity. Grounded forward-moving narration: confident, warm and clear, with gradual lift toward the payoff."
+    ),
+    "question_answer": (
+        "Same Charon identity. Curious self-questioning followed by clear explanatory answers; vary question and answer cadence naturally, "
+        "never sound like an FAQ host."
+    ),
+    "problem_reveal_solution": (
+        "Same Charon identity. Focused and concrete: controlled concern on the problem, sharper clarity on the mechanism, "
+        "then practical calm on the resolution."
+    ),
+    "story_analysis": (
+        "Same Charon identity. Observational narrative warmth through the scene, then a slightly more analytical but still human tone "
+        "when extracting meaning; no documentary announcer delivery."
+    ),
+    "paradox": (
+        "Same Charon identity. Calm intellectual tension when holding two apparently conflicting ideas, then measured confidence as the contradiction resolves."
+    ),
+    "hypothesis_test": (
+        "Same Charon identity. Curious and evidence-minded, lightly provisional during the test and measured at the conclusion; "
+        "never overstate certainty."
+    ),
+    "connected_list": (
+        "Same Charon identity. Clear cumulative momentum where each reason or step adds weight; avoid numbered-list cadence or punchy listicle delivery."
+    ),
+}
 
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
 
@@ -66,17 +113,9 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
-# Rich Short Visual Lite: still exactly three semantic sections, but 6-9
-# final shots depending only on measured voice duration. No new AI stage.
-SHORT_STOCK_ASSET_MAX = 6
-SHORT_VISUAL_MIN = 6
-SHORT_VISUAL_TARGET = 7
-SHORT_VISUAL_MAX = 9
-SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS = 30.0
-SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS = 36.0
-SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS = 41.0
+# Short visuals are semantic-story owned: normally 3-5 real scenes total.
+# Measured voice owns timing only; duration never fabricates extra shots.
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
-SHORT_MOTION_ZOOM = 0.045
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
 SHORT_MASTER_LOOK_FILTER = (
@@ -265,6 +304,7 @@ def _gemini38_synthesize(
 
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
+        listener_proxy = str(performance_mode or "") == "podcast_listener_proxy_qa"
         content: list[dict[str, Any]] = []
         for speaker, spoken in turns:
             content.append(
@@ -276,9 +316,9 @@ def _gemini38_synthesize(
                             "type": "speech_metadata",
                             "speaker": speaker,
                             "style": (
-                                GEMINI38_QUESTIONER_STYLE
+                                (GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
                                 if speaker == "A"
-                                else GEMINI38_NARRATOR_STYLE
+                                else (GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
                             ),
                         }
                     ],
@@ -321,6 +361,10 @@ def _gemini38_synthesize(
                     }
                 )
         else:
+            resolved_style = GEMINI38_PERFORMANCE_STYLES.get(
+                str(performance_mode or ""),
+                GEMINI38_NARRATOR_STYLE,
+            )
             content = [
                 {
                     "type": "text",
@@ -328,7 +372,7 @@ def _gemini38_synthesize(
                     "annotations": [
                         {
                             "type": "speech_metadata",
-                            "style": GEMINI38_NARRATOR_STYLE,
+                            "style": resolved_style,
                         }
                     ],
                 }
@@ -891,7 +935,9 @@ def _specific_beat_stock_query(value: object) -> str:
     return " ".join(useful[:14])
 
 
-HOOK_STOCK_RETRIEVAL_SUFFIX = "close up decisive action strong focal contrast"
+# Keep retrieval semantic. Visual drama is judged by existing Visual QA/rendering,
+# not by stuffing generic cinematic adjectives into the stock search.
+HOOK_STOCK_RETRIEVAL_SUFFIX = "close up"
 
 
 def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
@@ -926,6 +972,29 @@ def _channel_stock_query(query: str) -> str:
     return candidate if len(candidate) <= 96 else base
 
 
+_STOCK_RANK_STOP_TOKENS = frozenset({
+    "cinematic", "warm", "neutral", "natural", "practical", "light", "lighting",
+    "close", "up", "wide", "shot", "frame", "strong", "focal", "contrast",
+    "no", "face", "visible", "only", "soft", "depth", "dark", "bright",
+})
+
+
+def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
+    """Cheap semantic tie-breaker using metadata already returned by the same API call."""
+    query_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(query or "").casefold())
+        if len(token) > 2 and token not in _STOCK_RANK_STOP_TOKENS
+    }
+    if not query_tokens:
+        return 0.0
+    metadata_tokens = set(
+        re.findall(r"[a-z0-9]+", str(metadata or "").replace("-", " ").casefold())
+    )
+    matched = len(query_tokens & metadata_tokens)
+    return min(1.0, matched / float(min(6, max(1, len(query_tokens)))))
+
+
 def _stock_local_rank_score(
     *,
     index: int,
@@ -934,61 +1003,23 @@ def _stock_local_rank_score(
     height: int,
     duration: float,
     portrait: bool,
+    query: str = "",
+    metadata: str = "",
 ) -> float:
-    """Legacy-inspired local ranking over results already returned by one search."""
+    """Rank one existing result page locally; no extra provider/search call."""
     count = max(1, int(count))
-    relevance = 1.0 - (max(0, int(index)) / count)
+    provider_relevance = 1.0 - (max(0, int(index)) / count)
+    semantic = _stock_metadata_semantic_score(query, metadata)
     orientation_ok = (height > width) if portrait else (width >= height)
     pixels = min(max(0, width * height), 1920 * 1080) / float(1920 * 1080)
     duration_fit = min(1.0, max(0.0, float(duration)) / 4.0)
     return (
-        relevance * 0.55
-        + (1.0 if orientation_ok else 0.0) * 0.20
+        provider_relevance * 0.42
+        + semantic * 0.23
+        + (1.0 if orientation_ok else 0.0) * 0.15
         + pixels * 0.15
-        + duration_fit * 0.10
+        + duration_fit * 0.05
     )
-
-
-def _short_shot_distribution(total_seconds: float) -> tuple[int, int, int]:
-    seconds = max(0.0, float(total_seconds))
-    if seconds > SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS:
-        return (3, 3, 3)
-    if seconds > SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS:
-        return (3, 2, 3)
-    if seconds > SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS:
-        return (3, 2, 2)
-    return (2, 2, 2)
-
-
-def _expand_short_visual_sequence(
-    paths: list[Path],
-    section_ids: list[str] | None,
-    total_seconds: float,
-) -> list[Path]:
-    """Create 6-9 rendered shots from at most six already-approved stock assets."""
-    if section_ids is None or len(paths) != len(section_ids):
-        return list(paths)
-    order: list[str] = []
-    groups: dict[str, list[Path]] = {}
-    for path, section_id in zip(paths, section_ids):
-        if section_id not in groups:
-            order.append(section_id)
-            groups[section_id] = []
-        groups[section_id].append(path)
-    if len(order) != 3 or any(len(groups[item]) < 2 for item in order):
-        return list(paths)
-
-    desired = _short_shot_distribution(total_seconds)
-    expanded: list[Path] = []
-    for section_id, shot_count in zip(order, desired):
-        assets = groups[section_id][:2]
-        expanded.extend(assets)
-        if shot_count >= 3:
-            # Reuse the already-audited first asset as a new local edit beat.
-            # _build_section_body_segments gives each occurrence a different
-            # motion mode, so this adds a cut without another provider/QA call.
-            expanded.append(assets[0])
-    return expanded
 
 
 def _timeline_hook_end_seconds(output_dir: Path) -> float:
@@ -1039,31 +1070,6 @@ def _enforce_short_hook_shot_cap(
         result_durations[0] = first_budget
         result_durations[1] += moved
     return result_paths, result_durations
-
-
-def _short_motion_filter(
-    *,
-    width: int,
-    height: int,
-    seconds: float,
-    mode: str,
-) -> str:
-    """Three restrained deterministic moves; no motion model or extra analysis."""
-    frames = max(1, int(round(max(0.5, float(seconds)) * 30.0)))
-    if mode == "push":
-        z = f"min({1.0 + SHORT_MOTION_ZOOM:.6f},1+{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
-        x = "iw/2-(iw/zoom/2)"
-    elif mode == "pull":
-        z = f"max(1,{1.0 + SHORT_MOTION_ZOOM:.6f}-{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
-        x = "iw/2-(iw/zoom/2)"
-    else:
-        z = f"{1.0 + SHORT_MOTION_ZOOM:.6f}"
-        x = f"(iw-iw/zoom)*on/{frames}"
-    y = "ih/2-(ih/zoom/2)"
-    return (
-        f"zoompan=z='{z}':x='{x}':y='{y}':"
-        f"d=1:s={width}x{height}:fps=30"
-    )
 
 
 class StockVisualSource:
@@ -1138,6 +1144,8 @@ class StockVisualSource:
                         height=height,
                         duration=duration,
                         portrait=portrait,
+                        query=query,
+                        metadata=str(video.get("url") or ""),
                     ),
                     video,
                     selected,
@@ -1219,6 +1227,11 @@ class StockVisualSource:
                         height=int(selected.get("height") or 0),
                         duration=float(hit.get("duration") or 0.0),
                         portrait=portrait,
+                        query=query,
+                        metadata=" ".join(
+                            str(item or "")
+                            for item in (hit.get("tags"), hit.get("pageURL"))
+                        ),
                     ),
                     hit,
                     selected,
@@ -2371,13 +2384,13 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.55
+COLOR_MATCH_STRENGTH = 0.62
 COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.055
-MASTER_LOOK_SATURATION = 0.875
+MASTER_LOOK_CONTRAST = 1.075
+MASTER_LOOK_SATURATION = 0.84
 MASTER_LOOK_WARM_R = -0.006
 MASTER_LOOK_WARM_G = -0.003
 MASTER_LOOK_WARM_B = 0.008
@@ -2387,9 +2400,9 @@ MASTER_LOOK_WARM_B = 0.008
 # call, no timing change, and no second visual authority.
 CINEMATIC_FINISH_VERSION = "clean-v2-navy-depth-finish-v4"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.055:brightness=-0.025:saturation=0.965:gamma=0.975,"
-    "unsharp=5:5:0.34:5:5:0.0,"
-    "vignette=PI/13"
+    "eq=contrast=1.065:brightness=-0.032:saturation=0.94:gamma=0.97,"
+    "unsharp=5:5:0.30:5:5:0.0,"
+    "vignette=PI/14"
 )
 
 
@@ -2486,27 +2499,38 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
 def _representative_reference(
     measured: Mapping[str, _RgbStats],
 ) -> str:
-    """Choose the medoid-like real clip nearest the episode's median color stats."""
+    """Choose the real clip closest to the channel's restrained neutral/deep world.
+
+    The previous median-medoid rule could make one warm/beige stock clip the visual
+    authority for the whole episode. Keep one real reference, but prefer moderate
+    exposure, restrained channel imbalance and useful tonal spread so source stock
+    cannot redefine the channel palette.
+    """
     if not measured:
         raise ValueError("reference selection requires measured clips")
     rows = list(measured.items())
-    medians = (
-        statistics.median(item.mean_r for _, item in rows),
-        statistics.median(item.mean_g for _, item in rows),
-        statistics.median(item.mean_b for _, item in rows),
-        statistics.median(item.std_r for _, item in rows),
-        statistics.median(item.std_g for _, item in rows),
-        statistics.median(item.std_b for _, item in rows),
-    )
 
-    def distance(stats: _RgbStats) -> float:
-        means = (stats.mean_r, stats.mean_g, stats.mean_b)
-        stds = (stats.std_r, stats.std_g, stats.std_b)
-        mean_distance = sum((value - target) ** 2 for value, target in zip(means, medians[:3]))
-        std_distance = sum((value - target) ** 2 for value, target in zip(stds, medians[3:]))
-        return mean_distance + (0.25 * std_distance)
+    def channel_distance(stats: _RgbStats) -> float:
+        luma = (
+            (0.2126 * stats.mean_r)
+            + (0.7152 * stats.mean_g)
+            + (0.0722 * stats.mean_b)
+        )
+        # Target a moderate/deep base rather than bright lifestyle stock.
+        exposure_penalty = abs(luma - 128.0) * 1.20
+        # Penalize strong warm/cool casts aggressively; stock must not redefine
+        # the channel palette just because it is closer to the episode median.
+        cast_penalty = (
+            abs(stats.mean_r - stats.mean_g) * 1.00
+            + abs(stats.mean_g - stats.mean_b) * 0.80
+        )
+        # Prefer enough local contrast/depth to avoid flat washed-out references.
+        spread = (stats.std_r + stats.std_g + stats.std_b) / 3.0
+        flat_penalty = max(0.0, 48.0 - spread) * 0.85
+        bright_penalty = max(0.0, luma - 150.0) * 1.60
+        return exposure_penalty + cast_penalty + flat_penalty + bright_penalty
 
-    return min(rows, key=lambda row: distance(row[1]))[0]
+    return min(rows, key=lambda row: channel_distance(row[1]))[0]
 
 
 def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
@@ -2576,9 +2600,9 @@ def _build_reference_color_plan(
         "provider_calls_added": 0,
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
-        "method": "bounded_rgb_mean_std_reference_match_v1",
+        "method": "channel_anchored_rgb_mean_std_reference_match_v2",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "channel_deep_warm_neutral_v2",
+        "master_look": "channel_deep_neutral_v3",
         "measured_clip_count": len(measured),
         "failures": failures,
     }
@@ -2693,20 +2717,17 @@ def _trim_and_grade_clip(
     width: int,
     height: int,
     seconds: float,
-    motion_mode: str | None = None,
     grade_filter: str | None = None,
 ) -> Path:
+    """Use real stock motion once; never restart/boomerang a clip to fill a slot."""
     grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
+    source_seconds = max(0.01, probe_duration(source))
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
-    if motion_mode:
-        vf = f"{vf}," + _short_motion_filter(
-            width=width,
-            height=height,
-            seconds=seconds,
-            mode=motion_mode,
-        )
     if grade:
         vf = f"{vf},{grade}"
+    hold_seconds = max(0.0, float(seconds) - source_seconds)
+    if hold_seconds > 0.01:
+        vf = f"{vf},tpad=stop_mode=clone:stop_duration={hold_seconds:.3f}"
     vf = f"{vf},trim=duration={seconds:.3f},setpts=PTS-STARTPTS"
     destination.parent.mkdir(parents=True, exist_ok=True)
     _run(
@@ -2716,8 +2737,6 @@ def _trim_and_grade_clip(
             "-loglevel",
             "error",
             "-y",
-            "-stream_loop",
-            "-1",
             "-i",
             str(source),
             "-vf",
@@ -2798,7 +2817,6 @@ def _build_section_body_segments(
     width: int,
     height: int,
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
-    short_motion_lite: bool = False,
     grade_filters: Mapping[str, str] | None = None,
 ) -> list[Path]:
     """Match/trim every body clip, then dissolve adjacent same-section clips."""
@@ -2835,11 +2853,6 @@ def _build_section_body_segments(
                     width=width,
                     height=height,
                     seconds=durations[clip_index],
-                    motion_mode=(
-                        ("push", "pan", "pull")[clip_index % 3]
-                        if short_motion_lite
-                        else None
-                    ),
                     grade_filter=grade_filter,
                 )
             )
@@ -2979,7 +2992,6 @@ def render_video(
                     if fmt == "short"
                     else COHESION_DISSOLVE_SECONDS
                 ),
-                short_motion_lite=(fmt == "short"),
                 grade_filters=grade_filters,
             )
         else:
@@ -2987,7 +2999,9 @@ def render_video(
 
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
         for path in opening_paths_for_render:
-            command.extend(["-stream_loop", "-1", "-i", str(path)])
+            # Opening Director must obey the same one-pass stock rule as the body.
+            # Never restart a short source from frame zero to fill an opening slot.
+            command.extend(["-i", str(path)])
         for segment in body_segments:
             command.extend(["-i", str(segment)])
         command.extend(["-i", str(narration_path)])
@@ -3007,6 +3021,10 @@ def render_video(
             )
             if grade:
                 vf = f"{vf},{grade}"
+            source_seconds = max(0.01, probe_duration(opening_path))
+            hold_seconds = max(0.0, float(clip_seconds) - source_seconds)
+            if hold_seconds > 0.01:
+                vf = f"{vf},tpad=stop_mode=clone:stop_duration={hold_seconds:.3f}"
             vf = f"{vf},trim=duration={clip_seconds:.3f},setpts=PTS-STARTPTS"
             filters.append(f"[{input_index}:v]{vf}[{label}]")
             input_index += 1

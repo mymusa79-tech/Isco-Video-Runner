@@ -5,10 +5,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clean_v2 import media as media_module
 from clean_v2 import providers as providers_module
+from clean_v2.contracts import LONGFORM_NARRATIVE_FORMATS
+from clean_v2.short_format import TEMPLATE_ORDER
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
+    _bound_ai_still_preferences,
+    _select_longform_narrative_profile,
+    _validate_podcast_listener_proxy_script,
+    _voice_performance_mode_for_brief,
+    _bound_short_visual_story,
     _persist_planning_artifacts,
     _planning_prompt,
     _script_prompt,
@@ -101,6 +109,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 prompt = " ".join(_planning_prompt(_brief(fmt)).split())
                 self.assertIn("HOOK VISUAL STOP-POWER", prompt)
+                self.assertIn("HOOK COVERAGE CONTRACT", prompt)
+                self.assertIn("The first body beat must not repeat the hook's dominant scene/action family", prompt)
                 self.assertIn("MUST NOT be a calm mood-only establishing image", prompt)
                 self.assertIn("understood with sound off in the first frame", prompt)
                 self.assertIn("Avoid unrelated shock", prompt)
@@ -109,6 +119,51 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("stuck -> choosing -> moving -> completed", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+
+    def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
+        story = {
+            "beats": [
+                {"id": "b1", "section_id": "s1", "role": "hook"},
+                {"id": "b2", "section_id": "s1", "role": "body"},
+                {"id": "b3", "section_id": "s1", "role": "body"},
+                {"id": "b4", "section_id": "s2", "role": "body"},
+                {"id": "b5", "section_id": "s2", "role": "body"},
+                {"id": "b6", "section_id": "s3", "role": "body"},
+                {"id": "b7", "section_id": "s3", "role": "payoff"},
+            ]
+        }
+        bounded = _bound_short_visual_story(story, max_beats=5)
+        beats = bounded["beats"]
+        self.assertEqual(len(beats), 5)
+        self.assertEqual(beats[0]["id"], "b1")
+        self.assertEqual(beats[-1]["id"], "b7")
+        self.assertEqual(beats[0]["role"], "hook")
+        self.assertEqual(beats[-1]["role"], "payoff")
+        self.assertEqual({beat["section_id"] for beat in beats}, {"s1", "s2", "s3"})
+
+    def test_ai_stills_remain_sparse_inside_existing_scene_budget_for_all_formats(self) -> None:
+        base = {
+            "beats": [
+                {"id": "b1", "role": "hook", "source_preference": "ai_still"},
+                {"id": "b2", "role": "body", "source_preference": "ai_still"},
+                {"id": "b3", "role": "body", "source_preference": "ai_still"},
+                {"id": "b4", "role": "payoff", "source_preference": "ai_still"},
+            ]
+        }
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                bounded = _bound_ai_still_preferences(base, fmt=fmt)
+                beats = bounded["beats"]
+                ai = [
+                    beat for beat in beats
+                    if beat["source_preference"] == "ai_still"
+                ]
+                self.assertEqual(len(beats), 4)
+                self.assertEqual(len(ai), 2)
+                self.assertEqual(
+                    {beat["role"] for beat in ai},
+                    {"hook", "payoff"},
+                )
 
     def test_visual_story_json_is_built_from_planning_and_split_from_plan_json(self) -> None:
         brief = _brief("film")
@@ -187,6 +242,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
+                self.assertIn("use 3-5 semantic visual beats total", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -255,12 +311,81 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         bound = bind_visual_story_to_script(visual_story, planned, script)
 
         self.assertIn("writing", bound["beats"][0]["shot_intent"])
-        self.assertIn("walking", bound["beats"][1]["shot_intent"])
-        self.assertNotIn("typing", bound["beats"][1]["shot_intent"])
+        # Typing/laptop is intentionally a different family from stationery,
+        # so this genuinely different second beat should remain unchanged.
+        self.assertIn("typing", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("walking", bound["beats"][1]["shot_intent"])
         self.assertEqual(
             bound["beats"][1]["stock_query_en"],
             bound["beats"][1]["shot_intent"],
         )
+
+    def test_writer_binding_closes_real_stationery_repeat_with_existing_alternate(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = (
+            "hands frozen above empty notebook with pen and loose paper"
+        )
+        visual_story["beats"][1]["shot_intent"] = (
+            "hands sorting sticky notes and selecting one small note"
+        )
+        visual_story["beats"][2]["shot_intent"] = (
+            "hands writing first line in notebook with pen on page"
+        )
+        planned["sections"][1]["visual_query_alt_en"] = (
+            "half empty bookshelf with one book pulled out no face"
+        )
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"ثم يتغير المعنى في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(visual_story, planned, script)
+
+        self.assertIn("notebook", bound["beats"][0]["shot_intent"])
+        self.assertIn("bookshelf", bound["beats"][1]["shot_intent"])
+        self.assertNotIn("sticky", bound["beats"][1]["shot_intent"])
+        # A genuinely different middle scene resets adjacency, so the payoff may
+        # intentionally return to the opening motif in a changed state.
+        self.assertIn("writing", bound["beats"][2]["shot_intent"])
+
+        hook_context = contextual_intent(
+            bound,
+            bound["beats"][0]["id"],
+            bound["beats"][0]["shot_intent"],
+        )
+        self.assertIn("Role:hook", hook_context)
+        self.assertIn("Fam:stationery", hook_context)
+        self.assertIn("Hook must show an unresolved observable", hook_context)
+
+    def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
+        common = {
+            "index": 3,
+            "count": 12,
+            "width": 1080,
+            "height": 1920,
+            "duration": 6.0,
+            "portrait": True,
+            "query": "hands frozen above empty notebook pen loose paper",
+        }
+        matching = media_module._stock_local_rank_score(
+            **common,
+            metadata="female hands pen over empty notebook paper",
+        )
+        generic = media_module._stock_local_rank_score(
+            **common,
+            metadata="sunset ocean travel landscape",
+        )
+        self.assertGreater(matching, generic)
 
     def test_writer_overlay_copy_never_becomes_generated_image_text(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
@@ -317,6 +442,131 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("moderate-to-deep exposure", prompt)
             self.assertIn("glossy, airy lifestyle-ad bright", prompt)
             self.assertIn("generic coffee/laptop mood shots", prompt)
+
+    def test_supported_editorial_shape_counts_stay_exact(self) -> None:
+        self.assertEqual(
+            LONGFORM_NARRATIVE_FORMATS,
+            frozenset({
+                "direct_cinematic",
+                "question_answer",
+                "dialogue_qa",
+                "inner_dialogue",
+                "problem_reveal_solution",
+                "story_analysis",
+                "paradox",
+                "hypothesis_test",
+                "connected_list",
+            }),
+        )
+        self.assertEqual(
+            TEMPLATE_ORDER,
+            (
+                "why_reframe",
+                "inner_dialogue",
+                "micro_story",
+                "quote_reflection",
+            ),
+        )
+
+    def test_longform_narrative_profiles_are_deterministic_and_topic_fit(self) -> None:
+        cases = {
+            "لماذا تفشل خطط إدارة الوقت في الحياة اليومية؟": "problem_reveal_solution",
+            "قصة رجل بدأ من جديد بعد سنوات من التردد": "story_analysis",
+            "هل فعلًا الانتظار يزيد الدافع؟": "hypothesis_test",
+            "مفارقة الراحة: لماذا كلما ارتحت أكثر شعرت بالخمول؟": "paradox",
+            "5 أسباب تجعل البداية أصعب مما تبدو": "connected_list",
+            "حوار حول الاعتراض على فكرة الانضباط": "dialogue_qa",
+            "أقول لنفسي إنني بدأت أفوز أخيرًا": "inner_dialogue",
+        }
+        for topic, expected in cases.items():
+            brief = _brief("film")
+            brief["approved_topic"] = topic
+            first = _select_longform_narrative_profile(brief)
+            second = _select_longform_narrative_profile(brief)
+            self.assertEqual(first, second)
+            self.assertEqual(first["narrative_format"], expected)
+            self.assertEqual(first["extra_ai_calls"], 0)
+            self.assertTrue(first["writing"])
+            self.assertTrue(first["visual"])
+            self.assertTrue(first["voice"])
+
+    def test_podcast_listener_proxy_validator_keeps_orus_sparse_and_charon_primary(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "A: لماذا أعرف ما يجب فعله ومع ذلك لا أبدأ؟ "
+                        "B: لأن معرفة الخطوة لا تعني أن الاحتكاك اختفى. "
+                        "حين تبدو البداية أكبر من طاقتك، يتأخر الفعل حتى لو كان الهدف واضحًا."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": (
+                        "A: إذًا المشكلة ليست أنني لا أريد التغيير؟ "
+                        "B: ليس بالضرورة. أحيانًا تحتاج أن تجعل أول حركة أوضح وأصغر، ثم تترك النتيجة تخبرك إن كان الاتجاه مناسبًا."
+                    ),
+                },
+            ]
+        }
+        report = _validate_podcast_listener_proxy_script(script)
+        self.assertEqual(report["mode"], "listener_proxy_qa")
+        self.assertEqual(report["first_speaker"], "A")
+        self.assertEqual(report["voices"], {"A": "Orus", "B": "Charon"})
+        self.assertLessEqual(report["questioner_share"], 0.35)
+
+    def test_podcast_is_fixed_listener_proxy_dialogue_house_style(self) -> None:
+        for topic in (
+            "لماذا نشعر أننا متأخرون؟",
+            "قصة عن العودة بعد الفشل",
+            "مفارقة الراحة والانضباط",
+        ):
+            brief = _brief("podcast")
+            brief["approved_topic"] = topic
+            profile = _select_longform_narrative_profile(brief)
+            self.assertEqual(profile["narrative_format"], "dialogue_qa")
+            self.assertEqual(profile["voice"], "podcast_listener_proxy_qa")
+            self.assertEqual(profile["selection_basis"], "podcast_fixed_house_style")
+            self.assertIn("listener", profile["writing"])
+            self.assertIn("A is never a host", profile["writing"])
+            prompt = _planning_prompt(brief)
+            self.assertIn("LOCKED NARRATIVE PROFILE", prompt)
+            self.assertIn("narrative_format=dialogue_qa", prompt)
+            self.assertIn("A listener-proxy turn does NOT force a scene cut", prompt)
+            self.assertIn("Never fake two hosts", prompt)
+
+    def test_writer_and_voice_use_the_same_locked_narrative_profile(self) -> None:
+        film = _brief("film")
+        film["approved_topic"] = "لماذا تفشل خطط إدارة الوقت في الحياة اليومية؟"
+        planned = _validate_plan_for_brief(_planning_value("film"), film)
+        story = planned.pop("visual_story")
+        self.assertEqual(planned["narrative_format"], "problem_reveal_solution")
+        prompt = _script_prompt(film, planned, visual_story=story)
+        self.assertIn("LOCKED NARRATIVE PERFORMANCE PROFILE", prompt)
+        self.assertIn("narrative_format=problem_reveal_solution", prompt)
+        self.assertEqual(
+            _voice_performance_mode_for_brief(film, planned),
+            "problem_reveal_solution",
+        )
+
+        podcast = _brief("podcast")
+        planned_podcast = _validate_plan_for_brief(_planning_value("podcast"), podcast)
+        story_podcast = planned_podcast.pop("visual_story")
+        self.assertEqual(planned_podcast["narrative_format"], "dialogue_qa")
+        podcast_prompt = _script_prompt(
+            podcast,
+            planned_podcast,
+            visual_story=story_podcast,
+        )
+        self.assertIn("A maps to Orus", podcast_prompt)
+        self.assertIn("B maps to Charon", podcast_prompt)
+        self.assertIn("Use A sparingly", podcast_prompt)
+        self.assertIn("A is sparse and short", podcast_prompt)
+        self.assertEqual(
+            _voice_performance_mode_for_brief(podcast, planned_podcast),
+            "podcast_listener_proxy_qa",
+        )
 
     def test_each_format_has_distinct_visual_grammar_inside_one_channel_identity(self) -> None:
         short_prompt = " ".join(_planning_prompt(_brief("short")).split())

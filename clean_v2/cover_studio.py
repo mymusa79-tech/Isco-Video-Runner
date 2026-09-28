@@ -17,25 +17,14 @@ FONT_BOLD = "bold"
 FONT_MEDIUM = "medium"
 
 _FONT_NAMES = {
-    "black": (
-        "NotoKufiArabic-Black.ttf",
-        "NotoKufiArabic-ExtraBold.ttf",
-        "NotoKufiArabic-Bold.ttf",
-        "NotoKufiArabic-Regular.ttf",
-    ),
-    "bold": (
-        "NotoKufiArabic-Bold.ttf",
-        "NotoKufiArabic-SemiBold.ttf",
-        "NotoKufiArabic-Regular.ttf",
-    ),
-    "medium": (
-        "NotoKufiArabic-Medium.ttf",
-        "NotoKufiArabic-Regular.ttf",
-    ),
+    "black": ("Cairo.ttf",),
+    "bold": ("Cairo.ttf",),
+    "medium": ("Cairo.ttf",),
 }
 _FONT_DIRS = (
-    Path("/usr/share/fonts/truetype/noto"),
-    Path("/usr/share/fonts/opentype/noto"),
+    Path.home() / ".local/share/fonts/isco-cairo",
+    Path("/usr/share/fonts/truetype"),
+    Path("/usr/share/fonts/opentype"),
     Path("/usr/share/fonts"),
 )
 
@@ -77,8 +66,8 @@ def _resolve_font(kind: str) -> str:
 
     # Fontconfig is more portable across Ubuntu runner images than hard-coding
     # one package layout. It remains fully local and adds no provider call.
-    family = "Noto Kufi Arabic"
-    style = "Bold" if kind in {"black", "bold"} else "Regular"
+    family = "Cairo"
+    style = "Black" if kind == "black" else ("Bold" if kind == "bold" else "Medium")
     try:
         result = subprocess.run(
             ["fc-match", "-f", "%{file}\\n", f"{family}:style={style}"],
@@ -218,8 +207,18 @@ def rank_cover_candidates(
 
 def _font(path: str, size: int):
     _, _, _, _, ImageFont, _ = _pil()
-    resolved = _resolve_font(path) if path in _FONT_NAMES else path
-    return ImageFont.truetype(resolved, size=size, layout_engine=ImageFont.Layout.RAQM)
+    kind = path if path in _FONT_NAMES else ""
+    resolved = _resolve_font(path) if kind else path
+    font = ImageFont.truetype(resolved, size=size, layout_engine=ImageFont.Layout.RAQM)
+    # The pinned Cairo asset is a variable font. Select a strong named weight when
+    # Pillow exposes the variation API; fall back to its default instance safely.
+    if kind and hasattr(font, "set_variation_by_name"):
+        variation = "Black" if kind == FONT_BLACK else ("Bold" if kind == FONT_BOLD else "Medium")
+        try:
+            font.set_variation_by_name(variation)
+        except (OSError, ValueError):
+            pass
+    return font
 
 
 def _fit_font(text: str, *, max_width: int, start: int, minimum: int, font_path: str):
@@ -625,6 +624,9 @@ def render_cover_studio(
         "text_side": side,
         "tone_profile": TONE_PROFILE,
         "channel_cover_vibe": CHANNEL_COVER_VIBE,
+        "font_family": "Cairo",
+        "font_weight": "Bold/Black",
+        "outline_depth": "strong",
         "podcast_program": PROGRAM_NAME if fmt == "podcast" else None,
         "channel_name": CHANNEL_NAME if fmt == "podcast" else None,
         "width": width,

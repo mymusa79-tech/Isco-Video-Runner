@@ -24,9 +24,11 @@ from clean_v2.short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v3"
+RENDERER_VERSION = "clean-v2-sparse-key-text-cairo-bold-v4"
 MAX_EVENTS = 3
-FONT_SIZE = 100
+FONT_SIZE = 94
+HOOK_FONT_SIZE = 108
+PAYOFF_FONT_SIZE = 100
 TEXT_X = 960
 TEXT_Y = 770
 EXTRUDE = (2, 3)
@@ -35,7 +37,9 @@ DISPLAY_SECONDS = 4.2
 MAX_WORDS = 10
 
 FILM_MAX_EVENTS = 5
-FILM_FONT_SIZE = 108
+FILM_FONT_SIZE = 100
+FILM_HOOK_FONT_SIZE = 116
+FILM_PAYOFF_FONT_SIZE = 106
 FILM_TEXT_Y = 760
 FILM_DISPLAY_SECONDS = 5.0
 FILM_MAX_WORDS = 10
@@ -57,24 +61,44 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").replace("\n", " ").split()).strip()
 
 
+def _strip_speaker_label(value: object) -> str:
+    return re.sub(r"^(?:A|B):\s*", "", _clean(value)).strip()
+
+
 def _sentences(value: object) -> list[str]:
     text = _clean(value)
     if not text:
         return []
     return [
-        part.strip()
+        _strip_speaker_label(part)
         for part in re.split(r"(?<=[.!؟!])\s+", text)
         if part.strip() and not _contains_prayer_text(part)
     ]
 
 
+def _dialogue_candidates(value: object, *, max_words: int) -> dict[str, list[str]]:
+    source = _clean(value)
+    matches = list(re.finditer(r"(?:^|\s)([AB]):\s+", source))
+    result: dict[str, list[str]] = {"A": [], "B": []}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        turn = _clean(source[start:end])
+        for sentence in _sentences(turn):
+            words = len(sentence.split())
+            if 3 <= words <= max_words:
+                result[match.group(1)].append(sentence)
+    return result
+
+
 def _compact_candidates(value: object, *, max_words: int = MAX_WORDS) -> list[str]:
-    """Select only complete authored sentences; never manufacture display fragments."""
+    """Select complete display sentences without exposing internal A:/B: labels."""
     candidates: list[str] = []
     for sentence in _sentences(value):
-        words = len(sentence.split())
+        display = re.sub(r"^[AB]:\s*", "", sentence, flags=re.I).strip()
+        words = len(display.split())
         if 3 <= words <= max_words:
-            candidates.append(sentence)
+            candidates.append(display)
     return candidates
 
 
@@ -89,7 +113,14 @@ def _pick_text(
     closer = _clean(closer)
     if closer and text.endswith(closer):
         text = text[: -len(closer)].strip()
+    dialogue = _dialogue_candidates(text, max_words=max_words)
     candidates = _compact_candidates(text, max_words=max_words)
+    if role == "hook" and dialogue["A"]:
+        return dialogue["A"][0]
+    if role == "turn" and dialogue["A"]:
+        return dialogue["A"][0]
+    if role == "payoff" and dialogue["B"]:
+        return dialogue["B"][-1]
     if not candidates:
         return ""
     if role == "hook":
@@ -327,6 +358,21 @@ def _visual_beat_text_events(
     return selected
 
 
+def _event_font_size(role: str, *, fmt: str) -> int:
+    role = str(role or "turn").strip().lower()
+    if fmt == "podcast":
+        if role == "hook":
+            return HOOK_FONT_SIZE
+        if role == "payoff":
+            return PAYOFF_FONT_SIZE
+        return FONT_SIZE
+    if role == "hook":
+        return FILM_HOOK_FONT_SIZE
+    if role == "payoff":
+        return FILM_PAYOFF_FONT_SIZE
+    return FILM_FONT_SIZE
+
+
 def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -> str:
     if fmt not in {"podcast", "film"}:
         raise PodcastKeyTextError(f"sparse_key_text_format_invalid:{fmt}")
@@ -358,9 +404,10 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
         plain = _plain_caption(text)
+        event_size = _event_font_size(str(item.get("role") or "turn"), fmt=fmt)
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X},{text_y})\\c{PRIMARY_ASS}}}{plain}"
+            f"{{{common}\\pos({TEXT_X},{text_y})\\fs{event_size}\\c{PRIMARY_ASS}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -452,9 +499,13 @@ def _apply_sparse_key_text(
         "body_rgb": "#F4F2EE",
         "font": BODY_FONT,
         "font_size": font_size,
+        "hook_font_size": _event_font_size("hook", fmt=fmt),
+        "payoff_font_size": _event_font_size("payoff", fmt=fmt),
+        "max_caption_lines": 2,
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
+        "font_family_contract": "Cairo Bold",
         "outline_px": 4,
         "shadow_offset": [0, 0],
         "extrusion_offset": [0, 0],
@@ -463,6 +514,8 @@ def _apply_sparse_key_text(
         "style_source": "shared_cairo_bold_offwhite_black_outline",
         "text_source_policy": "visual_beat_display_text_ar_when_available_else_complete_script_sentence",
         "rtl_policy": "full_phrase_static_offwhite_cairo_bold_no_directional_word_sweep",
+        "burned_in_policy": "listener_question_plus_sparse_key_lines_not_full_transcript",
+        "speaker_labels_visible": False,
     }
 
 

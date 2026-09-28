@@ -105,8 +105,9 @@ class HookVisualStopPowerTests(unittest.TestCase):
         hook = media_module._hook_stock_retrieval_query(base, {"role": "hook"})
         body = media_module._hook_stock_retrieval_query(base, {"role": "body"})
         self.assertIn("close", hook)
-        self.assertIn("decisive", hook)
-        self.assertIn("contrast", hook)
+        self.assertIn("up", hook)
+        self.assertNotIn("decisive", hook)
+        self.assertNotIn("contrast", hook)
         self.assertEqual(body, base)
         self.assertLessEqual(len(hook), 260)
 
@@ -1073,7 +1074,7 @@ class _LongFakeVoice:
         self.last_provider = "gemini-3.8:Charon"
         self.fallback_used = False
 
-    def synthesize(self, transcript: str, output_path: Path) -> Path:
+    def synthesize(self, transcript: str, output_path: Path, *, primary_only: bool = False, performance_mode: str = "") -> Path:
         self.calls += 1
         if not transcript.strip():
             raise RuntimeError("empty fixture transcript")
@@ -1347,6 +1348,8 @@ class ColorGradeIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root, mock.patch.dict(
             sys.modules, modules
+        ), mock.patch.object(
+            media_module, "probe_duration", return_value=6.0
         ), mock.patch.object(media_module, "_run", side_effect=fake_run):
             media_module._trim_and_grade_clip(
                 Path(root) / "source.mp4",
@@ -1369,6 +1372,8 @@ class ColorGradeIntegrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root, mock.patch.dict(
             sys.modules, {"isco_video_agent.media.color": None}
+        ), mock.patch.object(
+            media_module, "probe_duration", return_value=6.0
         ), mock.patch.object(media_module, "_run", side_effect=fake_run):
             media_module._trim_and_grade_clip(
                 Path(root) / "source.mp4",
@@ -1460,8 +1465,8 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
     def test_wakeful_depth_reduces_ad_like_saturation_without_network(self) -> None:
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.92)
         self.assertGreater(media_module.MASTER_LOOK_CONTRAST, 1.035)
-        self.assertIn("saturation=0.965", media_module.CINEMATIC_FINISH_FILTER)
-        self.assertIn("brightness=-0.025", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("saturation=0.94", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("brightness=-0.032", media_module.CINEMATIC_FINISH_FILTER)
 
     def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
         fragment = media_module.CINEMATIC_FINISH_FILTER

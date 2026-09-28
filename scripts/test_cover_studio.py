@@ -83,6 +83,9 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertEqual(report["tone_profile"], "deep_neutral")
             self.assertEqual(report["channel_cover_vibe"], CHANNEL_COVER_VIBE)
             self.assertEqual(CHANNEL_COVER_VIBE, "grounded_depth_earned_progress")
+            self.assertEqual(report["font_family"], "Cairo")
+            self.assertEqual(report["font_weight"], "Bold/Black")
+            self.assertEqual(report["outline_depth"], "strong")
 
     def test_short_and_film_profiles_render_expected_sizes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

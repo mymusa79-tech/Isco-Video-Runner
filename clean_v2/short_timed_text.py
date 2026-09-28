@@ -25,10 +25,11 @@ EXTRUSION_ASS = OUTLINE_ASS  # compatibility alias; extrusion rendering is disab
 SHADOW_ASS = OUTLINE_ASS  # compatibility alias; shadow rendering is disabled
 BODY_FONT = "Cairo"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 168
-FOCUS_FONT_SIZE = 168
+BODY_FONT_SIZE = 166
+FOCUS_FONT_SIZE = 166
 FOCUS_SCALE = 1.00
-BODY_WRAP_WORDS = 5
+BODY_WRAP_WORDS = 6
+MAX_CAPTION_LINES = 2
 ARABIC_WORD_GAP = " "  # Cairo handles natural Arabic spacing; avoid stretched thin-space gaps
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
@@ -61,9 +62,9 @@ SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
 COMPOSITION_Y = 1400
 ROLE_BASE_FONT_SIZE = {
-    "hook": 192,
-    "beat": 174,
-    "payoff": 184,
+    "hook": 190,
+    "beat": 168,
+    "payoff": 180,
 }
 
 _SECRET_ENV_NAMES = {
@@ -737,7 +738,7 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
         size -= 8
     elif len(_clean(item.text)) >= 34:
         size -= 4
-    return max(150, min(202, size))
+    return max(148, min(196, size))
 
 
 def build_composition_hints(
@@ -888,6 +889,7 @@ def render_progressive_text(
         "focus_font_size": FOCUS_FONT_SIZE,
         "body_font_size": BODY_FONT_SIZE,
         "body_wrap_words": BODY_WRAP_WORDS,
+        "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
         "caption_max_words": CAPTION_MAX_WORDS,
         "caption_y": CAPTION_Y,
@@ -905,6 +907,7 @@ def render_progressive_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
+        "font_family_contract": "Cairo Bold",
         "outline_px": 4,
         "extrusion_offset": [0, 0],
         "shadow_offset": [0, 0],
