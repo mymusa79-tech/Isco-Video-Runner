@@ -11,6 +11,8 @@ from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
     _bound_ai_still_preferences,
+    _select_longform_narrative_profile,
+    _voice_performance_mode_for_brief,
     _bound_short_visual_story,
     _persist_planning_artifacts,
     _planning_prompt,
@@ -437,6 +439,78 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("moderate-to-deep exposure", prompt)
             self.assertIn("glossy, airy lifestyle-ad bright", prompt)
             self.assertIn("generic coffee/laptop mood shots", prompt)
+
+    def test_longform_narrative_profiles_are_deterministic_and_topic_fit(self) -> None:
+        cases = {
+            "لماذا تفشل خطط إدارة الوقت في الحياة اليومية؟": "problem_reveal_solution",
+            "قصة رجل بدأ من جديد بعد سنوات من التردد": "story_analysis",
+            "هل فعلًا الانتظار يزيد الدافع؟": "hypothesis_test",
+            "مفارقة الراحة: لماذا كلما ارتحت أكثر شعرت بالخمول؟": "paradox",
+            "5 أسباب تجعل البداية أصعب مما تبدو": "connected_list",
+            "حوار حول الاعتراض على فكرة الانضباط": "dialogue_qa",
+            "أقول لنفسي إنني بدأت أفوز أخيرًا": "inner_dialogue",
+        }
+        for topic, expected in cases.items():
+            brief = _brief("film")
+            brief["approved_topic"] = topic
+            first = _select_longform_narrative_profile(brief)
+            second = _select_longform_narrative_profile(brief)
+            self.assertEqual(first, second)
+            self.assertEqual(first["narrative_format"], expected)
+            self.assertEqual(first["extra_ai_calls"], 0)
+            self.assertTrue(first["writing"])
+            self.assertTrue(first["visual"])
+            self.assertTrue(first["voice"])
+
+    def test_podcast_is_fixed_listener_proxy_dialogue_house_style(self) -> None:
+        for topic in (
+            "لماذا نشعر أننا متأخرون؟",
+            "قصة عن العودة بعد الفشل",
+            "مفارقة الراحة والانضباط",
+        ):
+            brief = _brief("podcast")
+            brief["approved_topic"] = topic
+            profile = _select_longform_narrative_profile(brief)
+            self.assertEqual(profile["narrative_format"], "dialogue_qa")
+            self.assertEqual(profile["voice"], "podcast_listener_proxy_qa")
+            self.assertEqual(profile["selection_basis"], "podcast_fixed_house_style")
+            self.assertIn("listener", profile["writing"])
+            self.assertIn("A is never a host", profile["writing"])
+            prompt = _planning_prompt(brief)
+            self.assertIn("LOCKED NARRATIVE PROFILE", prompt)
+            self.assertIn("narrative_format=dialogue_qa", prompt)
+            self.assertIn("Treat A turns as moments of uncertainty/pressure", prompt)
+
+    def test_writer_and_voice_use_the_same_locked_narrative_profile(self) -> None:
+        film = _brief("film")
+        film["approved_topic"] = "لماذا تفشل خطط إدارة الوقت في الحياة اليومية؟"
+        planned = _validate_plan_for_brief(_planning_value("film"), film)
+        story = planned.pop("visual_story")
+        self.assertEqual(planned["narrative_format"], "problem_reveal_solution")
+        prompt = _script_prompt(film, planned, visual_story=story)
+        self.assertIn("LOCKED NARRATIVE PERFORMANCE PROFILE", prompt)
+        self.assertIn("narrative_format=problem_reveal_solution", prompt)
+        self.assertEqual(
+            _voice_performance_mode_for_brief(film, planned),
+            "problem_reveal_solution",
+        )
+
+        podcast = _brief("podcast")
+        planned_podcast = _validate_plan_for_brief(_planning_value("podcast"), podcast)
+        story_podcast = planned_podcast.pop("visual_story")
+        self.assertEqual(planned_podcast["narrative_format"], "dialogue_qa")
+        podcast_prompt = _script_prompt(
+            podcast,
+            planned_podcast,
+            visual_story=story_podcast,
+        )
+        self.assertIn("A maps to Orus", podcast_prompt)
+        self.assertIn("B maps to Charon", podcast_prompt)
+        self.assertIn("Never alternate mechanically line-by-line", podcast_prompt)
+        self.assertEqual(
+            _voice_performance_mode_for_brief(podcast, planned_podcast),
+            "podcast_listener_proxy_qa",
+        )
 
     def test_each_format_has_distinct_visual_grammar_inside_one_channel_identity(self) -> None:
         short_prompt = " ".join(_planning_prompt(_brief("short")).split())
