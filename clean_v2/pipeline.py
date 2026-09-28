@@ -182,8 +182,12 @@ _PODCAST_FIXED_PROFILE = {
     ),
     "visual": (
         "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
-        "environments, side light and breathing room. Treat A turns as moments of uncertainty/pressure and B turns as reveal/context, "
-        "without showing two hosts or faking a studio interview. Visual changes follow idea changes, never Short-like kinetics or Film-like journey montage."
+        "environments, side light and breathing room. A listener-proxy turn does NOT force a scene cut: keep the current unresolved "
+        "scene when the idea has not changed, show the short A question as sparse Cairo key text for only a few seconds, then let the "
+        "text disappear as B answers. Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
+        "state; when useful, move from a tighter unresolved detail on A to a wider/revealing context on B. Never fake two hosts, a studio "
+        "interview, split-screen conversation, waveform wallpaper, or Short-like kinetic cutting. The visual layer must remain optional "
+        "to understanding and feel like one continuous room around the conversation."
     ),
     "voice": "podcast_listener_proxy_qa",
 }
@@ -4214,7 +4218,10 @@ A is sparse and short: normally one natural sentence, preferably 4-14 Arabic wor
 the next layer. B carries the substance in a fuller answer before A returns. Never alternate mechanically
 line-by-line. No greetings, names, host/guest framing, thanks, fake agreement, jokes inserted for chemistry,
 or staged interview filler. A must sound like a real listener thinking aloud, not a prompt engineered to
-feed B's answer. Keep both voices simple, deep, conversational, and non-theatrical.
+feed B's answer. The first hook should normally be an A question/objection that a real listener could have
+thought before pressing play, and B's first topic sentence after prayer/identity must answer that SAME
+question immediately rather than restarting the episode. Keep both voices simple, deep, conversational,
+and non-theatrical.
 """.strip()
 
 
