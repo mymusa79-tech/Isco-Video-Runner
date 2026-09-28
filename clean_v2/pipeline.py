@@ -172,16 +172,20 @@ _LONGFORM_PROFILES: dict[str, dict[str, str]] = {
     },
 }
 _PODCAST_FIXED_PROFILE = {
-    "narrative_format": "direct_cinematic",
+    "narrative_format": "dialogue_qa",
     "writing": (
-        "خارج النص fixed house style: one thoughtful Charon voice speaking simply and deeply to one listener; "
-        "calm conversational progression, no numbered delivery, no rotating narrative gimmick, no A:/B: labels."
+        "خارج النص fixed listener-proxy dialogue: A speaks for the listener, asking the concrete question, doubt, "
+        "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
+        "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
+        "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
     ),
     "visual": (
-        "One ثابت خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
-        "environments, side light and breathing room. Visual changes follow idea changes, never Short-like kinetics or Film-like journey montage."
+        "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
+        "environments, side light and breathing room. Treat A turns as moments of uncertainty/pressure and B turns as reveal/context, "
+        "without showing two hosts or faking a studio interview. Visual changes follow idea changes, never Short-like kinetics or Film-like journey montage."
     ),
-    "voice": "podcast_fixed",
+    "voice": "podcast_listener_proxy_qa",
 }
 
 
