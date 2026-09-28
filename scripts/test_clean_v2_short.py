@@ -1906,7 +1906,10 @@ class ShortPipelineSeamTests(unittest.TestCase):
                 (root / "voice-sections.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(calls["count"], 2)
+        # s1's chunk succeeds (call 1); s2's chunk fails once on the primary
+        # model (call 2) and once on the gemini-3.8-flash-lite-tts fallback
+        # (call 3) before the section - and the whole run - fails closed.
+        self.assertEqual(calls["count"], 3)
         self.assertEqual(persisted["status"], "failed")
         self.assertEqual(persisted["reason"], "gemini_3_8_voice_failed_closed")
         self.assertFalse(narration.exists())
@@ -1946,7 +1949,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertEqual(captured["primary_voice"], "Charon")
         self.assertEqual(captured["questioner_voice"], "Orus")
 
-    def test_gemini38_failure_never_substitutes_another_voice(self) -> None:
+    def test_gemini38_failure_never_substitutes_another_vendor_or_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             synth = GeminiOnlyVoiceSynthesizer(
                 "gemini-key",
@@ -1966,9 +1969,13 @@ class ShortPipelineSeamTests(unittest.TestCase):
                         Path(temporary) / "out.wav",
                         primary_only=True,
                     )
+            # The bounded gemini-3.8-flash-lite-tts fallback (same Charon/Orus
+            # voices, same vendor) is tried and also exhausted here - the
+            # invariant this test protects is that nothing outside that
+            # family is ever substituted, not that no fallback is attempted.
             self.assertEqual(
                 raised.exception.secondary_reason,
-                "gemini_3_8_only_fail_closed_no_fallback",
+                "gemini_3_8_flash_and_lite_exhausted_fail_closed",
             )
             self.assertIsNone(synth.last_provider)
             self.assertFalse(synth.fallback_used)

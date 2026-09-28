@@ -5276,11 +5276,10 @@ class CleanV2Pipeline:
                         _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
-                if (
-                    voice_provider != GEMINI38_VOICE_PROVIDER
-                    or voice_fallback_used is not False
+                if voice_provider != GEMINI38_VOICE_PROVIDER or not isinstance(
+                    voice_fallback_used, bool
                 ):
-                    raise RuntimeError("Clean V2 resume voice must be Gemini 3.8 with no fallback")
+                    raise RuntimeError("Clean V2 resume voice must stay within the Gemini 3.8 Charon/Orus family")
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -5317,10 +5316,7 @@ class CleanV2Pipeline:
                 voice_fallback_used = bool(
                     voice_result.get("voice_fallback_used", False)
                 )
-                if (
-                    voice_provider != GEMINI38_VOICE_PROVIDER
-                    or voice_fallback_used is not False
-                ):
+                if voice_provider != GEMINI38_VOICE_PROVIDER:
                     raise RuntimeError(
                         "GEMINI_3_8_ONLY_VOICE_CONTRACT "
                         f"provider={voice_provider} fallback={voice_fallback_used}"
