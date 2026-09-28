@@ -620,15 +620,19 @@ def _synthesize_sectioned_voice(
             try:
                 chunk_role = roles[chunk_index - 1]
                 effective_performance_mode = ""
-                if str(performance_mode or "") == "inner_dialogue":
+                requested_performance_mode = str(performance_mode or "").strip()
+                if requested_performance_mode:
                     fixed_identity_closer = " ".join(str(identity_closer or "").split()).strip()
                     is_fixed_identity_outro = (
                         chunk_role == "outro"
                         and bool(fixed_identity_closer)
                         and " ".join(chunk_text.split()).strip() == fixed_identity_closer
                     )
-                    if chunk_role in {"hook", "topic", "outro"} and not is_fixed_identity_outro:
-                        effective_performance_mode = "inner_dialogue"
+                    # Prayer + channel definition keep the neutral established Charon
+                    # identity. Editorial performance begins at the hook and topic,
+                    # while a fixed identity closer never inherits a dramatic mode.
+                    if chunk_role in {"hook", "topic", "promo_short", "outro"} and not is_fixed_identity_outro:
+                        effective_performance_mode = requested_performance_mode
                 if require_charon_only:
                     if effective_performance_mode:
                         voice_synthesizer.synthesize(
