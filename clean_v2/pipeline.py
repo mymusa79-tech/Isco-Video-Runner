@@ -3804,6 +3804,7 @@ def _inspect_final_with_short_gate(
 
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
+    longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         section_requirement = "exactly 5 sections"
     elif fmt == "podcast":
@@ -3860,19 +3861,15 @@ visual motif remains supportive and non-essential to a listener with the screen 
         else ""
     )
     longform_narrative_format_instruction = (
-        """
-For film and podcast only, choose exactly one narrative_format that best serves THIS topic without
-adding a new production stage:
-- direct_cinematic: default for a clear flowing explanation.
-- question_answer: one narrator asks and answers progressively deeper questions; no A:/B: labels.
-- dialogue_qa: use only when a real two-position exchange improves understanding. A is the concise
-  questioner/challenger and B is the fixed primary channel voice; both must advance the argument.
-- inner_dialogue: one voice representing believable internal conflict; never A:/B: labels.
-- problem_reveal_solution, story_analysis, paradox, hypothesis_test, or connected_list only when the
-  topic naturally earns that structure.
-Do not pick dialogue_qa merely for novelty. The selected format changes writing shape only; it does
-not add providers, stages, duration targets, or visual complexity.
-"""
+        (
+            "LOCKED NARRATIVE PROFILE — do not choose or substitute another narrative_format.\n"
+            f"- narrative_format={longform_profile['narrative_format']}\n"
+            f"- writing_shape={longform_profile['writing']}\n"
+            f"- visual_grammar={longform_profile['visual']}\n"
+            f"- voice_mode={longform_profile['voice']}\n"
+            "Return exactly the locked narrative_format above. This profile is selected locally from the approved topic "
+            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script."
+        )
         if fmt in {"film", "podcast"}
         else ""
     )
@@ -3892,13 +3889,15 @@ not add providers, stages, duration targets, or visual complexity.
             "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
             "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
             "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
-            "or turning the whole film into a scenic motivational montage."
+            "or turning the whole film into a scenic motivational montage. "
+            + str(longform_profile.get("visual") or "")
         ),
         "podcast": (
-            "FORMAT VISUAL PROFILE — PODCAST: favor calm contained compositions, steady medium/wide framing, "
+            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: favor calm contained compositions, steady medium/wide framing, "
             "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
             "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
-            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad."
+            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad. "
+            + str(longform_profile.get("visual") or "")
         ),
     }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
