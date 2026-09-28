@@ -313,7 +313,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertIn("[v2][outro]overlay", filters)
         self.assertIn(str(assets["prayer"]), command)
 
-    def test_podcast_identity_pieces_fade_over_the_same_story_world(self) -> None:
+    def test_podcast_identity_pieces_stay_opaque_over_the_same_story_world(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             assets = {}
@@ -343,8 +343,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                 )
         command = run.call_args.args[0]
         filters = command[command.index("-filter_complex") + 1]
-        self.assertIn("fade=t=in:st=0:d=0.18:alpha=1", filters)
-        self.assertIn("fade=t=out:", filters)
+        self.assertNotIn("alpha=1", filters)
+        self.assertNotIn("fade=t=out:", filters)
         self.assertIn("[0:v][intro]overlay", filters)
         self.assertIn("[v1][prayer]overlay", filters)
 
