@@ -7,11 +7,14 @@ from pathlib import Path
 
 from clean_v2 import media as media_module
 from clean_v2 import providers as providers_module
+from clean_v2.contracts import LONGFORM_NARRATIVE_FORMATS
+from clean_v2.short_format import TEMPLATE_ORDER
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
     _bound_ai_still_preferences,
     _select_longform_narrative_profile,
+    _validate_podcast_listener_proxy_script,
     _voice_performance_mode_for_brief,
     _bound_short_visual_story,
     _persist_planning_artifacts,
@@ -440,6 +443,31 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("glossy, airy lifestyle-ad bright", prompt)
             self.assertIn("generic coffee/laptop mood shots", prompt)
 
+    def test_supported_editorial_shape_counts_stay_exact(self) -> None:
+        self.assertEqual(
+            LONGFORM_NARRATIVE_FORMATS,
+            frozenset({
+                "direct_cinematic",
+                "question_answer",
+                "dialogue_qa",
+                "inner_dialogue",
+                "problem_reveal_solution",
+                "story_analysis",
+                "paradox",
+                "hypothesis_test",
+                "connected_list",
+            }),
+        )
+        self.assertEqual(
+            TEMPLATE_ORDER,
+            (
+                "why_reframe",
+                "inner_dialogue",
+                "micro_story",
+                "quote_reflection",
+            ),
+        )
+
     def test_longform_narrative_profiles_are_deterministic_and_topic_fit(self) -> None:
         cases = {
             "لماذا تفشل خطط إدارة الوقت في الحياة اليومية؟": "problem_reveal_solution",
@@ -461,6 +489,32 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertTrue(first["writing"])
             self.assertTrue(first["visual"])
             self.assertTrue(first["voice"])
+
+    def test_podcast_listener_proxy_validator_keeps_orus_sparse_and_charon_primary(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "A: لماذا أعرف ما يجب فعله ومع ذلك لا أبدأ؟ "
+                        "B: لأن معرفة الخطوة لا تعني أن الاحتكاك اختفى. "
+                        "حين تبدو البداية أكبر من طاقتك، يتأخر الفعل حتى لو كان الهدف واضحًا."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": (
+                        "A: إذًا المشكلة ليست أنني لا أريد التغيير؟ "
+                        "B: ليس بالضرورة. أحيانًا تحتاج أن تجعل أول حركة أوضح وأصغر."
+                    ),
+                },
+            ]
+        }
+        report = _validate_podcast_listener_proxy_script(script)
+        self.assertEqual(report["mode"], "listener_proxy_qa")
+        self.assertEqual(report["first_speaker"], "A")
+        self.assertEqual(report["voices"], {"A": "Orus", "B": "Charon"})
+        self.assertLessEqual(report["questioner_share"], 0.35)
 
     def test_podcast_is_fixed_listener_proxy_dialogue_house_style(self) -> None:
         for topic in (
