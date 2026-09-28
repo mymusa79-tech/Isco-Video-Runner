@@ -359,7 +359,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             bound["beats"][0]["shot_intent"],
         )
         self.assertIn("Role:hook", hook_context)
-        self.assertIn("Family:stationery", hook_context)
+        self.assertIn("Fam:stationery", hook_context)
         self.assertIn("Hook must show an unresolved observable", hook_context)
 
     def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
