@@ -313,6 +313,40 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertIn("[v2][outro]overlay", filters)
         self.assertIn(str(assets["prayer"]), command)
 
+    def test_podcast_identity_pieces_fade_over_the_same_story_world(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = {}
+            for name in ("intro", "prayer", "outro"):
+                path = root / f"{name}.asset"
+                path.write_bytes(b"A" * 2048)
+                assets[name] = path
+            timeline = {
+                "voice_seconds_measured": 12.0,
+                "identity_events": [
+                    {"kind": "intro", "start": 2.0, "end": 3.45},
+                    {"kind": "prayer", "start": 3.45, "end": 5.2},
+                    {"kind": "outro", "start": 10.0, "end": 11.0},
+                    {"kind": "final_silence", "start": 11.0, "end": 12.0},
+                ],
+            }
+            with mock.patch(
+                "clean_v2.timeline_render.identity_asset_paths",
+                return_value=assets,
+            ), mock.patch("clean_v2.timeline_render.subprocess.run") as run:
+                render_identity_composition(
+                    root / "source.mp4",
+                    root / "destination.mp4",
+                    fmt="podcast",
+                    timeline=timeline,
+                )
+        command = run.call_args.args[0]
+        filters = command[command.index("-filter_complex") + 1]
+        self.assertIn("fade=t=in:st=0:d=0.18:alpha=1", filters)
+        self.assertIn("fade=t=out:", filters)
+        self.assertIn("[0:v][intro]overlay", filters)
+        self.assertIn("[v1][prayer]overlay", filters)
+
     def test_prayer_uses_existing_image_only_without_duplicate_caption_layer(self) -> None:
         source = Path("clean_v2/timeline_render.py").read_text(encoding="utf-8")
         self.assertIn('assets["prayer"]', source)
@@ -323,10 +357,11 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
     def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
         self.assertEqual(identity_timing_profile("short")["post_prayer_silence_seconds"], 0.35)
         self.assertEqual(identity_timing_profile("film")["post_prayer_silence_seconds"], 0.45)
-        self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.45)
+        self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.35)
+        self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.45)
         self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.20)
         self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
-        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 3.75)
+        self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 3.00)
 
 
 class FinalCompositionVisualQATests(unittest.TestCase):
