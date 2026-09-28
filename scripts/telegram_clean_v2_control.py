@@ -673,10 +673,15 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
             and not existing_session.get("obsolete_at")
         ):
             existing_session["obsolete_at"] = obsolete_at
+    # Only a topic the user actually selected should be permanently excluded from
+    # future research. A topic that was merely shown as a candidate (in particular
+    # a small fixed fallback idea, offered whenever Gemini's live generation fails)
+    # must remain eligible again later, or the tiny fallback pool exhausts itself
+    # after being surfaced once and every future research call fails outright.
     historical = [
         str(item.get("title") or "")
         for item in state.get("ideas", [])
-        if isinstance(item, dict)
+        if isinstance(item, dict) and item.get("selected_at")
     ]
     measured: list[dict[str, Any]] = []
     for raw in _candidate_pool(scope):

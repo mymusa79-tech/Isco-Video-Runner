@@ -332,6 +332,45 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no unused evidence-backed"):
                 control.research(state, "short")
 
+    def test_shown_but_never_selected_fallback_ideas_stay_eligible(self):
+        # Reproduces the live production failure: every one of the small fixed
+        # fallback ideas had already been surfaced (but never chosen) across
+        # earlier research calls, and Gemini's live generation is unavailable,
+        # so _candidate_pool falls back to that same fixed list again. A merely
+        # "shown" idea must not be historical, or the fallback safety net
+        # exhausts itself after one full cycle and every future research call
+        # fails even though Gemini being down is exactly when it is needed most.
+        state = control.default_state()
+        state["ideas"] = [
+            {
+                "idea_id": f"idea-old-{index}",
+                "title": title,
+                "normalized_title": control.normalize_title(title),
+                "market_query": query,
+                "reason": "سبب",
+                "market_score": 0.5,
+                "market_evidence": {"sample_count": 2, "distinct_channels": 2, "top_samples": []},
+                "research_pack": [],
+                "selected": False,
+                "created_at": control.utc_now(),
+            }
+            for index, (title, query) in enumerate(control.FALLBACK_IDEAS)
+        ]
+        rows = [
+            {"title": title, "market_query": query, "reason": "حاجة عملية مستمرة"}
+            for title, query in control.FALLBACK_IDEAS
+        ]
+        evidence = {
+            "sample_count": 2,
+            "distinct_channels": 2,
+            "top_samples": [{"video_id": "v1", "title": "مصدر", "channel": "قناة"}],
+        }
+        with mock.patch.object(control, "_candidate_pool", return_value=rows), mock.patch.object(
+            control, "market_evidence", return_value=(0.6, evidence)
+        ):
+            result = control.research(state, "short")
+        self.assertGreater(len(result["candidates"]), 0)
+
     def test_today_stats_accept_snapshot_five_minutes_after_midnight(self):
         midnight = control._parse_utc("2026-09-23T20:00:00Z")
         snapshots = [
