@@ -644,6 +644,94 @@ class ShortContractTests(unittest.TestCase):
             )
         )
 
+    def test_artifact_149_locked_payoff_uses_local_last_resort(self) -> None:
+        script = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "الاحتكاك العالي يجعل المهمة أثقل من حجمها الحقيقي."},
+                {
+                    "id": "s3",
+                    "narration": "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        locked_payoff = (
+            "يظهر نتيجة الفعل البسيط، مع شعور بالتحول من الجمود إلى الحركة."
+        )
+
+        self.assertTrue(
+            apply_safe_short_s3_locked_payoff_fallback(script, locked_payoff)
+        )
+        self.assertEqual(
+            script["sections"][2]["narration"],
+            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(script)
+
+    def test_artifact_149_provider_outage_family_accepts_mistral_s3_via_local_rescue(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "الاحتكاك العالي يجعل المهمة أثقل من حجمها الحقيقي."},
+                {
+                    "id": "s3",
+                    "narration": "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن.",
+                },
+            ],
+        }
+        visual_story = {
+            "retention_thread": {
+                "payoff_answer": (
+                    "يظهر نتيجة الفعل البسيط، مع شعور بالتحول من الجمود إلى الحركة."
+                )
+            }
+        }
+
+        def fail(reason: str, status: int):
+            def call(_prompt, _tokens):
+                raise ProviderWireFailure(reason, http_status=status)
+            return call
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", fail("http_503", 503)),
+                ProviderAdapter("groq", fail("http_429", 429)),
+                ProviderAdapter("openrouter", lambda _prompt, _tokens: candidate),
+                ProviderAdapter("mistral", lambda _prompt, _tokens: candidate),
+            )
+        )
+        router._rate_limited_for_run.add("openrouter")
+        accepted = router.route(
+            stage="script",
+            prompt=_script_prompt(brief, plan, visual_story=visual_story),
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(
+                value,
+                plan,
+                brief,
+                visual_story,
+            ),
+        )
+
+        self.assertEqual(
+            accepted["sections"][2]["narration"],
+            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(accepted)
+        self.assertEqual(
+            [(event["provider"], event["result"]) for event in router.events],
+            [
+                ("gemini", "failed"),
+                ("groq", "failed"),
+                ("openrouter", "unavailable"),
+                ("mistral", "success"),
+            ],
+        )
+
     def test_pipeline_short_validator_uses_locked_visual_story_payoff_without_ai_retry(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
