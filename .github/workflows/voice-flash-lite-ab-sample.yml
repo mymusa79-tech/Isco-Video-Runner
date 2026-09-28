@@ -30,14 +30,14 @@ jobs:
 
           API_KEY = os.environ["GEMINI_API_KEY"]
           MODEL = "gemini-3.8-flash-lite-tts"
-          # Candidate replacements for the primary/Charon role on the lite
-          # model only - Orus stays fixed as the questioner for a like-for-like
-          # comparison. Characteristics per Google's own voice list:
-          #   Umbriel: easy-going and calm
-          #   Iapetus: clear and articulate
-          #   Schedar: even and balanced
-          #   Algenib: gravelly texture
-          CANDIDATE_VOICES = ["Umbriel", "Iapetus", "Schedar", "Algenib"]
+          # Confirmation pass: Algenib was picked as the lite-pass primary
+          # voice. Now comparing the questioner role specifically - current
+          # default Orus vs candidate Iapetus - paired with Algenib both
+          # times, so this is the actual final combination being decided.
+          PAIRS = [
+              ("orus-questioner", "Orus", "Algenib"),
+              ("iapetus-questioner", "Iapetus", "Algenib"),
+          ]
 
           QUESTIONER_STYLE = (
               "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
@@ -70,12 +70,12 @@ jobs:
               },
           ]
 
-          for voice in CANDIDATE_VOICES:
+          for label, questioner_voice, answer_voice in PAIRS:
               speech_config = {
                   "mode": "conversational",
                   "speakers": [
-                      {"speaker": "A", "voice": "Orus"},
-                      {"speaker": "B", "voice": voice},
+                      {"speaker": "A", "voice": questioner_voice},
+                      {"speaker": "B", "voice": answer_voice},
                   ],
               }
               payload = {
@@ -98,7 +98,7 @@ jobs:
                   with urllib.request.urlopen(request, timeout=180) as response:
                       body = response.read(64 * 1024 * 1024)
               except urllib.error.HTTPError as exc:
-                  print(f"{voice}: HTTP {exc.code} - {exc.read().decode('utf-8', 'replace')}")
+                  print(f"{label}: HTTP {exc.code} - {exc.read().decode('utf-8', 'replace')}")
                   continue
 
               decoded = json.loads(body.decode("utf-8"))
@@ -111,16 +111,16 @@ jobs:
                   if encoded:
                       break
               if not encoded:
-                  print(f"{voice}: no audio payload returned")
+                  print(f"{label}: no audio payload returned")
                   continue
 
               audio = base64.b64decode(encoded, validate=True)
-              out_name = f"sample-lite-{voice}.wav"
+              out_name = f"sample-lite-{label}.wav"
               with open(out_name, "wb") as fh:
                   fh.write(audio)
               with wave.open(out_name, "rb") as wav:
                   duration = wav.getnframes() / float(wav.getframerate())
-              print(f"{voice}: wrote {out_name} ({len(audio)} bytes, {duration:.1f}s)")
+              print(f"{label}: wrote {out_name} ({len(audio)} bytes, {duration:.1f}s)")
           PY
 
       - name: Upload samples
