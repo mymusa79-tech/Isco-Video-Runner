@@ -53,15 +53,30 @@ def render_identity_composition(
     outro_start, outro_end = bounds("outro")
 
     final_silence_start, final_silence_end = bounds("final_silence")
+    intro_duration = max(0.001, intro_end - intro_start)
+    prayer_duration = max(0.001, prayer_end - prayer_start)
     outro_duration = max(0.001, outro_end - outro_start)
     freeze_duration = max(0.0, final_silence_end - final_silence_start)
+    podcast_fade = 0.18 if fmt == "podcast" else 0.0
+    intro_fade = (
+        f"fade=t=in:st=0:d={podcast_fade:.2f}:alpha=1,"
+        f"fade=t=out:st={max(0.0, intro_duration - podcast_fade):.3f}:d={podcast_fade:.2f}:alpha=1,"
+        if podcast_fade else ""
+    )
+    prayer_fade = (
+        f"fade=t=in:st=0:d={podcast_fade:.2f}:alpha=1,"
+        f"fade=t=out:st={max(0.0, prayer_duration - podcast_fade):.3f}:d={podcast_fade:.2f}:alpha=1,"
+        if podcast_fade else ""
+    )
     filters = (
         f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-        f"tpad=stop_mode=clone:stop_duration={intro_end - intro_start:.3f},"
-        f"trim=duration={intro_end - intro_start:.3f},"
+        f"tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
+        f"trim=duration={intro_duration:.3f},"
+        f"{intro_fade}"
         f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
         f"[2:v]scale={prayer_width}:-1,format=rgba,"
+        f"trim=duration={prayer_duration:.3f},{prayer_fade}"
         f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
         f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
