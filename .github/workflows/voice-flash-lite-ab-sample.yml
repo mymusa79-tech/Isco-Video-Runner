@@ -1,0 +1,119 @@
+name: Voice Flash-Lite A/B Sample (one-off)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate Charon/Orus samples on both TTS models
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          import wave
+
+          API_KEY = os.environ["GEMINI_API_KEY"]
+          MODELS = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]
+
+          QUESTIONER_STYLE = (
+              "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
+              "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
+          )
+          ANSWER_STYLE = (
+              "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
+              "simple-deep conversational delivery, unhurried but not sleepy, never announcer or lecture tone."
+          )
+          QUESTION = "ليش أرجع لنفس النقطة كل مرة رغم إني أعرف الحل؟"
+          ANSWER = (
+              "لأن المشكلة مو في معرفتك، المشكلة إن أول خطوة تبدو أكبر من قدرتك اللحظية عليها. "
+              "قسّمها لخطوة أصغر من اللي تتخيلها، وابدأ فيها الآن قبل ما يهدأ الحماس."
+          )
+
+          content = [
+              {
+                  "type": "text",
+                  "text": QUESTION,
+                  "annotations": [
+                      {"type": "speech_metadata", "speaker": "A", "style": QUESTIONER_STYLE}
+                  ],
+              },
+              {
+                  "type": "text",
+                  "text": ANSWER,
+                  "annotations": [
+                      {"type": "speech_metadata", "speaker": "B", "style": ANSWER_STYLE}
+                  ],
+              },
+          ]
+          speech_config = {
+              "mode": "conversational",
+              "speakers": [
+                  {"speaker": "A", "voice": "Orus"},
+                  {"speaker": "B", "voice": "Charon"},
+              ],
+          }
+
+          for model in MODELS:
+              payload = {
+                  "model": model,
+                  "input": [{"type": "user_input", "content": content}],
+                  "response_format": {"type": "audio"},
+                  "generation_config": {"speech_config": speech_config},
+              }
+              request = urllib.request.Request(
+                  "https://generativelanguage.googleapis.com/v1beta/interactions",
+                  data=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "x-goog-api-key": API_KEY,
+                      "User-Agent": "Isco-Clean-V2-AB-Sample/1",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=180) as response:
+                      body = response.read(64 * 1024 * 1024)
+              except urllib.error.HTTPError as exc:
+                  print(f"{model}: HTTP {exc.code} - {exc.read().decode('utf-8', 'replace')}")
+                  continue
+
+              decoded = json.loads(body.decode("utf-8"))
+              encoded = ""
+              for step in reversed(decoded.get("steps") or []):
+                  for block in reversed(step.get("content") or []):
+                      if block.get("type") == "audio" and isinstance(block.get("data"), str):
+                          encoded = block["data"]
+                          break
+                  if encoded:
+                      break
+              if not encoded:
+                  print(f"{model}: no audio payload returned")
+                  continue
+
+              audio = base64.b64decode(encoded, validate=True)
+              out_name = f"sample-{model}.wav"
+              with open(out_name, "wb") as fh:
+                  fh.write(audio)
+              with wave.open(out_name, "rb") as wav:
+                  duration = wav.getnframes() / float(wav.getframerate())
+              print(f"{model}: wrote {out_name} ({len(audio)} bytes, {duration:.1f}s)")
+          PY
+
+      - name: Upload samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-flash-lite-ab-sample
+          path: sample-*.wav
+          if-no-files-found: warn
+          retention-days: 3
