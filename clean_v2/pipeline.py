@@ -1072,15 +1072,18 @@ def _voice_performance_mode_for_brief(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any] | None = None,
 ) -> str:
-    """Choose only a local Gemini performance mode; never a new provider or stage."""
-    if str(brief.get("format") or "") == "short":
-        return (
-            "inner_dialogue"
-            if str(select_short_template(brief)["template"]) == "inner_dialogue"
-            else ""
-        )
+    """Map the locked editorial type to Gemini style metadata only.
+
+    Voice identity stays fixed: Charon is the channel voice; Orus appears only
+    in explicit dialogue_qa turns. No provider, call-count, or stage change.
+    """
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
+        return str(select_short_template(brief)["template"])
+    if fmt == "podcast":
+        return "podcast_listener_proxy_qa"
     selected = str((plan or {}).get("narrative_format") or "").strip()
-    return "inner_dialogue" if selected == "inner_dialogue" else ""
+    return selected if selected in LONGFORM_NARRATIVE_FORMATS else "direct_cinematic"
 
 
 def _audit_narrative_format_for_brief(
