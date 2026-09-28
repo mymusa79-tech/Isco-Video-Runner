@@ -3341,9 +3341,16 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     plan = validate_plan(value, brief)
+    fmt = str(brief.get("format") or "")
+    if fmt in {"film", "podcast"}:
+        # The profile is selected from approved input before provider output. Keep
+        # the plan metadata aligned locally instead of spending another repair call
+        # if a model returns a different supported label.
+        plan["narrative_format"] = str(
+            _select_longform_narrative_profile(brief)["narrative_format"]
+        )
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
-    fmt = str(brief.get("format") or "")
     if fmt == "short":
         visual_story = _bound_short_visual_story(visual_story, max_beats=5)
     visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
@@ -4193,10 +4200,14 @@ LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before retu
 """.strip()
 
 PODCAST_GEMINI_PERFORMANCE_GUIDANCE = """
-For podcast / خارج النص, write for Gemini 3.8 Flash TTS and the fixed Charon main voice. If the approved
-narrative format is dialogue_qa, preserve explicit A:/B: turns so A maps to Orus and B maps to Charon.
-For question_answer and ordinary narration, keep one narrator and do not invent speaker labels. Keep
-the delivery simple-deep, conversational, and natural without theatrical punctuation or acting.
+For podcast / خارج النص, use the fixed listener-proxy dialogue house style with Gemini 3.8.
+A maps to Orus and represents the listener's own concrete question, doubt, or objection. B maps to Charon
+and remains the established channel voice. Preserve explicit A:/B: labels only at turn boundaries.
+A is sparse and short: normally one natural sentence, preferably 4-14 Arabic words, only when it unlocks
+the next layer. B carries the substance in a fuller answer before A returns. Never alternate mechanically
+line-by-line. No greetings, names, host/guest framing, thanks, fake agreement, jokes inserted for chemistry,
+or staged interview filler. A must sound like a real listener thinking aloud, not a prompt engineered to
+feed B's answer. Keep both voices simple, deep, conversational, and non-theatrical.
 """.strip()
 
 
@@ -4209,6 +4220,7 @@ def _script_prompt(
     identity_opener: str = "",
 ) -> str:
     fmt = str(brief["format"])
+    longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         length = (
             "For the main long episode, 3-20 minutes is a normal editorial range, never an acceptance gate. "
@@ -4254,6 +4266,19 @@ def _script_prompt(
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
+    longform_profile_context = (
+        (
+            "LOCKED NARRATIVE PERFORMANCE PROFILE:\n"
+            f"- narrative_format={longform_profile['narrative_format']}\n"
+            f"- writing_shape={longform_profile['writing']}\n"
+            f"- visual_grammar={longform_profile['visual']}\n"
+            f"- voice_mode={longform_profile['voice']}\n"
+            "Write the actual narration in this shape; do not merely preserve the label in metadata. "
+            "For dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map voices, and keep A concise."
+        )
+        if fmt in {"film", "podcast"}
+        else ""
+    )
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
     story_json = json.dumps(
@@ -4356,6 +4381,8 @@ naturally; the Outro visual occupies the measured final voice unit instead of ad
 {identity_handoff_guidance}
 
 {short_context}
+
+{longform_profile_context}
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
 {_PLANNING_FACTUALITY_RULE}
