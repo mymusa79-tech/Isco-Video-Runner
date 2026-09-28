@@ -179,6 +179,8 @@ _PODCAST_FIXED_PROFILE = {
         "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
         "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
         "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
+        "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
         "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
     ),
     "visual": (
@@ -551,20 +553,40 @@ def _synthesize_sectioned_voice(
         voice_units: list[tuple[str, str]] = []
         if fmt in {"short", "film", "podcast"} and index == 1:
             prayer_pos = section_text.find(PRAYER_SENTENCE)
-            definition = " ".join(str(identity_definition or "").split()).strip()
-            definition_pos = section_text.find(definition) if definition else -1
-            if prayer_pos <= 0 or definition_pos <= prayer_pos:
-                raise RuntimeError("Timeline First requires explicit hook/prayer/identity voice units")
+            if prayer_pos <= 0:
+                raise RuntimeError("Timeline First requires explicit hook/prayer voice units")
             hook_text = section_text[:prayer_pos].strip()
-            after_definition = section_text[definition_pos + len(definition):].strip()
-            voice_units.extend(
-                [
-                    ("hook", hook_text),
-                    ("prayer", PRAYER_SENTENCE),
-                    ("channel_identity", definition),
-                ]
-            )
-            voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_definition))
+
+            if fmt == "podcast":
+                # Outside the Text V8: A asks first, the branded intro plays,
+                # prayer follows, then B answers directly. The visual intro already
+                # says "بودكاست من نداء اليقظة", so no extra spoken brand sentence.
+                after_prayer = section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
+                voice_units.extend(
+                    [
+                        ("hook", hook_text),
+                        ("prayer", PRAYER_SENTENCE),
+                    ]
+                )
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
+            else:
+                definition = " ".join(str(identity_definition or "").split()).strip()
+                definition_pos = section_text.find(definition) if definition else -1
+                if definition_pos <= prayer_pos:
+                    raise RuntimeError(
+                        "Timeline First requires explicit hook/prayer/identity voice units"
+                    )
+                after_definition = section_text[definition_pos + len(definition):].strip()
+                voice_units.extend(
+                    [
+                        ("hook", hook_text),
+                        ("prayer", PRAYER_SENTENCE),
+                        ("channel_identity", definition),
+                    ]
+                )
+                voice_units.extend(
+                    ("topic", item) for item in _bounded_voice_chunks(after_definition)
+                )
         else:
             remaining = section_text
             closer = " ".join(str(identity_closer or "").split()).strip()
@@ -804,7 +826,7 @@ def _synthesize_sectioned_voice(
                     }
                 )
             elif (
-                fmt in IDENTITY_TIMELINE_FORMATS
+                fmt in {"short", "film"}
                 and index == 1
                 and role == "channel_identity"
             ):
@@ -3532,16 +3554,17 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
 
 
 def _podcast_fixed_identity(output_dir: Path) -> dict[str, Any]:
-    """Keep خارج النص recognisable without spending a provider call on identity copy."""
+    """Keep خارج النص recognisable with the fixed V8 visual identity, no extra AI call."""
     report = {
-        "schema_version": 1,
-        "source": "clean-v2-podcast-fixed-identity",
+        "schema_version": 2,
+        "source": "clean-v2-podcast-fixed-identity-v8",
         "status": "pass",
-        "reason": "listener_proxy_house_identity",
-        "canonical_opener": PODCAST_CHANNEL_DEFINITION,
+        "reason": "listener_proxy_v8_visual_identity",
+        "canonical_opener": "",
         "canonical_closer": "",
-        "opener": PODCAST_CHANNEL_DEFINITION,
+        "opener": "",
         "closer": "",
+        "visual_brand_line": PODCAST_CHANNEL_DEFINITION,
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
         "provider_calls_added": 0,
@@ -3625,24 +3648,38 @@ def _run_audio_mastering_stage(
             },
         )
 
+    identity_sequence = (
+        [
+            "listener_A_question",
+            "post_hook_silence_on_story_frame",
+            "v8_intro_with_signature_sfx",
+            "prayer_sentence_with_fully_opaque_visual",
+            "post_prayer_silence",
+            "listener_B_answer_starts_in_topic",
+            "instrumental_music_starts_with_answer",
+            "v8_outro_with_signature_sfx",
+        ]
+        if fmt == "podcast"
+        else [
+            "hook",
+            "post_hook_silence_on_story_frame",
+            "intro_silence_with_fully_opaque_intro",
+            "prayer_sentence_with_fully_opaque_visual",
+            "channel_definition",
+            "pre_topic_structural_silence",
+            "topic_music_window",
+            "outro_no_music_fully_opaque",
+            "final_silence_freeze",
+        ]
+    )
     atomic_write_json(
         output_dir / "identity-sequence.json",
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "source": "clean-v2-timeline-first-v1",
             "status": "pass",
             "format": fmt,
-            "sequence": [
-                "hook",
-                "post_hook_silence_on_story_frame",
-                "intro_silence_with_fully_opaque_intro",
-                "prayer_sentence_with_fully_opaque_visual",
-                "channel_definition",
-                "pre_topic_structural_silence",
-                "topic_music_window",
-                "outro_no_music_fully_opaque",
-                "final_silence_freeze",
-            ],
+            "sequence": identity_sequence,
             "timeline_owner": voice_timeline["timeline_owner"],
             "identity_events": voice_timeline["identity_events"],
             "voice_seconds": voice_timeline["voice_seconds_measured"],

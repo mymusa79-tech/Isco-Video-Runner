@@ -63,11 +63,12 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         podcast = identity_timing_profile("podcast")
         self.assertEqual(short["intro_silence_seconds"], 1.15)
         self.assertEqual(film["intro_silence_seconds"], 2.20)
-        self.assertEqual(podcast["intro_silence_seconds"], 1.45)
+        self.assertEqual(podcast["intro_silence_seconds"], 6.00)
         self.assertEqual(podcast["post_hook_silence_seconds"], 0.75)
-        self.assertEqual(podcast["pre_topic_silence_seconds"], 0.45)
+        self.assertEqual(podcast["post_prayer_silence_seconds"], 0.65)
+        self.assertEqual(podcast["pre_topic_silence_seconds"], 0.00)
         self.assertGreaterEqual(film["final_silence_seconds"], 3.5)
-        self.assertGreaterEqual(podcast["final_silence_seconds"], 3.0)
+        self.assertEqual(podcast["final_silence_seconds"], 6.50)
 
     def test_music_pools_are_instrumental_dialogue_bed_only(self) -> None:
         self.assertTrue(DIALOGUE_BED_TRACKS)

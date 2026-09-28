@@ -62,7 +62,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
 
-    def test_podcast_spoken_order_keeps_listener_hook_before_fixed_house_identity(self) -> None:
+    def test_podcast_spoken_order_is_A_question_then_prayer_then_B_answer(self) -> None:
         sections = [
             {
                 "id": "s1",
@@ -80,23 +80,26 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         first = sections[0]["narration"]
         self.assertTrue(first.startswith("A: لماذا أعرف ما أريد"))
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(first.count(PODCAST_CHANNEL_DEFINITION), 1)
-        self.assertLess(first.index(PRAYER_SENTENCE), first.index(PODCAST_CHANNEL_DEFINITION))
-        self.assertIn("B: لأن وضوح الهدف", first)
+        self.assertEqual(first.count(PODCAST_CHANNEL_DEFINITION), 0)
+        self.assertIn(f"{PRAYER_SENTENCE} B: لأن وضوح الهدف", first)
         assert_spoken_identity(sections, fmt="podcast", opener="ignored dynamic opener")
 
         timing = identity_timing_profile("podcast")
         self.assertEqual(timing["post_hook_silence_seconds"], 0.75)
-        self.assertEqual(timing["intro_silence_seconds"], 1.45)
-        self.assertEqual(timing["post_prayer_silence_seconds"], 0.35)
-        self.assertEqual(timing["pre_topic_silence_seconds"], 0.45)
+        self.assertEqual(timing["intro_silence_seconds"], 6.00)
+        self.assertEqual(timing["post_prayer_silence_seconds"], 0.65)
+        self.assertEqual(timing["pre_topic_silence_seconds"], 0.00)
+        self.assertEqual(timing["final_silence_seconds"], 6.50)
 
-    def test_podcast_identity_card_returns_during_measured_definition_only(self) -> None:
+    def test_podcast_v8_identity_uses_asset_sfx_without_second_brand_card(self) -> None:
         source = inspect.getsource(timeline_render.render_identity_composition)
         self.assertIn('if fmt == "podcast"', source)
-        self.assertIn('bounds("channel_identity")', source)
-        self.assertIn("[v2][identity]overlay=0:0", source)
-        self.assertIn("[v3][outro]overlay=0:0", source)
+        self.assertNotIn('bounds("channel_identity")', source)
+        self.assertNotIn("[v2][identity]overlay=0:0", source)
+        self.assertIn("[v2][outro]overlay=0:0", source)
+        self.assertIn("[1:a]atrim", source)
+        self.assertIn("[3:a]atrim", source)
+        self.assertIn("[aout]", source)
 
     def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
         script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
