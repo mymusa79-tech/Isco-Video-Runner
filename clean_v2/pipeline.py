@@ -1683,6 +1683,37 @@ def _run_legacy_tone_naturalness_audit(
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
 
     if result.get("status") == "block":
+        # The full report only ever reaches tone-naturalness-audit.json, which
+        # lives solely in the uploaded artifact (Azure Blob) - unreachable from
+        # network-restricted environments. Mirror a condensed diagnostic to
+        # stdout (job logs are always reachable) so this block is diagnosable
+        # without the artifact, matching the Mistral script_patch validator's
+        # own "rejected raw content" logging convention in providers.py.
+        print(
+            "Clean V2 tone/naturalness block diagnostic: "
+            + json.dumps(
+                {
+                    "attempts": report.get("attempts"),
+                    "cultural_dignity_flags": report.get("cultural_dignity_flags"),
+                    "hook_body_continuity": report.get("hook_body_continuity"),
+                    "hook_curiosity": report.get("hook_curiosity"),
+                    "hook_genericness": report.get("hook_genericness"),
+                    "hook_honesty": report.get("hook_honesty"),
+                    "hook_specificity": report.get("hook_specificity"),
+                    "narrative_format_flags": report.get("narrative_format_flags"),
+                    "naturalness_flags": report.get("naturalness_flags"),
+                    "notes": report.get("notes"),
+                    "payoff_resolves_hook": report.get("payoff_resolves_hook"),
+                    "preachiness_flags": report.get("preachiness_flags"),
+                    "unverified_religious_quote_flags": report.get(
+                        "unverified_religious_quote_flags"
+                    ),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
         raise CleanV2ToneContentBlock(report)
     return report
 
