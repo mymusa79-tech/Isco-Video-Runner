@@ -851,6 +851,35 @@ def confirm_current(state: dict[str, Any]) -> dict[str, Any]:
     return {"already_dispatched": False, "request": request}
 
 
+def _stage_confirmation_dispatch(
+    state: dict[str, Any],
+    dispatch_path: Path,
+    *,
+    expected_request_id: str | None = None,
+) -> dict[str, Any]:
+    current_request_id = str(state.get("current_request_id") or "")
+    if expected_request_id is not None and expected_request_id != current_request_id:
+        raise RuntimeError("confirmation button is stale")
+    result = confirm_current(state)
+    if result["already_dispatched"]:
+        return result
+    request = result["request"]
+    dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+    dispatch_path.write_text(
+        json.dumps(
+            {
+                "request_id": request["request_id"],
+                "request_sha256": request["request_sha256"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
 def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str) -> dict[str, Any]:
     request = state.get("requests", {}).get(request_id)
     if not isinstance(request, dict):
@@ -928,7 +957,10 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
                 }
             ]
         )
-    lines.append("الاختيار لا يبدأ الإنتاج. بعد الاختيار يلزم إرسال «تأكيد الإنتاج» حرفيًا.")
+    lines.append(
+        "الاختيار لا يبدأ الإنتاج. بعد الاختيار يلزم تأكيد منفصل من الزر الآمن "
+        "أو بإرسال «تأكيد الإنتاج» حرفيًا."
+    )
     return "\n".join(lines), rows
 
 
@@ -957,10 +989,21 @@ def render_selection_confirmation(request: dict[str, Any]) -> str:
         [
             "",
             "لم يبدأ الإنتاج بعد.",
-            f"إذا كان القرار نهائيًا أرسل حرفيًا:\n{CONFIRM_TEXT}",
+            "إذا كان القرار نهائيًا اضغط زر «✅ تأكيد الإنتاج» أدناه،",
+            f"أو أرسل حرفيًا:\n{CONFIRM_TEXT}",
         ]
     )
     return "\n".join(lines)
+
+
+def selection_confirmation_keyboard(request: dict[str, Any]) -> list[list[dict[str, str]]]:
+    request_id = str(request.get("request_id") or "").strip()
+    if not request_id:
+        raise RuntimeError("confirmation request id missing")
+    return [
+        [{"text": "✅ تأكيد الإنتاج", "callback_data": f"confirm:{request_id}"}],
+        [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
+    ]
 
 
 def _actor_chat(update: dict[str, Any]) -> tuple[str, str]:
@@ -1296,12 +1339,55 @@ def _normalize_user_command_text(value: str) -> str:
     return text
 
 
+def _confirm_and_notify(
+    state: dict[str, Any],
+    dispatch_path: Path,
+    *,
+    expected_request_id: str | None = None,
+) -> None:
+    try:
+        result = _stage_confirmation_dispatch(
+            state,
+            dispatch_path,
+            expected_request_id=expected_request_id,
+        )
+    except Exception:
+        if expected_request_id is not None:
+            send_telegram(
+                "⚠️ زر التأكيد هذا قديم أو لا يطابق الاختيار الحالي. "
+                "افتح آخر رسالة «تم اختيار الفكرة» وحاول منها."
+            )
+        else:
+            send_telegram("⚠️ لا يوجد اختيار صالح ينتظر التأكيد. اطلب /research واختر فكرة أولًا.")
+        return
+    request = result["request"]
+    if result["already_dispatched"]:
+        send_telegram("✅ هذا الطلب أُرسل للإنتاج بالفعل. لن أنشئ محاولة مكررة.")
+        return
+    send_telegram(
+        "🚀 تم تأكيد الإنتاج. حُفظ القرار أولًا، وسيُرسل الآن إلى Clean V2.\n"
+        f"الموضوع: {request['approved_topic']}"
+    )
+
+
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
     if not authorized(update):
         raise RuntimeError("unauthorized Telegram update")
     callback = update.get("callback_query")
     if isinstance(callback, dict):
         data = str(callback.get("data") or "")
+        if data.startswith("confirm:"):
+            parts = data.split(":", 1)
+            expected_request_id = parts[1].strip() if len(parts) == 2 else ""
+            if not expected_request_id:
+                send_telegram("⚠️ زر التأكيد غير صالح. افتح آخر رسالة اختيار وحاول مجددًا.")
+                return
+            _confirm_and_notify(
+                state,
+                dispatch_path,
+                expected_request_id=expected_request_id,
+            )
+            return
         if data.startswith("main:"):
             action = data.split(":", 1)[1]
             if action == "home":
@@ -1387,7 +1473,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception:
                 send_telegram("⚠️ هذه الفكرة المحفوظة لم تعد صالحة للاختيار.")
                 return
-            send_telegram(render_selection_confirmation(request))
+            send_telegram(
+                render_selection_confirmation(request),
+                selection_confirmation_keyboard(request),
+            )
             return
         if data.startswith("scope:"):
             scope = data.split(":", 1)[1]
@@ -1412,7 +1501,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception:
                 send_telegram("⚠️ هذا الاختيار لم يعد صالحًا. اطلب /research من جديد.")
                 return
-            send_telegram(render_selection_confirmation(request))
+            send_telegram(
+                render_selection_confirmation(request),
+                selection_confirmation_keyboard(request),
+            )
             return
         raise RuntimeError("unsupported callback")
 
@@ -1460,34 +1552,12 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
-        try:
-            result = confirm_current(state)
-        except Exception:
-            send_telegram("⚠️ لا يوجد اختيار صالح ينتظر التأكيد. اطلب /research واختر فكرة أولًا.")
-            return
-        request = result["request"]
-        if result["already_dispatched"]:
-            send_telegram("✅ هذا الطلب أُرسل للإنتاج بالفعل. لن أنشئ محاولة مكررة.")
-            return
-        dispatch_path.parent.mkdir(parents=True, exist_ok=True)
-        dispatch_path.write_text(
-            json.dumps(
-                {
-                    "request_id": request["request_id"],
-                    "request_sha256": request["request_sha256"],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        send_telegram(
-            "🚀 تم تأكيد الإنتاج. حُفظ القرار أولًا، وسيُرسل الآن إلى Clean V2.\n"
-            f"الموضوع: {request['approved_topic']}"
-        )
+        _confirm_and_notify(state, dispatch_path)
         return
-    send_telegram("استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. بدء الإنتاج يتطلب «تأكيد الإنتاج» حرفيًا.")
+    send_telegram(
+        "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. "
+        "بدء الإنتاج يتطلب تأكيدًا منفصلًا من زر الطلب أو إرسال «تأكيد الإنتاج» حرفيًا."
+    )
 
 
 def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: str, fmt: str, output: Path) -> dict[str, Any]:
