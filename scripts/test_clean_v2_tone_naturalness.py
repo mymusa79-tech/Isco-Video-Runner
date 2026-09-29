@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -899,6 +901,58 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             )
             self.assertEqual(persisted["status"], "block")
             self.assertEqual(dummy_plan.hook, "افتتاح واضح.")
+
+    def test_content_block_prints_a_stdout_diagnostic(self):
+        # tone-naturalness-audit.json lives only in the uploaded artifact (Azure
+        # Blob), unreachable from network-restricted environments. This mirrors
+        # the same failing flags/notes to stdout (job logs are always reachable)
+        # so a future block is diagnosable without the artifact.
+        blocked = _tone_result(status="block")
+        blocked["narrative_format_flags"] = ["hook_quality:payoff_resolves_hook"]
+        blocked["payoff_resolves_hook"] = False
+        blocked["notes"] = ["Hook opens a question the payoff never answers."]
+        dummy_plan = SimpleNamespace(hook="")
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "clean_v2.pipeline._build_production_plan_for_audit",
+            return_value=dummy_plan,
+        ), patch(
+            "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+            return_value=blocked,
+        ):
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured), self.assertRaisesRegex(
+                RuntimeError, "tone/naturalness gate blocked real production"
+            ):
+                _run_legacy_tone_naturalness_audit(
+                    output_dir=Path(tmp),
+                    brief={"format": "podcast"},
+                    plan={"sections": []},
+                    script={
+                        "sections": [
+                            {"id": "s1", "narration": "افتتاح واضح. ثم شرح طبيعي."}
+                        ]
+                    },
+                )
+
+        printed = captured.getvalue()
+        self.assertIn("Clean V2 tone/naturalness block diagnostic: ", printed)
+        diagnostic_line = next(
+            line
+            for line in printed.splitlines()
+            if line.startswith("Clean V2 tone/naturalness block diagnostic: ")
+        )
+        diagnostic = json.loads(
+            diagnostic_line.removeprefix("Clean V2 tone/naturalness block diagnostic: ")
+        )
+        self.assertEqual(
+            diagnostic["narrative_format_flags"],
+            ["hook_quality:payoff_resolves_hook"],
+        )
+        self.assertFalse(diagnostic["payoff_resolves_hook"])
+        self.assertEqual(
+            diagnostic["notes"], ["Hook opens a question the payoff never answers."]
+        )
 
     def test_provider_exhaustion_is_advisory_not_content_block(self):
         exhausted = _tone_result(status="block", validation="providers_exhausted")
