@@ -795,9 +795,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-09-28T22:18:43Z"
+      "research_pack": [
+        {
+          "source_title": "EGGSTER CAN'T GO A DAY WITHOUT AN ACE",
+          "source_url": "https://youtu.be/fTG6LLEEdgg",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "400 days off the booze today guys! Massive achievement for myself & I'm so happy😎🙌🤝💪#sobrietyjourney",
+          "source_url": "https://youtu.be/vLcE9l3DqUE",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "ليش الـ 24 ساعة تمر  بحياتك كل يوم بدون إنجاز؟ (الحل السري)",
+          "source_url": "https://youtu.be/TI-95BxJfz4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-09-28T22:18:43Z",
+      "selected_at": "2026-09-29T23:50:23Z"
     },
     {
       "idea_id": "idea-6245095f21",
@@ -1254,6 +1271,17 @@
       "source": "saved_library",
       "closed_at": "2026-09-29T22:13:44Z",
       "selected_index": 0
+    },
+    "7f27f053": {
+      "session_id": "7f27f053",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b946be3ff6"
+      ],
+      "created_at": "2026-09-29T23:50:23Z",
+      "source": "saved_library",
+      "closed_at": "2026-09-29T23:50:23Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -1411,9 +1439,40 @@
       "confirmed_at": null,
       "dispatched_at": null,
       "request_sha256": "71f9ace9b17038c275630e9144dc510a036061aeb0bce54a769d82d351597821"
+    },
+    "req-f2b4585201ef": {
+      "schema_version": 1,
+      "request_id": "req-f2b4585201ef",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
+      "research_pack": [
+        {
+          "source_title": "EGGSTER CAN'T GO A DAY WITHOUT AN ACE",
+          "source_url": "https://youtu.be/fTG6LLEEdgg",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "400 days off the booze today guys! Massive achievement for myself & I'm so happy😎🙌🤝💪#sobrietyjourney",
+          "source_url": "https://youtu.be/vLcE9l3DqUE",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "ليش الـ 24 ساعة تمر  بحياتك كل يوم بدون إنجاز؟ (الحل السري)",
+          "source_url": "https://youtu.be/TI-95BxJfz4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b946be3ff6",
+      "selected_at": "2026-09-29T23:50:23Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6847cf381910ff3bb01f8c60e5ebff7a3f65ecda46418dd19127c61bda84edf7"
     }
   },
-  "current_request_id": "req-9ee67f813db1",
+  "current_request_id": "req-f2b4585201ef",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -1560,5 +1619,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-29T23:39:41Z"
+  "updated_at": "2026-09-29T23:50:23Z"
 }
