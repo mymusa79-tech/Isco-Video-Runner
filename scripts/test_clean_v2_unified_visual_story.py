@@ -288,6 +288,89 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     prompt,
                 )
 
+    def test_writer_query_compaction_never_leaves_run36_dangling_fragments(self) -> None:
+        samples = {
+            (
+                "person writing in a notebook with a pen then pausing to look "
+                "at a messy desk with scattered papers medium shot warm side light"
+            ): "person writing in a notebook with a pen",
+            (
+                "hands sorting through a pile of objects selecting one carefully "
+                "then placing it in a clear container close-up soft directional light"
+            ): "hands sorting through a pile of objects selecting one carefully",
+        }
+        for fmt in ("short", "film", "podcast"):
+            for raw, expected in samples.items():
+                with self.subTest(fmt=fmt, raw=raw):
+                    planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                    visual_story = dict(planned.pop("visual_story"))
+                    visual_story["beats"][0]["shot_intent"] = raw
+                    visual_story["beats"][0]["stock_query_en"] = raw
+                    script = {
+                        "title": "نص نهائي",
+                        "sections": [
+                            {
+                                "id": section["id"],
+                                "narration": f"معنى نهائي مكتمل للقسم {index}. وتظهر نتيجة واضحة.",
+                            }
+                            for index, section in enumerate(planned["sections"], start=1)
+                        ],
+                    }
+                    bound = bind_visual_story_to_script(
+                        visual_story,
+                        planned,
+                        script,
+                    )
+                    first = bound["beats"][0]
+                    self.assertEqual(first["shot_intent"], expected)
+                    self.assertEqual(first["stock_query_en"], expected)
+                    self.assertLessEqual(len(expected.split()), 14)
+                    self.assertNotRegex(expected, r"\b(?:a|at|in|to|with)$")
+
+    def test_screen_semantics_do_not_conflict_with_host_text_safety_for_any_format(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                visual_story = dict(planned.pop("visual_story"))
+                first = visual_story["beats"][0]
+                first["shot_intent"] = (
+                    "hands holding smartphone with conflicting notification shapes on screen"
+                )
+                first["stock_query_en"] = first["shot_intent"]
+                first["semantic_must_have"] = [
+                    "smartphone screen with conflicting notification shapes"
+                ]
+                script = {
+                    "title": "نص نهائي",
+                    "sections": [
+                        {
+                            "id": section["id"],
+                            "narration": f"معنى نهائي مكتمل للقسم {index}. وتظهر نتيجة واضحة.",
+                        }
+                        for index, section in enumerate(planned["sections"], start=1)
+                    ],
+                }
+                bound = bind_visual_story_to_script(
+                    visual_story,
+                    planned,
+                    script,
+                )
+                first_bound = bound["beats"][0]
+                avoids = " | ".join(first_bound["semantic_should_avoid"])
+                self.assertIn("smartphone screen", first_bound["semantic_must_have"][0])
+                self.assertNotIn("logos, UI, or watermarks", avoids)
+                self.assertIn("interface copy must stay abstract and illegible", avoids)
+                prompt = media_module._ai_still_prompt(
+                    bound,
+                    first_bound,
+                    fmt=fmt,
+                    with_reference=False,
+                )
+                self.assertIn("screen or interface is required", prompt)
+                self.assertIn("all copy illegible", prompt)
+                self.assertNotIn("text, UI", prompt)
+                self.assertNotIn("watermarks, UI", prompt)
+
     def test_writer_binding_avoids_adjacent_repeated_action_family_without_provider_call(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
         visual_story = dict(planned.pop("visual_story"))

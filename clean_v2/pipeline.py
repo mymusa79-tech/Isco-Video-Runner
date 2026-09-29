@@ -1575,6 +1575,31 @@ class CleanV2ToneContentBlock(RuntimeError):
         super().__init__("Independent tone/naturalness gate blocked real production")
 
 
+class CleanV2ContentRepairUnavailable(RuntimeError):
+    """A real content block whose single repair path then failed technically.
+
+    The content verdict remains authoritative even when the provider route used to
+    repair or re-audit it is unavailable. Keeping this state distinct prevents an
+    already-rejected script from being reported (and resumed) as if the only problem
+    were infrastructure.
+    """
+
+    def __init__(self, block_kind: str, phase: str, cause: Exception) -> None:
+        message = str(cause)
+        self.block_kind = str(block_kind or "content")
+        self.phase = str(phase or "repair")
+        self.repair_error_type = type(cause).__name__
+        self.repair_failure_classification = (
+            "infrastructure"
+            if "exhausted bounded provider route" in message
+            else "technical"
+        )
+        super().__init__(
+            "CLEAN_V2_CONTENT_REPAIR_UNAVAILABLE "
+            f"block_kind={self.block_kind} phase={self.phase}: {message}"
+        )
+
+
 _FACTUALITY_REPAIR_FLAG_FIELDS = (
     "unsupported_claims",
     "professional_advice_flags",
@@ -2224,7 +2249,18 @@ def _validate_and_apply_script_patches(
                 original_hook
                 and sections
                 and section_id == str(sections[0].get("id") or "")
-                and find in original_hook
+                # A provider may copy the complete hook plus adjacent host/body
+                # text even though the prompt asks for the smallest possible span.
+                # Both directions prove that the exact, runtime-verified hook is
+                # the intended target. A wider span is tolerated only when the
+                # audit explicitly opened hook-quality repair; otherwise normal
+                # hook/prayer/identity locks retain their original diagnostics.
+                # The accepted edit is canonicalized back to original_hook below,
+                # so none of the extra copied text can change.
+                and (
+                    find in original_hook
+                    or (hook_quality_repair_allowed and original_hook in find)
+                )
             ):
                 compact_find = " ".join(find.split()).strip()
                 if hook_quality_repair_allowed:
@@ -2253,6 +2289,21 @@ def _validate_and_apply_script_patches(
                         )
                         if first_sentence:
                             replacement_hook = first_sentence
+                        original_speaker = re.match(r"^([AB]):\s+", original_hook)
+                        replacement_speaker = re.match(r"^([AB]):\s+", replacement_hook)
+                        if original_speaker:
+                            if (
+                                replacement_speaker
+                                and replacement_speaker.group(1)
+                                != original_speaker.group(1)
+                            ):
+                                raise ValueError(
+                                    "invalid bounded hook-quality speaker repair"
+                                )
+                            if not replacement_speaker:
+                                replacement_hook = (
+                                    f"{original_speaker.group(1)}: {replacement_hook}"
+                                )
                         if len(replacement_hook) > 220:
                             head = replacement_hook[:220].rsplit(" ", 1)[0].strip()
                             head = re.sub(r"[،,؛;:.!?؟!]+$", "", head).strip()
@@ -2973,15 +3024,34 @@ def _run_text_audit_with_one_bounded_tone_repair(
             script=script,
         )
     except CleanV2FactualityContentBlock as blocked:
-        repair_report = _run_one_bounded_factuality_repair(
-            output_dir=output_dir,
-            brief=brief,
-            plan=plan,
-            script=script,
-            router=router,
-            blocked_report=blocked.report,
-            tone_report=blocked.tone_report,
-        )
+        try:
+            repair_report = _run_one_bounded_factuality_repair(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+                router=router,
+                blocked_report=blocked.report,
+                tone_report=blocked.tone_report,
+            )
+        except Exception as exc:
+            unavailable = CleanV2ContentRepairUnavailable(
+                "factuality", "repair", exc
+            )
+            atomic_write_json(
+                output_dir / "factuality-repair.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-one-bounded-factuality-repair",
+                    "status": "repair_path_unavailable",
+                    "content_block_confirmed": True,
+                    "repair_failure_classification": (
+                        unavailable.repair_failure_classification
+                    ),
+                    "repair_error_type": unavailable.repair_error_type,
+                },
+            )
+            raise unavailable from exc
         atomic_write_json(
             output_dir / "factuality-repair.json",
             {**repair_report, "status": "repair_applied_reauditing"},
@@ -3015,6 +3085,10 @@ def _run_text_audit_with_one_bounded_tone_repair(
                     "post_repair_error_type": type(exc).__name__,
                 },
             )
+            if "exhausted bounded provider route" in str(exc):
+                raise CleanV2ContentRepairUnavailable(
+                    "factuality", "reaudit", exc
+                ) from exc
             raise
 
         final_report = {
@@ -3030,14 +3104,31 @@ def _run_text_audit_with_one_bounded_tone_repair(
         )
         return final_report
     except CleanV2ToneContentBlock as blocked:
-        repair_report = _run_one_bounded_tone_repair(
-            output_dir=output_dir,
-            brief=brief,
-            plan=plan,
-            script=script,
-            router=router,
-            blocked_report=blocked.report,
-        )
+        try:
+            repair_report = _run_one_bounded_tone_repair(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+                router=router,
+                blocked_report=blocked.report,
+            )
+        except Exception as exc:
+            unavailable = CleanV2ContentRepairUnavailable("tone", "repair", exc)
+            atomic_write_json(
+                output_dir / "tone-repair.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-one-bounded-tone-repair",
+                    "status": "repair_path_unavailable",
+                    "content_block_confirmed": True,
+                    "repair_failure_classification": (
+                        unavailable.repair_failure_classification
+                    ),
+                    "repair_error_type": unavailable.repair_error_type,
+                },
+            )
+            raise unavailable from exc
         atomic_write_json(
             output_dir / "tone-repair.json",
             {**repair_report, "status": "repair_applied_reauditing"},
@@ -3071,6 +3162,10 @@ def _run_text_audit_with_one_bounded_tone_repair(
                     "post_repair_error_type": type(exc).__name__,
                 },
             )
+            if "exhausted bounded provider route" in str(exc):
+                raise CleanV2ContentRepairUnavailable(
+                    "tone", "reaudit", exc
+                ) from exc
             raise
 
         final_report = {
@@ -5045,6 +5140,9 @@ class _Journal:
             result = operation()
         except Exception as exc:
             message = str(exc)
+            content_repair_unavailable = isinstance(
+                exc, CleanV2ContentRepairUnavailable
+            )
             visual_qa_infrastructure = (
                 name == VISUAL_QA_STAGE
                 and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" in message
@@ -5058,10 +5156,13 @@ class _Journal:
                 and "CLEAN_V2_VOICE_INFRASTRUCTURE" in message
             )
             infrastructure = (
-                "exhausted bounded provider route" in message
-                or visual_qa_infrastructure
-                or opening_infrastructure
-                or voice_infrastructure
+                not content_repair_unavailable
+                and (
+                    "exhausted bounded provider route" in message
+                    or visual_qa_infrastructure
+                    or opening_infrastructure
+                    or voice_infrastructure
+                )
             )
             new_layer_block = (
                 not infrastructure
@@ -5093,6 +5194,17 @@ class _Journal:
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
+            if content_repair_unavailable:
+                repair_failure = {
+                    "content_block_confirmed": True,
+                    "block_kind": exc.block_kind,
+                    "phase": exc.phase,
+                    "classification": exc.repair_failure_classification,
+                    "error_type": exc.repair_error_type,
+                }
+                record["repair_failure"] = repair_failure
+                self.payload["content_block_confirmed"] = True
+                self.payload["repair_failure"] = repair_failure
             if voice_infrastructure:
                 voice_failure = {
                     "provider": GEMINI38_VOICE_PROVIDER,

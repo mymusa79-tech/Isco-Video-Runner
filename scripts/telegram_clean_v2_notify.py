@@ -236,6 +236,20 @@ def short_failure_reason(manifest: dict[str, Any], job_status: str) -> str:
             stage = str(row.get("name") or "unknown")
             error_type = str(row.get("error_type") or "").strip()
             classification = str(row.get("failure_classification") or "").strip()
+            repair_failure = row.get("repair_failure")
+            if not isinstance(repair_failure, dict):
+                repair_failure = manifest.get("repair_failure")
+            if (
+                isinstance(repair_failure, dict)
+                and repair_failure.get("content_block_confirmed") is True
+            ):
+                secondary = str(
+                    repair_failure.get("classification") or "technical"
+                ).strip()
+                return (
+                    "المحتوى لم يجتز الفحص · مسار الإصلاح غير متاح"
+                    + (f" ({secondary})" if secondary else "")
+                )[:300]
             if stage == "voice":
                 voice = manifest.get("voice_failure")
                 if isinstance(voice, dict):
@@ -269,6 +283,17 @@ def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
     classification = str((failed or {}).get("failure_classification") or "").casefold()
     stage = str((failed or {}).get("name") or "").casefold()
     error_type = str((failed or {}).get("error_type") or "").casefold()
+    repair_failure = (failed or {}).get("repair_failure")
+    if not isinstance(repair_failure, dict):
+        repair_failure = manifest.get("repair_failure")
+    if (
+        isinstance(repair_failure, dict)
+        and repair_failure.get("content_block_confirmed") is True
+    ):
+        return (
+            "المحتوى لم يجتز الفحص، ثم تعطل مسار إصلاحه. "
+            "ابدأ محاولة إنتاج جديدة؛ لا تُعِد استخدام النص المرفوض نفسه."
+        )
     if classification == "infrastructure" or stage == "voice":
         return "مشكلة مؤقتة في الخدمة أو المزوّد. انتظر قليلًا ثم أعد المحاولة."
     if any(token in classification + " " + error_type for token in ("quality", "content", "validation", "factual")):
