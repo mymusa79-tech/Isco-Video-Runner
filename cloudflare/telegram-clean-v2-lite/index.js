@@ -1,6 +1,18 @@
 const DEFAULT_REPO = "mymusa79-tech/Isco-Video-Runner";
 const CONTROL_WORKFLOW = "telegram-clean-v2-control.yml";
 const CONFIRM_TEXT = "تأكيد الإنتاج";
+const STATE_REF = "clean-v2-telegram-state";
+const STATE_PATH = "state/telegram-clean-v2.json";
+const DELIVERY_TAG_PREFIX = "clean-v2-final-";
+const LIBRARY_ORDER = ["long", "short", "podcast"];
+const LIBRARY_LABELS = {
+  long: ["🎬", "طويل"],
+  short: ["⚡", "شورت"],
+  podcast: ["🎙️", "بودكاست"],
+};
+const LIBRARY_CACHE_MS = 5_000;
+
+let libraryCache = { repo: "", expiresAt: 0, value: null, pending: null };
 
 async function telegram(env, method, payload) {
   const token = String(env.TELEGRAM_BOT_TOKEN || "").trim();
@@ -51,10 +63,9 @@ function webhookSecretValid(request, env) {
 function scopeKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🎬 طويل فقط", callback_data: "scope:long" }],
-      [{ text: "🎬 طويل + ⚡ شورت", callback_data: "scope:bundle" }],
-      [{ text: "⚡ شورت فقط", callback_data: "scope:short" }],
-      [{ text: "🎙️ بودكاست", callback_data: "scope:podcast" }],
+      [{ text: "🎬 فيديو طويل", callback_data: "scope:long" }],
+      [{ text: "⚡ شورت", callback_data: "scope:short" }],
+      [{ text: "🎙️ خارج النص", callback_data: "scope:podcast" }],
       [{ text: "↩️ الرئيسية", callback_data: "main:home" }],
     ],
   };
@@ -113,17 +124,12 @@ async function sendScopeMenu(env, chatId) {
   });
 }
 
-async function clearCallbackKeyboard(env, current) {
-  if (!current.chat || !current.messageId) return;
-  try {
-    await telegram(env, "editMessageReplyMarkup", {
-      chat_id: current.chat,
-      message_id: Number(current.messageId),
-      reply_markup: { inline_keyboard: [] },
-    });
-  } catch (_) {
-    // Visual cleanup is best-effort; server-side session closure remains authoritative.
-  }
+async function sendMainMenu(env, chatId) {
+  await telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text: "🏠 الرئيسية\n\nكل الأدوات هنا داخل قائمة واحدة. اختر ما تريد؛ ولا يبدأ الإنتاج إلا بعد «تأكيد الإنتاج».",
+    reply_markup: mainMenuKeyboard(),
+  });
 }
 
 async function answerCallback(env, callbackId, text = "") {
@@ -143,6 +149,252 @@ function base64Utf8(value) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+function decodeBase64Utf8(value) {
+  const binary = atob(String(value || "").replace(/\s+/g, ""));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function githubHeaders(token) {
+  return {
+    "authorization": `Bearer ${token}`,
+    "accept": "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "isco-clean-v2-telegram-lite",
+  };
+}
+
+async function githubJson(env, path) {
+  const token = String(env.GITHUB_CONTROL_TOKEN || "").trim();
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  if (!token) throw new Error("GITHUB_CONTROL_TOKEN missing");
+  const response = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
+    headers: githubHeaders(token),
+  });
+  if (!response.ok) throw new Error(`GitHub read failed: ${response.status}`);
+  return response.json();
+}
+
+function normalizeTitle(value) {
+  return String(value || "")
+    .toLocaleLowerCase("ar")
+    .trim()
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[^\p{L}\p{N}_]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function topicKey(token) {
+  let value = normalizeTitle(token);
+  if (value.startsWith("ال") && value.length > 4) value = value.slice(2);
+  for (const suffix of ["كما", "هما", "كم", "كن", "هم", "هن", "ها", "نا", "ك", "ه", "ي"]) {
+    if (value.endsWith(suffix) && value.length - suffix.length >= 3) {
+      value = value.slice(0, -suffix.length);
+      break;
+    }
+  }
+  if (["ن", "ي", "ت"].includes(value.slice(0, 1)) && value.length > 4) value = value.slice(1);
+  const skeleton = [...value].filter((character) => !["ا", "و", "ي"].includes(character)).join("");
+  return skeleton.length >= 2 ? skeleton : value;
+}
+
+function sameTopic(left, right) {
+  const a = normalizeTitle(left);
+  const b = normalizeTitle(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ta = new Set(a.split(" ").map(topicKey).filter(Boolean));
+  const tb = new Set(b.split(" ").map(topicKey).filter(Boolean));
+  if (Math.min(ta.size, tb.size) < 3) return false;
+  const common = [...ta].filter((token) => tb.has(token)).length;
+  const union = new Set([...ta, ...tb]).size;
+  return common >= 3 && common / Math.min(ta.size, tb.size) >= 0.75 && common / union >= 0.55;
+}
+
+function libraryKindForScope(scope) {
+  if (["long", "bundle"].includes(String(scope || ""))) return "long";
+  return ["short", "podcast"].includes(String(scope || "")) ? String(scope) : "";
+}
+
+function releaseLibraryRecords(payload) {
+  const records = [];
+  const seen = new Set();
+  for (const release of Array.isArray(payload) ? payload : []) {
+    if (!release || typeof release !== "object" || release.draft) continue;
+    const tag = String(release.tag_name || "");
+    if (!tag.startsWith(DELIVERY_TAG_PREFIX)) continue;
+    const kind = tag.startsWith(`${DELIVERY_TAG_PREFIX}short-`)
+      ? "short"
+      : (tag.startsWith(`${DELIVERY_TAG_PREFIX}podcast-`) ? "podcast" : "long");
+    const name = String(release.name || "").trim();
+    const separator = name.indexOf(" — ");
+    const topic = separator >= 0 ? name.slice(separator + 3).trim() : "";
+    const key = `${kind}|${normalizeTitle(topic)}`;
+    if (!topic || seen.has(key)) continue;
+    seen.add(key);
+    records.push({
+      kind,
+      topic,
+      used_at: String(release.published_at || release.created_at || ""),
+    });
+  }
+  return records;
+}
+
+function savedLibraryItems(state, kind, usedRecords = []) {
+  const usedTitles = usedRecords
+    .filter((item) => String(item && item.kind || "") === kind)
+    .map((item) => String(item.topic || ""));
+  const ideas = new Map(
+    (Array.isArray(state && state.ideas) ? state.ideas : [])
+      .filter((idea) => idea && typeof idea === "object")
+      .map((idea) => [String(idea.idea_id || ""), idea]),
+  );
+  const sessions = Object.values(state && state.sessions && typeof state.sessions === "object" ? state.sessions : {})
+    .filter((session) => session && typeof session === "object")
+    .filter((session) => String(session.source || "") !== "saved_library")
+    .filter((session) => libraryKindForScope(session.scope) === kind)
+    .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+  const result = [];
+  const seen = new Set();
+  for (const session of sessions) {
+    const ids = Array.isArray(session.idea_ids) ? session.idea_ids : [];
+    ids.forEach((ideaId, index) => {
+      const idea = ideas.get(String(ideaId));
+      if (!idea) return;
+      const title = String(idea.title || "").trim();
+      const normalized = normalizeTitle(title);
+      if (!title || !normalized || seen.has(normalized)) return;
+      if (usedTitles.some((usedTitle) => sameTopic(title, usedTitle))) return;
+      seen.add(normalized);
+      result.push({
+        idea_id: String(idea.idea_id || ""),
+        title,
+        scope: String(session.scope || ""),
+        rank: index + 1,
+      });
+    });
+  }
+  return result;
+}
+
+async function loadLibrarySnapshot(env) {
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  const now = Date.now();
+  if (libraryCache.repo === repo && libraryCache.value && libraryCache.expiresAt > now) {
+    return libraryCache.value;
+  }
+  if (libraryCache.repo === repo && libraryCache.pending) return libraryCache.pending;
+  const encodedPath = STATE_PATH.split("/").map(encodeURIComponent).join("/");
+  const pending = Promise.all([
+    githubJson(env, `contents/${encodedPath}?ref=${encodeURIComponent(STATE_REF)}`),
+    githubJson(env, "releases?per_page=100"),
+  ]).then(([stateFile, releases]) => {
+    if (!stateFile || typeof stateFile.content !== "string") throw new Error("Telegram state content missing");
+    const state = JSON.parse(decodeBase64Utf8(stateFile.content));
+    if (!state || state.schema_version !== 1 || !Array.isArray(state.ideas) || !state.sessions) {
+      throw new Error("Telegram state malformed");
+    }
+    return { state, used: releaseLibraryRecords(releases) };
+  });
+  libraryCache = { repo, expiresAt: 0, value: null, pending };
+  try {
+    const value = await pending;
+    libraryCache = { repo, expiresAt: Date.now() + LIBRARY_CACHE_MS, value, pending: null };
+    return value;
+  } catch (error) {
+    libraryCache = { repo, expiresAt: 0, value: null, pending: null };
+    throw error;
+  }
+}
+
+function localLibraryRoute(data) {
+  if (data === "main:saved") return { bucket: "saved", kind: "" };
+  if (data === "main:used") return { bucket: "used", kind: "" };
+  const match = /^library:(saved|used)(?::(long|short|podcast))?$/.exec(String(data || ""));
+  return match ? { bucket: match[1], kind: match[2] || "" } : null;
+}
+
+function renderLibraryMenu(state, used, bucket) {
+  const counts = Object.fromEntries(LIBRARY_ORDER.map((kind) => [
+    kind,
+    bucket === "saved"
+      ? savedLibraryItems(state, kind, used).length
+      : used.filter((item) => item.kind === kind).length,
+  ]));
+  const lines = bucket === "saved"
+    ? ["📚 المحفوظات", "", "من نتائج البحث التي عُرضت لك فعليًا؛ الأحدث أولًا."]
+    : ["✅ المستعملة", "", "المواضيع التي خرج لها إنتاج ناجح فعليًا."];
+  const keyboard = [];
+  for (const kind of LIBRARY_ORDER) {
+    const [icon, label] = LIBRARY_LABELS[kind];
+    lines.push(`${icon} ${label} — ${counts[kind]}`);
+    keyboard.push([{ text: `${icon} ${label} (${counts[kind]})`, callback_data: `library:${bucket}:${kind}` }]);
+  }
+  keyboard.push([{ text: "↩️ الرئيسية", callback_data: "main:home" }]);
+  return { text: lines.join("\n"), keyboard };
+}
+
+function renderSavedLibraryView(state, used, kind) {
+  const [icon, label] = LIBRARY_LABELS[kind];
+  const items = savedLibraryItems(state, kind, used);
+  const lines = [`📚 المحفوظات — ${icon} ${label}`, ""];
+  const keyboard = [];
+  if (!items.length) {
+    lines.push("لا توجد أفكار محفوظة من البحث لهذا النوع حتى الآن.");
+  } else {
+    lines.push("الأحدث أولًا، وداخل كل بحث يبقى ترتيب 1 ثم 2 ثم 3.");
+    for (const item of items.slice(0, 30)) {
+      const prefix = item.rank === 1 ? "1️⃣" : (item.rank === 2 ? "2️⃣" : (item.rank === 3 ? "3️⃣" : "•"));
+      const shortTitle = item.title.length <= 42 ? item.title : `${item.title.slice(0, 39).trimEnd()}…`;
+      keyboard.push([{
+        text: `${prefix} ${shortTitle}`,
+        callback_data: `savedpick:${item.scope}:${item.idea_id}`,
+      }]);
+    }
+    if (items.length > 30) lines.push(`\n+ ${items.length - 30} أقدم محفوظة غير معروضة هنا.`);
+  }
+  keyboard.push([{ text: "↩️ المحفوظات", callback_data: "library:saved" }]);
+  return { text: lines.join("\n"), keyboard };
+}
+
+function renderUsedLibraryView(used, kind) {
+  const [icon, label] = LIBRARY_LABELS[kind];
+  const items = used.filter((item) => item.kind === kind);
+  const lines = [`✅ المستعملة — ${icon} ${label}`, ""];
+  if (!items.length) {
+    lines.push("لا يوجد إنتاج ناجح لهذا النوع حتى الآن.");
+  } else {
+    items.slice(0, 30).forEach((item, index) => {
+      const date = String(item.used_at || "").slice(0, 10);
+      lines.push(`${index + 1}) ${item.topic}${date ? ` — ${date}` : ""}`);
+    });
+    if (items.length > 30) lines.push(`\n+ ${items.length - 30} أقدم.`);
+  }
+  return {
+    text: lines.join("\n"),
+    keyboard: [[{ text: "↩️ المستعملة", callback_data: "library:used" }]],
+  };
+}
+
+async function sendLocalLibrary(env, chatId, route) {
+  const { state, used } = await loadLibrarySnapshot(env);
+  const view = !route.kind
+    ? renderLibraryMenu(state, used, route.bucket)
+    : (route.bucket === "saved"
+      ? renderSavedLibraryView(state, used, route.kind)
+      : renderUsedLibraryView(used, route.kind));
+  await telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text: view.text,
+    reply_markup: { inline_keyboard: view.keyboard },
+  });
 }
 
 async function dispatchControl(env, update) {
@@ -235,17 +487,40 @@ export default {
     }
 
     if (update.callback_query) {
+      if (current.data === "main:home") {
+        ctx.waitUntil(answerCallback(env, current.callbackId));
+        ctx.waitUntil(sendMainMenu(env, current.chat));
+        return new Response("OK");
+      }
       if (current.data === "main:research") {
         ctx.waitUntil(answerCallback(env, current.callbackId));
         ctx.waitUntil(sendScopeMenu(env, current.chat));
         return new Response("OK");
       }
+      const libraryRoute = localLibraryRoute(current.data);
+      if (libraryRoute) {
+        ctx.waitUntil(answerCallback(env, current.callbackId, "📚 أفتح القائمة…"));
+        ctx.waitUntil(
+          sendLocalLibrary(env, current.chat, libraryRoute).catch(() =>
+            telegram(env, "sendMessage", {
+              chat_id: current.chat,
+              text: "⚠️ تعذر فتح القائمة الآن. لم يبدأ أي إنتاج.",
+            }),
+          ),
+        );
+        return new Response("OK");
+      }
       if (current.data.startsWith("scope:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "🔎 بدأ البحث…"));
       } else if (current.data.startsWith("pick:") || current.data.startsWith("savedpick:")) {
-        ctx.waitUntil(answerCallback(env, current.callbackId, "✅ أسجل الاختيار…"));
-        ctx.waitUntil(clearCallbackKeyboard(env, current));
-      } else if (current.data.startsWith("library:") || current.data.startsWith("main:")) {
+        ctx.waitUntil(answerCallback(
+          env,
+          current.callbackId,
+          "⏳ أسجل الاختيار؛ انتظر رسالة «تم اختيار الفكرة» قبل التأكيد.",
+        ));
+      } else if (current.data.startsWith("confirm:")) {
+        ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من التأكيد…"));
+      } else if (current.data.startsWith("main:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId));
       } else {
         ctx.waitUntil(answerCallback(env, current.callbackId, "أمر غير معروف"));
@@ -272,8 +547,9 @@ export default {
       return new Response("OK");
     }
     if (isSavedText(text) || isUsedText(text)) {
+      const route = { bucket: isSavedText(text) ? "saved" : "used", kind: "" };
       ctx.waitUntil(
-        dispatchControl(env, update).catch(() =>
+        sendLocalLibrary(env, current.chat, route).catch(() =>
           telegram(env, "sendMessage", {
             chat_id: current.chat,
             text: "⚠️ تعذر فتح القائمة الآن. لم يبدأ أي إنتاج.",
@@ -341,9 +617,21 @@ export default {
     ctx.waitUntil(
       telegram(env, "sendMessage", {
         chat_id: current.chat,
-        text: "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. بدء الإنتاج يتطلب العبارة الدقيقة «تأكيد الإنتاج».",
+        text: "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. بدء الإنتاج يتطلب تأكيدًا منفصلًا من زر الطلب أو العبارة الدقيقة «تأكيد الإنتاج».",
       }),
     );
     return new Response("OK");
   },
+};
+
+export {
+  localLibraryRoute,
+  normalizeTitle,
+  releaseLibraryRecords,
+  renderLibraryMenu,
+  renderSavedLibraryView,
+  renderUsedLibraryView,
+  sameTopic,
+  savedLibraryItems,
+  scopeKeyboard,
 };

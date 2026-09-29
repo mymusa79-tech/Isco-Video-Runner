@@ -49,6 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check cloudflare/telegram-clean-v2-lite/index.js
+          node --test cloudflare/telegram-clean-v2-lite/index.test.mjs
           python -m py_compile scripts/telegram_clean_v2_control.py
           python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
           python -c 'import pathlib,tomllib; d=tomllib.loads(pathlib.Path("cloudflare/telegram-clean-v2-lite/wrangler.toml.example").read_text(encoding="utf-8")); assert d.get("workers_dev") is True; assert d.get("main") == "index.js"; assert d.get("vars",{}).get("ZERO_COST_MODE") == "true"; assert not set(("kv_namespaces","d1_databases","r2_buckets","durable_objects","queues")).intersection(d)'
@@ -80,6 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check cloudflare/telegram-clean-v2-lite/index.js
+          node --test cloudflare/telegram-clean-v2-lite/index.test.mjs
           python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
 
       - name: Generate one deployment webhook secret

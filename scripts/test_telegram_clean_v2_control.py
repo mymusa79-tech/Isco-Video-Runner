@@ -204,6 +204,79 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             payload = json.loads(dispatch.read_text(encoding="utf-8"))
             self.assertEqual(payload["request_id"], "req-1")
 
+    def test_confirmation_button_is_bound_to_current_request(self):
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-current",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "podcast",
+            "approved_by_user": True,
+            "approved_topic": "موضوع محفوظ",
+            "research_pack": [],
+            "idea_id": "idea-1",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"][request["request_id"]] = request
+        state["current_request_id"] = request["request_id"]
+        keyboard = control.selection_confirmation_keyboard(request)
+        self.assertEqual(keyboard[0][0]["callback_data"], "confirm:req-current")
+
+        update = {
+            "callback_query": {
+                "from": {"id": 123},
+                "message": {"chat": {"id": 123}},
+                "data": "confirm:req-current",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update, dispatch)
+            self.assertTrue(dispatch.exists())
+            self.assertEqual(state["requests"]["req-current"]["status"], "confirmed_pending_dispatch")
+            self.assertIn("تم تأكيد الإنتاج", send.call_args.args[0])
+
+    def test_stale_confirmation_button_cannot_confirm_newer_request(self):
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-current",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "short",
+            "approved_by_user": True,
+            "approved_topic": "موضوع أحدث",
+            "research_pack": [],
+            "idea_id": "idea-2",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"][request["request_id"]] = request
+        state["current_request_id"] = request["request_id"]
+        update = {
+            "callback_query": {
+                "from": {"id": 123},
+                "message": {"chat": {"id": 123}},
+                "data": "confirm:req-old",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update, dispatch)
+            self.assertFalse(dispatch.exists())
+            self.assertEqual(state["requests"]["req-current"]["status"], "awaiting_confirmation")
+            self.assertIn("قديم", send.call_args.args[0])
+
 
     def test_duration_parser_supports_youtube_iso8601(self):
         self.assertEqual(control._parse_duration_seconds("PT59S"), 59)

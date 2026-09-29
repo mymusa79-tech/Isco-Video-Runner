@@ -92,7 +92,7 @@ jobs:
             git -C "$TELEGRAM_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
           fi
 
-      - name: Dispatch Clean V2 only after exact confirmation
+      - name: Dispatch Clean V2 only after request-bound confirmation
         id: dispatch
         env:
           GH_TOKEN: ${{ github.token }}
