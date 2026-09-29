@@ -242,6 +242,58 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         )
         self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
 
+    def test_run29_patch_replace_text_normalizes_tanween_fath_off_the_alef(self):
+        # Podcast Run #29: a bounded repair fixed the real flagged defects
+        # (hook_curiosity, payoff_resolves_hook) perfectly, but the model's
+        # rewrite naturally used "فعلاً" (tanween fath on the alif) - and the
+        # re-audit's naturalness gate flagged it, since the classically-
+        # preferred placement is on the letter before the alif ("فعلًا").
+        # With no repair attempt left, the whole production failed on a
+        # cosmetic two-character reorder despite the real fix succeeding.
+        # Patch replace text is now normalized to that preferred form
+        # automatically, so this class of near-miss never reaches the audit.
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "هذه فقرة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s2", "narration": "الخاتمة القديمة هنا."},
+            ],
+        }
+        revision = "- [tone] content_depth:s2"
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s2",
+                        "find": "الخاتمة القديمة هنا.",
+                        "replace": "هل تجاهلت الأمر فعلاً حقاً أم غالباً قريباً ستنتبه؟",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+            allowed_section_ids=("s2",),
+        )
+        narration = repaired["sections"][1]["narration"]
+        self.assertIn("فعلًا", narration)
+        self.assertIn("حقًا", narration)
+        self.assertIn("غالبًا", narration)
+        self.assertIn("قريبًا", narration)
+        self.assertNotIn("فعلاً", narration)
+        self.assertNotIn("حقاً", narration)
+        self.assertNotIn("غالباً", narration)
+        self.assertNotIn("قريباً", narration)
+
     def test_run135_multi_sentence_hook_rewrite_is_trimmed_to_first_sentence(self):
         # Run #135: a plausible, genuinely-permitted hook rewrite that accidentally
         # carried a second sentence used to be rejected outright with no second try.
