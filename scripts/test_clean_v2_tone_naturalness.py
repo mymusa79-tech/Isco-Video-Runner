@@ -240,6 +240,143 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         )
         self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
 
+    def test_run135_multi_sentence_hook_rewrite_is_trimmed_to_first_sentence(self):
+        # Run #135: a plausible, genuinely-permitted hook rewrite that accidentally
+        # carried a second sentence used to be rejected outright with no second try.
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 3)
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح مرتبطة بالموضوع."},
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": "غيّر حياتك اليوم.",
+                        "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟ وهذه جملة ثانية زائدة.",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        narration = repaired["sections"][0]["narration"]
+        self.assertTrue(narration.startswith("لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"))
+        self.assertNotIn("جملة ثانية زائدة", narration)
+        self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", narration)
+
+    def test_run135_imprecise_find_still_uses_verified_original_hook(self):
+        # Run #135: the model must echo the exact original hook back in `find` for a
+        # full-hook rewrite to be accepted. A model quoting it slightly imprecisely
+        # (here, missing the trailing period) used to be rejected outright, even
+        # though the section-scope substring gate already confirmed intent. The
+        # verified original_hook is now always the actual find-target.
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 3)
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح مرتبطة بالموضوع."},
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": "غيّر حياتك اليوم",  # missing the trailing period
+                        "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        narration = repaired["sections"][0]["narration"]
+        self.assertTrue(narration.startswith("لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"))
+        self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", narration)
+
+    def test_run135_overlong_hook_rewrite_is_trimmed_at_word_boundary(self):
+        # Run #135: a rewrite a few characters over the 220-char cap used to be
+        # rejected outright rather than trimmed, within the general per-patch
+        # expansion budget (len(find) + 180) that still governs how much longer a
+        # replacement may be than what it replaces.
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 3)
+            ],
+        }
+        original_hook = (
+            "لماذا نكرر نفس الخطأ في كل مرة نحاول فيها الالتزام بعادة جديدة "
+            "رغم معرفتنا بنتيجته سلفًا؟"
+        )
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"{original_hook} هذه بداية شرح مرتبطة بالموضوع.",
+                },
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        long_replace = (
+            "لماذا نستمر في تكرار نفس الخطأ تمامًا في كل مرة نحاول فيها الالتزام بعادة "
+            "جديدة رغم أننا نعرف نتيجته سلفًا تمام المعرفة ونشعر بالإحباط ذاته في كل "
+            "محاولة جديدة نبدأها بحماس واضح ثم نتوقف عنها بسرعة أكبر من المرة السابقة "
+            "تمامًا كما توقعنا؟"
+        )
+        self.assertGreater(len(long_replace), 220)
+        self.assertLessEqual(len(long_replace), len(original_hook) + 180)
+
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": original_hook,
+                        "replace": long_replace,
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        result_hook = _first_spoken_sentence(repaired)
+        self.assertLessEqual(len(result_hook), 220)
+        self.assertTrue(result_hook.startswith("لماذا نستمر في تكرار نفس الخطأ"))
+        self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
+
     def test_hook_quality_repair_prompt_opens_only_flagged_hook(self):
         plan = {
             "title": "اختبار",

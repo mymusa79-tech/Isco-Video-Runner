@@ -2185,30 +2185,44 @@ def _validate_and_apply_script_patches(
                     # the complete first spoken sentence, then the normal full audit
                     # reruns. No other locked anchor is opened.
                     #
-                    # Known fragility (Run #135, pre-dates PR #963/#964, still open):
-                    # this is a single bounded rescue attempt for a genuine hook
-                    # defect, and every check below (exact original-hook match,
-                    # <=220 chars, exactly one sentence) must pass in one shot. By
-                    # the time this path runs, Mistral is typically the only
-                    # provider left, and a plausible rewrite that drifts from this
-                    # strict shape (e.g. two sentences, a trailing space, a stray
-                    # character) is rejected outright with no second try, collapsing
-                    # an otherwise-legitimate repair. Needs a real design (e.g. a
-                    # bounded local reformat of an otherwise-valid rewrite before
-                    # rejecting it, the same spirit as safe_word_boundary_trim for
-                    # Short/Podcast) rather than an immediate fix here.
+                    # Bounded local reformat of an otherwise-valid rewrite, before
+                    # rejecting it outright (Run #135; same spirit as
+                    # safe_word_boundary_trim for Short/Podcast, #965). None of this
+                    # invents content or widens what edits are permitted - it only
+                    # tolerates superficial formatting drift in a rewrite that was
+                    # already going to be accepted in spirit:
+                    # - The find-target is always the verified true original_hook,
+                    #   not whatever the model echoed back (already confirmed a
+                    #   substring of it above) - removes reliance on the model
+                    #   quoting it back byte-for-byte.
+                    # - A rewrite carrying extra content past the first sentence is
+                    #   trimmed to just that first sentence rather than rejected.
+                    # - A rewrite a few characters over the 220-char cap is trimmed
+                    #   at the last whole-word boundary rather than rejected.
                     replacement_hook = " ".join(replace.split()).strip()
+                    if replacement_hook:
+                        first_sentence = _first_spoken_sentence(
+                            {"sections": [{"narration": replacement_hook}]}
+                        )
+                        if first_sentence:
+                            replacement_hook = first_sentence
+                        if len(replacement_hook) > 220:
+                            head = replacement_hook[:220].rsplit(" ", 1)[0].strip()
+                            head = re.sub(r"[،,؛;:.!?؟!]+$", "", head).strip()
+                            replacement_hook = f"{head}." if head else ""
                     if (
                         hook_quality_fix_used
-                        or compact_find != original_hook
                         or not replacement_hook
                         or len(replacement_hook) > 220
                         or _first_spoken_sentence(
                             {"sections": [{"narration": replacement_hook}]}
                         )
                         != replacement_hook
+                        or narration.count(original_hook) != 1
                     ):
                         raise ValueError("invalid bounded hook-quality repair")
+                    find = original_hook
+                    replace = replacement_hook
                     hook_fix_this_patch = True
                     hook_quality_fix_this_patch = True
                 else:
