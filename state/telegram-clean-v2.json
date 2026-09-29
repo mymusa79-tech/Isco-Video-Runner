@@ -930,9 +930,228 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-28T22:18:44Z"
+    },
+    {
+      "idea_id": "idea-d84ee01975",
+      "title": "لماذا لا تحل إدارة الوقت مشكلة يوم لا نعرف فيه ما يستحق وقتنا أصلًا؟",
+      "normalized_title": "لماذا لا تحل ادارة الوقت مشكلة يوم لا نعرف فيه ما يستحق وقتنا اصلًا؟",
+      "market_query": "إدارة الوقت وتحديد الأولويات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.763,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 10099.3,
+        "median_views_per_day": 789.4,
+        "top_samples": [
+          {
+            "video_id": "kF_ROq0LJUQ",
+            "title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+            "channel": "Daily English Podcast",
+            "published_at": "2026-09-06T14:00:07Z",
+            "views": 234821,
+            "views_per_day": 10099.3
+          },
+          {
+            "video_id": "-dJ1jSi37M8",
+            "title": "تخطيط شهر أكتوبر 📒🎃 افضل طريقة لتنظيم الوقت و إدارة المهام للأمهات في المدارس 🎒 التخطيط الشهري ",
+            "channel": "واحة السعادة 🏠",
+            "published_at": "2026-09-24T14:00:09Z",
+            "views": 10994,
+            "views_per_day": 2093.6
+          },
+          {
+            "video_id": "Dyl7AByElRM",
+            "title": "    جربي هاد النظام 7 أيام وشوفي شنو غادي يتبدل فحياتك",
+            "channel": "FATI SLAAY  1M",
+            "published_at": "2026-09-19T13:29:39Z",
+            "views": 11068,
+            "views_per_day": 1077.5
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:50Z"
+    },
+    {
+      "idea_id": "idea-4742ea0bc2",
+      "title": "كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟",
+      "normalized_title": "كيف تتحول المقارنة من ملاحظة عابرة الي مقياس نحاكم به حياتنا؟",
+      "market_query": "المقارنة الاجتماعية وتقييم الذات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.531,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 4,
+        "max_views_per_day": 172.1,
+        "median_views_per_day": 70.8,
+        "top_samples": [
+          {
+            "video_id": "deFKS6MVXyc",
+            "title": "ELEVA TU AUTOESTIMA | Aprende a confiar de nuevo en ti",
+            "channel": "Grandes Tesoros Vive",
+            "published_at": "2026-09-10T13:00:14Z",
+            "views": 3321,
+            "views_per_day": 172.1
+          },
+          {
+            "video_id": "49fNJsnzZG4",
+            "title": "¿Por qué las redes sociales están destruyendo la autoestima de niños y adolescentes?",
+            "channel": "Psicología Animada",
+            "published_at": "2026-09-04T20:30:33Z",
+            "views": 1843,
+            "views_per_day": 73.8
+          },
+          {
+            "video_id": "__WMIT7lEtA",
+            "title": "¿Por qué las redes sociales están destruyendo la autoestima de niños y adolescentes?",
+            "channel": "Psicología Animada",
+            "published_at": "2026-09-05T20:30:33Z",
+            "views": 1714,
+            "views_per_day": 71.5
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:50Z"
+    },
+    {
+      "idea_id": "idea-e8c315d44a",
+      "title": "لماذا نعرف النصيحة الصحيحة ولا يتغير سلوكنا رغم ذلك؟",
+      "normalized_title": "لماذا نعرف النصيحة الصحيحة ولا يتغير سلوكنا رغم ذلك؟",
+      "market_query": "الفجوة بين المعرفة والسلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.442,
+      "market_evidence": {
+        "sample_count": 4,
+        "distinct_channels": 4,
+        "max_views_per_day": 81.6,
+        "median_views_per_day": 9.0,
+        "top_samples": [
+          {
+            "video_id": "RdTt5sOCLyQ",
+            "title": "وهم الثقافة: لماذا لا تجعلك كثرة الكتب إنساناً أفضل؟",
+            "channel": "مَنظُور",
+            "published_at": "2026-09-16T10:51:32Z",
+            "views": 1092,
+            "views_per_day": 81.6
+          },
+          {
+            "video_id": "gi2hLLaDtxU",
+            "title": "The Gap Between Knowing And Doing",
+            "channel": "Tim Westbrook",
+            "published_at": "2026-09-22T10:00:30Z",
+            "views": 81,
+            "views_per_day": 10.9
+          },
+          {
+            "video_id": "RPEneD-UmlQ",
+            "title": "اللقاء 9: تكرار القرار الخاطئ رغم معرفتنا الفجوة بين المعرفة والسلوك",
+            "channel": "كوكب الإبداع",
+            "published_at": "2026-09-29T08:00:08Z",
+            "views": 7,
+            "views_per_day": 7.0
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:51Z"
+    },
+    {
+      "idea_id": "idea-82ab729db0",
+      "title": "لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟",
+      "normalized_title": "لماذا نعود الي عادة نعرف انها توذينا رغم وضوح قرارنا بالتوقف؟",
+      "market_query": "العودة للعادات بعد قرار التوقف",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:49Z"
+    },
+    {
+      "idea_id": "idea-0a15ae5dfe",
+      "title": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "normalized_title": "لماذا يتحول السعي الي تحسين حياتنا احيانًا الي شعور دايم باننا غير كافين؟",
+      "market_query": "تطوير الذات والشعور بعدم الكفاية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:49Z"
+    },
+    {
+      "idea_id": "idea-55092355bf",
+      "title": "ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟",
+      "normalized_title": "ماذا يحدث عندما نبني يومنا كله علي انتظار الدافع؟",
+      "market_query": "انتظار الدافع وتأثيره على السلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:49Z"
+    },
+    {
+      "idea_id": "idea-21a8874aad",
+      "title": "لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟",
+      "normalized_title": "لماذا يبدو البدء من جديد مريحًا اكثر من اكمال ما بداناه؟",
+      "market_query": "إدمان البدايات وترك المشاريع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:50Z"
+    },
+    {
+      "idea_id": "idea-4d3677c3e8",
+      "title": "متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟",
+      "normalized_title": "متي تكون الراحة استعادة للطاقة، ومتي تصبح طريقة موجلة لتجنب ما نخافه؟",
+      "market_query": "الراحة وتجنب المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-29T20:01:51Z"
     }
   ],
   "sessions": {
+    "1805f4a7": {
+      "session_id": "1805f4a7",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-d84ee01975",
+        "idea-4742ea0bc2",
+        "idea-e8c315d44a"
+      ],
+      "created_at": "2026-09-29T20:01:51Z"
+    },
     "ba1c4b1c": {
       "session_id": "ba1c4b1c",
       "scope": "short",
@@ -1214,5 +1433,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-29T00:20:29Z"
+  "updated_at": "2026-09-29T20:01:52Z"
 }
