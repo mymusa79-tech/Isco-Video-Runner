@@ -970,9 +970,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-09-29T20:01:50Z"
+      "research_pack": [
+        {
+          "source_title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+          "source_url": "https://youtu.be/kF_ROq0LJUQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "تخطيط شهر أكتوبر 📒🎃 افضل طريقة لتنظيم الوقت و إدارة المهام للأمهات في المدارس 🎒 التخطيط الشهري",
+          "source_url": "https://youtu.be/-dJ1jSi37M8",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "جربي هاد النظام 7 أيام وشوفي شنو غادي يتبدل فحياتك",
+          "source_url": "https://youtu.be/Dyl7AByElRM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-09-29T20:01:50Z",
+      "selected_at": "2026-09-29T22:13:44Z"
     },
     {
       "idea_id": "idea-4742ea0bc2",
@@ -1226,6 +1243,17 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
+    },
+    "6315ec87": {
+      "session_id": "6315ec87",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-d84ee01975"
+      ],
+      "created_at": "2026-09-29T22:13:44Z",
+      "source": "saved_library",
+      "closed_at": "2026-09-29T22:13:44Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -1352,9 +1380,40 @@
       "confirmed_at": "2026-09-29T20:03:17Z",
       "dispatched_at": "2026-09-29T20:03:20Z",
       "request_sha256": "c565fd49e592d1e7163bd55a71b3a2c5ae4744284acd67b5ea3828fd36372ab4"
+    },
+    "req-9ee67f813db1": {
+      "schema_version": 1,
+      "request_id": "req-9ee67f813db1",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "podcast",
+      "approved_by_user": true,
+      "approved_topic": "لماذا لا تحل إدارة الوقت مشكلة يوم لا نعرف فيه ما يستحق وقتنا أصلًا؟",
+      "research_pack": [
+        {
+          "source_title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+          "source_url": "https://youtu.be/kF_ROq0LJUQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "تخطيط شهر أكتوبر 📒🎃 افضل طريقة لتنظيم الوقت و إدارة المهام للأمهات في المدارس 🎒 التخطيط الشهري",
+          "source_url": "https://youtu.be/-dJ1jSi37M8",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "جربي هاد النظام 7 أيام وشوفي شنو غادي يتبدل فحياتك",
+          "source_url": "https://youtu.be/Dyl7AByElRM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-d84ee01975",
+      "selected_at": "2026-09-29T22:13:44Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "71f9ace9b17038c275630e9144dc510a036061aeb0bce54a769d82d351597821"
     }
   },
-  "current_request_id": "req-5a2ae1a483c2",
+  "current_request_id": "req-9ee67f813db1",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -1483,5 +1542,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-29T22:13:22Z"
+  "updated_at": "2026-09-29T22:13:44Z"
 }
