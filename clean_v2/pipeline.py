@@ -2105,6 +2105,22 @@ def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
     )
 
 
+_TANWEEN_FATH_ON_ALEF_RE = re.compile(r"([ء-ي])اً")
+
+
+def _normalize_tanween_fath_orthography(text: str) -> str:
+    """Move tanween fath (FATHATAN) off the supporting alif and onto the
+    preceding letter - e.g. "فعلاً" -> "فعلًا" - the classically-preferred
+    placement (the alif is a silent orthographic support, not a valid tanween
+    carrier) that the frozen Engine's own tone/naturalness audit enforces.
+    Words ending in hamza (مبدأً، سماءً) use a different character entirely
+    and are untouched. Deterministic, reorders two characters only - never
+    changes length or wording, so every length/content check downstream
+    still applies to the same text either way.
+    """
+    return _TANWEEN_FATH_ON_ALEF_RE.sub(r"\1ًا", text)
+
+
 def _validate_and_apply_script_patches(
     value: Any,
     *,
@@ -2184,7 +2200,7 @@ def _validate_and_apply_script_patches(
                 raise ValueError("script patch item has unexpected fields")
             section_id = str(raw.get("section_id") or "").strip()
             find = str(raw.get("find") or "")
-            replace = str(raw.get("replace") or "")
+            replace = _normalize_tanween_fath_orthography(str(raw.get("replace") or ""))
             if section_id not in allowed_ids or section_id not in by_id:
                 raise ValueError("script patch targeted an unflagged section")
             if not find.strip() or len(find) > 400 or len(replace) > 550:
