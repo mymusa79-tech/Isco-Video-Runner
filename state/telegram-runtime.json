@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
-  "stage": "⚡ الشورت · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/36647328233",
-  "result": "",
-  "updated_at": 1790725953
+  "result": "failure",
+  "updated_at": 1790726041
 }
