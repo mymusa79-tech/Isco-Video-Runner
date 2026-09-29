@@ -48,7 +48,8 @@ _EMBEDDED_TEXT_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _AI_IMAGE_TEXT_AVOID = (
-    "readable text, captions, titles, lettering, logos, UI, or watermarks inside the image"
+    "readable text, captions, titles, lettering, logos, or watermarks; "
+    "any interface copy must stay abstract and illegible"
 )
 _ACTION_FAMILY_TERMS = {
     # Treat visually interchangeable productivity props as ONE scene family.
@@ -66,6 +67,42 @@ _ACTION_FAMILY_TERMS = {
     "window": ("window", "curtain", "glass"),
     "sitting": ("sit", "sitting", "chair", "desk"),
 }
+
+_QUERY_CLAUSE_BREAK_TOKENS = frozenset({"then", "while"})
+_QUERY_DANGLING_TOKENS = frozenset({
+    "a", "an", "the", "and", "or", "at", "by", "for", "from", "in",
+    "into", "of", "on", "onto", "through", "to", "toward", "towards",
+    "under", "with", "without",
+})
+
+
+def compact_searchable_visual_intent(
+    value: object,
+    *,
+    drop_tokens: frozenset[str],
+    max_words: int = 14,
+) -> str:
+    """Return a bounded search phrase without cutting an action mid-clause."""
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
+        return ""
+    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
+    useful = [token for token in tokens if token.casefold() not in drop_tokens]
+    if len(useful) < 3:
+        return ""
+
+    bounded = useful
+    if len(useful) > max_words:
+        bounded = useful[:max_words]
+        for index, token in enumerate(bounded):
+            if index >= 3 and token.casefold() in _QUERY_CLAUSE_BREAK_TOKENS:
+                bounded = bounded[:index]
+                break
+        while bounded and bounded[-1].casefold() in _QUERY_DANGLING_TOKENS:
+            bounded.pop()
+    if len(bounded) < 3:
+        return ""
+    return " ".join(bounded)
 
 
 def _visual_action_family(value: object) -> str:
@@ -94,16 +131,10 @@ def _strip_embedded_text_request(value: object) -> str:
 def _writer_searchable_intent(value: object) -> str:
     """Compact one authored visual intent into a concrete provider/search boundary."""
     compact = _strip_embedded_text_request(value)
-    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
-        return ""
-    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
-    useful = [
-        token for token in tokens
-        if token.casefold() not in _WRITER_INTENT_DROP_TOKENS
-    ]
-    if len(useful) < 3:
-        return ""
-    return " ".join(useful[:14])
+    return compact_searchable_visual_intent(
+        compact,
+        drop_tokens=_WRITER_INTENT_DROP_TOKENS,
+    )
 
 
 def _writer_beat_anchors(narration: object, count: int) -> list[str]:

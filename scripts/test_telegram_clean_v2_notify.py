@@ -101,6 +101,35 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("انتظر قليلًا", guidance)
         self.assertIn("أعد المحاولة", guidance)
 
+    def test_content_block_and_repair_outage_are_reported_together(self):
+        repair_failure = {
+            "content_block_confirmed": True,
+            "block_kind": "tone",
+            "phase": "repair",
+            "classification": "infrastructure",
+            "error_type": "RuntimeError",
+        }
+        manifest = {
+            "status": "quality_pending",
+            "content_block_confirmed": True,
+            "repair_failure": repair_failure,
+            "stages": [
+                {
+                    "name": "text_audit",
+                    "status": "blocked",
+                    "error_type": "CleanV2ContentRepairUnavailable",
+                    "failure_classification": "pre-layer",
+                    "repair_failure": repair_failure,
+                }
+            ],
+        }
+        reason = short_failure_reason(manifest, "failure")
+        guidance = failure_guidance(manifest, "failure")
+        self.assertIn("المحتوى لم يجتز الفحص", reason)
+        self.assertIn("مسار الإصلاح غير متاح", reason)
+        self.assertIn("تعطل مسار إصلاحه", guidance)
+        self.assertIn("لا تُعِد استخدام النص المرفوض نفسه", guidance)
+
     def test_started_message_confirms_real_workflow_start(self):
         text = started_text(scope="bundle", topic="موضوع تجريبي", run_url="https://github.example/run/3")
         self.assertIn("بدأ الإنتاج فعليًا", text)

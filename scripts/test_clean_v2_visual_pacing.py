@@ -122,6 +122,22 @@ class HookVisualStopPowerTests(unittest.TestCase):
         self.assertEqual(media_module._specific_beat_stock_query("يد فوق دفتر"), "")
         self.assertEqual(media_module._specific_beat_stock_query("warm cinematic lighting"), "")
 
+    def test_specific_beat_intent_stops_at_complete_clause_before_word_cap(self) -> None:
+        self.assertEqual(
+            media_module._specific_beat_stock_query(
+                "person writing in a notebook with a pen then pausing to look "
+                "at a messy desk with scattered papers medium shot warm side light"
+            ),
+            "person writing in a notebook with a pen",
+        )
+        self.assertEqual(
+            media_module._specific_beat_stock_query(
+                "hands sorting through a pile of objects selecting one carefully "
+                "then placing it in a clear container close-up soft directional light"
+            ),
+            "hands sorting through a pile of objects selecting one carefully",
+        )
+
 
 class StockVisualSourceAcquireBeatTests(unittest.TestCase):
     def test_ai_prompt_keeps_safety_rules_when_story_fields_are_maximal(self) -> None:

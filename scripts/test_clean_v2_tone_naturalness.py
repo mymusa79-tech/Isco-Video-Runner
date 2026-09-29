@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from clean_v2.identity_sequence import PRAYER_SENTENCE
 from clean_v2.pipeline import (
     _closing_payoff_for_tone_audit,
     _factuality_location_issue_notes,
@@ -373,6 +374,82 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         narration = repaired["sections"][0]["narration"]
         self.assertTrue(narration.startswith("لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"))
         self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", narration)
+
+    def test_run36_wide_hook_find_is_canonicalized_without_touching_prayer_or_body(self):
+        # Podcast Run #36: Mistral copied the complete hook together with adjacent
+        # host-owned text. The intended hook repair was valid, but the old one-way
+        # substring check never entered the safe hook canonicalizer and the whole
+        # provider route exhausted on "changed the locked hook".
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+            ],
+        }
+        original_hook = "A: كيف نعرف النصيحة الصحيحة ثم نكرر الخطأ نفسه؟"
+        first_answer = "B: لأن المعرفة وحدها لا تزيل احتكاك البداية."
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"{original_hook} {PRAYER_SENTENCE} {first_answer}",
+                },
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_genericness"
+        wide_find = f"{original_hook} {PRAYER_SENTENCE}"
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": wide_find,
+                        # Omitting A: is tolerated locally, then the verified
+                        # original speaker ownership is restored deterministically.
+                        "replace": "لماذا لا تغيّر النصيحة الصحيحة سلوكنا تلقائيًا؟",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+
+        narration = repaired["sections"][0]["narration"]
+        self.assertTrue(
+            narration.startswith(
+                "A: لماذا لا تغيّر النصيحة الصحيحة سلوكنا تلقائيًا؟"
+            )
+        )
+        self.assertEqual(narration.count(PRAYER_SENTENCE), 1)
+        self.assertIn(first_answer, narration)
+        self.assertNotIn(original_hook, narration)
+
+        # The same wide span must remain locked when only the payoff/body was
+        # flagged; broad-span tolerance is not permission to rewrite a good hook.
+        with self.assertRaisesRegex(ValueError, "script patch changed (?:the )?locked hook"):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s1",
+                            "find": wide_find,
+                            "replace": "لماذا لا تغيّر النصيحة الصحيحة سلوكنا تلقائيًا؟",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note="- [tone] hook_quality: payoff_resolves_hook=false",
+                allowed_section_ids=("s1",),
+            )
 
     def test_run135_overlong_hook_rewrite_is_trimmed_at_word_boundary(self):
         # Run #135: a rewrite a few characters over the 220-char cap used to be

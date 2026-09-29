@@ -30,6 +30,7 @@ from clean_v2.pipeline import (
     TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
+    CleanV2ContentRepairUnavailable,
     CleanV2Pipeline,
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
@@ -1721,6 +1722,22 @@ class _InfrastructureRouter:
         )
 
 
+class _RepairInfrastructureRouter(_FakeRouter):
+    def route(self, *, stage, prompt, max_tokens, validator):
+        if stage == "script_patch":
+            raise RuntimeError(
+                "script_patch exhausted bounded provider route: "
+                "gemini:rate_limit_cached, groq:rate_limit_cached, "
+                "mistral:invalid_output_valueerror"
+            )
+        return super().route(
+            stage=stage,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            validator=validator,
+        )
+
+
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
@@ -2592,6 +2609,82 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 (output / "resume-checkpoint.json").read_text(encoding="utf-8")
             )
             self.assertEqual(checkpoint["completed_stage"], "script")
+
+    def test_confirmed_tone_block_with_unavailable_repair_is_not_plain_infrastructure(self) -> None:
+        tone_block = {
+            "schema_version": 1,
+            "status": "block",
+            "validation": "valid",
+            "preachiness_flags": [],
+            "naturalness_flags": [],
+            "narrative_format_flags": [
+                "hook_quality: failed hook_genericness"
+            ],
+            "unverified_religious_quote_flags": [],
+        }
+
+        def blocking_tone_audit(**kwargs):
+            output_dir = Path(kwargs["output_dir"])
+            (output_dir / "tone-naturalness-audit.json").write_text(
+                json.dumps(tone_block, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            raise CleanV2ToneContentBlock(tone_block)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_RepairInfrastructureRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=blocking_tone_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaises(CleanV2ContentRepairUnavailable):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], TEXT_AUDIT_STAGE)
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
+            self.assertTrue(manifest["content_block_confirmed"])
+            self.assertEqual(
+                manifest["repair_failure"],
+                {
+                    "content_block_confirmed": True,
+                    "block_kind": "tone",
+                    "phase": "repair",
+                    "classification": "infrastructure",
+                    "error_type": "RuntimeError",
+                },
+            )
+            self.assertEqual(manifest["stages"][-1]["status"], "blocked")
+            self.assertFalse((output / "resume-checkpoint.json").exists())
+            repair = json.loads(
+                (output / "tone-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(repair["status"], "repair_path_unavailable")
+            self.assertTrue(repair["content_block_confirmed"])
+            self.assertEqual(
+                repair["repair_failure_classification"], "infrastructure"
+            )
 
     def test_audio_mastering_failure_is_a_plain_technical_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

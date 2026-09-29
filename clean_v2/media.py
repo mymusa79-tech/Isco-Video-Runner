@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .visual_story import compact_searchable_visual_intent
+
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
 MAX_SEARCH_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -893,9 +895,11 @@ def _ai_still_prompt(
         "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
     )
     mandatory_tail = (
-        "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, UI, or logo. "
+        "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, or logo. "
+        "If a screen or interface is required by the semantic cue, keep its shapes abstract and all copy illegible; "
+        "otherwise avoid interface elements. "
         "No identifiable faces; hands, back view, objects, or environment only. "
-        "No readable text, letters, logos, watermarks, UI, collage, split screen, fantasy glow, "
+        "No readable text, letters, logos, watermarks, collage, split screen, fantasy glow, "
         "or exaggerated advertising look."
     )
     core = " ".join(core.split())
@@ -950,19 +954,10 @@ def _specific_beat_stock_query(value: object) -> str:
     and no semantic layer. Localized or overly vague/empty intent falls back to the
     dedicated stock_query_en authored in Planning.
     """
-    compact = " ".join(str(value or "").split()).strip()
-    if not compact or not compact.isascii() or not any(char.isalpha() for char in compact):
-        return ""
-    tokens = re.findall(r"[A-Za-z0-9'-]+", compact)
-    useful = [
-        token
-        for token in tokens
-        if token.casefold() not in _STOCK_INTENT_DROP_TOKENS
-    ]
-    if len(useful) < 3:
-        return ""
-    # Stock search stays compact. Preserve authored order and the concrete action/state.
-    return " ".join(useful[:14])
+    return compact_searchable_visual_intent(
+        value,
+        drop_tokens=_STOCK_INTENT_DROP_TOKENS,
+    )
 
 
 # Keep retrieval semantic. Visual drama is judged by existing Visual QA/rendering,
