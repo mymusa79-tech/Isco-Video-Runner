@@ -2663,6 +2663,17 @@ def _tone_repair_prompt(
         if "content_depth:" in revision_note.casefold()
         else ""
     )
+    _repair_narrative_format = str((plan or {}).get("narrative_format") or "")
+    _repair_writing_shape = _LONGFORM_PROFILES.get(_repair_narrative_format, {}).get("writing", "")
+    narrative_format_repair_guidance = (
+        f"- If REVISION_NOTE flags a narrative_format mismatch, restore LOCKED_PLAN's own "
+        f"narrative_format={_repair_narrative_format} writing_shape behavior specifically, not just generic "
+        f"progression: {_repair_writing_shape} Rewrite any section that reads as a flat instructional step, "
+        "numbered tip, or unquestioned statement into that SAME locked shape, keeping the same factual "
+        "content, section count, and ids. "
+        if _repair_narrative_format and str(brief.get("format") or "") in {"film", "podcast"}
+        else ""
+    )
     longform_progression_repair_guidance = (
         (
             "- For film and podcast, fix progression semantically, not cosmetically. s1 owns the "
@@ -2674,6 +2685,7 @@ def _tone_repair_prompt(
             "too shallow. The final section must answer or deepen the exact opening tension with an earned "
             "conclusion that depends on the intervening reasoning; generic advice or paraphrase is not a payoff. "
             "Do not invent a stronger mechanism or claim beyond the existing factual boundaries. "
+            + narrative_format_repair_guidance
             + (
                 PODCAST_GEMINI_PERFORMANCE_GUIDANCE
                 if str(brief.get("format") or "") == "podcast"
@@ -4964,6 +4976,14 @@ def _script_prompt(
                 if fmt == "podcast"
                 else "For dialogue_qa, keep explicit A:/B: labels only at speaker turns so runtime can map voices, and keep A concise."
             )
+            + "\nNARRATIVE FORMAT FIDELITY (silent self-check before returning JSON): do not merely keep the "
+            "narrative_format LABEL above - verify the ACTUAL narration performs writing_shape's described "
+            "behavior, not just its name. If narrative_format=question_answer, every section after the hook "
+            "must still pose one new sincere question that sharpens or deepens the SAME inquiry before "
+            "answering it; a flat instructional step, a numbered tip, or an unquestioned statement does not "
+            "satisfy this format and must be rewritten as a question followed immediately by its answer. For "
+            "every other locked narrative_format, confirm each section still performs writing_shape's "
+            "described behavior rather than drifting into a generic list-of-steps delivery."
         )
         if fmt in {"film", "podcast"}
         else ""
