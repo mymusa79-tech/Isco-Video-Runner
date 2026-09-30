@@ -17,6 +17,7 @@ from scripts import telegram_control_simple_ui as simple
 from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
 from scripts.tavily_research_lite import collect_tavily_grounding
+from scripts.youtube_learning_lite import learning_evidence_line, learning_memo
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
 SEEN_COOLDOWN_DAYS = 21
@@ -342,8 +343,19 @@ def _research_current_v2(state_path: Path) -> None:
             )
             pending["tavily_grounding"] = tavily
         tavily_memo = str(tavily.get("memo") or "").strip()
-        if tavily_memo:
-            signals["grounded_research"] = tavily_memo
+        channel_learning_memo = learning_memo(state, kind)
+        existing_grounded = str(signals.get("grounded_research") or "").strip()
+        grounded_parts = [
+            value
+            for value in (
+                channel_learning_memo,
+                tavily_memo[:2600],
+                existing_grounded[:2400],
+            )
+            if value
+        ]
+        if grounded_parts:
+            signals["grounded_research"] = "\n\n".join(grounded_parts)[:6000]
         _, ranked = select_topic(
             gemini,
             signals,
@@ -362,6 +374,17 @@ def _research_current_v2(state_path: Path) -> None:
                 f"Live market evidence produced only {len(live)} candidates; need at least {MIN_LIVE_MARKET_CANDIDATES}"
             )
         candidates = [_build_candidate_payload(item.to_dict(), kind) for item in live]
+        channel_learning_line = learning_evidence_line(state, kind)
+        if channel_learning_line:
+            for candidate in candidates:
+                evidence = [
+                    str(value).strip()
+                    for value in (candidate.get("evidence") or [])
+                    if str(value).strip()
+                ]
+                evidence = [value for value in evidence if not value.startswith("[Channel learning]")]
+                candidate["evidence"] = [channel_learning_line, *evidence][:6]
+                candidate["channel_learning_applied"] = True
         candidates.sort(key=lambda item: float(item.get("control_score", 0.0) or 0.0), reverse=True)
         unused_candidates, used_filtered = active._filter_used_candidates(state, kind, candidates)
         if kind == "long":
@@ -386,6 +409,7 @@ def _research_current_v2(state_path: Path) -> None:
             "returned_option_count": len(chosen),
             "tavily_grounding_status": str(tavily.get("status") or "unavailable"),
             "tavily_grounding_result_count": int(tavily.get("result_count", 0) or 0),
+            "youtube_learning_applied": bool(channel_learning_line),
             "excluded_recent_topics": exclusions,
             "candidates": chosen,
             "used_topics_filtered": used_filtered,
@@ -406,6 +430,7 @@ def _research_current_v2(state_path: Path) -> None:
             "returned_option_count": len(chosen),
             "tavily_grounding_status": str(tavily.get("status") or "unavailable"),
             "tavily_grounding_result_count": int(tavily.get("result_count", 0) or 0),
+            "youtube_learning_applied": bool(channel_learning_line),
         }
         state["last_event_at"] = pending["completed_at"]
         panel.save_state(state_path, state)
