@@ -21,6 +21,7 @@ import re
 import time
 from typing import Any
 
+from scripts.audience_reality_signals import augment_research_prompt
 from scripts.provider_failure import ProviderFailure, classify_provider_failure
 from scripts.retry_after_policy import retry_delay_decision
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
@@ -239,6 +240,7 @@ def gemini_research_call_with_fallback(
     openrouter_fallback_models: tuple[str, ...] = ("openai/gpt-oss-20b:free",),
 ) -> dict[str, Any]:
     """Run one live Research call with bounded Gemini retry and free failover."""
+    prompt = augment_research_prompt(prompt)
     attempt = 0
     retry_after_retry_used = False
     last_gemini_class = "none"
