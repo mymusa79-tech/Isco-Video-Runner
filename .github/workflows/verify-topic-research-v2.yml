@@ -25,6 +25,7 @@ on:
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
       - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/clean-v2-youtube-snapshot.yml"
       - ".github/workflows/verify-topic-research-v2.yml"
 
 permissions:
