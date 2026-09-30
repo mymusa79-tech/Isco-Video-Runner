@@ -114,6 +114,11 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -H "Content-Type: application/json" \
             --data "$payload")"
+          if [ "$code" != "204" ]; then
+            echo "Clean V2 Telegram dispatch rejected: http_code=$code request_id=$request_id"
+            cat "$RUNNER_TEMP/dispatch-response.txt"
+            echo
+          fi
           test "$code" = "204"
           echo "sent=true" >> "$GITHUB_OUTPUT"
           echo "request_id=$request_id" >> "$GITHUB_OUTPUT"
