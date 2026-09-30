@@ -780,6 +780,8 @@ def contextual_intent(
 
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
+    shot_role = str(current_beat.get("shot_role") or "").strip() or "action"
+    environment_family = str(current_beat.get("environment_family") or "").strip() or "contextual"
     current_family = _visual_action_family(
         current_beat.get("shot_intent") or fallback_intent
     )
@@ -832,8 +834,8 @@ def contextual_intent(
         priority_rule = "Repeat: same family fails unless changed-state motif. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     head = (
-        f"Role:{role} Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
-        f"{priority_rule}"
+        f"Role:{role} Shot:{shot_role} Env:{environment_family} Fam:{current_family or 'other'} "
+        f"PrevFam:{previous_family or 'none'}. {priority_rule}"
         f"Current: {current}. Previous: {previous}. Next: {following}. "
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}."
     )
