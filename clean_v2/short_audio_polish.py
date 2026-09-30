@@ -394,7 +394,10 @@ def apply_topic_audio_polish(
         "format": fmt,
         "status": status,
         "reason": reason,
-        "asset_origin": "verified_cc0_freepd_instrumental_dialogue_bed",
+        "asset_origin": (
+            library_report.get("selected_origin")
+            or "verified_cc0_freepd_instrumental_dialogue_bed"
+        ),
         "external_download_required": bool(library_report.get("allow_download", False)),
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
@@ -418,7 +421,7 @@ def apply_topic_audio_polish(
         "components": {"music": component},
         "library": library_report,
         "noise_diagnosis": diagnosis,
-        "provider_calls_added": 0,
+        "provider_calls_added": int(library_report.get("provider_calls_added") or 0),
         "fail_safe": True,
     }
 
