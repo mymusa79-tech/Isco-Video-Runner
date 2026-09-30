@@ -234,6 +234,15 @@ def _youtube_tags(kind: str, *, derived_short: bool = False) -> list[str]:
     return values
 
 
+def _provider_attribution_lines(root: Path) -> list[str]:
+    rights = _read_json(Path(root) / "rights-manifest.json")
+    assets = rights.get("assets") if isinstance(rights, dict) else None
+    rows = [item for item in (assets or []) if isinstance(item, dict)]
+    if any(str(item.get("provider") or "").casefold() == "coverr" for item in rows):
+        return ["Footage provided by Coverr: https://coverr.co"]
+    return []
+
+
 def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, Any]:
     plan = _read_json(Path(root) / "plan.json")
     raw_title = _compact(plan.get("title") or topic or "نداء اليقظة")
@@ -253,6 +262,7 @@ def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, An
         lines.append("شورت من قناة نداء اليقظة.")
     else:
         lines.append("فيديو من قناة نداء اليقظة.")
+    lines.extend(_provider_attribution_lines(root))
     hashtags = _hashtags(kind)
     description = "\n\n".join(lines + [" ".join(hashtags)])
     return {
@@ -294,6 +304,7 @@ def _derived_short_publish_metadata(
     description = "\n\n".join(
         [
             f"مقتطف من: {_compact(parent.get('title'))}",
+            *_provider_attribution_lines(root),
             " ".join(hashtags),
         ]
     )
