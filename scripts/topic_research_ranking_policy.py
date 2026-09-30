@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from scripts.audience_reality_signals import attach_signals, detail_lines as audience_detail_lines
+
 from scripts import telegram_topic_memory_ui as memory_ui
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
@@ -137,7 +139,7 @@ def _candidate_reasons(candidate: dict[str, Any], kind: str) -> list[str]:
 def _build_candidate_payload(candidate: dict[str, Any], kind: str) -> dict[str, Any]:
     from scripts import telegram_control_panel as panel
 
-    normalized = dict(candidate)
+    normalized = attach_signals(candidate)
     # Ranking is an extension of the existing V2 research contract, not a new
     # evidence contract. Always restore the exact contract marker even for thin
     # adapters/tests so downstream Short/Long approval code sees one stable schema.
@@ -279,6 +281,9 @@ def _candidate_detail(item: dict[str, Any], index: int) -> str:
         f"• الوسيط: {float(evidence.get('median_views_per_day', 0.0) or 0.0):,.0f} مشاهدة/يوم",
         f"• قيس في: {str(evidence.get('fetched_at') or item.get('researched_at') or '')[:19].replace('T', ' ')} UTC",
     ]
+    audience_lines = audience_detail_lines(item)
+    if audience_lines:
+        lines.extend(["", "👥 إشارات واقعية تساعد الكاتب والفيجوال:", *audience_lines])
     top = evidence.get("top_samples")
     if isinstance(top, list) and top:
         lines.extend(["", "أقوى العينات:"])

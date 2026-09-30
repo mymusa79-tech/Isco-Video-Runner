@@ -11,6 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import telegram_control_active_ui as active
+from scripts.audience_reality_signals import attach_signals, detail_lines as audience_detail_lines
 from scripts import telegram_control_panel as panel
 from scripts import telegram_control_simple_ui as simple
 from scripts import telegram_research_status as research_status
@@ -129,7 +130,7 @@ def _candidate_reasons(candidate: dict[str, Any], kind: str) -> list[str]:
 
 
 def _build_candidate_payload(candidate: dict[str, Any], kind: str) -> dict[str, Any]:
-    normalized = dict(candidate)
+    normalized = attach_signals(candidate)
     normalized["research_contract_version"] = RESEARCH_CONTRACT_VERSION
     normalized["market_class"] = _market_class(normalized)
     normalized["control_score"] = _control_score(normalized, kind)
@@ -249,6 +250,9 @@ def _candidate_detail(item: dict[str, Any], index: int) -> str:
         f"• الوسيط: {float(evidence.get('median_views_per_day', 0.0) or 0.0):,.0f} مشاهدة/يوم",
         f"• قيس في: {str(evidence.get('fetched_at') or item.get('researched_at') or '')[:19].replace('T', ' ')} UTC",
     ]
+    audience_lines = audience_detail_lines(item)
+    if audience_lines:
+        lines.extend(["", "👥 إشارات واقعية تساعد الكاتب والفيجوال:", *audience_lines])
     top = evidence.get("top_samples")
     if isinstance(top, list) and top:
         lines.extend(["", "أقوى العينات:"])

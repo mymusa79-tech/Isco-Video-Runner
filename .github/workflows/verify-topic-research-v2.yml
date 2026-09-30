@@ -10,6 +10,8 @@ on:
       - "scripts/telegram_creator_control_center_v5.py"
       - "scripts/telegram_webhook_replay.py"
       - "scripts/research_provider_reliability.py"
+      - "scripts/audience_reality_signals.py"
+      - "scripts/test_audience_reality_signals.py"
       - "scripts/topic_research_market_reliability.py"
       - "scripts/telegram_session_continuity.py"
       - "scripts/test_research_provider_reliability.py"
@@ -73,6 +75,8 @@ jobs:
             engine/src/isco_video_agent/providers/youtube.py \
             engine/src/isco_video_agent/research.py \
             scripts/research_provider_reliability.py \
+            scripts/audience_reality_signals.py \
+            scripts/test_audience_reality_signals.py \
             scripts/topic_research_market_reliability.py \
             scripts/telegram_session_continuity.py \
             scripts/test_research_provider_reliability.py \
@@ -104,6 +108,7 @@ jobs:
         run: |
           python scripts/test_telegram_topic_research_v2.py
           python -m unittest scripts.test_research_provider_reliability -v
+          python -m unittest scripts.test_audience_reality_signals -v
           python -m unittest scripts.test_topic_research_market_reliability -v
           python -m unittest scripts.test_topic_research_runtime_recovery -v
           python -m unittest scripts.test_telegram_session_continuity -v
