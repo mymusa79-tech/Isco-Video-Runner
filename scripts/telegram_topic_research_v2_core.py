@@ -16,6 +16,7 @@ from scripts import telegram_control_panel as panel
 from scripts import telegram_control_simple_ui as simple
 from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
+from scripts.tavily_research_lite import collect_tavily_grounding
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
 SEEN_COOLDOWN_DAYS = 21
@@ -333,6 +334,16 @@ def _research_current_v2(state_path: Path) -> None:
             region,
             language,
         )
+        tavily = pending.get("tavily_grounding")
+        if not isinstance(tavily, dict):
+            tavily = collect_tavily_grounding(
+                (os.environ.get("TAVILY_API_KEY") or "").strip(),
+                kind,
+            )
+            pending["tavily_grounding"] = tavily
+        tavily_memo = str(tavily.get("memo") or "").strip()
+        if tavily_memo:
+            signals["grounded_research"] = tavily_memo
         _, ranked = select_topic(
             gemini,
             signals,
@@ -373,6 +384,8 @@ def _research_current_v2(state_path: Path) -> None:
             "youtube_market_probe_limit": MAX_YOUTUBE_MARKET_PROBES,
             "target_option_count": TARGET_RESEARCH_OPTIONS,
             "returned_option_count": len(chosen),
+            "tavily_grounding_status": str(tavily.get("status") or "unavailable"),
+            "tavily_grounding_result_count": int(tavily.get("result_count", 0) or 0),
             "excluded_recent_topics": exclusions,
             "candidates": chosen,
             "used_topics_filtered": used_filtered,
@@ -391,6 +404,8 @@ def _research_current_v2(state_path: Path) -> None:
             "completed_at": pending["completed_at"],
             "attempts": attempts,
             "returned_option_count": len(chosen),
+            "tavily_grounding_status": str(tavily.get("status") or "unavailable"),
+            "tavily_grounding_result_count": int(tavily.get("result_count", 0) or 0),
         }
         state["last_event_at"] = pending["completed_at"]
         panel.save_state(state_path, state)

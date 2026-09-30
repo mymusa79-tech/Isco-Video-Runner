@@ -211,6 +211,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
