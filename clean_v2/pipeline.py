@@ -4598,11 +4598,17 @@ and never expose visible A:/B: speaker labels. Never place the prayer sentence o
 Never reuse the same display phrase on another beat, never describe an unrelated idea, and never ask the
 image generator to draw this text.
 stock_query_en remains a separate English retrieval fallback for compatibility; never reuse a
-section-level query across multiple beats and never put Arabic in stock_query_en.
+section-level query across multiple beats and never put Arabic in stock_query_en. Also provide an optional
+stock_query_alt_en when a genuinely different real-world situation can express the SAME meaning. The alternate
+must change the observable action, environment, or concrete cue rather than merely swapping synonyms. Keep it
+short and searchable. Example: primary "person checking work messages late at night"; alternate
+"commuter reading job email on train". Runtime will try at most this one alternate, so do not create a query list.
 
-Choose source_preference by what best communicates THIS beat, not by role. Hook, body, and payoff
-all follow the same semantic-quality rule: use ai_still when a controlled, distinctive, context-specific
-composition communicates the idea better; use stock_motion when real movement materially adds meaning.
+Choose source_preference by what best communicates THIS beat, not by role. It must be exactly stock_motion,
+stock_still, or ai_still. Hook, body, and payoff all follow the same semantic-quality rule: use stock_motion
+when real movement materially adds meaning; use stock_still when one real photographic moment, object detail,
+or decisive frozen state communicates the idea more clearly than motion; use ai_still only when a controlled,
+distinctive, context-specific composition communicates the idea better than available real media.
 For an abstract psychological or cause/effect idea that stock cannot show literally, ai_still MAY use
 one simple concrete visual metaphor made from real objects or environments (for example one clear path
 emerging from clutter, one selected object among many, or a visible before-to-after state). Keep it
@@ -4688,7 +4694,8 @@ Return one JSON object with exactly this useful shape:
         "semantic_should_avoid": ["generic mood-only substitute"],
         "shot_intent": "6-14 word concrete English observable action/state, directly searchable",
         "role": "hook",
-        "stock_query_en": "distinct concise English retrieval query for this beat",
+        "stock_query_en": "distinct concise English primary retrieval query for this beat",
+        "stock_query_alt_en": "optional second English query using a different observable situation for the same meaning",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
         "source_preference": "stock_motion"
       }}
