@@ -152,7 +152,7 @@ jobs:
       CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-resume
-      CLEAN_V2_TTS_CACHE_PATH: ${{ runner.temp }}/clean-v2-tts-cache
+      CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       # isco_video_agent (imported by scripts/final_master_qc.py for the ffmpeg probe
       # and secret_free_subprocess_env helpers) lives under engine/src per the Engine
       # repo's setuptools src-layout (pyproject.toml: packages.find where=["src"]), not
