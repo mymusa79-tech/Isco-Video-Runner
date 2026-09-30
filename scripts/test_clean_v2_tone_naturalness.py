@@ -24,6 +24,7 @@ from clean_v2.pipeline import (
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
 )
+from clean_v2.short_format import ShortFormatError
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
@@ -294,6 +295,126 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertNotIn("حقاً", narration)
         self.assertNotIn("غالباً", narration)
         self.assertNotIn("قريباً", narration)
+
+    def _short_plan_and_script(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "sunrise"},
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "لماذا تشعر بالإرهاق كل مساء دون أن تعرف السبب الحقيقي؟",
+                },
+                {"id": "s2", "narration": "هذه فقرة ثانية تشرح الفكرة بعمق كافٍ للاختبار."},
+                {
+                    "id": "s3",
+                    "narration": (
+                        "ابدأ بخطوة واحدة صغيرة الآن. "
+                        "ستشعر بارتياح واضح مع نهاية اليوم."
+                    ),
+                },
+            ],
+        }
+        return plan, script
+
+    def test_run37_repair_deleting_s3_practical_action_is_rejected_for_short(self):
+        # Telegram Run #37 (today): the initial audit flagged s3 for
+        # grammatical errors/unnatural phrasing. The bounded repair fixed
+        # that legitimately via Groq - the re-audit came back completely
+        # clean - but the rewrite also incidentally deleted s3's required
+        # practical-action sentence. Nothing in the tone-repair path knew
+        # about that independent Short contract (short_format.validate_
+        # short_script), so the break escaped as a "valid" repair and only
+        # surfaced ~100 lines later, in an unrelated pipeline stage, as an
+        # uncaught ShortFormatError with no link back to the repair that
+        # caused it. is_short_format=True must catch this right here.
+        plan, script = self._short_plan_and_script()
+        original_s3 = script["sections"][2]["narration"]
+        revision = "- [tone] s3 narration has grammatical errors and unnatural phrasing."
+        with self.assertRaisesRegex(
+            ShortFormatError, "short_s3_requires_exactly_one_practical_action"
+        ):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s3",
+                            "find": original_s3,
+                            "replace": "شعرت أن اليوم انتهى دون أن تحقق شيئًا يُذكر.",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note=revision,
+                allowed_section_ids=("s3",),
+                is_short_format=True,
+            )
+
+    def test_run37_same_patch_is_not_checked_for_non_short_formats(self):
+        # The new short-only contract check must not reach into Podcast/Film
+        # repairs, which have no s3-practical-action concept at all and are
+        # validated by their own independent contracts.
+        plan, script = self._short_plan_and_script()
+        original_s3 = script["sections"][2]["narration"]
+        revision = "- [tone] s3 narration has grammatical errors and unnatural phrasing."
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s3",
+                        "find": original_s3,
+                        "replace": "شعرت أن اليوم انتهى دون أن تحقق شيئًا يُذكر.",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+            allowed_section_ids=("s3",),
+        )
+        self.assertEqual(
+            repaired["sections"][2]["narration"],
+            "شعرت أن اليوم انتهى دون أن تحقق شيئًا يُذكر.",
+        )
+
+    def test_run37_harmless_short_s3_payoff_patch_still_passes(self):
+        # No false positive: a repair that leaves the action sentence intact
+        # and only rewords the payoff clause must still be accepted.
+        plan, script = self._short_plan_and_script()
+        revision = "- [tone] s3 narration has grammatical errors and unnatural phrasing."
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s3",
+                        "find": "ستشعر بارتياح واضح مع نهاية اليوم.",
+                        "replace": "ستشعر بارتياح أعمق بحلول المساء.",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+            allowed_section_ids=("s3",),
+            is_short_format=True,
+        )
+        narration = repaired["sections"][2]["narration"]
+        self.assertTrue(narration.startswith("ابدأ بخطوة واحدة صغيرة الآن."))
+        self.assertIn("ستشعر بارتياح أعمق بحلول المساء.", narration)
 
     def test_run135_multi_sentence_hook_rewrite_is_trimmed_to_first_sentence(self):
         # Run #135: a plausible, genuinely-permitted hook rewrite that accidentally
