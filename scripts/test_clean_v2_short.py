@@ -657,7 +657,7 @@ class ShortContractTests(unittest.TestCase):
             ],
         }
         locked_payoff = (
-            "يظهر نتيجة الفعل البسيط، مع شعور بالتحول من الجمود إلى الحركة."
+            "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
         )
 
         self.assertTrue(
@@ -686,7 +686,7 @@ class ShortContractTests(unittest.TestCase):
         visual_story = {
             "retention_thread": {
                 "payoff_answer": (
-                    "يظهر نتيجة الفعل البسيط، مع شعور بالتحول من الجمود إلى الحركة."
+                    "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
                 )
             }
         }
