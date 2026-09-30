@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           canonical_engine_sha="$(python -c 'from pathlib import Path; from scripts.workflow_hygiene import _canonical_engine_pin; value = _canonical_engine_pin(Path(".github/workflows")); assert value; print(value)')"
           grep -F "ENGINE_SHA: ${canonical_engine_sha}" .github/workflows/telegram-editorial-control.yml
-          grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
+          grep -F 'RESEARCH_ENGINE_SHA: a3535c63e189f1da1f4399dac1eca11186c53bcc' .github/workflows/telegram-editorial-control.yml
           grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
           ! grep -E 'workflow run|gh workflow|production_queue|dispatch' scripts/telegram_youtube_stats.py
           ! grep -E 'workflow_dispatch|enqueue_request\(|pending_dispatch|production_dispatch_authorized[[:space:]]*=' scripts/topic_research_v5_surface.py
