@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sys
@@ -309,6 +310,15 @@ def _research_failed_text(kind: str, reason: str) -> str:
 
 def _research_current_v2(state_path: Path) -> None:
     state = panel.load_state(state_path)
+    learning_state: dict[str, Any] = state
+    learning_path = str(os.environ.get("YOUTUBE_LEARNING_STATE_PATH") or "").strip()
+    if learning_path:
+        try:
+            external = json.loads(Path(learning_path).read_text(encoding="utf-8"))
+            if isinstance(external, dict):
+                learning_state = external
+        except (OSError, json.JSONDecodeError):
+            learning_state = state
     pending = research_status.pending_research(state)
     if pending is None:
         print("No pending research action")
@@ -343,7 +353,7 @@ def _research_current_v2(state_path: Path) -> None:
             )
             pending["tavily_grounding"] = tavily
         tavily_memo = str(tavily.get("memo") or "").strip()
-        channel_learning_memo = learning_memo(state, kind)
+        channel_learning_memo = learning_memo(learning_state, kind)
         existing_grounded = str(signals.get("grounded_research") or "").strip()
         grounded_parts = [
             value
@@ -374,7 +384,7 @@ def _research_current_v2(state_path: Path) -> None:
                 f"Live market evidence produced only {len(live)} candidates; need at least {MIN_LIVE_MARKET_CANDIDATES}"
             )
         candidates = [_build_candidate_payload(item.to_dict(), kind) for item in live]
-        channel_learning_line = learning_evidence_line(state, kind)
+        channel_learning_line = learning_evidence_line(learning_state, kind)
         if channel_learning_line:
             for candidate in candidates:
                 evidence = [
