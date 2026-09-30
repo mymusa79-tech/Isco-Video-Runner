@@ -25,7 +25,7 @@ class CleanV2CoverrMusicTests(unittest.TestCase):
         premium = {
             **safe,
             "id": "premium-1",
-            "is_premium": True,
+            "isPremium": True,
         }
         generated = {
             **safe,
@@ -54,6 +54,54 @@ class CleanV2CoverrMusicTests(unittest.TestCase):
                 {"mp3_url": "https://example.com/example.mp3"}
             )
         )
+
+    def test_coverr_search_uses_documented_audios_query_contract(self) -> None:
+        response = {
+            "hits": [],
+            "page": 0,
+            "pages": 0,
+            "page_size": 12,
+            "total": 0,
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                import json
+                return json.dumps(response).encode("utf-8")
+
+        seen = {}
+
+        def fake_urlopen(request, timeout):
+            seen["url"] = request.full_url
+            seen["authorization"] = request.headers.get("Authorization")
+            seen["timeout"] = timeout
+            return FakeResponse()
+
+        with mock.patch.object(music, "_read_secret", return_value="secret"), mock.patch.object(
+            music.urllib.request,
+            "urlopen",
+            side_effect=fake_urlopen,
+        ):
+            path, report = music._try_coverr_music(
+                family="focus",
+                fmt="film",
+                allow_download=True,
+            )
+
+        self.assertIsNone(path)
+        self.assertEqual(report["status"], "no_safe_instrumental_candidate")
+        self.assertEqual(report["provider_calls_added"], 1)
+        self.assertIn("https://api.coverr.co/audios?", seen["url"])
+        self.assertIn("query=piano", seen["url"])
+        self.assertIn("page_size=12", seen["url"])
+        self.assertIn("sort=popular", seen["url"])
+        self.assertEqual(seen["authorization"], "Bearer secret")
 
     def test_production_prefers_safe_coverr_track_then_keeps_freepd_as_fallback(self) -> None:
         script = {
