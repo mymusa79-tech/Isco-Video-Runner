@@ -35,7 +35,6 @@ from .contracts import (
 )
 from .media import (
     GEMINI38_LITE_PROVIDER,
-    GEMINI38_LITE_TTS_MODEL,
     GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
     concat_wav_parts,
@@ -315,9 +314,21 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 5
-RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
+RESUME_CONTRACT_VERSION = 6
+RESUMABLE_STAGES = ("planning", "script", TEXT_AUDIT_STAGE, "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
+TEXT_AUDIT_CHECKPOINT_FILE = "audit-checkpoint.json"
+_TEXT_AUDIT_OPTIONAL_ARTIFACTS = (
+    "structural-ai-flags.json",
+    "factuality-audit.json",
+    "tone-naturalness-audit.json",
+    "factuality-audit-pre-repair.json",
+    "tone-naturalness-audit-pre-repair.json",
+    "factuality-repair.json",
+    "tone-repair.json",
+    "script-post-factuality-repair.json",
+    "script-post-tone-repair.json",
+)
 
 STAGES = (
     "brief",
@@ -558,44 +569,25 @@ def _synthesize_sectioned_voice(
     narration_path: Path,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Whole-job Gemini 3.8 TTS fallback: one model per narration, never mixed.
+    """Synthesize one narration on one pinned Gemini model.
 
-    A narration is many voice_synthesizer.synthesize() calls (one per
-    section/chunk). If any of them exhausts gemini-3.8-flash-tts, the whole
-    job is thrown away - every chunk/section file already written this
-    attempt is deleted - and the entire narration is resynthesized from
-    scratch on gemini-3.8-flash-lite-tts instead, so the final narration.wav
-    is always 100% one model tier, never a mix of the two. Only after that
-    second, all-or-nothing pass also fails does the run fail closed.
+    There is deliberately no whole-job model fallback. The previous behavior
+    discarded every successful chunk and generated the full Short/Film/Podcast
+    again on lite TTS, multiplying quota use before failing. Exact successful
+    chunks are now reused by GeminiOnlyVoiceSynthesizer's durable cache while
+    the configured model and voice identity stay fixed for the complete job.
     """
-    original_model = str(getattr(voice_synthesizer, "tts_model", GEMINI38_TTS_MODEL) or GEMINI38_TTS_MODEL)
-    models_to_try = [original_model]
-    if GEMINI38_LITE_TTS_MODEL not in models_to_try:
-        models_to_try.append(GEMINI38_LITE_TTS_MODEL)
-
-    audio_dir = narration_path.parent / "audio"
-    report_path = narration_path.parent / "voice-sections.json"
-
-    for pass_index, model in enumerate(models_to_try):
-        if pass_index > 0:
-            # Discard every section/chunk file this run produced so far -
-            # the restart is whole-job, not a per-chunk substitution.
-            shutil.rmtree(audio_dir, ignore_errors=True)
-            narration_path.unlink(missing_ok=True)
-            report_path.unlink(missing_ok=True)
-        voice_synthesizer.tts_model = model
-        try:
-            return _synthesize_sectioned_voice_pass(
-                voice_synthesizer,
-                sections,
-                narration_path,
-                **kwargs,
-            )
-        except VoiceInfrastructureError:
-            if pass_index + 1 < len(models_to_try):
-                continue
-            raise
-    raise AssertionError("unreachable: models_to_try is never empty")
+    model = str(
+        getattr(voice_synthesizer, "tts_model", GEMINI38_TTS_MODEL)
+        or GEMINI38_TTS_MODEL
+    )
+    voice_synthesizer.tts_model = model
+    return _synthesize_sectioned_voice_pass(
+        voice_synthesizer,
+        sections,
+        narration_path,
+        **kwargs,
+    )
 
 
 def _synthesize_sectioned_voice_pass(
@@ -635,6 +627,7 @@ def _synthesize_sectioned_voice_pass(
     approval_status: str | None = None
     reference_profile: str | None = None
     role_reports: list[dict[str, Any]] = []
+    total_cache_hits = 0
     report_path = narration_path.parent / "voice-sections.json"
 
     for index, item in enumerate(sections, start=1):
@@ -787,7 +780,16 @@ def _synthesize_sectioned_voice_pass(
                             chunk_text,
                             chunk_path,
                         )
-            except Exception:
+            except Exception as exc:
+                failed_chunk_attempts = int(
+                    getattr(voice_synthesizer, "charon_attempts", 0) or 0
+                )
+                failure_wire_attempts = total_charon_attempts + failed_chunk_attempts
+                try:
+                    setattr(exc, "tts_wire_attempts", failure_wire_attempts)
+                    setattr(exc, "tts_cache_hits", total_cache_hits)
+                except Exception:
+                    pass
                 atomic_write_json(
                     report_path,
                     {
@@ -798,6 +800,8 @@ def _synthesize_sectioned_voice_pass(
                         "failed_chunk": chunk_index,
                         "chunk_chars": len(chunk_text),
                         "reason": "gemini_3_8_voice_failed_closed",
+                        "tts_wire_attempts": failure_wire_attempts,
+                        "tts_cache_hits": total_cache_hits,
                         "sections": reports,
                         "current_section_chunks": chunk_reports,
                     },
@@ -825,8 +829,10 @@ def _synthesize_sectioned_voice_pass(
                 )
 
             attempts = int(getattr(voice_synthesizer, "charon_attempts", 0) or 0)
+            cache_hit = bool(getattr(voice_synthesizer, "cache_hit", False))
             section_attempts += attempts
             total_charon_attempts += attempts
+            total_cache_hits += int(cache_hit)
             fallback_used = bool(getattr(voice_synthesizer, "fallback_used", False))
             section_fallback = section_fallback or fallback_used
             any_fallback = any_fallback or fallback_used
@@ -860,6 +866,7 @@ def _synthesize_sectioned_voice_pass(
                     "provider": provider,
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
+                    "cache_hit": cache_hit,
                     "role": role,
                 }
             )
@@ -1017,6 +1024,9 @@ def _synthesize_sectioned_voice_pass(
                 "provider": provider,
                 "charon_attempts": section_attempts,
                 "fallback_used": section_fallback,
+                "tts_cache_hits": sum(
+                    1 for row in chunk_reports if row.get("cache_hit") is True
+                ),
                 "chunk_count": len(chunk_reports),
                 "chunks": chunk_reports,
             }
@@ -1046,6 +1056,8 @@ def _synthesize_sectioned_voice_pass(
         "voice_provider": expected_provider,
         "voice_fallback_used": any_fallback,
         "charon_tts_attempts": total_charon_attempts,
+        "tts_wire_attempts": total_charon_attempts,
+        "tts_cache_hits": total_cache_hits,
         "voice_roles": {
             "mode": "sectioned",
             "sections": role_reports,
@@ -3503,6 +3515,53 @@ def _safe_resume_relative_path(raw: str) -> Path:
     return relative
 
 
+def _write_text_audit_checkpoint(
+    output_dir: Path,
+    text_audit_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    if str(text_audit_report.get("status") or "") != "pass":
+        raise RuntimeError("Clean V2 cannot checkpoint a non-passing text audit")
+    script_path = output_dir / "script.json"
+    narration_path = output_dir / "narration.txt"
+    if not script_path.is_file() or not narration_path.is_file():
+        raise RuntimeError("Clean V2 text-audit checkpoint is missing script artifacts")
+    payload = {
+        "schema_version": 1,
+        "status": "pass",
+        "script_sha256": _sha256_file(script_path),
+        "narration_sha256": _sha256_file(narration_path),
+        "audit_result": dict(text_audit_report),
+    }
+    atomic_write_json(output_dir / TEXT_AUDIT_CHECKPOINT_FILE, payload)
+    return payload
+
+
+def _restore_text_audit_checkpoint(
+    resume_root: Path,
+    checkpoint: Mapping[str, Any],
+    output_dir: Path,
+) -> dict[str, Any]:
+    artifacts = checkpoint.get("artifacts") or {}
+    if not isinstance(artifacts, dict):
+        raise RuntimeError("Clean V2 resume artifact manifest is invalid")
+    allowed = {TEXT_AUDIT_CHECKPOINT_FILE, *_TEXT_AUDIT_OPTIONAL_ARTIFACTS}
+    for raw_relative in sorted(artifacts):
+        relative = str(raw_relative)
+        if relative in allowed:
+            _copy_resume_artifact(resume_root, output_dir, relative)
+    marker = _read_json_object(output_dir / TEXT_AUDIT_CHECKPOINT_FILE)
+    if (
+        marker.get("status") != "pass"
+        or marker.get("script_sha256") != _sha256_file(output_dir / "script.json")
+        or marker.get("narration_sha256") != _sha256_file(output_dir / "narration.txt")
+    ):
+        raise RuntimeError("Clean V2 resumed text audit does not match the script")
+    report = marker.get("audit_result")
+    if not isinstance(report, dict) or report.get("status") != "pass":
+        raise RuntimeError("Clean V2 resumed text audit result is invalid")
+    return dict(report)
+
+
 def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[Path]:
     rank = _RESUME_STAGE_INDEX[completed_stage]
     paths = [Path("brief.json"), Path("plan.json"), Path("visual-story.json")]
@@ -3515,6 +3574,12 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
                 Path("cta-plan.json"),
             ]
         )
+    if rank >= _RESUME_STAGE_INDEX[TEXT_AUDIT_STAGE]:
+        paths.append(Path(TEXT_AUDIT_CHECKPOINT_FILE))
+        for name in _TEXT_AUDIT_OPTIONAL_ARTIFACTS:
+            candidate = output_dir / name
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                paths.append(Path(name))
     if rank >= _RESUME_STAGE_INDEX["voice"]:
         paths.extend([Path("narration.wav"), Path("voice-sections.json")])
         audio_root = output_dir / "audio"
@@ -3620,6 +3685,18 @@ def _load_resume_checkpoint(
                 not path.is_file()
                 or path.stat().st_size <= 0
                 or _sha256_file(path) != str(expected_hash)
+            ):
+                return None
+        if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX[TEXT_AUDIT_STAGE]:
+            marker_name = TEXT_AUDIT_CHECKPOINT_FILE
+            marker = _read_json_object(root / marker_name)
+            if (
+                marker.get("schema_version") != 1
+                or marker.get("status") != "pass"
+                or marker.get("script_sha256") != artifacts.get("script.json")
+                or marker.get("narration_sha256") != artifacts.get("narration.txt")
+                or not isinstance(marker.get("audit_result"), dict)
+                or marker["audit_result"].get("status") != "pass"
             ):
                 return None
         return root, checkpoint
@@ -5277,11 +5354,23 @@ class _Journal:
                 self.payload["repair_failure"] = repair_failure
             if voice_infrastructure:
                 voice_failure = {
-                    "provider": GEMINI38_VOICE_PROVIDER,
+                    "provider": str(
+                        getattr(exc, "provider", GEMINI38_VOICE_PROVIDER)
+                        or GEMINI38_VOICE_PROVIDER
+                    ),
                     "charon_attempts": int(getattr(exc, "charon_attempts", 0) or 0),
                     "charon_reason": str(
                         getattr(exc, "charon_reason", "unavailable") or "unavailable"
                     )[:120],
+                    "tts_wire_attempts": int(
+                        getattr(
+                            exc,
+                            "tts_wire_attempts",
+                            getattr(exc, "charon_attempts", 0),
+                        )
+                        or 0
+                    ),
+                    "tts_cache_hits": int(getattr(exc, "tts_cache_hits", 0) or 0),
                     "secondary_reason": str(
                         getattr(exc, "secondary_reason", "unavailable") or "unavailable"
                     )[:120],
@@ -5289,6 +5378,8 @@ class _Journal:
                 }
                 record["voice_failure"] = voice_failure
                 self.payload["voice_failure"] = voice_failure
+                self.payload["tts_wire_attempts"] = voice_failure["tts_wire_attempts"]
+                self.payload["tts_cache_hits"] = voice_failure["tts_cache_hits"]
             self.payload["failure_classification"] = failure_classification
             if quality_failure:
                 self.payload["status"] = "quality_pending"
@@ -5602,76 +5693,91 @@ class CleanV2Pipeline:
                 max_visuals=max_visuals,
             )
 
-            journal.run(
-                STRUCTURAL_AI_STAGE,
-                lambda: _run_structural_ai_flags(
-                    output_dir=output_dir,
-                    brief=brief,
-                    script=script,
-                ),
-            )
-
-            # Text Audit is not part of the resumable checkpoint set: it is a cheap
-            # single-call safety gate, and always re-running it (even on a resumed
-            # attempt) means a resume can never silently skip the factuality check.
             journal.payload["quality_layers_executed"] = [TEXT_AUDIT_STAGE]
             journal._write()
-            try:
-                text_audit_report = journal.run(
-                    TEXT_AUDIT_STAGE,
-                    lambda: _run_text_audit_with_one_bounded_tone_repair(
-                        text_audit=self.text_audit,
-                        router=self.router,
+            if resume is not None and _resume_includes(resume[1], TEXT_AUDIT_STAGE):
+                text_audit_report = _restore_text_audit_checkpoint(
+                    resume[0],
+                    resume[1],
+                    output_dir,
+                )
+                journal.reuse(STRUCTURAL_AI_STAGE)
+                journal.reuse(TEXT_AUDIT_STAGE)
+                # The current output started with a freshly written script-level
+                # checkpoint. Promote it again before Voice so another quota
+                # failure cannot downgrade the durable cache and force a repeated
+                # audit on the next workflow attempt.
+                _write_resume_checkpoint(
+                    output_dir,
+                    completed_stage=TEXT_AUDIT_STAGE,
+                    approved_brief_sha256=approved_brief_digest,
+                    engine_sha=engine_sha,
+                    runner_sha=runner_sha,
+                    max_visuals=max_visuals,
+                )
+            else:
+                journal.run(
+                    STRUCTURAL_AI_STAGE,
+                    lambda: _run_structural_ai_flags(
                         output_dir=output_dir,
                         brief=brief,
-                        plan=plan,
                         script=script,
                     ),
                 )
-            except Exception:
-                if (
-                    journal.payload.get("status") == "quality_pending"
-                    and journal.payload.get("quality_pending_stage") == TEXT_AUDIT_STAGE
-                ):
-                    # A genuine factuality/content block proves this exact script is
-                    # unsuitable. Keeping the script checkpoint would make every
-                    # resumed attempt re-audit the same rejected content forever.
-                    # Infrastructure exhaustion is not quality_pending, so transient
-                    # provider failures still preserve resumable work.
-                    (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
-                raise
+                try:
+                    text_audit_report = journal.run(
+                        TEXT_AUDIT_STAGE,
+                        lambda: _run_text_audit_with_one_bounded_tone_repair(
+                            text_audit=self.text_audit,
+                            router=self.router,
+                            output_dir=output_dir,
+                            brief=brief,
+                            plan=plan,
+                            script=script,
+                        ),
+                    )
+                except Exception:
+                    if (
+                        journal.payload.get("status") == "quality_pending"
+                        and journal.payload.get("quality_pending_stage") == TEXT_AUDIT_STAGE
+                    ):
+                        # A genuine content block invalidates the exact rejected
+                        # script. Infrastructure exhaustion keeps the prior script
+                        # checkpoint so a later provider can audit it once.
+                        (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
+                    raise
 
-            # A successful bounded repair mutates script.json in place. Refresh the
-            # transcript and script checkpoint before Voice so no old narration can
-            # leak into TTS or a later resume.
-            transcript = "\n\n".join(
-                item["narration"] for item in script["sections"]
-            )
-            if str(brief["format"]) == "short":
-                # Any bounded repair re-enters the same canonical Short gate used
-                # for initial provider acceptance; no stage owns a private variant.
-                normalize_short_script_candidate(
-                    script,
-                    locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+                # A successful bounded repair mutates the script. Re-enter every
+                # deterministic format gate, then persist the exact audited bytes so
+                # a resume can verify and reuse the audit without another AI call.
+                if str(brief["format"]) == "short":
+                    normalize_short_script_candidate(
+                        script,
+                        locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+                    )
+                    validate_short_hook_contract(script)
+                    validate_short_script(script)
+                elif str(brief["format"]) == "podcast":
+                    normalize_podcast_listener_proxy_script(script)
+                    _validate_podcast_listener_proxy_script(script)
+                atomic_write_json(output_dir / "script.json", script)
+                transcript = "\n\n".join(
+                    item["narration"] for item in script["sections"]
                 )
-                validate_short_hook_contract(script)
-                validate_short_script(script)
-            elif str(brief["format"]) == "podcast":
-                # Tone repair must not silently collapse خارج النص back into a
-                # generic one-voice monologue or let the listener proxy dominate.
-                normalize_podcast_listener_proxy_script(script)
-                _validate_podcast_listener_proxy_script(script)
-            visual_story = _bind_writer_visual_story(
-                output_dir=output_dir,
-                brief=brief,
-                plan=plan,
-                script=script,
-                visual_story=visual_story,
-            )
-            if text_audit_report.get("tone_repair_attempted") is True:
+                (output_dir / "narration.txt").write_text(
+                    transcript + "\n", encoding="utf-8"
+                )
+                visual_story = _bind_writer_visual_story(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
+                )
+                _write_text_audit_checkpoint(output_dir, text_audit_report)
                 _write_resume_checkpoint(
                     output_dir,
-                    completed_stage="script",
+                    completed_stage=TEXT_AUDIT_STAGE,
                     approved_brief_sha256=approved_brief_digest,
                     engine_sha=engine_sha,
                     runner_sha=runner_sha,
@@ -5741,6 +5847,12 @@ class CleanV2Pipeline:
                     journal.payload["voice_fallback_used"] = voice_fallback_used
                     journal.payload["charon_tts_attempts"] = int(
                         voice_result.get("charon_tts_attempts", 0) or 0
+                    )
+                    journal.payload["tts_wire_attempts"] = int(
+                        voice_result.get("tts_wire_attempts", 0) or 0
+                    )
+                    journal.payload["tts_cache_hits"] = int(
+                        voice_result.get("tts_cache_hits", 0) or 0
                     )
                     voice_roles = voice_result.get("voice_roles")
                     if isinstance(voice_roles, dict):

@@ -27,6 +27,7 @@ from clean_v2.pipeline import (
     CINEMATIC_STAGE,
     IDENTITY_STAGE,
     OPENING_STAGE,
+    STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
@@ -2026,16 +2027,121 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(
                 manifest["resumed_stages"],
-                ["planning", IDENTITY_STAGE, "script", "voice", "visuals"],
+                [
+                    "planning",
+                    IDENTITY_STAGE,
+                    "script",
+                    STRUCTURAL_AI_STAGE,
+                    TEXT_AUDIT_STAGE,
+                    "voice",
+                    "visuals",
+                ],
             )
             self.assertTrue(manifest["resume_checkpoint_accepted"])
             self.assertEqual(manifest["resume_completed_stage"], "visuals")
             resumed_by_name = {
                 stage["name"]: stage.get("resumed") for stage in manifest["stages"]
             }
-            for name in ("planning", IDENTITY_STAGE, "script", "voice", "visuals"):
+            for name in (
+                "planning",
+                IDENTITY_STAGE,
+                "script",
+                STRUCTURAL_AI_STAGE,
+                TEXT_AUDIT_STAGE,
+                "voice",
+                "visuals",
+            ):
                 self.assertTrue(resumed_by_name[name])
-            self.assertFalse(resumed_by_name[TEXT_AUDIT_STAGE])
+
+    def test_voice_quota_retry_resumes_after_text_audit_without_ai_replay(self) -> None:
+        class _QuotaVoice:
+            def synthesize(self, *_args, **_kwargs):
+                raise media_module.VoiceInfrastructureError(
+                    charon_attempts=1,
+                    charon_reason="gemini_3_8_http_429",
+                )
+
+        class _ForbiddenRouter:
+            events: list[dict] = []
+
+            def route(self, **_kwargs):
+                raise AssertionError("planning/script provider route must be resumed")
+
+        def forbidden_text_audit(**_kwargs):
+            raise AssertionError("a passed text audit must be resumed")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False), encoding="utf-8"
+            )
+            approved = compute_brief_sha256(brief)
+            first_output = root / "first"
+            first = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_QuotaVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaises(media_module.VoiceInfrastructureError):
+                first.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=first_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            checkpoint = json.loads(
+                (first_output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], TEXT_AUDIT_STAGE)
+            self.assertTrue((first_output / "audit-checkpoint.json").is_file())
+
+            second_output = root / "second"
+            second = CleanV2Pipeline(
+                router=_ForbiddenRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=forbidden_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=first_output,
+            )
+
+            self.assertEqual(result["status"], "pass")
+            manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["resumed_stages"],
+                [
+                    "planning",
+                    IDENTITY_STAGE,
+                    "script",
+                    STRUCTURAL_AI_STAGE,
+                    TEXT_AUDIT_STAGE,
+                ],
+            )
 
     def test_tampered_resume_checkpoint_fails_closed_to_normal_routing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -2452,7 +2558,14 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(
                 second_manifest["resumed_stages"],
-                ["planning", IDENTITY_STAGE, "script", "voice"],
+                [
+                    "planning",
+                    IDENTITY_STAGE,
+                    "script",
+                    STRUCTURAL_AI_STAGE,
+                    TEXT_AUDIT_STAGE,
+                    "voice",
+                ],
             )
             self.assertTrue(second_manifest["resume_checkpoint_accepted"])
             self.assertEqual(second_manifest["resume_completed_stage"], "voice")
@@ -2880,7 +2993,15 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(
                 manifest["resumed_stages"],
-                ["planning", IDENTITY_STAGE, "script", "voice", "visuals"],
+                [
+                    "planning",
+                    IDENTITY_STAGE,
+                    "script",
+                    STRUCTURAL_AI_STAGE,
+                    TEXT_AUDIT_STAGE,
+                    "voice",
+                    "visuals",
+                ],
             )
             resumed_by_name = {
                 stage["name"]: stage.get("resumed") for stage in manifest["stages"]

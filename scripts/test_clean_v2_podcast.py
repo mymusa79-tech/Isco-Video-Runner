@@ -377,6 +377,24 @@ class PodcastGeminiRoutingTests(unittest.TestCase):
             self.assertIn("gemini-3.8-flash-tts", source)
             self.assertNotIn("gemini-3.1-flash-tts-preview", source)
 
+    def test_every_production_workflow_resumes_and_caches_exact_tts_chunks(self) -> None:
+        for workflow in (
+            ".github/workflows/clean-v2-minimal-e2e.yml",
+            ".github/workflows/clean-v2-podcast-one.yml",
+            ".github/workflows/clean-v2-short-final-one.yml",
+            ".github/workflows/clean-v2-short-cohort.yml",
+            ".github/workflows/clean-v2-telegram-production.yml",
+        ):
+            with self.subTest(workflow=workflow):
+                source = Path(workflow).read_text(encoding="utf-8")
+                self.assertIn("CLEAN_V2_RESUME:", source)
+                self.assertIn('CLEAN_V2_TTS_CACHE_PATH:', source)
+                self.assertIn('--resume-from "$CLEAN_V2_RESUME', source)
+                self.assertIn("scripts/clean_v2_resume_cache.py prepare", source)
+                self.assertIn("python -m clean_v2.tts_cache prepare", source)
+                self.assertIn("actions/cache/restore@", source)
+                self.assertIn("actions/cache/save@", source)
+
     def test_podcast_uses_gemini_38_only_and_never_falls_back(self) -> None:
         synth = GeminiOnlyVoiceSynthesizer("key")
         with tempfile.TemporaryDirectory() as tmp, mock.patch(

@@ -29,7 +29,7 @@ MAX_MEDIA_BYTES = 160 * 1024 * 1024
 MAX_SEARCH_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_TTS_AUDIO_BYTES = 64 * 1024 * 1024
 
-CHARON_MAX_ATTEMPTS = 3
+CHARON_MAX_ATTEMPTS = 2
 CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
 
@@ -42,8 +42,8 @@ GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
 # Reviewed by ear against flash-tts:Charon: on gemini-3.8-flash-lite-tts,
 # Algenib reads better in Arabic than lite-Charon. Orus stays the fixed
-# questioner voice on both models; only the primary/answering voice changes
-# when the whole narration falls back to the lite pass.
+# questioner voice on both models. Lite remains available only when explicitly
+# configured; production never switches models after a failed chunk.
 GEMINI38_LITE_PRIMARY_VOICE = "Algenib"
 GEMINI38_LITE_PROVIDER = "gemini-3.8:Algenib"
 GEMINI38_LITE_REFERENCE_PROFILE = "gemini-3.8-flash-lite-tts:Algenib:Orus"
@@ -187,7 +187,10 @@ def _tts_http_status(exc: BaseException) -> int | None:
         str(exc),
         re.I,
     )
-    return int(match.group(1)) if match else None
+    if match:
+        return int(match.group(1))
+    standalone = re.search(r"(?<![0-9])429(?![0-9])", str(exc))
+    return 429 if standalone else None
 
 
 def _tts_retry_after_seconds(exc: BaseException) -> float | None:
@@ -222,6 +225,24 @@ def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
     if status in {400, 401, 403, 404}:
         return None
     retry_after = _tts_retry_after_seconds(exc)
+    detail = str(exc).casefold()
+    quota_limited = status == 429 or any(
+        marker in detail
+        for marker in ("quota", "rate limit", "rate_limit", "resource_exhausted")
+    )
+    if quota_limited:
+        # An opaque/daily quota cannot heal inside this production run. Even when
+        # Gemini supplies a very short Retry-After, permit one delayed retry only;
+        # repeatedly spending the same exhausted TTS quota is worse than failing
+        # closed with already-generated chunks preserved in the durable cache.
+        if (
+            retry_index > 0
+            or retry_after is None
+            or retry_after <= 0
+            or retry_after > MAX_SHORT_TTS_RETRY_AFTER_SECONDS
+        ):
+            return None
+        return retry_after
     if retry_after is not None:
         if retry_after > MAX_SHORT_TTS_RETRY_AFTER_SECONDS:
             return None
@@ -500,10 +521,12 @@ class VoiceInfrastructureError(RuntimeError):
         *,
         charon_attempts: int,
         charon_reason: str,
+        provider: str = GEMINI38_PROVIDER,
         secondary_reason: str = "gemini_3_8_only_fail_closed_no_fallback",
     ) -> None:
         self.charon_attempts = int(charon_attempts)
         self.charon_reason = str(charon_reason or "unknown")
+        self.provider = str(provider or GEMINI38_PROVIDER)
         self.secondary_reason = str(secondary_reason or "gemini_3_8_only_fail_closed_no_fallback")
         self.fallback_used = False
         super().__init__(
@@ -526,13 +549,11 @@ class GeminiOnlyVoiceSynthesizer:
     gemini-3.8-flash-lite-tts - reviewed by ear and picked because it reads
     better in Arabic than lite-Charon on that model.
 
-    A narration made of several of these calls (one per section/chunk) must
-    never end up mixing gemini-3.8-flash-tts and gemini-3.8-flash-lite-tts
-    audio in the same job. That whole-job decision - try the primary model
-    throughout, and only on exhaustion discard everything and redo the
-    entire narration on gemini-3.8-flash-lite-tts instead - belongs to the
-    caller (see _synthesize_sectioned_voice), which reconfigures tts_model
-    between full passes rather than asking this class to switch mid-job.
+    A narration made of several of these calls (one per section/chunk) pins
+    this configured model for the complete job. Successful chunks may be
+    restored from the content-addressed cache only when transcript, model,
+    voices and performance mode all match exactly; no automatic model/voice
+    restart is allowed after a quota failure.
     """
 
     EXPECTED_PRIMARY_VOICE = GEMINI38_PRIMARY_VOICE
@@ -552,6 +573,7 @@ class GeminiOnlyVoiceSynthesizer:
         self.voice_roles: dict[str, str] | None = None
         self.voice_approval_status: str | None = None
         self.voice_reference_profile: str | None = None
+        self.cache_hit = False
 
     def synthesize(
         self,
@@ -561,7 +583,7 @@ class GeminiOnlyVoiceSynthesizer:
         primary_only: bool = False,
         performance_mode: str = "",
     ) -> Path:
-        del primary_only  # Model selection is owned by the caller's whole-job pass, not per call.
+        del primary_only  # Compatibility flag; the configured model is pinned for the job.
         if not transcript.strip():
             raise RuntimeError("cannot synthesize an empty transcript")
         if self.tts_model not in _GEMINI38_ALLOWED_TTS_MODELS:
@@ -582,8 +604,30 @@ class GeminiOnlyVoiceSynthesizer:
         self.voice_approval_status = None
         self.voice_reference_profile = None
         self.charon_attempts = 0
+        self.cache_hit = False
         output_path.parent.mkdir(parents=True, exist_ok=True)
         last_error: BaseException | None = None
+
+        from .tts_cache import build_binding, persist, restore
+
+        cache_binding = build_binding(
+            transcript=transcript,
+            model=self.tts_model,
+            primary_voice=primary_voice,
+            questioner_voice=questioner_voice,
+            performance_mode=performance_mode,
+            provider=provider,
+        )
+        if restore(cache_binding, output_path):
+            self.last_provider = provider
+            self.voice_approval_status = "user_selected_gemini_3_8"
+            self.voice_reference_profile = reference_profile
+            self.cache_hit = True
+            print(
+                f"Clean V2 voice provider restored: {self.last_provider} "
+                f"model={self.tts_model} cache_hit=true"
+            )
+            return output_path
 
         if self.api_key:
             for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
@@ -603,6 +647,13 @@ class GeminiOnlyVoiceSynthesizer:
                     self.last_provider = provider
                     self.voice_approval_status = "user_selected_gemini_3_8"
                     self.voice_reference_profile = reference_profile
+                    try:
+                        persist(cache_binding, output_path)
+                    except Exception as exc:
+                        print(
+                            "Clean V2 TTS cache write skipped: "
+                            f"error_type={type(exc).__name__}"
+                        )
                     print(
                         f"Clean V2 voice provider selected: {self.last_provider} "
                         f"model={self.tts_model} fallback={self.fallback_used} "
@@ -629,6 +680,7 @@ class GeminiOnlyVoiceSynthesizer:
         raise VoiceInfrastructureError(
             charon_attempts=self.charon_attempts,
             charon_reason=reason,
+            provider=provider,
         )
 
 
