@@ -2090,7 +2090,25 @@
         "likes": 2,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-09-30T12:00:21Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 64,
+      "hidden_subscribers": false,
+      "total_views": 39414,
+      "video_count": 143,
+      "last_long": null,
+      "last_short": {
+        "video_id": "6_Wu-blNJNA",
+        "title": "القلق من المستقبل | حين يسرق الغد هدوء اليوم",
+        "published_at": "2026-09-29T15:46:49Z",
+        "duration_seconds": 17,
+        "views": 62,
+        "likes": 2,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-09-30T12:00:01Z"
+  "updated_at": "2026-09-30T12:00:21Z"
 }
