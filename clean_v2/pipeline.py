@@ -4485,7 +4485,15 @@ APPROVED_BRIEF:
 {payload}
 
 Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
-outside the approved brief and its research_pack. Use {section_requirement} for format
+outside the approved brief and its research_pack. Audience-reality lines inside research_pack use
+[Audience pain], [Audience situation], [Audience question], or [Audience visual]. Treat them as
+lived-experience/creative signals, never as scientific prevalence or market proof. Use pain/question
+signals to make the hook and narration concrete when they fit THIS topic; use situation/visual signals
+as preferred seeds for visual_story shot_intent and stock_query_en when they communicate the exact beat
+better than a generic mood shot. Paraphrase rather than quote, never invent usernames, and never force a
+signal that does not fit. A [Reddit ...] line, if an approved external source supplied one, follows the
+same rules and must never be invented by Planning.
+Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
 English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
 words: one observable action OR one simple setting, plus only the few composition/light cues that
