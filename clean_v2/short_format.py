@@ -529,9 +529,34 @@ _S3_FORBIDDEN_ACTION_FAMILY_PATTERNS = (
 )
 
 
+# Run #45 (Telegram, 2026-09-30): Mistral's s3 repair attempt was rejected for
+# "فعلا" (the adverb "really/indeed") -- caught only because the "فعل" stem
+# pattern above matches as a bare substring, with no word-boundary check, so it
+# also fires inside ordinary nouns/adverbs sharing that root that a human would
+# never read as a hidden command. These are the specific standalone/prefixed
+# forms confirmed safe (not exercised by any locked forbidden-family test,
+# which targets "بدأت"/"البداية" via a different pattern left untouched here):
+# the noun "situation" (وضع family), the adverb/noun "فعل" family, and the
+# common nouns "reading" and "movement" that collide with the قرا/حرك stems.
+_S3_FORBIDDEN_ACTION_FAMILY_SAFE_WORDS = frozenset(
+    _semantic_key(word)
+    for word in (
+        "وضع", "الوضع", "بالوضع", "والوضع", "فالوضع", "وضعا", "أوضاع", "الأوضاع",
+        "فعلا", "فعليا", "الفعل", "بالفعل", "والفعل", "بفعل", "أفعال", "الأفعال",
+        "قراءة", "القراءة", "بالقراءة", "والقراءة",
+        "حركة", "الحركة", "بالحركة", "والحركة",
+    )
+)
+
+
 def _contains_forbidden_action_family(text: object) -> bool:
     normalized = _semantic_key(text)
-    return any(re.search(pattern, normalized) for pattern in _S3_FORBIDDEN_ACTION_FAMILY_PATTERNS)
+    filtered = " ".join(
+        word
+        for word in normalized.split()
+        if word not in _S3_FORBIDDEN_ACTION_FAMILY_SAFE_WORDS
+    )
+    return any(re.search(pattern, filtered) for pattern in _S3_FORBIDDEN_ACTION_FAMILY_PATTERNS)
 
 
 def _sentence_begins_with_direct_action(sentence: object) -> bool:
@@ -763,6 +788,14 @@ def _practical_action_marker_count(text: object) -> int:
     )
 
 
+# Run #45 (Telegram, 2026-09-30): gemini_flash_lite's repair attempt opened s3's
+# action sentence with "لهذا" ("for this reason"), a harmless discourse
+# connector not on this list, so the repair helper below couldn't trim it and
+# the strict validator rejected the whole script. Widened to cover the other
+# single-word connectors a provider is just as likely to reach for in the same
+# position; still only ever removed when the prefix is composed entirely of
+# words from this set (see the loop below), so an actual clause like "عندما
+# تكون مستعدًا" is still correctly left alone.
 _SAFE_S3_ACTION_PREFIX_KEYS = frozenset({
     _semantic_key(item)
     for item in (
@@ -771,6 +804,11 @@ _SAFE_S3_ACTION_PREFIX_KEYS = frozenset({
         "ثم",
         "لذلك",
         "لذا",
+        "لهذا",
+        "إذن",
+        "اذن",
+        "حسنا",
+        "طيب",
         "وهنا",
         "هنا",
     )
