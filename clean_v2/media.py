@@ -1800,13 +1800,17 @@ class StockVisualSource:
             *,
             auxiliary: bool,
             as_still: bool,
+            prepare_query: Callable[[str], str],
         ) -> bool:
             finders = (
                 (self._pexels_photo, self._pixabay_photo)
                 if as_still
                 else (self._coverr, self._pexels, self._pixabay)
             )
-            for query_variant_index, query in enumerate(queries):
+            for query_variant_index, raw_query in enumerate(queries):
+                query = prepare_query(raw_query)
+                if not query:
+                    continue
                 for finder in finders:
                     candidate = finder(query, portrait=portrait)
                     if candidate is None:
@@ -1834,6 +1838,19 @@ class StockVisualSource:
             if not queries:
                 return False
             query = queries[0]
+            prepared_cache: dict[str, str] = {}
+
+            def _prepare_query(raw_query: str) -> str:
+                raw_key = " ".join(str(raw_query or "").split()).strip()
+                if raw_key in prepared_cache:
+                    return prepared_cache[raw_key]
+                prepared = _hook_stock_retrieval_query(raw_key, beat)
+                if self.query_normalizer is not None and prepared:
+                    prepared = self.query_normalizer(prepared)
+                prepared = _channel_stock_query(prepared)
+                prepared_cache[raw_key] = prepared
+                return prepared
+
             preference = str(beat.get("source_preference") or "stock_motion")
             wants_ai = preference == "ai_still"
             if wants_ai and ai_route_available:
@@ -1980,6 +1997,7 @@ class StockVisualSource:
                 beat,
                 auxiliary=auxiliary,
                 as_still=True,
+                prepare_query=_prepare_query,
             ):
                 return True
             if _try_stock_kind(
@@ -1988,6 +2006,7 @@ class StockVisualSource:
                 beat,
                 auxiliary=auxiliary,
                 as_still=False,
+                prepare_query=_prepare_query,
             ):
                 return True
             if not prefer_still and _try_stock_kind(
@@ -2008,17 +2027,9 @@ class StockVisualSource:
             if not primary_query:
                 continue
             evolved = _stock_query_ladder(primary_query, beat)
-            normalized_queries: list[str] = []
-            for raw_query in evolved:
-                query = _hook_stock_retrieval_query(raw_query, beat)
-                if self.query_normalizer is not None:
-                    query = self.query_normalizer(query)
-                query = _channel_stock_query(query)
-                if query and query not in normalized_queries:
-                    normalized_queries.append(query)
             auxiliary = section_id in seen_sections
             if _acquire_one(
-                tuple(normalized_queries[:2]),
+                tuple(evolved[:2]),
                 section_id,
                 beat,
                 auxiliary=auxiliary,
