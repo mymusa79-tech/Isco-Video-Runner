@@ -1764,68 +1764,6 @@
     }
   },
   "requests": {
-    "req-0727626a965c": {
-      "schema_version": 1,
-      "request_id": "req-0727626a965c",
-      "source": "clean_v2_telegram_editorial_lite",
-      "scope": "short",
-      "approved_by_user": true,
-      "approved_topic": "لماذا نشعر أننا متأخرون عن الآخرين؟",
-      "research_pack": [
-        {
-          "source_title": "Your Life Is Not A Race: Why You’re Right Where You Need To Be",
-          "source_url": "https://youtu.be/h0_QVQbGN0M",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "🚨 ¿COMPARARTE TE MOTIVA? PIÉNSALO. 👀💔 #mikaasmr #stream #vtuber #reflexion",
-          "source_url": "https://youtu.be/9YPzfEHib2s",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "Why being 'behind' is a lie you tell yourself #mindset #motivation",
-          "source_url": "https://youtu.be/CawnKSeD-MI",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        }
-      ],
-      "idea_id": "idea-b6fd6e4fe9",
-      "selected_at": "2026-09-26T14:28:26Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
-      "dispatched_at": null,
-      "request_sha256": "f903e9f0f8103839f9c04bd2cf8081bf5710cc28b5240ae885448604497bf26a"
-    },
-    "req-21ce2447bd90": {
-      "schema_version": 1,
-      "request_id": "req-21ce2447bd90",
-      "source": "clean_v2_telegram_editorial_lite",
-      "scope": "short",
-      "approved_by_user": true,
-      "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
-      "research_pack": [
-        {
-          "source_title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
-          "source_url": "https://youtu.be/b7X96liZ0g4",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
-          "source_url": "https://youtu.be/-Dto_7_d7-c",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
-          "source_url": "https://youtu.be/pC4Hw7lRBmQ",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        }
-      ],
-      "idea_id": "idea-1dffada5b5",
-      "selected_at": "2026-09-27T21:52:09Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
-      "dispatched_at": null,
-      "request_sha256": "61cae025c9316897cbb0ac0055993b3150d024f37cd621bfe8ade8d654c758fb"
-    },
     "req-3f5a61aabbfc": {
       "schema_version": 1,
       "request_id": "req-3f5a61aabbfc",
@@ -1887,37 +1825,6 @@
       "confirmed_at": "2026-09-29T20:03:17Z",
       "dispatched_at": "2026-09-29T20:03:20Z",
       "request_sha256": "c565fd49e592d1e7163bd55a71b3a2c5ae4744284acd67b5ea3828fd36372ab4"
-    },
-    "req-9ee67f813db1": {
-      "schema_version": 1,
-      "request_id": "req-9ee67f813db1",
-      "source": "clean_v2_telegram_editorial_lite",
-      "scope": "podcast",
-      "approved_by_user": true,
-      "approved_topic": "لماذا لا تحل إدارة الوقت مشكلة يوم لا نعرف فيه ما يستحق وقتنا أصلًا؟",
-      "research_pack": [
-        {
-          "source_title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
-          "source_url": "https://youtu.be/kF_ROq0LJUQ",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "تخطيط شهر أكتوبر 📒🎃 افضل طريقة لتنظيم الوقت و إدارة المهام للأمهات في المدارس 🎒 التخطيط الشهري",
-          "source_url": "https://youtu.be/-dJ1jSi37M8",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        },
-        {
-          "source_title": "جربي هاد النظام 7 أيام وشوفي شنو غادي يتبدل فحياتك",
-          "source_url": "https://youtu.be/Dyl7AByElRM",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        }
-      ],
-      "idea_id": "idea-d84ee01975",
-      "selected_at": "2026-09-29T22:13:44Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
-      "dispatched_at": null,
-      "request_sha256": "71f9ace9b17038c275630e9144dc510a036061aeb0bce54a769d82d351597821"
     },
     "req-f2b4585201ef": {
       "schema_version": 1,
@@ -1981,27 +1888,6 @@
       "dispatched_at": "2026-09-30T09:41:31Z",
       "request_sha256": "055522e919a406bd2af73a1a430abdb5360159e87df3b878c4ea7998bec15dde"
     },
-    "req-78afd3788146": {
-      "schema_version": 1,
-      "request_id": "req-78afd3788146",
-      "source": "clean_v2_telegram_editorial_lite",
-      "scope": "short",
-      "approved_by_user": true,
-      "approved_topic": "كيف تبدأ من جديد دون خطة مثالية؟",
-      "research_pack": [
-        {
-          "source_title": "Beginning Again Does Not Require A Perfect Plan",
-          "source_url": "https://youtu.be/4-X1fQg-CVA",
-          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
-        }
-      ],
-      "idea_id": "idea-346a629bce",
-      "selected_at": "2026-09-30T12:01:01Z",
-      "status": "confirmed_pending_dispatch",
-      "confirmed_at": "2026-09-30T12:01:23Z",
-      "dispatched_at": null,
-      "request_sha256": "33323cb735eea4f032b18a0b9ed970f80a1d8c8e97d3970021e6b0a3c84ab385"
-    },
     "req-99b056c56574": {
       "schema_version": 1,
       "request_id": "req-99b056c56574",
@@ -2034,7 +1920,7 @@
       "request_sha256": "ede926d728574842db2661bba276cf41953129d9ca491af3476eb205ee198d8e"
     }
   },
-  "current_request_id": "req-99b056c56574",
+  "current_request_id": null,
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -2235,5 +2121,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-30T13:50:23Z"
+  "updated_at": "2026-09-30T14:35:00Z"
 }
