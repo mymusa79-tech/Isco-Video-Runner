@@ -994,18 +994,22 @@ def _channel_stock_query(query: str) -> str:
 def _stock_query_ladder(primary_query: str, beat: Mapping[str, Any]) -> tuple[str, ...]:
     """Return at most two meaning-preserving searches for one visual beat.
 
-    Planning may author one deliberately different real-world alternate. Old/resumed
-    artifacts without it get one local fallback from a concrete semantic cue. This is
-    bounded search evolution, not an open retry loop and it adds no model call.
+    The primary query is already the authoritative writer/shot-intent boundary, so
+    preserve it verbatim apart from whitespace. Only a fallback alternate is locally
+    compacted. Runtime evaluates the alternate lazily *after* the primary search fails.
     """
-    raw_candidates: list[object] = [primary_query, beat.get("stock_query_alt_en")]
-    if not str(beat.get("stock_query_alt_en") or "").strip():
-        raw_candidates.extend(list(beat.get("semantic_must_have") or [])[:2])
-        raw_candidates.append(beat.get("stock_query_en"))
+    primary = " ".join(str(primary_query or "").split()).strip()[:160]
+    if not primary:
+        return ()
 
-    queries: list[str] = []
-    seen: set[str] = set()
-    for raw in raw_candidates:
+    queries = [primary]
+    seen = {" ".join(re.findall(r"[a-z0-9]+", primary.casefold()))}
+    raw_alternates: list[object] = [beat.get("stock_query_alt_en")]
+    if not str(beat.get("stock_query_alt_en") or "").strip():
+        raw_alternates.extend(list(beat.get("semantic_must_have") or [])[:2])
+        raw_alternates.append(beat.get("stock_query_en"))
+
+    for raw in raw_alternates:
         compact = compact_searchable_visual_intent(
             raw,
             drop_tokens=_STOCK_INTENT_DROP_TOKENS,
@@ -1016,13 +1020,8 @@ def _stock_query_ladder(primary_query: str, beat: Mapping[str, Any]) -> tuple[st
         key = " ".join(re.findall(r"[a-z0-9]+", compact.casefold()))
         if not key or key in seen:
             continue
-        seen.add(key)
         queries.append(compact[:160])
-        if len(queries) >= 2:
-            break
-    if not queries:
-        fallback = " ".join(str(primary_query or "").split()).strip()
-        return (fallback[:160],) if fallback else ()
+        break
     return tuple(queries)
 
 
