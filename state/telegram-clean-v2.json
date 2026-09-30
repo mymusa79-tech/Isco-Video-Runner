@@ -1834,16 +1834,108 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-30T23:18:48Z"
+    },
+    {
+      "idea_id": "idea-9061e33af8",
+      "title": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+      "normalized_title": "كيف تستعيد تركيزك بعد ايام من التشتت؟",
+      "market_query": "استعادة التركيز بعد التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.385,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 79.7,
+        "median_views_per_day": 41.1,
+        "top_samples": [
+          {
+            "video_id": "EDCZfW_bdEs",
+            "title": "قوة التركيز: لماذا لم تعد قادرًا على التركيز؟ أنقذ دماغك من التشتت | كتاب صوتي",
+            "channel": "الوعي المقروء",
+            "published_at": "2026-09-26T16:00:32Z",
+            "views": 343,
+            "views_per_day": 79.7
+          },
+          {
+            "video_id": "dNnswliyFKg",
+            "title": "كيف تستعيد تركيزك بعد المقاطعة؟ مهارة نقطة العودة",
+            "channel": "على متن فكرة",
+            "published_at": "2026-09-19T13:00:22Z",
+            "views": 29,
+            "views_per_day": 2.5
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:19:09Z"
+    },
+    {
+      "idea_id": "idea-5d2d629fe9",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:19:09Z"
+    },
+    {
+      "idea_id": "idea-7e85f4cc30",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:19:10Z"
+    },
+    {
+      "idea_id": "idea-580f0b3489",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:19:10Z"
     }
   ],
   "sessions": {
+    "a9e6d4b6": {
+      "session_id": "a9e6d4b6",
+      "scope": "long",
+      "idea_ids": [
+        "idea-9061e33af8"
+      ],
+      "created_at": "2026-09-30T23:19:10Z"
+    },
     "66b27cee": {
       "session_id": "66b27cee",
       "scope": "long",
       "idea_ids": [
         "idea-26c2f7b14b"
       ],
-      "created_at": "2026-09-30T23:18:48Z"
+      "created_at": "2026-09-30T23:18:48Z",
+      "obsolete_at": "2026-09-30T23:19:08Z"
     },
     "b8338bbd": {
       "session_id": "b8338bbd",
@@ -2379,5 +2471,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-30T23:18:48Z"
+  "updated_at": "2026-09-30T23:19:10Z"
 }
