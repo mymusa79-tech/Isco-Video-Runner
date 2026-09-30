@@ -1,0 +1,100 @@
+name: Coverr API Probe
+
+on:
+  push:
+    branches:
+      - test/coverr-api-probe-20260930
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
+    steps:
+      - name: Probe Coverr Demo API safely
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+
+          key = os.environ.get("COVERR_API_KEY", "").strip()
+          if not key:
+              print("COVERR_SECRET_PRESENT=false")
+              raise SystemExit("COVERR_API_KEY is not available to this workflow")
+          print("COVERR_SECRET_PRESENT=true")
+
+          base = "https://api.coverr.co"
+          headers = {
+              "Authorization": f"Bearer {key}",
+              "Accept": "application/json",
+              "User-Agent": "Nidaa-Visuals-Coverr-Probe/1.0",
+          }
+
+          def probe(path, params, label):
+              url = base + path + "?" + urllib.parse.urlencode(params)
+              req = urllib.request.Request(url, headers=headers, method="GET")
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      raw = resp.read()
+                      data = json.loads(raw.decode("utf-8"))
+                      hits = data.get("hits") if isinstance(data, dict) else None
+                      print(f"{label}_HTTP={resp.status}")
+                      print(f"{label}_TOTAL={data.get('total') if isinstance(data, dict) else 'n/a'}")
+                      print(f"{label}_HITS={len(hits) if isinstance(hits, list) else 'n/a'}")
+                      for h in ("x-ratelimit-limit", "x-ratelimit-remaining", "ratelimit-limit", "ratelimit-remaining"):
+                          if resp.headers.get(h) is not None:
+                              print(f"{label}_{h.upper().replace('-', '_')}={resp.headers.get(h)}")
+                      return data
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8", errors="replace")
+                  print(f"{label}_HTTP={e.code}")
+                  print(f"{label}_ERROR_BODY={body[:300]}")
+                  return None
+
+          videos = probe(
+              "/videos",
+              {"query": "anxious person city night", "page_size": 5, "urls": "true"},
+              "VIDEO",
+          )
+          if isinstance(videos, dict) and videos.get("hits"):
+              v = videos["hits"][0]
+              urls = v.get("urls") or {}
+              print("VIDEO_SAMPLE_ID=" + str(v.get("id", "")))
+              print("VIDEO_SAMPLE_VERTICAL=" + str(v.get("is_vertical", "")))
+              print("VIDEO_SAMPLE_DURATION=" + str(v.get("duration", "")))
+              print("VIDEO_SAMPLE_MAX=" + str(v.get("max_width", "")) + "x" + str(v.get("max_height", "")))
+              print("VIDEO_HAS_MP4=" + str(bool(urls.get("mp4"))).lower())
+              print("VIDEO_HAS_DOWNLOAD=" + str(bool(urls.get("mp4_download"))).lower())
+
+          audios = probe(
+              "/audios",
+              {"query": "calm piano ambient", "page_size": 8},
+              "AUDIO",
+          )
+          if isinstance(audios, dict) and audios.get("hits"):
+              a = audios["hits"][0]
+              print("AUDIO_SAMPLE_ID=" + str(a.get("id", "")))
+              print("AUDIO_SAMPLE_NAME=" + str(a.get("name") or a.get("title") or ""))
+              print("AUDIO_SAMPLE_DURATION=" + str(a.get("duration", "")))
+              print("AUDIO_SAMPLE_GENRES=" + json.dumps(a.get("genres", []), ensure_ascii=True))
+              print("AUDIO_SAMPLE_MOODS=" + json.dumps(a.get("moods", []), ensure_ascii=True))
+              print("AUDIO_SAMPLE_INSTRUMENTS=" + json.dumps(a.get("instruments", []), ensure_ascii=True))
+              print("AUDIO_KEYS=" + ",".join(sorted(str(k) for k in a.keys())))
+
+          # This endpoint is intentionally probed once because Coverr's public
+          # API docs currently document videos/audios, not a stock-images endpoint.
+          probe(
+              "/images",
+              {"query": "city", "page_size": 1},
+              "IMAGE",
+          )
+          PY
