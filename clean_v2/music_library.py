@@ -20,7 +20,7 @@ COVERR_MUSIC_PAGE_SIZE = 12
 COVERR_MUSIC_CACHE_DIR = CACHE_DIR / "coverr"
 COVERR_MUSIC_LICENSE_URL = "https://coverr.co/license"
 
-_COVERR_MUSIC_TAGS = {
+_COVERR_MUSIC_QUERIES = {
     "focus": "piano",
     "hopeful": "hopeful",
     "general": "peaceful",
@@ -205,7 +205,13 @@ def _coverr_audio_hits(body: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _coverr_music_candidate_ok(item: Mapping[str, Any]) -> bool:
-    if bool(item.get("is_ai") or item.get("ai_generated") or item.get("is_premium") or item.get("premium")):
+    if bool(
+        item.get("is_ai")
+        or item.get("ai_generated")
+        or item.get("is_premium")
+        or item.get("isPremium")
+        or item.get("premium")
+    ):
         return False
     source_type = " ".join(
         str(item.get(key) or "")
@@ -292,7 +298,7 @@ def _try_coverr_music(
         "provider": "coverr",
         "status": "not_attempted",
         "provider_calls_added": 0,
-        "tag": _COVERR_MUSIC_TAGS[family],
+        "query": _COVERR_MUSIC_QUERIES[family],
         "instrumental_only_required": True,
         "dialogue_bed_required": True,
         "license": "Coverr free stock music",
@@ -306,10 +312,16 @@ def _try_coverr_music(
         report["status"] = "missing_api_key"
         return None, report
 
-    tag = _COVERR_MUSIC_TAGS[family]
-    params = urllib.parse.urlencode({"page_size": COVERR_MUSIC_PAGE_SIZE})
+    query = _COVERR_MUSIC_QUERIES[family]
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "page_size": COVERR_MUSIC_PAGE_SIZE,
+            "sort": "popular",
+        }
+    )
     request = urllib.request.Request(
-        f"https://api.coverr.co/audio-tags/{urllib.parse.quote(tag)}/audios?{params}",
+        f"https://api.coverr.co/audios?{params}",
         headers={
             "Authorization": f"Bearer {key}",
             "Accept": "application/json",
