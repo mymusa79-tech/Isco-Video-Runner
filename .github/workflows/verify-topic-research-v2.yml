@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: bf85607f6e34dcedc199abad7e610b12c4685309
+          ref: a3535c63e189f1da1f4399dac1eca11186c53bcc
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -139,6 +139,6 @@ jobs:
           set -euo pipefail
           canonical_engine_sha="$(python -c 'from pathlib import Path; from scripts.workflow_hygiene import _canonical_engine_pin; value = _canonical_engine_pin(Path(".github/workflows")); assert value; print(value)')"
           grep -F "ENGINE_SHA: ${canonical_engine_sha}" .github/workflows/telegram-editorial-control.yml
-          grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
+          grep -F 'RESEARCH_ENGINE_SHA: a3535c63e189f1da1f4399dac1eca11186c53bcc' .github/workflows/telegram-editorial-control.yml
           grep -F 'engine_sha="$ENGINE_SHA"' .github/workflows/telegram-editorial-control.yml
           ! grep -E 'workflow_dispatch|enqueue_request\(|pending_dispatch|production_dispatch_authorized[[:space:]]*=' scripts/topic_research_v5_surface.py
