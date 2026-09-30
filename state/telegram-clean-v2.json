@@ -1430,9 +1430,199 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-30T09:40:16Z"
+    },
+    {
+      "idea_id": "idea-ecd20a76d0",
+      "title": "لماذا ننتظر الشعور المناسب قبل أن نتحرك؟",
+      "normalized_title": "لماذا ننتظر الشعور المناسب قبل ان نتحرك؟",
+      "market_query": "انتظار الدافع قبل العمل",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.48,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 81.8,
+        "median_views_per_day": 33.7,
+        "top_samples": [
+          {
+            "video_id": "C2THrkREt9M",
+            "title": "The Discipline Code: How to Build Habits That Actually Stick Every Day 🔥| Self-Discipline & Success✅",
+            "channel": "Mind Blowing Motive",
+            "published_at": "2026-09-03T03:15:40Z",
+            "views": 2238,
+            "views_per_day": 81.8
+          },
+          {
+            "video_id": "RKwERzvvATU",
+            "title": "How to Stop Feeling Stuck - Take Action & Move Your Life Forward - Elvira Guzman-Barnett",
+            "channel": "Awakening with Elvira Guzman-Barnett",
+            "published_at": "2026-08-31T15:43:28Z",
+            "views": 2107,
+            "views_per_day": 70.6
+          },
+          {
+            "video_id": "N63-UsgFMWM",
+            "title": "Deja de esperar la motivación",
+            "channel": "Financial Mentors TV - Español",
+            "published_at": "2026-09-13T16:00:38Z",
+            "views": 902,
+            "views_per_day": 53.6
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T12:00:01Z"
+    },
+    {
+      "idea_id": "idea-b717533e70",
+      "title": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+      "normalized_title": "كيف تستعيد تركيزك بعد ايام من التشتت؟",
+      "market_query": "استعادة التركيز بعد التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.392,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 87.4,
+        "median_views_per_day": 45.0,
+        "top_samples": [
+          {
+            "video_id": "EDCZfW_bdEs",
+            "title": "قوة التركيز: لماذا لم تعد قادرًا على التركيز؟ أنقذ دماغك من التشتت | كتاب صوتي",
+            "channel": "الوعي المقروء",
+            "published_at": "2026-09-26T16:00:32Z",
+            "views": 335,
+            "views_per_day": 87.4
+          },
+          {
+            "video_id": "dNnswliyFKg",
+            "title": "كيف تستعيد تركيزك بعد المقاطعة؟ مهارة نقطة العودة",
+            "channel": "على متن فكرة",
+            "published_at": "2026-09-19T13:00:22Z",
+            "views": 29,
+            "views_per_day": 2.6
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T11:59:59Z"
+    },
+    {
+      "idea_id": "idea-346a629bce",
+      "title": "كيف تبدأ من جديد دون خطة مثالية؟",
+      "normalized_title": "كيف تبدا من جديد دون خطة مثالية؟",
+      "market_query": "البدء من جديد بدون خطة مثالية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.335,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 59.2,
+        "median_views_per_day": 59.2,
+        "top_samples": [
+          {
+            "video_id": "4-X1fQg-CVA",
+            "title": "Beginning Again Does Not Require A Perfect Plan",
+            "channel": "Life Lived Alone",
+            "published_at": "2026-09-08T17:01:13Z",
+            "views": 1291,
+            "views_per_day": 59.2
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T12:00:00Z"
+    },
+    {
+      "idea_id": "idea-2803f796c5",
+      "title": "متى تتحول الراحة إلى هروب؟",
+      "normalized_title": "متي تتحول الراحة الي هروب؟",
+      "market_query": "الراحة والهروب من المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.273,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 23.7,
+        "median_views_per_day": 23.7,
+        "top_samples": [
+          {
+            "video_id": "O4tMtYmDKmQ",
+            "title": "ليست كل راحة راحة",
+            "channel": "مختبر الوعي",
+            "published_at": "2026-09-14T16:59:21Z",
+            "views": 375,
+            "views_per_day": 23.7
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T12:00:00Z"
+    },
+    {
+      "idea_id": "idea-196b4265b9",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T11:59:59Z"
+    },
+    {
+      "idea_id": "idea-72c95c544c",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T12:00:00Z"
+    },
+    {
+      "idea_id": "idea-1d37228d1a",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T12:00:01Z"
     }
   ],
   "sessions": {
+    "fc5a7d8a": {
+      "session_id": "fc5a7d8a",
+      "scope": "short",
+      "idea_ids": [
+        "idea-ecd20a76d0",
+        "idea-b717533e70",
+        "idea-346a629bce"
+      ],
+      "created_at": "2026-09-30T12:00:01Z"
+    },
     "209faa7d": {
       "session_id": "209faa7d",
       "scope": "short",
@@ -1902,5 +2092,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-30T09:41:31Z"
+  "updated_at": "2026-09-30T12:00:01Z"
 }
