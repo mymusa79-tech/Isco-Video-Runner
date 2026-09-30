@@ -351,7 +351,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-24.0, -26.0, -22.0))
         self.assertEqual(audio_module.POST_MIX_LIMITER_LINEAR, 0.84)
 
-    def test_rule_8b_music_studio_has_distinct_format_pools_without_provider_calls(self) -> None:
+    def test_rule_8b_music_studio_has_distinct_format_pools_with_bounded_optional_coverr(self) -> None:
         catalog = load_catalog()
         fake_ready = {
             "source": "FreePD", "license": catalog["license"], "license_url": catalog["license_url"],
@@ -373,7 +373,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertTrue(all(reports[item]["selected_id"] for item in reports))
         source = inspect.getsource(audio_module.apply_topic_audio_polish)
         self.assertIn("fmt=fmt", source)
-        self.assertNotIn("provider", inspect.getsource(select_music_track).lower())
+        self.assertTrue(all(reports[item]["provider_calls_added"] == 0 for item in reports))
+        self.assertTrue(all(reports[item]["coverr"]["status"] == "download_disabled" for item in reports))
+        self.assertIn("_try_coverr_music", inspect.getsource(select_music_track))
 
     def test_rule_8_music_window_is_exactly_topic_not_hook_identity_or_outro(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

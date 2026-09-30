@@ -1001,6 +1001,73 @@ _STOCK_INTENT_DROP_TOKENS = frozenset({
 })
 
 
+# Provider-aware retrieval stays deterministic and free: one semantic beat/query
+# enters the stock layer, then each site's documented search shape gets a local
+# representation of the SAME meaning. No extra model call, provider request, or
+# new pipeline stage is introduced.
+_PEXELS_QUERY_DROP_TOKENS = frozenset({
+    "cinematic", "shot", "frame", "composition",
+})
+_COVERR_QUERY_DROP_TOKENS = _STOCK_INTENT_DROP_TOKENS | frozenset({
+    "realistic", "documentary", "premium",
+})
+_PIXABAY_QUERY_DROP_TOKENS = _COVERR_QUERY_DROP_TOKENS | frozenset({
+    "a", "an", "the", "of", "with", "at", "in", "on", "for", "to",
+    "close", "up", "medium", "wide", "view",
+})
+
+
+def _bounded_provider_query_chars(value: str, limit: int) -> str:
+    compact = " ".join(str(value or "").split()).strip()
+    if len(compact) <= limit:
+        return compact
+    head = compact[:limit].rstrip()
+    if " " in head:
+        head = head.rsplit(" ", 1)[0].rstrip()
+    return head or compact[:limit].rstrip()
+
+
+def _provider_stock_query(query: str, provider: str) -> str:
+    """Adapt one approved semantic query to each stock site's search surface.
+
+    Pexels explicitly accepts natural broad/specific phrases, so it keeps the
+    most descriptive wording. Coverr is tightened toward title/tag metadata.
+    Pixabay's q field is a short search term capped at 100 characters, so it
+    receives the most keyword-like form. Compaction only removes retrieval
+    style/glue words; it never invents synonyms or new scene semantics.
+    """
+    raw = " ".join(str(query or "").split()).strip()
+    if not raw:
+        return ""
+
+    name = str(provider or "").casefold()
+    if name.startswith("pexels"):
+        adapted = compact_searchable_visual_intent(
+            raw,
+            drop_tokens=_PEXELS_QUERY_DROP_TOKENS,
+            max_words=16,
+        )
+        return _bounded_provider_query_chars(adapted or raw, 200)
+
+    if name.startswith("coverr"):
+        adapted = compact_searchable_visual_intent(
+            raw,
+            drop_tokens=_COVERR_QUERY_DROP_TOKENS,
+            max_words=12,
+        )
+        return _bounded_provider_query_chars(adapted or raw, 160)
+
+    if name.startswith("pixabay"):
+        adapted = compact_searchable_visual_intent(
+            raw,
+            drop_tokens=_PIXABAY_QUERY_DROP_TOKENS,
+            max_words=8,
+        )
+        return _bounded_provider_query_chars(adapted or raw, 100)
+
+    return _bounded_provider_query_chars(raw, 200)
+
+
 def _specific_beat_stock_query(value: object) -> str:
     """Reuse the Beat's own English visual intent as the stock query when safe.
 
@@ -1213,6 +1280,7 @@ class StockVisualSource:
         )
 
     def _coverr(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        query = _provider_stock_query(query, "coverr")
         key = _read_secret("COVERR_API_KEY")
         if not key:
             self._event("coverr", query, "unavailable", wire_attempted=False, reason="missing_api_key")
@@ -1319,6 +1387,7 @@ class StockVisualSource:
         return None
 
     def _pexels_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        query = _provider_stock_query(query, "pexels_photo")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
             self._event("pexels_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
@@ -1403,6 +1472,7 @@ class StockVisualSource:
         return None
 
     def _pixabay_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        query = _provider_stock_query(query, "pixabay_photo")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
             self._event("pixabay_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
@@ -1480,6 +1550,7 @@ class StockVisualSource:
         return None
 
     def _pexels(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        query = _provider_stock_query(query, "pexels")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
             self._event("pexels", query, "unavailable", wire_attempted=False, reason="missing_api_key")
@@ -1551,6 +1622,7 @@ class StockVisualSource:
         return None
 
     def _pixabay(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        query = _provider_stock_query(query, "pixabay")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
             self._event("pixabay", query, "unavailable", wire_attempted=False, reason="missing_api_key")
@@ -2209,6 +2281,7 @@ class StockVisualSource:
         portrait: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
+        query = _provider_stock_query(query, "pexels")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
             self._event(
@@ -2279,6 +2352,7 @@ class StockVisualSource:
         portrait: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
+        query = _provider_stock_query(query, "pixabay")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
             self._event(
