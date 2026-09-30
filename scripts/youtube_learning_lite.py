@@ -382,18 +382,94 @@ def _format_label(value: str) -> str:
     return {"short": "Short", "film": "Film", "podcast": "Podcast"}.get(value, value)
 
 
+def _topic_view_velocity(sample: dict[str, Any]) -> float | None:
+    views = _safe_float(sample.get("views"))
+    if views is None or views < 0.0:
+        return None
+    published = _parse_time(sample.get("published_at"))
+    observed = _parse_time(sample.get("observed_at"))
+    if published is None or observed is None or observed < published:
+        return round(views, 2)
+    age_days = max((observed - published).total_seconds() / 86400.0, 1.0)
+    return round(views / age_days, 2)
+
+
+def _topic_performance_memo(root: dict[str, Any], kind: str | None) -> str:
+    samples = [item for item in (root.get("samples") or []) if isinstance(item, dict)]
+    if kind in {"short", "long"}:
+        wanted = {"short"} if kind == "short" else {"film", "podcast"}
+        samples = [item for item in samples if str(item.get("format") or "") in wanted]
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for sample in samples:
+        title = " ".join(str(sample.get("title") or "").split())
+        velocity = _topic_view_velocity(sample)
+        if not title or velocity is None:
+            continue
+        scored.append((velocity, sample))
+    if len(scored) < 2:
+        return ""
+
+    scored.sort(
+        key=lambda pair: (
+            pair[0],
+            float(_safe_float(pair[1].get("avg_percentage_viewed")) or 0.0),
+        ),
+        reverse=True,
+    )
+    strongest_velocity, strongest = scored[0]
+    weakest_velocity, weakest = scored[-1]
+    ratio = (
+        strongest_velocity / max(weakest_velocity, 0.1)
+        if strongest_velocity > 0.0
+        else 1.0
+    )
+    strong_title = " ".join(str(strongest.get("title") or "").split())[:120]
+    weak_title = " ".join(str(weakest.get("title") or "").split())[:120]
+    strong_views = int(round(float(_safe_float(strongest.get("views")) or 0.0)))
+    weak_views = int(round(float(_safe_float(weakest.get("views")) or 0.0)))
+
+    lines = [
+        "TOPIC_PERFORMANCE_SIGNAL — own-channel directional evidence from recent view velocity; not causal proof.",
+        (
+            f"Strong recent topic example='{strong_title}' "
+            f"(views={strong_views}, approx views/day={strongest_velocity:.1f})."
+        ),
+        (
+            f"Weak recent topic example='{weak_title}' "
+            f"(views={weak_views}, approx views/day={weakest_velocity:.1f})."
+        ),
+    ]
+    if ratio >= 3.0:
+        lines.append(
+            "For TOPIC RESEARCH, expand the strong example into adjacent specific real-life problems "
+            "from the same audience pain/context family. Do not copy it, paraphrase it, or generate synonyms."
+        )
+        lines.append(
+            "Downrank broad abstract themes when they lack a concrete situation, environment, behavior, "
+            "or consequence. A weak example is not banned; contextualize it before proposing it."
+        )
+    else:
+        lines.append(
+            "The topic-performance spread is not large enough for aggressive steering; keep market evidence "
+            "and specificity ahead of this weak directional signal."
+        )
+    return "\n".join(lines)
+
+
 def learning_memo(state: dict[str, Any], kind: str | None = None) -> str:
     root = state.get(STATE_KEY)
     if not isinstance(root, dict):
         return ""
     insights = root.get("insights")
     if not isinstance(insights, dict):
-        return ""
+        insights = {}
     formats = [item for item in (insights.get("formats") or []) if isinstance(item, dict)]
     if kind in {"short", "long"}:
         wanted = {"short"} if kind == "short" else {"film", "podcast"}
         formats = [item for item in formats if str(item.get("format") or "") in wanted]
-    if not formats:
+    topic_performance = _topic_performance_memo(root, kind)
+    if not formats and not topic_performance:
         return ""
 
     lines = [
@@ -419,11 +495,13 @@ def learning_memo(state: dict[str, Any], kind: str | None = None) -> str:
                 f"({float(best.get('avg_percentage_viewed', 0.0) or 0.0):.1f}%)"
             )
         lines.append("; ".join(parts) + ".")
+    if topic_performance:
+        lines.extend(["", topic_performance])
     lines.append(
-        "Use this only to prioritize structural review (opening/pacing/ending) and preserve patterns worth testing; "
-        "do not infer why a metric moved and do not copy a past topic merely because it retained well."
+        "Use retention metrics only to prioritize structural review (opening/pacing/ending); "
+        "use topic-performance evidence only for research prioritization. Do not infer why a metric moved."
     )
-    return "\n".join(lines)[:1700]
+    return "\n".join(lines)[:2600]
 
 
 def learning_evidence_line(state: dict[str, Any], kind: str) -> str:

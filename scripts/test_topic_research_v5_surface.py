@@ -63,6 +63,27 @@ class TopicResearchV5SurfaceTests(unittest.TestCase):
         }
         return ranking._build_candidate_payload(raw, "long")
 
+    def test_short_specificity_downranks_abstract_topic_and_rewards_context(self):
+        generic = {"title": "القلق"}
+        contextual = {"title": "لماذا تشعر بالقلق مساء الأحد قبل العمل؟"}
+        self.assertLess(ranking._specific_problem_score(generic), 0.5)
+        self.assertEqual(ranking._specific_problem_score(contextual), 1.0)
+
+    def test_short_creative_score_uses_specificity_without_new_provider_calls(self):
+        base = {
+            "hook_potential": 0.8,
+            "retention_potential": 0.8,
+            "emotional_pull": 0.8,
+            "title_thumbnail_potential": 0.8,
+            "competition_opportunity": 0.8,
+        }
+        generic = dict(base, title="القلق")
+        contextual = dict(base, title="القلق قبل العودة إلى العمل")
+        self.assertGreater(
+            ranking._creative_score(contextual, "short"),
+            ranking._creative_score(generic, "short"),
+        )
+
     def test_final_v5_card_never_calls_low_current_evergreen_best_now(self):
         candidate = self._candidate("موضوع دائم", 0.45, 0.90)
         text = creator_v5._candidate_panel_text("long", [candidate])
