@@ -1305,6 +1305,7 @@ class StockVisualSource:
                     "query": query,
                     "media_kind": "video",
                     "attribution_required": True,
+                    "local_rank_score": round(float(score), 6),
                 }
             self._event("coverr", query, "empty", wire_attempted=True)
         except Exception as exc:
@@ -1524,7 +1525,7 @@ class StockVisualSource:
                     identity,
                 ))
             if ranked:
-                _, video, selected, identity = max(ranked, key=lambda item: item[0])
+                score, video, selected, identity = max(ranked, key=lambda item: item[0])
                 self._used.add(identity)
                 self._event("pexels", query, "selected_ranked", wire_attempted=True)
                 user = video.get("user") or {}
@@ -1536,6 +1537,7 @@ class StockVisualSource:
                     "creator": str(user.get("name") or ""),
                     "creator_url": str(user.get("url") or ""),
                     "query": query,
+                    "local_rank_score": round(float(score), 6),
                 }
             self._event("pexels", query, "empty", wire_attempted=True)
         except Exception as exc:
@@ -1610,7 +1612,7 @@ class StockVisualSource:
                     identity,
                 ))
             if ranked:
-                _, hit, selected, identity = max(ranked, key=lambda item: item[0])
+                score, hit, selected, identity = max(ranked, key=lambda item: item[0])
                 self._used.add(identity)
                 self._event("pixabay", query, "selected_ranked", wire_attempted=True)
                 return {
@@ -1621,6 +1623,7 @@ class StockVisualSource:
                     "creator": str(hit.get("user") or ""),
                     "creator_url": "",
                     "query": query,
+                    "local_rank_score": round(float(score), 6),
                 }
             self._event("pixabay", query, "empty", wire_attempted=True)
         except Exception as exc:
@@ -1859,14 +1862,80 @@ class StockVisualSource:
                 if as_still
                 else (self._coverr, self._pexels, self._pixabay)
             )
+            role = str(beat.get("role") or "body").strip().casefold()
+            competitive_motion = not as_still and role in {"hook", "payoff"}
+
             for query_variant_index, raw_query in enumerate(queries):
                 query = prepare_query(raw_query)
                 if not query:
                     continue
+
+                if competitive_motion:
+                    # Spend the extra provider calls only on the two editorially
+                    # critical beats. Each provider still ranks its own page locally;
+                    # then the three winners compete on the same bounded local score.
+                    candidates: list[dict[str, Any]] = []
+                    for finder in finders:
+                        candidate = finder(query, portrait=portrait)
+                        if candidate is not None:
+                            candidates.append(candidate)
+
+                    # Provider helpers reserve their local winner immediately so the
+                    # normal cheap sequential path cannot repeat an asset. Release all
+                    # provisional reservations here; only the actually admitted winner
+                    # stays reserved.
+                    for candidate in candidates:
+                        identity = (
+                            str(candidate.get("provider") or ""),
+                            str(candidate.get("asset_id") or ""),
+                        )
+                        if identity[0] and identity[1]:
+                            self._used.discard(identity)
+
+                    ranked_candidates = sorted(
+                        candidates,
+                        key=lambda item: float(item.get("local_rank_score") or -1.0),
+                        reverse=True,
+                    )
+                    for candidate in ranked_candidates:
+                        identity = (
+                            str(candidate.get("provider") or ""),
+                            str(candidate.get("asset_id") or ""),
+                        )
+                        if identity[0] and identity[1]:
+                            self._used.add(identity)
+                        candidate["provider_competition_used"] = True
+                        candidate["provider_competition_count"] = len(ranked_candidates)
+                        if _admit_stock_candidate(
+                            candidate,
+                            query,
+                            section_id,
+                            beat,
+                            auxiliary=auxiliary,
+                            as_still=False,
+                            query_variant_index=query_variant_index,
+                        ):
+                            self._event(
+                                str(candidate.get("provider") or "unknown"),
+                                query,
+                                "critical_provider_competition_winner",
+                                wire_attempted=False,
+                                reason=(
+                                    f"role={role};candidates={len(ranked_candidates)};"
+                                    f"score={float(candidate.get('local_rank_score') or -1.0):.3f}"
+                                ),
+                            )
+                            return True
+                        if identity[0] and identity[1]:
+                            self._used.discard(identity)
+                    continue
+
+                # Body/still beats keep the low-cost sequential policy.
                 for finder in finders:
                     candidate = finder(query, portrait=portrait)
                     if candidate is None:
                         continue
+                    candidate["provider_competition_used"] = False
                     if _admit_stock_candidate(
                         candidate,
                         query,
