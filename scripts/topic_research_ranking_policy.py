@@ -9,6 +9,7 @@ quality gates.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from scripts.audience_reality_signals import attach_signals, detail_lines as audience_detail_lines
@@ -22,6 +23,68 @@ HYBRID_CURRENT_INTEREST_MIN = 0.50
 EVERGREEN_STRENGTH_MIN = 0.70
 MIN_OPPORTUNITY_SCORE = 0.70
 SURFACE_MARKET_CLASSES = ("rising", "hybrid", "evergreen")
+
+GENERIC_ABSTRACT_TOPICS = (
+    "القلق",
+    "التوتر",
+    "الخوف",
+    "الحزن",
+    "النجاح",
+    "التحفيز",
+    "الدافعية",
+    "التفكير الزائد",
+    "الثقة",
+    "السعادة",
+    "الوحدة",
+    "الضغط النفسي",
+)
+REAL_LIFE_CONTEXT_MARKERS = (
+    "العمل",
+    "الوظيفة",
+    "الوظيفي",
+    "الدوام",
+    "المدير",
+    "الموظف",
+    "الراتب",
+    "الاجتماعات",
+    "المهام",
+    "الدراسة",
+    "الجامعة",
+    "المدرسة",
+    "الاختبار",
+    "الامتحان",
+    "النوم",
+    "العلاقة",
+    "الزواج",
+    "الأسرة",
+    "المال",
+    "الديون",
+    "الهاتف",
+    "السوشيال",
+    "الأحد",
+    "الصباح",
+    "المساء",
+    "الليل",
+)
+
+
+def _specific_problem_score(candidate: dict[str, Any]) -> float:
+    """Prefer recognizable situations over abstract one-word themes for Shorts."""
+    title = " ".join(str(candidate.get("title") or "").casefold().split())
+    if not title:
+        return 0.0
+    tokens = re.findall(r"[\u0600-\u06ff]+", title)
+    has_context = any(marker in title for marker in REAL_LIFE_CONTEXT_MARKERS)
+    is_generic = any(topic in title for topic in GENERIC_ABSTRACT_TOPICS)
+    if has_context:
+        return 1.0
+    if is_generic:
+        return 0.25 if len(tokens) <= 3 else 0.55
+    if len(tokens) >= 5:
+        return 0.90
+    if len(tokens) >= 3:
+        return 0.75
+    return 0.60
 
 
 def _market_class(candidate: dict[str, Any]) -> str:
@@ -64,12 +127,14 @@ def _creative_score(candidate: dict[str, Any], kind: str) -> float:
     packaging = float(candidate.get("title_thumbnail_potential", 0.0) or 0.0)
     competition = float(candidate.get("competition_opportunity", 0.0) or 0.0)
     if kind == "short":
+        specificity = _specific_problem_score(candidate)
         return round(
-            0.34 * hook
-            + 0.34 * retention
-            + 0.16 * emotional
+            0.28 * hook
+            + 0.27 * retention
+            + 0.14 * emotional
             + 0.08 * packaging
-            + 0.08 * competition,
+            + 0.08 * competition
+            + 0.15 * specificity,
             3,
         )
     return round(
@@ -94,6 +159,7 @@ def _ranking_components(candidate: dict[str, Any], kind: str) -> dict[str, float
         "channel": _channel_score(candidate),
         "creative": _creative_score(candidate, kind),
         "execution": _execution_score(candidate),
+        "specificity": _specific_problem_score(candidate),
     }
 
 
@@ -263,6 +329,7 @@ def _candidate_detail(item: dict[str, Any], index: int) -> str:
         f"⭐ فرصة مركبة: {score:.1f}/10",
         f"🎯 ملاءمة القناة: {fit:.1f}/10",
         f"🎨 القوة الإبداعية: {creative:.1f}/10",
+        f"🎯 تحديد المشكلة الواقعية: {float(components.get('specificity', 0.0) or 0.0) * 10:.1f}/10",
         f"🛠️ ثقة التنفيذ: {execution:.1f}/10",
         f"📈 الاهتمام الحالي المقاس: {trend:.1f}/10",
         f"{_market_class_ar(item)}",
@@ -312,6 +379,7 @@ def install(*, core: Any, panel: Any) -> None:
         "_quality_qualified": _quality_qualified,
         "_market_class": _market_class,
         "_market_class_ar": _market_class_ar,
+        "_specific_problem_score": _specific_problem_score,
         "_ranking_components": _ranking_components,
         "_control_score": _control_score,
         "_candidate_reasons": _candidate_reasons,
