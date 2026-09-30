@@ -821,7 +821,7 @@ class ShortContractTests(unittest.TestCase):
     def test_pipeline_reapplies_canonical_short_gate_after_text_repair(self) -> None:
         source = inspect.getsource(CleanV2Pipeline.run)
         post_repair = source.split(
-            "# A successful bounded repair mutates script.json in place.",
+            "# A successful bounded repair mutates the script.",
             1,
         )[1].split("identity_runtime =", 1)[0]
         normalize_index = post_repair.index("normalize_short_script_candidate(")
@@ -1858,7 +1858,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
 
-    def test_mid_run_gemini_failure_restarts_whole_job_on_lite_then_fails_closed(self) -> None:
+    def test_mid_run_gemini_failure_fails_closed_without_lite_restart(self) -> None:
         calls = {"count": 0}
 
         def fake_gemini38(api_key, transcript, output_path, **_kwargs):
@@ -1905,15 +1905,12 @@ class ShortPipelineSeamTests(unittest.TestCase):
             persisted = json.loads(
                 (root / "voice-sections.json").read_text(encoding="utf-8")
             )
+            first_section_preserved = (root / "audio" / "01.wav").is_file()
 
-        # Pass 1 (primary): s1 succeeds (call 1), s2 fails once and breaks
-        # immediately (call 2, no retry delay) - the whole job is discarded
-        # and restarted on gemini-3.8-flash-lite-tts. Pass 2: s1 fails on its
-        # very first attempt this time (call 3, since the fake only ever
-        # succeeds once, globally) and breaks before ever reaching s2 -
-        # confirming the restart reruns the whole narration from scratch,
-        # never resuming or mixing partial output from pass 1.
-        self.assertEqual(calls["count"], 3)
+        # s1 succeeds once; s2 fails once and stops. The successful primary
+        # chunk is not discarded and there is no full lite-model replay.
+        self.assertEqual(calls["count"], 2)
+        self.assertTrue(first_section_preserved)
         self.assertEqual(persisted["status"], "failed")
         self.assertEqual(persisted["reason"], "gemini_3_8_voice_failed_closed")
         self.assertFalse(narration.exists())

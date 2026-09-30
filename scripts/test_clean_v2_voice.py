@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import tempfile
 import unittest
 import wave
@@ -110,7 +111,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
 
         def tts(_key, _text, path, **_kwargs):
             calls["count"] += 1
-            if calls["count"] < 3:
+            if calls["count"] == 1:
                 raise _RateLimit("http_429")
             return _write_audio(Path(path))
 
@@ -121,8 +122,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             ) as sleep:
                 synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
-        self.assertEqual(calls["count"], 3)
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.25, 0.25])
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.25])
         self.assertFalse(synth.fallback_used)
 
     def test_long_retry_after_fails_closed_without_substitution(self) -> None:
@@ -135,12 +136,24 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 with self.assertRaises(VoiceInfrastructureError) as raised:
                     synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
-        # A single call only ever tries the model it is configured with - no
-        # mid-call substitution. The whole-job fallback to lite-tts (and its
-        # all-or-nothing restart) lives in the orchestrator, not this class.
+        # A quota error with no usable short retry delay is terminal for this
+        # run: no model substitution and no repeated quota spend.
         self.assertEqual(tts.call_count, 1)
         sleep.assert_not_called()
         self.assertFalse(raised.exception.fallback_used)
+
+    def test_plain_quota_text_is_not_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch(
+                "clean_v2.media._gemini38_synthesize",
+                side_effect=RuntimeError("429 RESOURCE_EXHAUSTED quota exceeded"),
+            ) as tts, patch("clean_v2.media.time.sleep") as sleep:
+                with self.assertRaises(VoiceInfrastructureError):
+                    synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
+
+        self.assertEqual(tts.call_count, 1)
+        sleep.assert_not_called()
 
     def test_persistent_gemini_failure_is_terminal_after_bounded_retries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -152,8 +165,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 with self.assertRaises(VoiceInfrastructureError) as raised:
                     synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
-        self.assertEqual(tts.call_count, 3)
-        self.assertEqual(raised.exception.charon_attempts, 3)
+        self.assertEqual(tts.call_count, 2)
+        self.assertEqual(raised.exception.charon_attempts, 2)
         self.assertFalse(raised.exception.fallback_used)
         self.assertIn("fallback=false", str(raised.exception))
 
@@ -169,7 +182,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
 
         # Reviewed by ear: Algenib reads better than lite-Charon in Arabic on
-        # the lite model, so the lite pass uses Algenib as the primary voice
+        # the explicitly configured lite route, so it uses Algenib as the
+        # primary voice
         # while Orus stays the fixed questioner - and the reported provider
         # identity reflects that voice honestly instead of claiming Charon.
         self.assertEqual(tts.call_args.kwargs.get("model"), GEMINI38_LITE_TTS_MODEL)
@@ -349,7 +363,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
 
         def tts(_key, transcript, path, **_kwargs):
             calls.append(transcript)
-            if transcript == "القسم الثاني." and failures["s2"] < 2:
+            if transcript == "القسم الثاني." and failures["s2"] < 1:
                 failures["s2"] += 1
                 raise RuntimeError("temporary")
             return _write_audio(Path(path))
@@ -384,14 +398,13 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                 "القسم الأول.",
                 "القسم الثاني.",
                 "القسم الثاني.",
-                "القسم الثاني.",
                 "القسم الثالث.",
             ],
         )
         self.assertEqual(report["voice_provider"], GEMINI38_PROVIDER)
         self.assertFalse(report["voice_fallback_used"])
 
-    def test_sectioned_voice_discards_partial_primary_output_and_restarts_whole_job_on_lite(
+    def test_sectioned_voice_preserves_partial_output_without_lite_restart(
         self,
     ) -> None:
         calls: list[tuple[str, str]] = []
@@ -399,9 +412,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         def tts(_key, transcript, path, *, model, **_kwargs):
             calls.append((transcript, model))
             if model == GEMINI38_TTS_MODEL and transcript == "القسم الثاني.":
-                # Primary is exhausted partway through the narration - s1
-                # already succeeded on primary before this.
-                raise RuntimeError("quota exhausted")
+                raise TtsProviderError("gemini_3_8_http_429", http_status=429)
             return _write_audio(Path(path))
 
         sections = [
@@ -420,31 +431,64 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             ), patch(
                 "clean_v2.pipeline.concat_wav_parts", side_effect=concat_audio
             ):
-                report = _synthesize_sectioned_voice(
-                    synth,
-                    sections,
-                    root / "narration.wav",
-                    require_charon_only=True,
-                )
+                with self.assertRaises(VoiceInfrastructureError):
+                    _synthesize_sectioned_voice(
+                        synth,
+                        sections,
+                        root / "narration.wav",
+                        require_charon_only=True,
+                    )
 
-        # s1 succeeds on primary, s2 exhausts primary's 3 bounded attempts,
-        # then the WHOLE narration - s1 included - is resynthesized from
-        # scratch on lite: s1 is never reused from the discarded pass, and
-        # the final result is 100% one model tier, never a mix of the two.
+            report = json.loads(
+                (root / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            first_section_preserved = (root / "audio" / "01.wav").is_file()
+
+        # s1 succeeds once and remains available for the exact-content cache;
+        # the quota failure on s2 gets one wire call and never starts a second
+        # whole narration on the lite model.
         self.assertEqual(
             [item for item in calls if item[1] == GEMINI38_TTS_MODEL],
-            [("القسم الأول.", GEMINI38_TTS_MODEL)] + [("القسم الثاني.", GEMINI38_TTS_MODEL)] * 3,
+            [("القسم الأول.", GEMINI38_TTS_MODEL), ("القسم الثاني.", GEMINI38_TTS_MODEL)],
         )
         self.assertEqual(
-            [item for item in calls if item[1] == GEMINI38_LITE_TTS_MODEL],
-            [("القسم الأول.", GEMINI38_LITE_TTS_MODEL), ("القسم الثاني.", GEMINI38_LITE_TTS_MODEL)],
+            [item for item in calls if item[1] == GEMINI38_LITE_TTS_MODEL], []
         )
-        # The whole-job lite pass uses Algenib, not Charon, so the reported
-        # provider identity must reflect that rather than claim Charon.
-        self.assertEqual(report["voice_provider"], GEMINI38_LITE_PROVIDER)
-        self.assertTrue(report["voice_fallback_used"])
-        for section in report["sections"]:
-            self.assertTrue(section["fallback_used"])
+        self.assertTrue(first_section_preserved)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["failed_section"], "s2")
+        self.assertEqual(report["tts_wire_attempts"], 2)
+        self.assertEqual(report["tts_cache_hits"], 0)
+
+    def test_exact_tts_chunk_is_restored_without_provider_call(self) -> None:
+        calls = {"count": 0}
+
+        def tts(_key, _text, path, **_kwargs):
+            calls["count"] += 1
+            Path(path).write_bytes(_wav_bytes())
+            return Path(path)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_root = root / "cache"
+            with patch.dict(
+                os.environ,
+                {"CLEAN_V2_TTS_CACHE_PATH": str(cache_root)},
+                clear=False,
+            ), patch("clean_v2.media._gemini38_synthesize", side_effect=tts):
+                first = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+                first.synthesize("نص مطابق قابل للاستئناف.", root / "first.wav")
+                second = GeminiOnlyVoiceSynthesizer("")
+                second.synthesize("نص مطابق قابل للاستئناف.", root / "second.wav")
+
+            self.assertEqual(calls["count"], 1)
+            self.assertFalse(first.cache_hit)
+            self.assertTrue(second.cache_hit)
+            self.assertEqual(second.charon_attempts, 0)
+            self.assertEqual(
+                (root / "first.wav").read_bytes(),
+                (root / "second.wav").read_bytes(),
+            )
 
     def test_dialogue_chunking_preserves_complete_turns(self) -> None:
         source = (
@@ -512,6 +556,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             voice_failure = journal.payload["voice_failure"]
             self.assertEqual(voice_failure["provider"], GEMINI38_PROVIDER)
             self.assertEqual(voice_failure["charon_attempts"], 3)
+            self.assertEqual(voice_failure["tts_wire_attempts"], 3)
+            self.assertEqual(voice_failure["tts_cache_hits"], 0)
             self.assertFalse(voice_failure["fallback_used"])
 
     def test_retired_fallback_workflows_are_absent(self) -> None:

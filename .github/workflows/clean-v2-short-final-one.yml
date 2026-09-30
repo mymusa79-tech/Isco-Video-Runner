@@ -34,6 +34,8 @@ jobs:
       CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-short-final-one
+      CLEAN_V2_RESUME: ${{ runner.temp }}/clean-v2-short-final-resume
+      CLEAN_V2_TTS_CACHE_PATH: ${{ runner.temp }}/clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
     steps:
@@ -85,6 +87,7 @@ jobs:
           python -m pip install --disable-pip-version-check --no-deps -e engine
 
       - name: Build immutable Short final brief
+        id: brief
         run: |
           set -euo pipefail
           brief="$RUNNER_TEMP/clean-v2-short-final-brief.json"
@@ -116,9 +119,26 @@ jobs:
           )"
           echo "CLEAN_V2_SHORT_BRIEF=$brief" >> "$GITHUB_ENV"
           echo "ISCO_APPROVED_BRIEF_SHA256=$sha" >> "$GITHUB_ENV"
+          echo "brief_sha=$sha" >> "$GITHUB_OUTPUT"
           test "${#sha}" = 64
 
-      - name: Run one final cold Short
+      - name: Restore exact Short request checkpoint
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-resume-v6-short-final-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            clean-v2-resume-v6-short-final-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-
+
+      - name: Restore verified Gemini TTS chunks
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
+          key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            clean-v2-gemini38-chunk-v1-${{ runner.os }}-
+
+      - name: Run one final Short
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -148,6 +168,7 @@ jobs:
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
             --runner-sha "$GITHUB_SHA" \
+            --resume-from "$CLEAN_V2_RESUME" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
           production_status=$?
@@ -155,6 +176,45 @@ jobs:
           cleanup_notify
           trap - EXIT
           exit "$production_status"
+
+      - name: Prepare exact Short request checkpoint
+        if: always()
+        id: clean_v2_checkpoint
+        run: |
+          set -euo pipefail
+          if python scripts/clean_v2_resume_cache.py prepare \
+            --output "$CLEAN_V2_OUTPUT" \
+            --target "$CLEAN_V2_RESUME" | grep -qx 'save_allowed=true'; then
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "save=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save exact Short request checkpoint
+        if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-resume-v6-short-final-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Prepare verified Gemini TTS chunks
+        if: always()
+        id: clean_v2_tts_cache
+        run: |
+          set -euo pipefail
+          if python -m clean_v2.tts_cache prepare \
+            --root "$CLEAN_V2_TTS_CACHE_PATH" | grep -qx 'save_allowed=true'; then
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "save=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save verified Gemini TTS chunks
+        if: always() && steps.clean_v2_tts_cache.outputs.save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
+          key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Verify final Short contract and polish evidence
         run: |
@@ -224,8 +284,8 @@ jobs:
               "dark_slate_count": timed.get("dark_slate_count"),
               "audio_polish_status": polish.get("status"),
               "audio_components": polish.get("components"),
-              "cold_attempt": True,
-              "resume_used": False
+              "cold_attempt": not bool(manifest.get("resume_checkpoint_accepted")),
+              "resume_used": bool(manifest.get("resume_checkpoint_accepted"))
           }
           (root / "final-one-shot-result.json").write_text(
               json.dumps(result, ensure_ascii=False, indent=2) + "\n",
