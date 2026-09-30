@@ -156,26 +156,50 @@ INNER_DIALOGUE_VOICE_RULES = (
     "The turn must sound discovered inside the moment, not preached by an external narrator.",
 )
 
+# Universal (all four templates): direct answer to "feels AI-written, padded,
+# and the payoff isn't earned" feedback on real production output. Mirrors
+# EDITORIAL_VOICE_ADVISORY in tone_audit.py's shared audit prompt exactly, so
+# the writer is asked to do the same thing the (currently advisory-only, non-
+# blocking) audit separately observes - closing the loop from "measured
+# after the fact" to "the writer actually tries", without yet gating on it.
+HUMAN_VOICE_NO_FILLER = (
+    "Every sentence must add new information, feeling, or forward motion - never restate a point "
+    "already made in different words, and never use a hollow transition that carries no content "
+    '(e.g. "لكن الحقيقة أن", "في الواقع") unless it introduces something genuinely new. The closing '
+    "payoff must depend on a specific concrete detail already established earlier in this same "
+    "narration - never a generic statement that could just as easily close a different topic."
+)
+
+# Selective (only templates whose own shape is a scene/inner-voice/narrative
+# turn): forcing a scene-open on why_reframe or quote_reflection would fight
+# their own explicitly argumentative/quotation-led design, so this is never
+# applied there.
+COLD_OPEN_AS_SCENE = (
+    "The opening line must land inside a concrete moment, sensation, or action already under way - "
+    "never a general statement, address, or instruction."
+)
+
 TEMPLATE_WRITING_DIRECTIVES = {
     "why_reframe": (
         "Short type is why_reframe. Open on one specific mistaken assumption, contrast it with the "
         "useful truth, reframe it, then land one concrete payoff/action. Keep the Arabic natural and "
-        "specific; do not add generic motivation."
+        "specific; do not add generic motivation. " + HUMAN_VOICE_NO_FILLER
     ),
     "inner_dialogue": (
         "Short type is inner_dialogue. Open with an immediate internal-tension line, show the friction, "
         "turn the perspective, then land one practical payoff/action. Keep it intimate but not melodramatic "
-        "and never fabricate autobiography. " + " ".join(INNER_DIALOGUE_VOICE_RULES)
+        "and never fabricate autobiography. " + " ".join(INNER_DIALOGUE_VOICE_RULES) + " "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE
     ),
     "micro_story": (
         "Short type is micro_story. Enter a tiny concrete scene immediately, show one event/turn, then land "
         "the meaning/payoff. Do not invent personal facts; use a generic human scenario unless the approved "
-        "brief itself supplies a real event."
+        "brief itself supplies a real event. " + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE
     ),
     "quote_reflection": (
         "Short type is quote_reflection. Use only an actual quotation explicitly present in the approved "
         "topic as the opening hook; never invent, alter, or attribute a quote. Follow with a brief reflection "
-        "and a concrete payoff."
+        "and a concrete payoff. " + HUMAN_VOICE_NO_FILLER
     ),
 }
 

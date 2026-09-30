@@ -16,6 +16,8 @@ from clean_v2.pipeline import (
     _factuality_repair_issue_notes,
     _factuality_target_section_ids,
     _first_spoken_sentence,
+    _LONGFORM_PROFILES,
+    _PODCAST_FIXED_PROFILE,
     _repair_target_section_ids,
     _run_legacy_factuality_audit,
     _run_legacy_tone_naturalness_audit,
@@ -24,7 +26,12 @@ from clean_v2.pipeline import (
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
 )
-from clean_v2.short_format import ShortFormatError
+from clean_v2.short_format import (
+    COLD_OPEN_AS_SCENE,
+    HUMAN_VOICE_NO_FILLER,
+    TEMPLATE_WRITING_DIRECTIVES,
+    ShortFormatError,
+)
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
@@ -1486,6 +1493,65 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["factuality_status"], "pass")
         self.assertEqual(report["tone_naturalness_status"], "pass")
+
+
+class EditorialVoiceWriterPromptTests(unittest.TestCase):
+    """Closing the loop: the writer's own generation prompt now carries the
+    same HUMAN_VOICE_NO_FILLER/COLD_OPEN_AS_SCENE guidance the (advisory-only,
+    non-blocking) tone audit separately observes - not just a rule the writer
+    is silently measured against after the fact.
+    """
+
+    SHORT_COLD_OPEN_ELIGIBLE = ("inner_dialogue", "micro_story")
+    SHORT_COLD_OPEN_INELIGIBLE = ("why_reframe", "quote_reflection")
+    FILM_COLD_OPEN_ELIGIBLE = (
+        "direct_cinematic",
+        "inner_dialogue",
+        "story_analysis",
+        "paradox",
+        "hypothesis_test",
+    )
+    FILM_COLD_OPEN_INELIGIBLE = (
+        "question_answer",
+        "dialogue_qa",
+        "problem_reveal_solution",
+        "connected_list",
+    )
+
+    def test_all_four_short_templates_carry_human_voice_no_filler(self):
+        self.assertEqual(set(TEMPLATE_WRITING_DIRECTIVES), {
+            "why_reframe", "inner_dialogue", "micro_story", "quote_reflection",
+        })
+        for template, directive in TEMPLATE_WRITING_DIRECTIVES.items():
+            self.assertIn(HUMAN_VOICE_NO_FILLER, directive, template)
+
+    def test_cold_open_as_scene_is_scoped_to_narrative_short_templates_only(self):
+        for template in self.SHORT_COLD_OPEN_ELIGIBLE:
+            self.assertIn(COLD_OPEN_AS_SCENE, TEMPLATE_WRITING_DIRECTIVES[template], template)
+        for template in self.SHORT_COLD_OPEN_INELIGIBLE:
+            self.assertNotIn(COLD_OPEN_AS_SCENE, TEMPLATE_WRITING_DIRECTIVES[template], template)
+
+    def test_all_nine_film_profiles_carry_human_voice_no_filler(self):
+        self.assertEqual(
+            set(_LONGFORM_PROFILES),
+            set(self.FILM_COLD_OPEN_ELIGIBLE) | set(self.FILM_COLD_OPEN_INELIGIBLE),
+        )
+        for name, profile in _LONGFORM_PROFILES.items():
+            self.assertIn(HUMAN_VOICE_NO_FILLER, profile["writing"], name)
+
+    def test_cold_open_as_scene_is_scoped_to_narrative_film_profiles_only(self):
+        for name in self.FILM_COLD_OPEN_ELIGIBLE:
+            self.assertIn(COLD_OPEN_AS_SCENE, _LONGFORM_PROFILES[name]["writing"], name)
+        for name in self.FILM_COLD_OPEN_INELIGIBLE:
+            self.assertNotIn(COLD_OPEN_AS_SCENE, _LONGFORM_PROFILES[name]["writing"], name)
+
+    def test_podcast_fixed_profile_carries_no_filler_but_never_cold_open(self):
+        # Podcast's one fixed house style is itself a real listener question
+        # answered directly - forcing a scene-open would contradict its own
+        # defined purpose, per the earlier design discussion.
+        writing = _PODCAST_FIXED_PROFILE["writing"]
+        self.assertIn(HUMAN_VOICE_NO_FILLER, writing)
+        self.assertNotIn(COLD_OPEN_AS_SCENE, writing)
 
 
 if __name__ == "__main__":
