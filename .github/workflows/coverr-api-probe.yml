@@ -16,7 +16,7 @@ jobs:
     env:
       COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
     steps:
-      - name: Probe Coverr Demo API safely
+      - name: Probe Coverr downloadable media safely
         shell: bash
         run: |
           python - <<'PY'
@@ -28,83 +28,85 @@ jobs:
 
           key = os.environ.get("COVERR_API_KEY", "").strip()
           if not key:
-              print("COVERR_SECRET_PRESENT=false")
               raise SystemExit("COVERR_API_KEY is not available to this workflow")
           print("COVERR_SECRET_PRESENT=true")
 
-          base = "https://api.coverr.co"
-          headers = {
+          api_headers = {
               "Authorization": f"Bearer {key}",
               "Accept": "application/json",
               "User-Agent": "Nidaa-Visuals-Coverr-Probe/1.0",
           }
 
-          def probe(path, params, label):
-              url = base + path
+          def api_get(path, params=None):
+              url = "https://api.coverr.co" + path
               if params:
                   url += "?" + urllib.parse.urlencode(params)
-              req = urllib.request.Request(url, headers=headers, method="GET")
+              req = urllib.request.Request(url, headers=api_headers, method="GET")
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  return resp.status, json.loads(resp.read().decode("utf-8"))
+
+          def range_probe(url, label):
+              if not url:
+                  print(f"{label}_URL_PRESENT=false")
+                  return
+              print(f"{label}_URL_PRESENT=true")
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Range": "bytes=0-1023",
+                      "User-Agent": "Nidaa-Visuals-Coverr-Probe/1.0",
+                  },
+                  method="GET",
+              )
               try:
                   with urllib.request.urlopen(req, timeout=20) as resp:
-                      raw = resp.read()
-                      data = json.loads(raw.decode("utf-8"))
-                      hits = data.get("hits") if isinstance(data, dict) else None
+                      body = resp.read(1024)
                       print(f"{label}_HTTP={resp.status}")
-                      print(f"{label}_TOTAL={data.get('total') if isinstance(data, dict) else 'n/a'}")
-                      print(f"{label}_HITS={len(hits) if isinstance(hits, list) else 'n/a'}")
-                      for h in (
-                          "x-ratelimit-limit", "x-ratelimit-remaining",
-                          "ratelimit-limit", "ratelimit-remaining",
-                          "x-rate-limit-limit", "x-rate-limit-remaining",
-                      ):
-                          if resp.headers.get(h) is not None:
-                              print(f"{label}_{h.upper().replace('-', '_')}={resp.headers.get(h)}")
-                      return data
+                      print(f"{label}_CONTENT_TYPE={resp.headers.get('content-type','')}")
+                      print(f"{label}_CONTENT_LENGTH={resp.headers.get('content-length','')}")
+                      print(f"{label}_CONTENT_RANGE={resp.headers.get('content-range','')}")
+                      print(f"{label}_BYTES_READ={len(body)}")
               except urllib.error.HTTPError as e:
-                  body = e.read().decode("utf-8", errors="replace")
                   print(f"{label}_HTTP={e.code}")
-                  print(f"{label}_ERROR_BODY={body[:300]}")
-                  return None
+                  print(f"{label}_ERROR={e.read(200).decode('utf-8',errors='replace')}")
 
-          videos = probe("/videos", {"page_size": 5, "urls": "true"}, "VIDEO_LIST")
-          if isinstance(videos, dict) and videos.get("hits"):
-              v = videos["hits"][0]
+          status, videos = api_get("/videos", {"query": "city", "page_size": 1, "urls": "true"})
+          print(f"VIDEO_API_HTTP={status}")
+          v = (videos.get("hits") or [None])[0]
+          if v:
+              print("VIDEO_ID=" + str(v.get("id","")))
+              print("VIDEO_TITLE=" + str(v.get("title",""))[:120])
+              print("VIDEO_DURATION=" + str(v.get("duration","")))
+              print("VIDEO_MAX=" + str(v.get("max_width","")) + "x" + str(v.get("max_height","")))
               urls = v.get("urls") or {}
-              print("VIDEO_SAMPLE_ID=" + str(v.get("id", "")))
-              print("VIDEO_SAMPLE_TITLE=" + str(v.get("title", ""))[:120])
-              print("VIDEO_SAMPLE_VERTICAL=" + str(v.get("is_vertical", "")))
-              print("VIDEO_SAMPLE_DURATION=" + str(v.get("duration", "")))
-              print("VIDEO_SAMPLE_MAX=" + str(v.get("max_width", "")) + "x" + str(v.get("max_height", "")))
-              print("VIDEO_HAS_MP4=" + str(bool(urls.get("mp4"))).lower())
-              print("VIDEO_HAS_PREVIEW=" + str(bool(urls.get("mp4_preview"))).lower())
-              print("VIDEO_HAS_DOWNLOAD=" + str(bool(urls.get("mp4_download"))).lower())
+              range_probe(urls.get("mp4_preview"), "VIDEO_PREVIEW")
+              range_probe(urls.get("mp4_download"), "VIDEO_DOWNLOAD")
 
-          for q in ("anxiety", "city", "walking", "night"):
-              data = probe("/videos", {"query": q, "page_size": 5, "urls": "false"}, "VIDEO_Q_" + q.upper())
-              if isinstance(data, dict) and data.get("hits"):
-                  print("VIDEO_Q_" + q.upper() + "_FIRST_TITLE=" + str(data["hits"][0].get("title", ""))[:120])
+          status, audios = api_get("/audios", {"query": "piano", "page_size": 1})
+          print(f"AUDIO_LIST_HTTP={status}")
+          a = (audios.get("hits") or [None])[0]
+          if a:
+              aid = str(a.get("id",""))
+              print("AUDIO_ID=" + aid)
+              print("AUDIO_LIST_KEYS=" + ",".join(sorted(a.keys())))
+              print("AUDIO_LIST_NAME=" + str(a.get("name") or a.get("title") or ""))
+              print("AUDIO_LIST_DURATION=" + str(a.get("duration","")))
+              print("AUDIO_LIST_GENRES=" + json.dumps(a.get("genres",[]),ensure_ascii=True))
+              print("AUDIO_LIST_MOODS=" + json.dumps(a.get("moods",[]),ensure_ascii=True))
+              print("AUDIO_LIST_INSTRUMENTS=" + json.dumps(a.get("instruments",[]),ensure_ascii=True))
+              lurls = a.get("urls") or {}
+              print("AUDIO_LIST_PREVIEW=" + str(bool(lurls.get("preview"))).lower())
+              print("AUDIO_LIST_PREVIEW_DOWNLOAD=" + str(bool(lurls.get("previewDownload"))).lower())
+              print("AUDIO_LIST_MASTER_DOWNLOAD=" + str(bool(lurls.get("masterDownload"))).lower())
 
-          audios = probe("/audios", {"page_size": 8}, "AUDIO_LIST")
-          if isinstance(audios, dict) and audios.get("hits"):
-              a = audios["hits"][0]
-              urls = a.get("urls") or {}
-              print("AUDIO_SAMPLE_ID=" + str(a.get("id", "")))
-              print("AUDIO_SAMPLE_NAME=" + str(a.get("name") or a.get("title") or ""))
-              print("AUDIO_SAMPLE_DURATION=" + str(a.get("duration", "")))
-              print("AUDIO_SAMPLE_PREMIUM=" + str(a.get("isPremium", "")))
-              print("AUDIO_SAMPLE_GENRES=" + json.dumps(a.get("genres", []), ensure_ascii=True))
-              print("AUDIO_SAMPLE_MOODS=" + json.dumps(a.get("moods", []), ensure_ascii=True))
-              print("AUDIO_SAMPLE_INSTRUMENTS=" + json.dumps(a.get("instruments", []), ensure_ascii=True))
-              print("AUDIO_HAS_PREVIEW=" + str(bool(urls.get("preview"))).lower())
-              print("AUDIO_HAS_PREVIEW_DOWNLOAD=" + str(bool(urls.get("previewDownload"))).lower())
-              print("AUDIO_HAS_MASTER_DOWNLOAD=" + str(bool(urls.get("masterDownload"))).lower())
-
-          for q in ("piano", "ambient", "relaxing"):
-              data = probe("/audios", {"query": q, "page_size": 8}, "AUDIO_Q_" + q.upper())
-              if isinstance(data, dict) and data.get("hits"):
-                  a = data["hits"][0]
-                  print("AUDIO_Q_" + q.upper() + "_FIRST=" + str(a.get("name") or a.get("title") or ""))
-                  print("AUDIO_Q_" + q.upper() + "_PREMIUM=" + str(a.get("isPremium", "")))
-
-          probe("/images", {"query": "city", "page_size": 1}, "IMAGE")
+              dstatus, detail = api_get("/audios/" + urllib.parse.quote(aid))
+              print(f"AUDIO_DETAIL_HTTP={dstatus}")
+              print("AUDIO_DETAIL_KEYS=" + ",".join(sorted(detail.keys())))
+              durls = detail.get("urls") or {}
+              print("AUDIO_DETAIL_PREVIEW=" + str(bool(durls.get("preview"))).lower())
+              print("AUDIO_DETAIL_PREVIEW_DOWNLOAD=" + str(bool(durls.get("previewDownload"))).lower())
+              print("AUDIO_DETAIL_MASTER_DOWNLOAD=" + str(bool(durls.get("masterDownload"))).lower())
+              range_probe(durls.get("preview"), "AUDIO_PREVIEW")
+              range_probe(durls.get("previewDownload"), "AUDIO_PREVIEW_DOWNLOAD")
+              range_probe(durls.get("masterDownload"), "AUDIO_MASTER_DOWNLOAD")
           PY
