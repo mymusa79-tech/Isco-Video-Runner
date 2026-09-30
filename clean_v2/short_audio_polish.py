@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .music_library import select_music_track
+from .visual_story import EDITORIAL_HOLD_WEIGHTS
 
 # Format-aware music presence. Shorts can carry a more audible bed; long-form
 # stays progressively quieter so narration remains the unquestioned authority.
@@ -37,12 +38,6 @@ PAUSE_DUCKS = {
     "emphasis": (0.35, -2.5),
     "transition": (0.45, -3.5),
     "ending": (0.65, -5.0),
-}
-EDITORIAL_HOLD_WEIGHTS = {
-    "idea_continues": 1.25,
-    "idea_changes": 1.00,
-    "hook_progression": 0.95,
-    "payoff_landing": 1.20,
 }
 
 # Compatibility constants. Generated SFX are intentionally disabled.
