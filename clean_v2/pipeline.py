@@ -4661,8 +4661,18 @@ multiple visible states such as setup -> interruption, cause -> consequence, att
 decision -> action, represent those distinct states as separate semantic beats instead of stretching
 one generic stock clip across the whole section. Prefer a simple establish -> detail/cutaway ->
 consequence/payoff progression when the content supports it. Do not manufacture cuts where meaning
-has not changed, and do not let a single clip carry unrelated mechanism, example and payoff states. For each
-beat, viewer_intent states what the viewer should understand or feel. meaning_target states the
+has not changed, and do not let a single clip carry unrelated mechanism, example and payoff states.
+For every beat, also author three tiny semantic editing signals:
+- hold_reason: exactly idea_continues, idea_changes, hook_progression, or payoff_landing. Use
+  idea_continues only when the SAME visible idea should be allowed more breathing room; never use it
+  merely to make a clip longer.
+- pause_intent: exactly none, micro, emphasis, transition, or ending. This is only an acoustic boundary
+  cue for the existing music bed; it never inserts silence or changes measured voice duration.
+- audio_energy: exactly quiet, low, steady, lift, or resolve. This shapes only the music envelope under
+  narration; it never changes the voice level or creates a new music track.
+These signals must follow meaning, never random variation. Hook normally uses hook_progression; a true
+arrival/payoff normally uses payoff_landing. For each beat, viewer_intent states what the viewer should
+understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
 misleading substitutes that would look related but fail the exact idea. shot_intent MUST be a concrete
@@ -4777,7 +4787,10 @@ Return one JSON object with exactly this useful shape:
         "stock_query_en": "distinct concise English primary retrieval query for this beat",
         "stock_query_alt_en": "optional second English query using a different observable situation for the same meaning",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
-        "source_preference": "stock_motion"
+        "source_preference": "stock_motion",
+        "hold_reason": "hook_progression",
+        "pause_intent": "micro",
+        "audio_energy": "steady"
       }}
     ]
   }}
