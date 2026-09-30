@@ -84,7 +84,8 @@ class TavilyResearchLiteTests(unittest.TestCase):
         self.assertIn('tavily = pending.get("tavily_grounding")', source)
         self.assertIn("if not isinstance(tavily, dict):", source)
         self.assertIn('pending["tavily_grounding"] = tavily', source)
-        self.assertIn('signals["grounded_research"] = tavily_memo', source)
+        self.assertIn("tavily_memo[:2600]", source)
+        self.assertIn('signals["grounded_research"] = "\\n\\n".join(grounded_parts)[:6000]', source)
 
     def test_secret_is_scoped_to_editorial_research_workflow(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "telegram-editorial-control.yml").read_text(encoding="utf-8")
