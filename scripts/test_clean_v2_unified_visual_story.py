@@ -219,7 +219,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertEqual(len(story["beats"]), 3 if fmt == "short" else 5)
                 self.assertTrue(
                     all(
-                        beat["source_preference"] in {"stock_motion", "ai_still"}
+                        beat["source_preference"] in {"stock_motion", "stock_still", "ai_still"}
                         for beat in story["beats"]
                     )
                 )

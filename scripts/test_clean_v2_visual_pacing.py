@@ -1417,12 +1417,10 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
             "middle.mp4",
         )
 
-    def test_channel_stock_query_adds_one_shared_vibe_without_overwriting_semantics(self) -> None:
+    def test_channel_stock_query_keeps_provider_search_semantic(self) -> None:
         core = "hand closes laptop after finishing one task"
-        styled = media_module._channel_stock_query(core)
-        self.assertTrue(styled.startswith(core))
-        self.assertTrue(styled.endswith("warm neutral cinematic"))
-        self.assertLessEqual(len(styled), 96)
+        self.assertEqual(media_module._channel_stock_query(core), core)
+        self.assertNotIn("cinematic", media_module._channel_stock_query(core))
         long_query = "specific observable action " + ("detail " * 20)
         self.assertEqual(
             media_module._channel_stock_query(long_query),

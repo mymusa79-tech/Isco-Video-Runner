@@ -24,7 +24,7 @@ CHANNEL_VISUAL_AVOID = (
     "repetitive stationery, notebooks, sticky notes, or typing across consecutive beats",
     "gloomy or depressive treatment",
 )
-SOURCE_PREFERENCES = frozenset({"stock_motion", "ai_still"})
+SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
@@ -366,6 +366,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         )
         explicit_stock_query = "stock_query_en" in raw
         stock_query_en = " ".join(str(raw.get("stock_query_en") or "").split()).strip()
+        stock_query_alt_en = " ".join(str(raw.get("stock_query_alt_en") or "").split()).strip()
         if not stock_query_en and not explicit_stock_query:
             stock_query_en = _fallback_stock_query(
                 section_by_id.get(section_id) or {},
@@ -417,15 +418,23 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(f"visual_story beat {beat_id} is too verbose")
         if len(stock_query_en) > 260:
             raise ValueError(f"visual_story beat {beat_id} stock_query_en is too verbose")
+        if len(stock_query_alt_en) > 260:
+            raise ValueError(f"visual_story beat {beat_id} stock_query_alt_en is too verbose")
         if re.search(r"[\u0600-\u06ff]", stock_query_en):
             raise ValueError(
                 f"visual_story beat {beat_id} stock_query_en must stay English"
             )
+        if stock_query_alt_en and re.search(r"[\u0600-\u06ff]", stock_query_alt_en):
+            raise ValueError(
+                f"visual_story beat {beat_id} stock_query_alt_en must stay English"
+            )
+        if stock_query_alt_en and _query_key(stock_query_alt_en) == _query_key(stock_query_en):
+            stock_query_alt_en = ""
         if role not in BEAT_ROLES:
             raise ValueError(f"visual_story beat {beat_id} has invalid role")
         if source_preference not in SOURCE_PREFERENCES:
             raise ValueError(
-                f"visual_story beat {beat_id} source_preference must be stock_motion or ai_still"
+                f"visual_story beat {beat_id} source_preference must be stock_motion, stock_still, or ai_still"
             )
 
         prior_section_index = section_order[section_id]
@@ -473,6 +482,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 "shot_intent": shot_intent,
                 "role": role,
                 "stock_query_en": stock_query_en,
+                **({"stock_query_alt_en": stock_query_alt_en} if stock_query_alt_en else {}),
                 "display_text_ar": display_text_ar,
                 "source_preference": source_preference,
                 **({"writer_anchor_ar": writer_anchor_ar} if writer_anchor_ar else {}),

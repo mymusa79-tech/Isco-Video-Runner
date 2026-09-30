@@ -137,6 +137,8 @@ SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 AI_STILL_CLIP_SECONDS = 12.0
 SHORT_MIN_COLOR_SATURATION_AVG = 5.0
+COVERR_MAX_SEARCHES_PER_RUN = 12
+STOCK_PRIMARY_PAGE_SIZE = 24
 
 
 def _utc_now() -> str:
@@ -661,7 +663,7 @@ def _get_json(
 def _safe_media_host(url: str) -> bool:
     parsed = urllib.parse.urlparse(url)
     host = str(parsed.hostname or "").lower()
-    allowed = ("pexels.com", "pixabay.com")
+    allowed = ("pexels.com", "pixabay.com", "coverr.co")
     return parsed.scheme == "https" and any(
         host == suffix or host.endswith(f".{suffix}") for suffix in allowed
     )
@@ -975,26 +977,52 @@ def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
     return " ".join([compact, *missing])[:260].strip()
 
 
-CHANNEL_STOCK_QUERY_SUFFIX = "warm neutral cinematic"
+CHANNEL_STOCK_QUERY_SUFFIX = ""
 
 
 def _channel_stock_query(query: str) -> str:
-    """Add one compact channel-style cue without changing search count or semantics."""
-    base = " ".join(str(query or "").split()).strip()
-    if not base:
-        return ""
-    lowered = base.lower()
-    missing = [
-        token
-        for token in CHANNEL_STOCK_QUERY_SUFFIX.split()
-        if token not in lowered
-    ]
-    if not missing:
-        return base
-    candidate = f"{base} {' '.join(missing)}".strip()
-    # Pixabay truncates at 100 chars; never sacrifice the semantic query just to
-    # force the style suffix into an unusually long search phrase.
-    return candidate if len(candidate) <= 96 else base
+    """Keep provider search semantic; channel styling is enforced after acquisition.
+
+    Historical searches appended ``warm neutral cinematic``. Provider docs and live
+    retrieval showed those generic style words consume scarce query space without
+    proving the action/state. The renderer already owns grade/composition, so stock
+    search now preserves only the concrete scene semantics.
+    """
+    return " ".join(str(query or "").split()).strip()
+
+
+def _stock_query_ladder(primary_query: str, beat: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return at most two meaning-preserving searches for one visual beat.
+
+    The primary query is already the authoritative writer/shot-intent boundary, so
+    preserve it verbatim apart from whitespace. Only a fallback alternate is locally
+    compacted. Runtime evaluates the alternate lazily *after* the primary search fails.
+    """
+    primary = " ".join(str(primary_query or "").split()).strip()[:160]
+    if not primary:
+        return ()
+
+    queries = [primary]
+    seen = {" ".join(re.findall(r"[a-z0-9]+", primary.casefold()))}
+    raw_alternates: list[object] = [beat.get("stock_query_alt_en")]
+    if not str(beat.get("stock_query_alt_en") or "").strip():
+        raw_alternates.extend(list(beat.get("semantic_must_have") or [])[:2])
+        raw_alternates.append(beat.get("stock_query_en"))
+
+    for raw in raw_alternates:
+        compact = compact_searchable_visual_intent(
+            raw,
+            drop_tokens=_STOCK_INTENT_DROP_TOKENS,
+            max_words=10,
+        )
+        if not compact:
+            continue
+        key = " ".join(re.findall(r"[a-z0-9]+", compact.casefold()))
+        if not key or key in seen:
+            continue
+        queries.append(compact[:160])
+        break
+    return tuple(queries)
 
 
 _STOCK_RANK_STOP_TOKENS = frozenset({
@@ -1110,6 +1138,7 @@ class StockVisualSource:
         self.query_normalizer = query_normalizer
         self.media_preflight = media_preflight
         self.media_transform = media_transform
+        self._coverr_search_calls = 0
 
     def _event(
         self,
@@ -1130,6 +1159,272 @@ class StockVisualSource:
                 "reason": reason,
             }
         )
+
+    def _coverr(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("COVERR_API_KEY")
+        if not key:
+            self._event("coverr", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        if self._coverr_search_calls >= COVERR_MAX_SEARCHES_PER_RUN:
+            self._event(
+                "coverr",
+                query,
+                "skipped",
+                wire_attempted=False,
+                reason="run_search_budget_exhausted",
+            )
+            return None
+        self._coverr_search_calls += 1
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:160],
+                "page_size": STOCK_PRIMARY_PAGE_SIZE,
+                "sort": "popular",
+                "urls": "true",
+            }
+        )
+        try:
+            body = _get_json(
+                f"https://api.coverr.co/videos?{params}",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
+                asset_id = str(hit.get("id") or "").strip()
+                identity = ("coverr", asset_id)
+                if not asset_id or identity in self._used:
+                    continue
+                if bool(hit.get("is_ai") or hit.get("ai_generated")):
+                    continue
+                source_type = str(hit.get("source") or hit.get("type") or "").casefold()
+                if source_type in {"ai", "generated", "ai_generated"}:
+                    continue
+                urls = hit.get("urls") or {}
+                download_url = str(
+                    (urls.get("mp4_download") if isinstance(urls, Mapping) else "")
+                    or (urls.get("mp4") if isinstance(urls, Mapping) else "")
+                    or ""
+                ).strip()
+                if not download_url:
+                    continue
+                width = int(hit.get("max_width") or 0)
+                height = int(hit.get("max_height") or 0)
+                if not width or not height:
+                    vertical = bool(hit.get("is_vertical"))
+                    width, height = ((1080, 1920) if vertical else (1920, 1080))
+                metadata = " ".join(
+                    [
+                        str(hit.get("title") or ""),
+                        str(hit.get("description") or ""),
+                        " ".join(str(x) for x in (hit.get("tags") or []) if x),
+                        " ".join(str(x) for x in (hit.get("search_keywords") or []) if x),
+                    ]
+                )
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=width,
+                    height=height,
+                    duration=float(hit.get("duration") or 0.0),
+                    portrait=portrait,
+                    query=query,
+                    metadata=metadata,
+                )
+                ranked.append((score, hit, download_url, identity))
+            if ranked:
+                score, hit, download_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "coverr",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "coverr",
+                    "asset_id": identity[1],
+                    "download_url": download_url,
+                    "source_url": str(hit.get("url") or "https://coverr.co"),
+                    "creator": "Coverr",
+                    "creator_url": "https://coverr.co",
+                    "query": query,
+                    "media_kind": "video",
+                    "attribution_required": True,
+                }
+            self._event("coverr", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "coverr",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
+
+    def _pexels_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("PEXELS_API_KEY")
+        if not key:
+            self._event("pexels_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:200],
+                "orientation": "portrait" if portrait else "landscape",
+                "size": "large",
+                "per_page": STOCK_PRIMARY_PAGE_SIZE,
+                "locale": "en-US",
+            }
+        )
+        try:
+            body = _get_json(
+                f"https://api.pexels.com/v1/search?{params}",
+                headers={"Authorization": key},
+            )
+            photos = [item for item in (body.get("photos") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(photos))
+            for index, photo in enumerate(photos):
+                identity = ("pexels_photo", str(photo.get("id") or ""))
+                if not identity[1] or identity in self._used:
+                    continue
+                src = photo.get("src") or {}
+                if not isinstance(src, Mapping):
+                    continue
+                image_url = str(
+                    src.get("large2x")
+                    or src.get("large")
+                    or src.get("portrait" if portrait else "landscape")
+                    or src.get("original")
+                    or ""
+                ).strip()
+                if not image_url:
+                    continue
+                width = int(photo.get("width") or 0)
+                height = int(photo.get("height") or 0)
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=width,
+                    height=height,
+                    duration=4.0,
+                    portrait=portrait,
+                    query=query,
+                    metadata=" ".join(
+                        [str(photo.get("alt") or ""), str(photo.get("url") or "")]
+                    ),
+                )
+                ranked.append((score, photo, image_url, identity))
+            if ranked:
+                score, photo, image_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "pexels_photo",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "pexels",
+                    "asset_id": identity[1],
+                    "download_url": image_url,
+                    "source_url": str(photo.get("url") or ""),
+                    "creator": str(photo.get("photographer") or ""),
+                    "creator_url": str(photo.get("photographer_url") or ""),
+                    "query": query,
+                    "media_kind": "photo",
+                }
+            self._event("pexels_photo", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "pexels_photo",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
+
+    def _pixabay_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("PIXABAY_API_KEY")
+        if not key:
+            self._event("pixabay_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        params = urllib.parse.urlencode(
+            {
+                "key": key,
+                "q": query[:100],
+                "image_type": "photo",
+                "orientation": "vertical" if portrait else "horizontal",
+                "safesearch": "true",
+                "order": "popular",
+                "per_page": STOCK_PRIMARY_PAGE_SIZE,
+            }
+        )
+        try:
+            body = _get_json(f"https://pixabay.com/api/?{params}")
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
+                identity = ("pixabay_photo", str(hit.get("id") or ""))
+                if not identity[1] or identity in self._used:
+                    continue
+                image_url = str(
+                    hit.get("largeImageURL")
+                    or hit.get("webformatURL")
+                    or hit.get("previewURL")
+                    or ""
+                ).strip()
+                if not image_url:
+                    continue
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=int(hit.get("imageWidth") or hit.get("webformatWidth") or 0),
+                    height=int(hit.get("imageHeight") or hit.get("webformatHeight") or 0),
+                    duration=4.0,
+                    portrait=portrait,
+                    query=query,
+                    metadata=" ".join(
+                        [str(hit.get("tags") or ""), str(hit.get("pageURL") or "")]
+                    ),
+                )
+                ranked.append((score, hit, image_url, identity))
+            if ranked:
+                score, hit, image_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "pixabay_photo",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "pixabay",
+                    "asset_id": identity[1],
+                    "download_url": image_url,
+                    "source_url": str(hit.get("pageURL") or ""),
+                    "creator": str(hit.get("user") or ""),
+                    "creator_url": "",
+                    "query": query,
+                    "media_kind": "photo",
+                }
+            self._event("pixabay_photo", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "pixabay_photo",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
 
     def _pexels(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
         key = _read_secret("PEXELS_API_KEY")
@@ -1367,6 +1662,7 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "stock_query_alt_en": str(raw_beat.get("stock_query_alt_en") or "").strip(),
                     "writer_anchor_ar": str(raw_beat.get("writer_anchor_ar") or "").strip(),
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
@@ -1393,15 +1689,170 @@ class StockVisualSource:
         ai_hook_reference: Path | None = None
         ai_route_available = True
 
-        def _acquire_one(
+        def _admit_stock_candidate(
+            candidate: dict[str, Any],
             query: str,
+            section_id: str,
+            beat: Mapping[str, Any],
+            *,
+            auxiliary: bool,
+            as_still: bool,
+            query_variant_index: int,
+        ) -> bool:
+            provider = str(candidate.get("provider") or "unknown")
+            beat_id = str(beat.get("id") or f"b{len(clips) + 1}")
+            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+            still_source: Path | None = None
+            try:
+                if as_still:
+                    still_dir = output_dir / ".stock-stills"
+                    still_dir.mkdir(parents=True, exist_ok=True)
+                    safe_provider = re.sub(r"[^a-z0-9_-]+", "-", provider.casefold())[:24] or "stock"
+                    safe_asset = re.sub(
+                        r"[^A-Za-z0-9_-]+",
+                        "-",
+                        str(candidate.get("asset_id") or beat_id),
+                    )[:48] or beat_id
+                    still_source = still_dir / f"{beat_id}-{safe_provider}-{safe_asset}.jpg"
+                    _download_media(str(candidate["download_url"]), still_source)
+                    _render_ai_still(still_source, destination, fmt=fmt)
+                else:
+                    _download_media(str(candidate["download_url"]), destination)
+
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(destination)
+                    if blocked is not None:
+                        self._event(
+                            provider,
+                            query,
+                            "security_blocked",
+                            wire_attempted=False,
+                            reason=str(
+                                blocked.get("local_media_rejection")
+                                or "security_v1_block"
+                            )[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        return False
+                if fmt == "short":
+                    color_ok, color_reason = _short_visual_color_compatible(destination)
+                    if not color_ok:
+                        self._event(
+                            provider,
+                            query,
+                            "color_rejected",
+                            wire_attempted=False,
+                            reason=color_reason,
+                        )
+                        destination.unlink(missing_ok=True)
+                        return False
+                if self.media_transform is not None:
+                    destination = Path(self.media_transform(destination))
+            except Exception as exc:
+                destination.unlink(missing_ok=True)
+                self._event(
+                    provider,
+                    query,
+                    "download_failed" if not as_still else "still_prepare_failed",
+                    wire_attempted=True,
+                    reason=str(exc)[:80],
+                )
+                return False
+            finally:
+                if still_source is not None:
+                    still_source.unlink(missing_ok=True)
+
+            admitted = {
+                key: value
+                for key, value in candidate.items()
+                if key != "download_url"
+            }
+            admitted["local_file"] = destination.name
+            admitted["section_id"] = section_id
+            admitted["beat_id"] = beat_id
+            admitted["viewer_intent"] = str(beat.get("viewer_intent") or "")
+            admitted["meaning_target"] = str(
+                beat.get("meaning_target") or beat.get("viewer_intent") or ""
+            )
+            admitted["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
+            admitted["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
+            admitted["shot_intent"] = str(beat.get("shot_intent") or query)
+            admitted["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
+            admitted["display_text_ar"] = str(beat.get("display_text_ar") or "")
+            admitted["role"] = str(beat.get("role") or "")
+            admitted["source_preference"] = str(
+                beat.get("source_preference") or "stock_motion"
+            )
+            admitted["source_actual"] = "stock_still" if as_still else "stock_motion"
+            admitted["query_variant_index"] = int(query_variant_index)
+            admitted["query_evolution_used"] = bool(query_variant_index)
+            if auxiliary:
+                admitted["pacing_auxiliary"] = True
+                admitted["story_beat_auxiliary"] = True
+            clips.append(destination)
+            rights.append(admitted)
+            return True
+
+        def _try_stock_kind(
+            queries: tuple[str, ...],
+            section_id: str,
+            beat: Mapping[str, Any],
+            *,
+            auxiliary: bool,
+            as_still: bool,
+            prepare_query: Callable[[str], str],
+        ) -> bool:
+            finders = (
+                (self._pexels_photo, self._pixabay_photo)
+                if as_still
+                else (self._coverr, self._pexels, self._pixabay)
+            )
+            for query_variant_index, raw_query in enumerate(queries):
+                query = prepare_query(raw_query)
+                if not query:
+                    continue
+                for finder in finders:
+                    candidate = finder(query, portrait=portrait)
+                    if candidate is None:
+                        continue
+                    if _admit_stock_candidate(
+                        candidate,
+                        query,
+                        section_id,
+                        beat,
+                        auxiliary=auxiliary,
+                        as_still=as_still,
+                        query_variant_index=query_variant_index,
+                    ):
+                        return True
+            return False
+
+        def _acquire_one(
+            queries: tuple[str, ...],
             section_id: str,
             beat: Mapping[str, Any],
             *,
             auxiliary: bool,
         ) -> bool:
             nonlocal ai_hook_reference, ai_route_available
-            wants_ai = str(beat.get("source_preference") or "") == "ai_still"
+            if not queries:
+                return False
+            query = queries[0]
+            prepared_cache: dict[str, str] = {}
+
+            def _prepare_query(raw_query: str) -> str:
+                raw_key = " ".join(str(raw_query or "").split()).strip()
+                if raw_key in prepared_cache:
+                    return prepared_cache[raw_key]
+                prepared = _hook_stock_retrieval_query(raw_key, beat)
+                if self.query_normalizer is not None and prepared:
+                    prepared = self.query_normalizer(prepared)
+                prepared = _channel_stock_query(prepared)
+                prepared_cache[raw_key] = prepared
+                return prepared
+
+            preference = str(beat.get("source_preference") or "stock_motion")
+            wants_ai = preference == "ai_still"
             if wants_ai and ai_route_available:
                 # AI is an optional visual anchor, never a required dependency.
                 # The provider module proves zero-cost eligibility before inference.
@@ -1465,7 +1916,7 @@ class StockVisualSource:
                         )
                 except Exception as exc:
                     # One unavailable free AI route must never block production.
-                    # Disable later AI attempts for this run and fall back to stock.
+                    # Disable later AI attempts for this run and fall back to real media.
                     ai_route_available = False
                     destination.unlink(missing_ok=True)
                     still.unlink(missing_ok=True)
@@ -1511,6 +1962,8 @@ class StockVisualSource:
                         "source_actual": "ai_still",
                         "ai_generated": True,
                         "ai_provenance": dict(provenance),
+                        "query_variant_index": 0,
+                        "query_evolution_used": False,
                     }
                     if auxiliary:
                         candidate["pacing_auxiliary"] = True
@@ -1533,76 +1986,37 @@ class StockVisualSource:
                     reason="ai_route_disabled_after_prior_failure",
                 )
 
-            for finder in (self._pexels, self._pixabay):
-                candidate = finder(query, portrait=portrait)
-                if candidate is None:
-                    continue
-                destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
-                try:
-                    _download_media(str(candidate["download_url"]), destination)
-                except Exception as exc:
-                    self._event(
-                        str(candidate["provider"]),
-                        query,
-                        "download_failed",
-                        wire_attempted=True,
-                        reason=str(exc)[:80],
-                    )
-                    continue
-                if self.media_preflight is not None:
-                    blocked = self.media_preflight(destination)
-                    if blocked is not None:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "security_blocked",
-                            wire_attempted=False,
-                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if fmt == "short":
-                    color_ok, color_reason = _short_visual_color_compatible(destination)
-                    if not color_ok:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "color_rejected",
-                            wire_attempted=False,
-                            reason=color_reason,
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if self.media_transform is not None:
-                    destination = Path(self.media_transform(destination))
-                candidate = {
-                    key: value
-                    for key, value in candidate.items()
-                    if key != "download_url"
-                }
-                candidate["local_file"] = destination.name
-                candidate["section_id"] = section_id
-                candidate["beat_id"] = str(beat.get("id") or "")
-                candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
-                candidate["meaning_target"] = str(beat.get("meaning_target") or beat.get("viewer_intent") or "")
-                candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
-                candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
-                candidate["shot_intent"] = str(beat.get("shot_intent") or query)
-                candidate["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
-                candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
-                candidate["role"] = str(beat.get("role") or "")
-                candidate["source_preference"] = str(
-                    beat.get("source_preference") or "stock_motion"
-                )
-                candidate["source_actual"] = "stock_motion"
-                if auxiliary:
-                    # Keep this compatibility flag because existing render/opening
-                    # code uses it to distinguish the first section visual. Its cause
-                    # is now a real story beat, not timing-based pacing.
-                    candidate["pacing_auxiliary"] = True
-                    candidate["story_beat_auxiliary"] = True
-                clips.append(destination)
-                rights.append(candidate)
+            # Real-media policy: Coverr is the first motion library. A beat that
+            # explicitly asks for a photographic still (or an unavailable AI still)
+            # tries Pexels/Pixabay photos first. Motion beats exhaust the two bounded
+            # query variants before falling back to a real photo.
+            prefer_still = preference in {"stock_still", "ai_still"}
+            if prefer_still and _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=True,
+                prepare_query=_prepare_query,
+            ):
+                return True
+            if _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=False,
+                prepare_query=_prepare_query,
+            ):
+                return True
+            if not prefer_still and _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=True,
+                prepare_query=_prepare_query,
+            ):
                 return True
             return False
 
@@ -1610,15 +2024,17 @@ class StockVisualSource:
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
-            query = specific or str(beat.get("stock_query_en") or "").strip()
-            if not query:
+            primary_query = specific or str(beat.get("stock_query_en") or "").strip()
+            if not primary_query:
                 continue
-            query = _hook_stock_retrieval_query(query, beat)
-            if self.query_normalizer is not None:
-                query = self.query_normalizer(query)
-            query = _channel_stock_query(query)
+            evolved = _stock_query_ladder(primary_query, beat)
             auxiliary = section_id in seen_sections
-            if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
+            if _acquire_one(
+                tuple(evolved[:2]),
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+            ):
                 seen_sections.add(section_id)
 
         if not clips:
