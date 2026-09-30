@@ -1663,6 +1663,7 @@ class StockVisualSource:
                     "semantic_should_avoid": list(raw_beat.get("semantic_should_avoid") or []),
                     "shot_intent": shot_intent,
                     "stock_query_en": stock_query_en,
+                    "stock_query_alt_en": str(raw_beat.get("stock_query_alt_en") or "").strip(),
                     "writer_anchor_ar": str(raw_beat.get("writer_anchor_ar") or "").strip(),
                     "role": str(raw_beat.get("role") or "").strip(),
                     "source_preference": str(
