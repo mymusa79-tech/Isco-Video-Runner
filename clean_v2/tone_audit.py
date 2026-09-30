@@ -24,6 +24,9 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "hook_body_continuity": {"type": "boolean"},
         "payoff_resolves_hook": {"type": "boolean"},
         "notes": {"type": "array", "items": {"type": "string"}},
+        "filler_flags": {"type": "array", "items": {"type": "string"}},
+        "payoff_earned": {"type": "boolean"},
+        "cold_open_story_violation": {"type": "boolean"},
     },
     "required": [
         "status",
@@ -130,6 +133,24 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
 - Extend the existing JSON object with exactly these required boolean fields:
   "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness",
   "hook_body_continuity", "payoff_resolves_hook".
+- EDITORIAL_VOICE_ADVISORY (observation only - this never changes status and never
+  blocks production; a missing or malformed value here is simply treated as "no
+  issue found", never as a rejection):
+  * filler_flags: list each sentence that only restates a point already made, marks
+    time without adding new information, or could be deleted without losing meaning
+    (hollow transitions such as "لكن الحقيقة أن", "في الواقع", or a restated setup).
+    Empty array when none are found.
+  * payoff_earned=true only when the closing payoff/resolution depends on a specific
+    concrete detail already established earlier in THIS narration; false when it is
+    a generic statement that could just as easily close many unrelated topics.
+  * cold_open_story_violation is only meaningful when the narration's own shape is a
+    scene, inner voice, or narrative turn - NOT an explicit listicle, direct Q&A, or
+    two-speaker dialogue format. For those explicitly structured formats always set
+    it to false. Otherwise, true only when the opening line is a general statement,
+    address, or instruction rather than landing inside a concrete moment, sensation,
+    or action already under way.
+  * Add these three fields to the SAME JSON object: "filler_flags" (array of
+    strings), "payoff_earned" (boolean), "cold_open_story_violation" (boolean).
 [/CLEAN_V2_TONE_SCOPE]
 """.strip()
 
@@ -171,12 +192,36 @@ def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _normalize_editorial_voice_advisory(result: dict[str, Any]) -> dict[str, Any]:
+    """Coerce the observation-only editorial-voice fields to safe defaults.
+
+    Advisory only, by design (not yet a blocking gate): never raises, never
+    sets status=block. A missing or malformed value from a weak fallback
+    provider defaults to "no issue found" rather than rejecting the whole
+    audit response over an optional signal - the opposite failure mode would
+    turn a purely observational addition into a new way for an already
+    quota-strained provider chain to fail closed.
+    """
+    filler_flags = result.get("filler_flags")
+    result["filler_flags"] = (
+        [str(item) for item in filler_flags] if isinstance(filler_flags, list) else []
+    )
+    payoff_earned = result.get("payoff_earned")
+    result["payoff_earned"] = payoff_earned if isinstance(payoff_earned, bool) else True
+    cold_open_violation = result.get("cold_open_story_violation")
+    result["cold_open_story_violation"] = (
+        cold_open_violation if isinstance(cold_open_violation, bool) else False
+    )
+    return result
+
+
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
 
     try:
         validate_audit_payload(result, required_arrays=_REQUIRED_ARRAYS)
-        return _enforce_hook_quality_contract(result)
+        result = _enforce_hook_quality_contract(result)
+        return _normalize_editorial_voice_advisory(result)
     except Exception as exc:
         raise MistralExecutorWireFailure(
             f"tone audit invalid contract {type(exc).__name__.lower()}"
@@ -243,6 +288,12 @@ def audit_tone_and_naturalness_with_mistral(
                 for field in _HOOK_QUALITY_FIELDS:
                     if type(raw.get(field)) is bool:
                         result[field] = raw[field]
-            return result
+                if isinstance(raw.get("filler_flags"), list):
+                    result["filler_flags"] = raw["filler_flags"]
+                if type(raw.get("payoff_earned")) is bool:
+                    result["payoff_earned"] = raw["payoff_earned"]
+                if type(raw.get("cold_open_story_violation")) is bool:
+                    result["cold_open_story_violation"] = raw["cold_open_story_violation"]
+            return _normalize_editorial_voice_advisory(result)
         finally:
             tone_quality.route_text_audit = original_route

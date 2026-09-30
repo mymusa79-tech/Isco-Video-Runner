@@ -47,6 +47,8 @@ from .media import (
 from .structural_ai import structural_ai_flags
 from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
+    COLD_OPEN_AS_SCENE,
+    HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
     normalize_short_script_candidate,
     safe_word_boundary_trim,
@@ -131,47 +133,56 @@ _LONGFORM_PROFILE_SIGNALS: dict[str, tuple[tuple[str, int], ...]] = {
 }
 _LONGFORM_PROFILES: dict[str, dict[str, str]] = {
     "direct_cinematic": {
-        "writing": "One flowing argument: immediate tension -> progressive understanding -> earned resolution. No chapter-list delivery.",
+        "writing": "One flowing argument: immediate tension -> progressive understanding -> earned resolution. No chapter-list delivery. "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE,
         "visual": "Progress through environment -> action/detail -> consequence/payoff. Favor real motion and spatial progression; change shot family only when meaning changes.",
         "voice": "direct_cinematic",
     },
     "question_answer": {
-        "writing": "One Charon narrator asks sincere progressively deeper questions and answers them; never a flat FAQ and never A:/B: labels.",
+        "writing": "One Charon narrator asks sincere progressively deeper questions and answers them; never a flat FAQ and never A:/B: labels. "
+        + HUMAN_VOICE_NO_FILLER,
         "visual": "Each question opens a visible uncertainty/tension; its answer must reveal new observable evidence, consequence, or wider context. Alternate scale or environment rather than repeating one prop.",
         "voice": "question_answer",
     },
     "dialogue_qa": {
-        "writing": "A:/B: only. A is a concise intelligent challenger/questioner; B is the thoughtful answer. Every turn advances the same argument; no host/guest filler.",
+        "writing": "A:/B: only. A is a concise intelligent challenger/questioner; B is the thoughtful answer. Every turn advances the same argument; no host/guest filler. "
+        + HUMAN_VOICE_NO_FILLER,
         "visual": "Use a restrained two-position visual grammar without faces: challenge beats favor tighter unresolved details; answer beats widen or reveal consequence/context. Do not fake a studio interview.",
         "voice": "dialogue_qa",
     },
     "inner_dialogue": {
-        "writing": "One Charon voice: felt friction -> believable self-question -> self-correction -> earned clarity. Never A:/B: labels or motivational preaching.",
+        "writing": "One Charon voice: felt friction -> believable self-question -> self-correction -> earned clarity. Never A:/B: labels or motivational preaching. "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE,
         "visual": "Tight tactile friction -> pause/negative space -> changed action/state -> release. Keep the world intimate but not gloomy; the payoff must visibly change the opening state.",
         "voice": "inner_dialogue",
     },
     "problem_reveal_solution": {
-        "writing": "Show the concrete problem, reveal the hidden mechanism, then derive one practical resolution. Advice comes only after mechanism.",
+        "writing": "Show the concrete problem, reveal the hidden mechanism, then derive one practical resolution. Advice comes only after mechanism. "
+        + HUMAN_VOICE_NO_FILLER,
         "visual": "Problem state -> causal/mechanism cue -> intervention/change -> visible result. Do not illustrate every noun; each beat must prove the next causal step.",
         "voice": "problem_reveal_solution",
     },
     "story_analysis": {
-        "writing": "Enter a concrete scene/event, let something change, analyze what it reveals, then land the implication. Never invent autobiography.",
+        "writing": "Enter a concrete scene/event, let something change, analyze what it reveals, then land the implication. Never invent autobiography. "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE,
         "visual": "Maintain scene continuity long enough to feel like a real mini-story, then use a distinct analytical cutaway and a consequence/payoff. Avoid unrelated montage.",
         "voice": "story_analysis",
     },
     "paradox": {
-        "writing": "Open with one truthful contradiction, examine both sides, then resolve why both can appear true. Do not force a clever paradox.",
+        "writing": "Open with one truthful contradiction, examine both sides, then resolve why both can appear true. Do not force a clever paradox. "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE,
         "visual": "Use paired opposites or the same kind of action in visibly different states/results, then converge on one resolving image. Avoid decorative symbolism.",
         "voice": "paradox",
     },
     "hypothesis_test": {
-        "writing": "State one plausible hypothesis, test it against approved everyday evidence/reasoning, then reach a measured conclusion. Never overclaim causation.",
+        "writing": "State one plausible hypothesis, test it against approved everyday evidence/reasoning, then reach a measured conclusion. Never overclaim causation. "
+        + HUMAN_VOICE_NO_FILLER + " " + COLD_OPEN_AS_SCENE,
         "visual": "Claim/state -> observable test/comparison -> evidence/consequence -> conclusion. Favor consistent real-world conditions over unrelated cinematic montage.",
         "voice": "hypothesis_test",
     },
     "connected_list": {
-        "writing": "A connected sequence of reasons/steps where each item changes the argument. Never numbered clickbait, repeated setup, or interchangeable tips.",
+        "writing": "A connected sequence of reasons/steps where each item changes the argument. Never numbered clickbait, repeated setup, or interchangeable tips. "
+        + HUMAN_VOICE_NO_FILLER,
         "visual": "Each reason/step gets a genuinely different action/environment family while retaining one visual world; progression matters more than counting items.",
         "voice": "connected_list",
     },
@@ -186,7 +197,8 @@ _PODCAST_FIXED_PROFILE = {
         "Every single A turn, including the opening question, MUST be 18 Arabic words or fewer - count it before writing B's answer. "
         "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
         "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
-        "Questions must sound like something a real listener would ask, not prompts written to feed an answer."
+        "Questions must sound like something a real listener would ask, not prompts written to feed an answer. "
+        + HUMAN_VOICE_NO_FILLER
     ),
     "visual": (
         "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
@@ -1706,6 +1718,27 @@ def _run_legacy_tone_naturalness_audit(
         "audit_availability": "available",
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
+
+    # Observation only (advisory, never blocks - #972 follow-up): print on
+    # every real audit call, pass or block, so how often filler/unearned-
+    # payoff/cold-open issues actually fire is visible in job logs across
+    # all runs, not just the ones that already fail for another reason.
+    # tone-naturalness-audit.json carries the same fields but lives solely
+    # in the uploaded artifact (Azure Blob, unreachable from this sandbox).
+    print(
+        "Clean V2 editorial voice advisory: "
+        + json.dumps(
+            {
+                "cold_open_story_violation": report.get("cold_open_story_violation"),
+                "filler_flags": report.get("filler_flags"),
+                "payoff_earned": report.get("payoff_earned"),
+                "status": report.get("status"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
 
     if result.get("status") == "block":
         # The full report only ever reaches tone-naturalness-audit.json, which

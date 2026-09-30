@@ -16,6 +16,8 @@ from clean_v2.pipeline import (
     _factuality_repair_issue_notes,
     _factuality_target_section_ids,
     _first_spoken_sentence,
+    _LONGFORM_PROFILES,
+    _PODCAST_FIXED_PROFILE,
     _repair_target_section_ids,
     _run_legacy_factuality_audit,
     _run_legacy_tone_naturalness_audit,
@@ -24,10 +26,16 @@ from clean_v2.pipeline import (
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
 )
-from clean_v2.short_format import ShortFormatError
+from clean_v2.short_format import (
+    COLD_OPEN_AS_SCENE,
+    HUMAN_VOICE_NO_FILLER,
+    TEMPLATE_WRITING_DIRECTIVES,
+    ShortFormatError,
+)
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
+    _normalize_editorial_voice_advisory,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
     _enforce_hook_quality_contract,
@@ -149,6 +157,64 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertIn("SAME audit response", scoped)
         self.assertIn("body keeps developing the SAME unresolved tension", scoped)
         self.assertIn("closing payoff directly and satisfactorily", scoped)
+
+    def test_editorial_voice_advisory_prompt_adds_same_call_dimensions(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        scoped = _scope_clean_v2_tone_prompt(base)
+        self.assertIn("EDITORIAL_VOICE_ADVISORY", scoped)
+        for field in ("filler_flags", "payoff_earned", "cold_open_story_violation"):
+            self.assertIn(field, scoped)
+        self.assertIn("this never changes status and never", scoped)
+        self.assertIn("blocks production", scoped)
+
+    def test_editorial_voice_advisory_fills_safe_defaults_when_missing(self):
+        # Advisory only (session decision: observe before ever gating on this) -
+        # a payload from a weak fallback provider that omits all three new
+        # fields must still validate cleanly, with safe "no issue found"
+        # defaults, never a rejection.
+        payload = _tone_result()
+        self.assertNotIn("filler_flags", payload)
+        self.assertNotIn("payoff_earned", payload)
+        self.assertNotIn("cold_open_story_violation", payload)
+        validated = _normalize_editorial_voice_advisory(
+            _enforce_hook_quality_contract(dict(payload))
+        )
+        self.assertEqual(validated["filler_flags"], [])
+        self.assertIs(validated["payoff_earned"], True)
+        self.assertIs(validated["cold_open_story_violation"], False)
+        self.assertEqual(validated["status"], "pass")
+
+    def test_editorial_voice_advisory_coerces_malformed_values_without_raising(self):
+        result = _normalize_editorial_voice_advisory(
+            {
+                "filler_flags": "not a list",
+                "payoff_earned": "yes",
+                "cold_open_story_violation": 1,
+            }
+        )
+        self.assertEqual(result["filler_flags"], [])
+        self.assertIs(result["payoff_earned"], True)
+        self.assertIs(result["cold_open_story_violation"], False)
+
+    def test_editorial_voice_advisory_never_forces_a_block(self):
+        # Even a maximally "bad" advisory verdict (filler everywhere, payoff
+        # not earned, cold-open violated) must leave an otherwise-passing
+        # audit at status=pass - this is observation only, not a gate.
+        payload = _tone_result()
+        payload["filler_flags"] = ["كل جملة هنا حشو."]
+        payload["payoff_earned"] = False
+        payload["cold_open_story_violation"] = True
+        validated = _normalize_editorial_voice_advisory(
+            _enforce_hook_quality_contract(dict(payload))
+        )
+        self.assertEqual(validated["status"], "pass")
+        self.assertEqual(validated["filler_flags"], ["كل جملة هنا حشو."])
+        self.assertIs(validated["payoff_earned"], False)
+        self.assertIs(validated["cold_open_story_violation"], True)
 
     def test_generic_hook_example_is_rejected(self):
         payload = _tone_result()
@@ -1204,6 +1270,53 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             diagnostic["notes"], ["Hook opens a question the payoff never answers."]
         )
 
+    def test_passing_audit_prints_an_editorial_voice_advisory_line(self):
+        # Observation only, fires on every real audit (pass or block), unlike
+        # the block-only diagnostic above - this is how filler/unearned-
+        # payoff/cold-open frequency gets watched across normal runs before
+        # any decision to turn it into a real gate.
+        passing = _tone_result()
+        passing["filler_flags"] = ["جملة انتقالية فارغة."]
+        passing["payoff_earned"] = False
+        passing["cold_open_story_violation"] = True
+        dummy_plan = SimpleNamespace(hook="")
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "clean_v2.pipeline._build_production_plan_for_audit",
+            return_value=dummy_plan,
+        ), patch(
+            "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+            return_value=passing,
+        ):
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                report = _run_legacy_tone_naturalness_audit(
+                    output_dir=Path(tmp),
+                    brief={"format": "short"},
+                    plan={"sections": []},
+                    script={
+                        "sections": [
+                            {"id": "s1", "narration": "افتتاح واضح. ثم شرح طبيعي."}
+                        ]
+                    },
+                )
+
+        self.assertEqual(report["status"], "pass")
+        printed = captured.getvalue()
+        self.assertIn("Clean V2 editorial voice advisory: ", printed)
+        advisory_line = next(
+            line
+            for line in printed.splitlines()
+            if line.startswith("Clean V2 editorial voice advisory: ")
+        )
+        advisory = json.loads(
+            advisory_line.removeprefix("Clean V2 editorial voice advisory: ")
+        )
+        self.assertEqual(advisory["status"], "pass")
+        self.assertEqual(advisory["filler_flags"], ["جملة انتقالية فارغة."])
+        self.assertIs(advisory["payoff_earned"], False)
+        self.assertIs(advisory["cold_open_story_violation"], True)
+
     def test_provider_exhaustion_is_advisory_not_content_block(self):
         exhausted = _tone_result(status="block", validation="providers_exhausted")
         exhausted["attempts"] = [
@@ -1380,6 +1493,65 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["factuality_status"], "pass")
         self.assertEqual(report["tone_naturalness_status"], "pass")
+
+
+class EditorialVoiceWriterPromptTests(unittest.TestCase):
+    """Closing the loop: the writer's own generation prompt now carries the
+    same HUMAN_VOICE_NO_FILLER/COLD_OPEN_AS_SCENE guidance the (advisory-only,
+    non-blocking) tone audit separately observes - not just a rule the writer
+    is silently measured against after the fact.
+    """
+
+    SHORT_COLD_OPEN_ELIGIBLE = ("inner_dialogue", "micro_story")
+    SHORT_COLD_OPEN_INELIGIBLE = ("why_reframe", "quote_reflection")
+    FILM_COLD_OPEN_ELIGIBLE = (
+        "direct_cinematic",
+        "inner_dialogue",
+        "story_analysis",
+        "paradox",
+        "hypothesis_test",
+    )
+    FILM_COLD_OPEN_INELIGIBLE = (
+        "question_answer",
+        "dialogue_qa",
+        "problem_reveal_solution",
+        "connected_list",
+    )
+
+    def test_all_four_short_templates_carry_human_voice_no_filler(self):
+        self.assertEqual(set(TEMPLATE_WRITING_DIRECTIVES), {
+            "why_reframe", "inner_dialogue", "micro_story", "quote_reflection",
+        })
+        for template, directive in TEMPLATE_WRITING_DIRECTIVES.items():
+            self.assertIn(HUMAN_VOICE_NO_FILLER, directive, template)
+
+    def test_cold_open_as_scene_is_scoped_to_narrative_short_templates_only(self):
+        for template in self.SHORT_COLD_OPEN_ELIGIBLE:
+            self.assertIn(COLD_OPEN_AS_SCENE, TEMPLATE_WRITING_DIRECTIVES[template], template)
+        for template in self.SHORT_COLD_OPEN_INELIGIBLE:
+            self.assertNotIn(COLD_OPEN_AS_SCENE, TEMPLATE_WRITING_DIRECTIVES[template], template)
+
+    def test_all_nine_film_profiles_carry_human_voice_no_filler(self):
+        self.assertEqual(
+            set(_LONGFORM_PROFILES),
+            set(self.FILM_COLD_OPEN_ELIGIBLE) | set(self.FILM_COLD_OPEN_INELIGIBLE),
+        )
+        for name, profile in _LONGFORM_PROFILES.items():
+            self.assertIn(HUMAN_VOICE_NO_FILLER, profile["writing"], name)
+
+    def test_cold_open_as_scene_is_scoped_to_narrative_film_profiles_only(self):
+        for name in self.FILM_COLD_OPEN_ELIGIBLE:
+            self.assertIn(COLD_OPEN_AS_SCENE, _LONGFORM_PROFILES[name]["writing"], name)
+        for name in self.FILM_COLD_OPEN_INELIGIBLE:
+            self.assertNotIn(COLD_OPEN_AS_SCENE, _LONGFORM_PROFILES[name]["writing"], name)
+
+    def test_podcast_fixed_profile_carries_no_filler_but_never_cold_open(self):
+        # Podcast's one fixed house style is itself a real listener question
+        # answered directly - forcing a scene-open would contradict its own
+        # defined purpose, per the earlier design discussion.
+        writing = _PODCAST_FIXED_PROFILE["writing"]
+        self.assertIn(HUMAN_VOICE_NO_FILLER, writing)
+        self.assertNotIn(COLD_OPEN_AS_SCENE, writing)
 
 
 if __name__ == "__main__":
