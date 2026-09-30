@@ -40,6 +40,7 @@ HOLD_REASONS = frozenset({
 })
 PAUSE_INTENTS = frozenset({"none", "micro", "emphasis", "transition", "ending"})
 AUDIO_ENERGIES = frozenset({"quiet", "low", "steady", "lift", "resolve"})
+SHOT_ROLES = frozenset({"establish", "detail", "action", "consequence", "payoff"})
 EDITORIAL_HOLD_WEIGHTS = {
     "idea_continues": 1.25,
     "idea_changes": 1.00,
@@ -135,6 +136,40 @@ def _visual_action_family(value: object) -> str:
             best_name = name
             best_score = score
     return best_name if best_score > 0 else ""
+
+
+def _default_environment_family(value: object) -> str:
+    """Return one coarse scene family for continuity without creating a new stage."""
+    tokens = set(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
+    families = (
+        ("workplace", {"office", "workplace", "coworker", "meeting", "desk", "keyboard", "laptop", "computer"}),
+        ("home", {"home", "kitchen", "bedroom", "living", "sofa", "house"}),
+        ("transit", {"train", "bus", "car", "commute", "station", "platform", "subway"}),
+        ("public_space", {"street", "city", "cafe", "store", "library", "hall", "lobby"}),
+        ("outdoors", {"park", "path", "outdoor", "nature", "trail", "garden", "walking"}),
+    )
+    for name, markers in families:
+        if tokens & markers:
+            return name
+    return "contextual"
+
+
+def _default_shot_role(role: str, beat_in_section: int) -> str:
+    if role == "hook":
+        return "action"
+    if role == "payoff":
+        return "payoff"
+    if beat_in_section <= 0:
+        return "establish"
+    if beat_in_section == 1:
+        return "detail"
+    return "consequence"
+
+
+def _normalize_environment_family(value: object, fallback: object) -> str:
+    raw = str(value or "").strip().casefold()
+    compact = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")[:48]
+    return compact or _default_environment_family(fallback)
 
 
 def _strip_embedded_text_request(value: object) -> str:
@@ -274,6 +309,10 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "stock_query_en": str(section.get("visual_query_en") or "").strip(),
                 "display_text_ar": str(section.get("cover_text") or "").strip(),
                 "source_preference": "stock_motion",
+                "shot_role": _default_shot_role(_beat_role(index - 1, len(sections)), 0),
+                "environment_family": _default_environment_family(
+                    section.get("visual_query_en") or purpose
+                ),
                 **_default_editorial_signals(_beat_role(index - 1, len(sections))),
             }
         )
@@ -298,6 +337,8 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "stock_query_en": payoff_query,
                 "display_text_ar": str(section.get("cover_text") or "").strip(),
                 "source_preference": "stock_motion",
+                "shot_role": "payoff",
+                "environment_family": _default_environment_family(payoff_query),
                 **_default_editorial_signals("payoff"),
             }
         )
@@ -421,6 +462,13 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         hold_reason = str(raw.get("hold_reason") or defaults["hold_reason"]).strip()
         pause_intent = str(raw.get("pause_intent") or defaults["pause_intent"]).strip()
         audio_energy = str(raw.get("audio_energy") or defaults["audio_energy"]).strip()
+        shot_role = str(
+            raw.get("shot_role") or _default_shot_role(role, per_section.get(section_id, 0))
+        ).strip()
+        environment_family = _normalize_environment_family(
+            raw.get("environment_family"),
+            shot_intent or stock_query_en,
+        )
         display_text_ar = " ".join(
             str(raw.get("display_text_ar") or "").split()
         ).strip()
@@ -487,6 +535,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(f"visual_story beat {beat_id} has invalid pause_intent")
         if audio_energy not in AUDIO_ENERGIES:
             raise ValueError(f"visual_story beat {beat_id} has invalid audio_energy")
+        if shot_role not in SHOT_ROLES:
+            raise ValueError(f"visual_story beat {beat_id} has invalid shot_role")
+        if not environment_family or not environment_family.isascii():
+            raise ValueError(f"visual_story beat {beat_id} has invalid environment_family")
 
         prior_section_index = section_order[section_id]
         per_section[section_id] += 1
@@ -536,6 +588,8 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 **({"stock_query_alt_en": stock_query_alt_en} if stock_query_alt_en else {}),
                 "display_text_ar": display_text_ar,
                 "source_preference": source_preference,
+                "shot_role": shot_role,
+                "environment_family": environment_family,
                 "hold_reason": hold_reason,
                 "pause_intent": pause_intent,
                 "audio_energy": audio_energy,
