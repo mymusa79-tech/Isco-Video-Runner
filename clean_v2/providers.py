@@ -21,6 +21,13 @@ MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
+# Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
+# retry for a classic transient server/network failure only (502/503/504 or a
+# transport-level error), never for a genuine client error or the 429/quota path
+# already handled separately above. One extra attempt (two total) is enough to
+# recover a real blip without spending meaningful time against a sustained outage.
+TRANSIENT_RETRY_DELAY_SECONDS = 1.0
+_TRANSIENT_HTTP_STATUSES = frozenset({502, 503, 504})
 _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX = """
 MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 - The first spoken sentence (Hook) must be one complete natural Arabic sentence, TARGET 12-16 words and NEVER more than 18.
@@ -177,6 +184,16 @@ def _retry_after_seconds(headers: object) -> float | None:
     if not math.isfinite(seconds) or seconds < 0:
         return None
     return seconds
+
+
+def _is_transient_wire_failure(exc: BaseException) -> bool:
+    """A brief same-provider retry is safe only for a classic transient
+    server/network failure - never a genuine client error, and never the
+    429/quota case, which already has its own dedicated handling."""
+    if getattr(exc, "http_status", None) in _TRANSIENT_HTTP_STATUSES:
+        return True
+    reason_code = str(getattr(exc, "reason_code", "") or "")
+    return reason_code.startswith("transport_")
 
 
 def _post_json(
@@ -920,9 +937,13 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
 class ProviderRouter:
     """One pass over a bounded provider list.
 
-    The only same-provider exception is one Mistral Planning re-issue when the
-    provider returns syntactically invalid JSON despite strict json_schema mode.
-    This is a bounded provider-contract retry, not a second provider sweep.
+    Two narrow same-provider exceptions exist, both capped at one extra attempt:
+    a Mistral Planning re-issue when the provider returns syntactically invalid
+    JSON despite strict json_schema mode, and a short delayed retry for a
+    classic transient 502/503/504 or transport failure (see
+    _is_transient_wire_failure). Neither is a second provider sweep - a
+    provider that still fails its retry is marked failed and the router moves
+    on to the next adapter exactly as before.
     """
 
     def __init__(self, adapters: Iterable[ProviderAdapter] | None = None) -> None:
@@ -1045,6 +1066,22 @@ class ProviderRouter:
                             provider_attempt=provider_attempt,
                             stage_wire_attempt=wire_count,
                         )
+                        continue
+
+                    transient_retry = (
+                        provider_attempt == 1 and _is_transient_wire_failure(exc)
+                    )
+                    if transient_retry:
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="retrying",
+                            wire_attempted=True,
+                            reason="transient_5xx_retry",
+                            provider_attempt=provider_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        time.sleep(TRANSIENT_RETRY_DELAY_SECONDS)
                         continue
 
                     failures.append(f"{adapter.name}:{reason}")
