@@ -161,6 +161,66 @@ class VisualSearchEvolutionTests(unittest.TestCase):
         pexels.assert_called_once()
         pixabay.assert_called_once()
 
+    def test_payoff_uses_same_three_provider_competition(self) -> None:
+        source = StockVisualSource()
+        plan = self._plan()
+        plan["visual_story"]["beats"][0]["role"] = "payoff"
+        candidates = {
+            "coverr": {
+                "provider": "coverr",
+                "asset_id": "c-payoff",
+                "download_url": "https://cdn.coverr.co/videos/payoff.mp4",
+                "source_url": "https://coverr.co",
+                "creator": "Coverr",
+                "creator_url": "https://coverr.co",
+                "query": "person checking phone late at night",
+                "local_rank_score": 0.68,
+            },
+            "pexels": {
+                "provider": "pexels",
+                "asset_id": "p-payoff",
+                "download_url": "https://videos.pexels.com/payoff.mp4",
+                "source_url": "https://www.pexels.com/video/payoff/",
+                "creator": "Tester",
+                "creator_url": "",
+                "query": "person checking phone late at night",
+                "local_rank_score": 0.76,
+            },
+            "pixabay": {
+                "provider": "pixabay",
+                "asset_id": "x-payoff",
+                "download_url": "https://cdn.pixabay.com/payoff.mp4",
+                "source_url": "https://pixabay.com/videos/payoff/",
+                "creator": "Tester",
+                "creator_url": "",
+                "query": "person checking phone late at night",
+                "local_rank_score": 0.91,
+            },
+        }
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_coverr", return_value=candidates["coverr"]
+        ) as coverr, mock.patch.object(
+            source, "_pexels", return_value=candidates["pexels"]
+        ) as pexels, mock.patch.object(
+            source, "_pixabay", return_value=candidates["pixabay"]
+        ) as pixabay, mock.patch.object(
+            media_module, "_download_media", side_effect=self._write_fake_media
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, None)
+        ):
+            _clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                max_visuals=1,
+            )
+        self.assertEqual(rights[0]["provider"], "pixabay")
+        self.assertTrue(rights[0]["provider_competition_used"])
+        self.assertEqual(rights[0]["provider_competition_count"], 3)
+        coverr.assert_called_once()
+        pexels.assert_called_once()
+        pixabay.assert_called_once()
+
     def test_body_keeps_cheap_coverr_first_sequential_policy(self) -> None:
         source = StockVisualSource()
         plan = self._plan()
