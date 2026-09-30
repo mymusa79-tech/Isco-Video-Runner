@@ -1929,6 +1929,54 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-30T23:19:10Z"
+    },
+    {
+      "idea_id": "idea-e411a8f699",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:20:58Z"
+    },
+    {
+      "idea_id": "idea-c0d5e89e7c",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:20:58Z"
+    },
+    {
+      "idea_id": "idea-72151424df",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T23:20:58Z"
     }
   ],
   "sessions": {
@@ -2511,5 +2559,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-30T23:20:30Z"
+  "updated_at": "2026-09-30T23:20:59Z"
 }
