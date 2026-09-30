@@ -1414,6 +1414,145 @@ class ProviderAccountingTests(unittest.TestCase):
         self.assertIsNone(router.events[0]["provider_attempt"])
 
 
+class ProviderTransientRetryTests(unittest.TestCase):
+    def _flaky(self, *, first_exc: Exception, calls: list[int]):
+        def call(_prompt: str, _tokens: int) -> dict:
+            calls.append(1)
+            if len(calls) == 1:
+                raise first_exc
+            return {"ok": True}
+        return call
+
+    def test_transient_503_retries_same_provider_once_then_succeeds(self) -> None:
+        calls: list[int] = []
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "gemini",
+                    self._flaky(
+                        first_exc=ProviderWireFailure("http_503", http_status=503),
+                        calls=calls,
+                    ),
+                ),
+                ProviderAdapter("groq", lambda _p, _t: {"ok": False}),
+            )
+        )
+        with mock.patch.object(providers_module.time, "sleep") as sleep_mock:
+            result = router.route(
+                stage="planning",
+                prompt="small",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 2)
+        sleep_mock.assert_called_once_with(providers_module.TRANSIENT_RETRY_DELAY_SECONDS)
+        self.assertEqual(
+            [(e["provider"], e["result"], e["reason"]) for e in router.events],
+            [
+                ("gemini", "retrying", "transient_5xx_retry"),
+                ("gemini", "success", None),
+            ],
+        )
+
+    def test_transport_error_also_retries_same_provider_once(self) -> None:
+        calls: list[int] = []
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "gemini",
+                    self._flaky(
+                        first_exc=ProviderWireFailure("transport_urlerror"),
+                        calls=calls,
+                    ),
+                ),
+            )
+        )
+        with mock.patch.object(providers_module.time, "sleep"):
+            result = router.route(
+                stage="planning",
+                prompt="small",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 2)
+
+    def test_second_consecutive_503_falls_forward_without_a_third_attempt(self) -> None:
+        def always_503(_prompt: str, _tokens: int) -> dict:
+            raise ProviderWireFailure("http_503", http_status=503)
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", always_503),
+                ProviderAdapter("groq", lambda _p, _t: {"ok": True}),
+            )
+        )
+        with mock.patch.object(providers_module.time, "sleep") as sleep_mock:
+            result = router.route(
+                stage="planning",
+                prompt="small",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(result, {"ok": True})
+        sleep_mock.assert_called_once_with(providers_module.TRANSIENT_RETRY_DELAY_SECONDS)
+        gemini_events = [e for e in router.events if e["provider"] == "gemini"]
+        self.assertEqual(len(gemini_events), 2)
+        self.assertEqual(gemini_events[0]["result"], "retrying")
+        self.assertEqual(gemini_events[1]["result"], "failed")
+        self.assertEqual(gemini_events[1]["stage_wire_attempt"], 2)
+
+    def test_client_error_is_never_retried(self) -> None:
+        calls: list[int] = []
+
+        def bad_request(_prompt: str, _tokens: int) -> dict:
+            calls.append(1)
+            raise ProviderWireFailure("http_400", http_status=400)
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", bad_request),
+                ProviderAdapter("groq", lambda _p, _t: {"ok": True}),
+            )
+        )
+        with mock.patch.object(providers_module.time, "sleep") as sleep_mock:
+            result = router.route(
+                stage="planning",
+                prompt="small",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 1)
+        sleep_mock.assert_not_called()
+
+    def test_rate_limit_429_path_is_unaffected_by_transient_retry(self) -> None:
+        calls: list[int] = []
+
+        def rate_limited(_prompt: str, _tokens: int) -> dict:
+            calls.append(1)
+            raise ProviderWireFailure("http_429", http_status=429)
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", rate_limited),
+                ProviderAdapter("groq", lambda _p, _t: {"ok": True}),
+            )
+        )
+        with mock.patch.object(providers_module.time, "sleep") as sleep_mock:
+            result = router.route(
+                stage="planning",
+                prompt="small",
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 1)
+        sleep_mock.assert_not_called()
+        self.assertIn("gemini", router._rate_limited_for_run)
+
+
 class WorkflowContractTests(unittest.TestCase):
     WORKFLOW = Path(".github/workflows/clean-v2-minimal-e2e.yml")
 

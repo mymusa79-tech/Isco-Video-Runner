@@ -34,6 +34,7 @@ from clean_v2.media import (
     StockVisualSource,
     VoiceInfrastructureError,
 )
+from clean_v2 import providers as providers_module
 from clean_v2.providers import (
     ProviderAdapter,
     ProviderRouter,
@@ -705,17 +706,18 @@ class ShortContractTests(unittest.TestCase):
             )
         )
         router._rate_limited_for_run.add("openrouter")
-        accepted = router.route(
-            stage="script",
-            prompt=_script_prompt(brief, plan, visual_story=visual_story),
-            max_tokens=400,
-            validator=lambda value: _validate_script_for_brief(
-                value,
-                plan,
-                brief,
-                visual_story,
-            ),
-        )
+        with mock.patch.object(providers_module.time, "sleep"):
+            accepted = router.route(
+                stage="script",
+                prompt=_script_prompt(brief, plan, visual_story=visual_story),
+                max_tokens=400,
+                validator=lambda value: _validate_script_for_brief(
+                    value,
+                    plan,
+                    brief,
+                    visual_story,
+                ),
+            )
 
         self.assertEqual(
             accepted["sections"][2]["narration"],
@@ -725,6 +727,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(
             [(event["provider"], event["result"]) for event in router.events],
             [
+                ("gemini", "retrying"),
                 ("gemini", "failed"),
                 ("groq", "failed"),
                 ("openrouter", "unavailable"),
@@ -1053,12 +1056,13 @@ class ShortContractTests(unittest.TestCase):
             )
         )
         router._rate_limited_for_run.add("openrouter")
-        accepted = router.route(
-            stage="script",
-            prompt=_script_prompt(brief, plan),
-            max_tokens=400,
-            validator=lambda value: _validate_script_for_brief(value, plan, brief),
-        )
+        with mock.patch.object(providers_module.time, "sleep"):
+            accepted = router.route(
+                stage="script",
+                prompt=_script_prompt(brief, plan),
+                max_tokens=400,
+                validator=lambda value: _validate_script_for_brief(value, plan, brief),
+            )
 
         report = validate_short_hook_contract(accepted)
         self.assertEqual(report["hook_words"], 19)
@@ -1068,6 +1072,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(
             [(event["provider"], event["result"]) for event in router.events],
             [
+                ("gemini", "retrying"),
                 ("gemini", "failed"),
                 ("groq", "failed"),
                 ("openrouter", "unavailable"),
