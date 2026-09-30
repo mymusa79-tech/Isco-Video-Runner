@@ -2155,6 +2155,7 @@ def _validate_and_apply_script_patches(
     cta_plan: Mapping[str, Any],
     revision_note: str,
     allowed_section_ids: tuple[str, ...] | None = None,
+    is_short_format: bool = False,
 ) -> dict[str, Any]:
     """Apply exact local replacements to the original script; reject broad rewrites."""
     if not isinstance(value, Mapping):
@@ -2404,6 +2405,22 @@ def _validate_and_apply_script_patches(
         )
         if anchor is None or spoken_cta not in str(anchor.get("narration") or ""):
             raise ValueError("script patch moved the locked CTA")
+    if is_short_format:
+        # Run #37 (Telegram, today): a repair that legitimately fixed s3's
+        # flagged grammar/naturalness issue also incidentally deleted its
+        # required practical-action sentence. The tone/factuality repair
+        # audits know nothing about the Short format's independent s3
+        # contract (short_format.validate_short_script), so the break went
+        # undetected here and crashed 100+ lines away, in an unrelated
+        # pipeline stage, with no diagnostic link back to the repair that
+        # caused it. Re-running the same contract check the script already
+        # had to pass at generation time closes that gap: an invalid patch
+        # is rejected right here instead of silently escaping as a
+        # valid-looking repair. Letting ShortFormatError propagate as-is
+        # (rather than wrapping it) matches providers.route()'s existing
+        # _safe_validator_reason convention, which already special-cases
+        # ShortFormatError to log its specific contract code.
+        validate_short_script(normalized)
     return normalized
 
 
@@ -2759,6 +2776,7 @@ def _run_one_bounded_tone_repair(
             identity=identity,
             cta_plan=cta_plan,
             revision_note=issue_notes,
+            is_short_format=str(brief.get("format") or "") == "short",
         ),
     )
     atomic_write_json(output_dir / "script-post-tone-repair.json", repaired)
@@ -2982,6 +3000,7 @@ def _run_one_bounded_factuality_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
             allowed_section_ids=target_ids,
+            is_short_format=str(brief.get("format") or "") == "short",
         ),
     )
     script.clear()

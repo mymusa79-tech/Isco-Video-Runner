@@ -4291,7 +4291,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "ثم لاحظت أن الانتظار نفسه هو ما يبقيني في مكاني."
         )
         repaired_s3 = (
-            "عندما كتبت أول كلمة، لم أشعر أن الدافع عاد؛ فقط بدا البدء أقل ثقلًا. "
+            "بعد أول جملة، لم أشعر أن الدافع عاد؛ فقط شعرت أن الأمر أصبح أقل ثقلًا. "
             "اكتب كلمة واحدة."
         )
 
@@ -5246,7 +5246,7 @@ class OneBoundedToneRepairRun17WholeScriptFlagTests(unittest.TestCase):
 
     def test_run17_whole_script_monologue_flag_gets_a_real_repair_attempt(self) -> None:
         repaired_s3 = (
-            "قلت لنفسي: لماذا أؤجل هذا؟ ثم كتبت هدفًا صغيرًا ووضعته أمامي كل صباح."
+            "قلت لنفسي: لماذا أؤجل هذا؟ اكتب هدفًا صغيرًا الآن."
         )
 
         class ShortRouter:
