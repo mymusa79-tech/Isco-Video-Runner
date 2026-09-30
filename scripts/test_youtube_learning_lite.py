@@ -176,7 +176,7 @@ class YouTubeLearningLiteTests(unittest.TestCase):
 
     def test_research_preserves_channel_learning_before_tavily_and_generic_grounding(self) -> None:
         source = (ROOT / "scripts" / "telegram_topic_research_v2_core.py").read_text(encoding="utf-8")
-        self.assertIn("channel_learning_memo = learning_memo(state, kind)", source)
+        self.assertIn("channel_learning_memo = learning_memo(learning_state, kind)", source)
         self.assertIn("channel_learning_memo,", source)
         self.assertIn("tavily_memo[:2600]", source)
         self.assertIn("existing_grounded[:2400]", source)
@@ -190,14 +190,20 @@ class YouTubeLearningLiteTests(unittest.TestCase):
         self.assertIn("not causal proof", pipeline)
         self.assertIn("automatic production override", pipeline)
 
-    def test_workflow_refresh_is_outside_active_production_and_uses_existing_secrets(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "telegram-editorial-control.yml").read_text(encoding="utf-8")
-        self.assertIn("Refresh YouTube learning if stale", workflow)
-        self.assertIn("python scripts/youtube_learning_lite.py refresh --state", workflow)
-        self.assertIn("steps.poll.outputs.production_active != 'true'", workflow)
-        self.assertIn("YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}", workflow)
-        self.assertIn("YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}", workflow)
-        self.assertIn("YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}", workflow)
+    def test_oauth_stays_in_daily_snapshot_and_research_reads_only_persisted_learning(self) -> None:
+        editorial = (ROOT / ".github" / "workflows" / "telegram-editorial-control.yml").read_text(encoding="utf-8")
+        snapshot = (ROOT / ".github" / "workflows" / "clean-v2-youtube-snapshot.yml").read_text(encoding="utf-8")
+        self.assertNotIn("YOUTUBE_CLIENT_ID:", editorial)
+        self.assertNotIn("YOUTUBE_CLIENT_SECRET:", editorial)
+        self.assertNotIn("YOUTUBE_REFRESH_TOKEN:", editorial)
+        self.assertIn("Restore read-only YouTube learning for research", editorial)
+        self.assertIn("YOUTUBE_LEARNING_STATE_PATH=", editorial)
+        self.assertIn("clean-v2-telegram-state", editorial)
+        self.assertIn("Refresh compact YouTube learning", snapshot)
+        self.assertIn("python scripts/youtube_learning_lite.py refresh --state", snapshot)
+        self.assertIn("YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}", snapshot)
+        self.assertIn("YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}", snapshot)
+        self.assertIn("YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}", snapshot)
 
 
 if __name__ == "__main__":
