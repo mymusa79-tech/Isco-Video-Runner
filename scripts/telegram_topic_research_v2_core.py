@@ -335,7 +335,7 @@ def _research_current_v2(state_path: Path) -> None:
             language,
         )
         tavily = pending.get("tavily_grounding")
-        if not isinstance(tavily, dict) or str(tavily.get("status") or "") not in {"success", "empty", "unavailable"}:
+        if not isinstance(tavily, dict):
             tavily = collect_tavily_grounding(
                 (os.environ.get("TAVILY_API_KEY") or "").strip(),
                 kind,
