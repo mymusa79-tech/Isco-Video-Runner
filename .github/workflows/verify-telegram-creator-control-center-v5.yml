@@ -93,7 +93,7 @@ jobs:
               raise SystemExit('Telegram production Engine does not match canonical Production V4')
           print(f'Telegram production authority matches canonical Engine: {prod_match.group(1)}')
           PY
-          grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
+          grep -F 'RESEARCH_ENGINE_SHA: a3535c63e189f1da1f4399dac1eca11186c53bcc' .github/workflows/telegram-editorial-control.yml
           grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
           ! grep -E 'dispatchToGitHub|workflow_dispatch|telegram-production-request.yml|cmd:produce_latest|cmd:retry' \
             cloudflare/telegram-control-worker/observability-worker-v6.js \
