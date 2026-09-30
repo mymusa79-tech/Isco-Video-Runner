@@ -1690,15 +1690,153 @@ class StockVisualSource:
         ai_hook_reference: Path | None = None
         ai_route_available = True
 
-        def _acquire_one(
+        def _admit_stock_candidate(
+            candidate: dict[str, Any],
             query: str,
+            section_id: str,
+            beat: Mapping[str, Any],
+            *,
+            auxiliary: bool,
+            as_still: bool,
+            query_variant_index: int,
+        ) -> bool:
+            provider = str(candidate.get("provider") or "unknown")
+            beat_id = str(beat.get("id") or f"b{len(clips) + 1}")
+            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+            still_source: Path | None = None
+            try:
+                if as_still:
+                    still_dir = output_dir / ".stock-stills"
+                    still_dir.mkdir(parents=True, exist_ok=True)
+                    safe_provider = re.sub(r"[^a-z0-9_-]+", "-", provider.casefold())[:24] or "stock"
+                    safe_asset = re.sub(
+                        r"[^A-Za-z0-9_-]+",
+                        "-",
+                        str(candidate.get("asset_id") or beat_id),
+                    )[:48] or beat_id
+                    still_source = still_dir / f"{beat_id}-{safe_provider}-{safe_asset}.jpg"
+                    _download_media(str(candidate["download_url"]), still_source)
+                    _render_ai_still(still_source, destination, fmt=fmt)
+                else:
+                    _download_media(str(candidate["download_url"]), destination)
+
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(destination)
+                    if blocked is not None:
+                        self._event(
+                            provider,
+                            query,
+                            "security_blocked",
+                            wire_attempted=False,
+                            reason=str(
+                                blocked.get("local_media_rejection")
+                                or "security_v1_block"
+                            )[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        return False
+                if fmt == "short":
+                    color_ok, color_reason = _short_visual_color_compatible(destination)
+                    if not color_ok:
+                        self._event(
+                            provider,
+                            query,
+                            "color_rejected",
+                            wire_attempted=False,
+                            reason=color_reason,
+                        )
+                        destination.unlink(missing_ok=True)
+                        return False
+                if self.media_transform is not None:
+                    destination = Path(self.media_transform(destination))
+            except Exception as exc:
+                destination.unlink(missing_ok=True)
+                self._event(
+                    provider,
+                    query,
+                    "download_failed" if not as_still else "still_prepare_failed",
+                    wire_attempted=True,
+                    reason=str(exc)[:80],
+                )
+                return False
+            finally:
+                if still_source is not None:
+                    still_source.unlink(missing_ok=True)
+
+            admitted = {
+                key: value
+                for key, value in candidate.items()
+                if key != "download_url"
+            }
+            admitted["local_file"] = destination.name
+            admitted["section_id"] = section_id
+            admitted["beat_id"] = beat_id
+            admitted["viewer_intent"] = str(beat.get("viewer_intent") or "")
+            admitted["meaning_target"] = str(
+                beat.get("meaning_target") or beat.get("viewer_intent") or ""
+            )
+            admitted["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
+            admitted["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
+            admitted["shot_intent"] = str(beat.get("shot_intent") or query)
+            admitted["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
+            admitted["display_text_ar"] = str(beat.get("display_text_ar") or "")
+            admitted["role"] = str(beat.get("role") or "")
+            admitted["source_preference"] = str(
+                beat.get("source_preference") or "stock_motion"
+            )
+            admitted["source_actual"] = "stock_still" if as_still else "stock_motion"
+            admitted["query_variant_index"] = int(query_variant_index)
+            admitted["query_evolution_used"] = bool(query_variant_index)
+            if auxiliary:
+                admitted["pacing_auxiliary"] = True
+                admitted["story_beat_auxiliary"] = True
+            clips.append(destination)
+            rights.append(admitted)
+            return True
+
+        def _try_stock_kind(
+            queries: tuple[str, ...],
+            section_id: str,
+            beat: Mapping[str, Any],
+            *,
+            auxiliary: bool,
+            as_still: bool,
+        ) -> bool:
+            finders = (
+                (self._pexels_photo, self._pixabay_photo)
+                if as_still
+                else (self._coverr, self._pexels, self._pixabay)
+            )
+            for query_variant_index, query in enumerate(queries):
+                for finder in finders:
+                    candidate = finder(query, portrait=portrait)
+                    if candidate is None:
+                        continue
+                    if _admit_stock_candidate(
+                        candidate,
+                        query,
+                        section_id,
+                        beat,
+                        auxiliary=auxiliary,
+                        as_still=as_still,
+                        query_variant_index=query_variant_index,
+                    ):
+                        return True
+            return False
+
+        def _acquire_one(
+            queries: tuple[str, ...],
             section_id: str,
             beat: Mapping[str, Any],
             *,
             auxiliary: bool,
         ) -> bool:
             nonlocal ai_hook_reference, ai_route_available
-            wants_ai = str(beat.get("source_preference") or "") == "ai_still"
+            if not queries:
+                return False
+            query = queries[0]
+            preference = str(beat.get("source_preference") or "stock_motion")
+            wants_ai = preference == "ai_still"
             if wants_ai and ai_route_available:
                 # AI is an optional visual anchor, never a required dependency.
                 # The provider module proves zero-cost eligibility before inference.
@@ -1762,7 +1900,7 @@ class StockVisualSource:
                         )
                 except Exception as exc:
                     # One unavailable free AI route must never block production.
-                    # Disable later AI attempts for this run and fall back to stock.
+                    # Disable later AI attempts for this run and fall back to real media.
                     ai_route_available = False
                     destination.unlink(missing_ok=True)
                     still.unlink(missing_ok=True)
@@ -1808,6 +1946,8 @@ class StockVisualSource:
                         "source_actual": "ai_still",
                         "ai_generated": True,
                         "ai_provenance": dict(provenance),
+                        "query_variant_index": 0,
+                        "query_evolution_used": False,
                     }
                     if auxiliary:
                         candidate["pacing_auxiliary"] = True
@@ -1830,76 +1970,34 @@ class StockVisualSource:
                     reason="ai_route_disabled_after_prior_failure",
                 )
 
-            for finder in (self._pexels, self._pixabay):
-                candidate = finder(query, portrait=portrait)
-                if candidate is None:
-                    continue
-                destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
-                try:
-                    _download_media(str(candidate["download_url"]), destination)
-                except Exception as exc:
-                    self._event(
-                        str(candidate["provider"]),
-                        query,
-                        "download_failed",
-                        wire_attempted=True,
-                        reason=str(exc)[:80],
-                    )
-                    continue
-                if self.media_preflight is not None:
-                    blocked = self.media_preflight(destination)
-                    if blocked is not None:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "security_blocked",
-                            wire_attempted=False,
-                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if fmt == "short":
-                    color_ok, color_reason = _short_visual_color_compatible(destination)
-                    if not color_ok:
-                        self._event(
-                            str(candidate["provider"]),
-                            query,
-                            "color_rejected",
-                            wire_attempted=False,
-                            reason=color_reason,
-                        )
-                        destination.unlink(missing_ok=True)
-                        continue
-                if self.media_transform is not None:
-                    destination = Path(self.media_transform(destination))
-                candidate = {
-                    key: value
-                    for key, value in candidate.items()
-                    if key != "download_url"
-                }
-                candidate["local_file"] = destination.name
-                candidate["section_id"] = section_id
-                candidate["beat_id"] = str(beat.get("id") or "")
-                candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
-                candidate["meaning_target"] = str(beat.get("meaning_target") or beat.get("viewer_intent") or "")
-                candidate["semantic_must_have"] = list(beat.get("semantic_must_have") or [])
-                candidate["semantic_should_avoid"] = list(beat.get("semantic_should_avoid") or [])
-                candidate["shot_intent"] = str(beat.get("shot_intent") or query)
-                candidate["writer_anchor_ar"] = str(beat.get("writer_anchor_ar") or "")
-                candidate["display_text_ar"] = str(beat.get("display_text_ar") or "")
-                candidate["role"] = str(beat.get("role") or "")
-                candidate["source_preference"] = str(
-                    beat.get("source_preference") or "stock_motion"
-                )
-                candidate["source_actual"] = "stock_motion"
-                if auxiliary:
-                    # Keep this compatibility flag because existing render/opening
-                    # code uses it to distinguish the first section visual. Its cause
-                    # is now a real story beat, not timing-based pacing.
-                    candidate["pacing_auxiliary"] = True
-                    candidate["story_beat_auxiliary"] = True
-                clips.append(destination)
-                rights.append(candidate)
+            # Real-media policy: Coverr is the first motion library. A beat that
+            # explicitly asks for a photographic still (or an unavailable AI still)
+            # tries Pexels/Pixabay photos first. Motion beats exhaust the two bounded
+            # query variants before falling back to a real photo.
+            prefer_still = preference in {"stock_still", "ai_still"}
+            if prefer_still and _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=True,
+            ):
+                return True
+            if _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=False,
+            ):
+                return True
+            if not prefer_still and _try_stock_kind(
+                queries,
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+                as_still=True,
+            ):
                 return True
             return False
 
@@ -1907,15 +2005,25 @@ class StockVisualSource:
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
-            query = specific or str(beat.get("stock_query_en") or "").strip()
-            if not query:
+            primary_query = specific or str(beat.get("stock_query_en") or "").strip()
+            if not primary_query:
                 continue
-            query = _hook_stock_retrieval_query(query, beat)
-            if self.query_normalizer is not None:
-                query = self.query_normalizer(query)
-            query = _channel_stock_query(query)
+            evolved = _stock_query_ladder(primary_query, beat)
+            normalized_queries: list[str] = []
+            for raw_query in evolved:
+                query = _hook_stock_retrieval_query(raw_query, beat)
+                if self.query_normalizer is not None:
+                    query = self.query_normalizer(query)
+                query = _channel_stock_query(query)
+                if query and query not in normalized_queries:
+                    normalized_queries.append(query)
             auxiliary = section_id in seen_sections
-            if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
+            if _acquire_one(
+                tuple(normalized_queries[:2]),
+                section_id,
+                beat,
+                auxiliary=auxiliary,
+            ):
                 seen_sections.add(section_id)
 
         if not clips:
