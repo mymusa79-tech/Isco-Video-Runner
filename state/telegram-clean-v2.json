@@ -1190,9 +1190,264 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-09-29T20:01:51Z"
+    },
+    {
+      "idea_id": "idea-771285b119",
+      "title": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
+      "normalized_title": "لماذا نوجل الاشياء المهمة رغم اننا نعرف قيمتها؟",
+      "market_query": "التسويف وتأجيل المهام المهمة",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.73,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 9895.6,
+        "median_views_per_day": 269.1,
+        "top_samples": [
+          {
+            "video_id": "kF_ROq0LJUQ",
+            "title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+            "channel": "Daily English Podcast",
+            "published_at": "2026-09-06T14:00:07Z",
+            "views": 235709,
+            "views_per_day": 9895.6
+          },
+          {
+            "video_id": "MJpMz63HPp4",
+            "title": "SI SIEMPRE DEJAS TODO PARA DESPUÉS, NECESITAS ESCUCHAR ESTO | Brian Tracy español",
+            "channel": "Productividad Tracy",
+            "published_at": "2026-09-03T19:01:12Z",
+            "views": 12955,
+            "views_per_day": 486.8
+          },
+          {
+            "video_id": "RyF8_QkyVaw",
+            "title": "PELIGRO MASONICO PROCRASTINACION",
+            "channel": "MANUAL DE MASONERIA de Josep-Lluis Domenech Gomez",
+            "published_at": "2026-09-25T13:50:19Z",
+            "views": 1353,
+            "views_per_day": 280.3
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:15Z"
+    },
+    {
+      "idea_id": "idea-d87bff94f6",
+      "title": "لماذا ننتظر الشعور المناسب قبل أن نتحرك؟",
+      "normalized_title": "لماذا ننتظر الشعور المناسب قبل ان نتحرك؟",
+      "market_query": "انتظار الدافع قبل العمل",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.481,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 82.1,
+        "median_views_per_day": 33.9,
+        "top_samples": [
+          {
+            "video_id": "C2THrkREt9M",
+            "title": "The Discipline Code: How to Build Habits That Actually Stick Every Day 🔥| Self-Discipline & Success✅",
+            "channel": "Mind Blowing Motive",
+            "published_at": "2026-09-03T03:15:40Z",
+            "views": 2238,
+            "views_per_day": 82.1
+          },
+          {
+            "video_id": "RKwERzvvATU",
+            "title": "How to Stop Feeling Stuck - Take Action & Move Your Life Forward - Elvira Guzman-Barnett",
+            "channel": "Awakening with Elvira Guzman-Barnett",
+            "published_at": "2026-08-31T15:43:28Z",
+            "views": 2107,
+            "views_per_day": 70.8
+          },
+          {
+            "video_id": "N63-UsgFMWM",
+            "title": "Deja de esperar la motivación",
+            "channel": "Financial Mentors TV - Español",
+            "published_at": "2026-09-13T16:00:38Z",
+            "views": 902,
+            "views_per_day": 53.9
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:17Z"
+    },
+    {
+      "idea_id": "idea-00ad9dc353",
+      "title": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+      "normalized_title": "كيف تستعيد تركيزك بعد ايام من التشتت؟",
+      "market_query": "استعادة التركيز بعد التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.393,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 89.1,
+        "median_views_per_day": 45.9,
+        "top_samples": [
+          {
+            "video_id": "EDCZfW_bdEs",
+            "title": "قوة التركيز: لماذا لم تعد قادرًا على التركيز؟ أنقذ دماغك من التشتت | كتاب صوتي",
+            "channel": "الوعي المقروء",
+            "published_at": "2026-09-26T16:00:32Z",
+            "views": 333,
+            "views_per_day": 89.1
+          },
+          {
+            "video_id": "dNnswliyFKg",
+            "title": "كيف تستعيد تركيزك بعد المقاطعة؟ مهارة نقطة العودة",
+            "channel": "على متن فكرة",
+            "published_at": "2026-09-19T13:00:22Z",
+            "views": 29,
+            "views_per_day": 2.7
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:15Z"
+    },
+    {
+      "idea_id": "idea-940ecd51cf",
+      "title": "كيف تبدأ من جديد دون خطة مثالية؟",
+      "normalized_title": "كيف تبدا من جديد دون خطة مثالية؟",
+      "market_query": "البدء من جديد بدون خطة مثالية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.335,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 59.5,
+        "median_views_per_day": 59.5,
+        "top_samples": [
+          {
+            "video_id": "4-X1fQg-CVA",
+            "title": "Beginning Again Does Not Require A Perfect Plan",
+            "channel": "Life Lived Alone",
+            "published_at": "2026-09-08T17:01:13Z",
+            "views": 1291,
+            "views_per_day": 59.5
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:16Z"
+    },
+    {
+      "idea_id": "idea-04c2f333da",
+      "title": "متى تتحول الراحة إلى هروب؟",
+      "normalized_title": "متي تتحول الراحة الي هروب؟",
+      "market_query": "الراحة والهروب من المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.273,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 23.9,
+        "median_views_per_day": 23.9,
+        "top_samples": [
+          {
+            "video_id": "O4tMtYmDKmQ",
+            "title": "ليست كل راحة راحة",
+            "channel": "مختبر الوعي",
+            "published_at": "2026-09-14T16:59:21Z",
+            "views": 375,
+            "views_per_day": 23.9
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:16Z"
+    },
+    {
+      "idea_id": "idea-68d221f689",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:15Z"
+    },
+    {
+      "idea_id": "idea-3fec33042e",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:16Z"
+    },
+    {
+      "idea_id": "idea-8e8abb72e3",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-30T09:40:16Z"
     }
   ],
   "sessions": {
+    "209faa7d": {
+      "session_id": "209faa7d",
+      "scope": "short",
+      "idea_ids": [
+        "idea-771285b119",
+        "idea-d87bff94f6",
+        "idea-00ad9dc353"
+      ],
+      "created_at": "2026-09-30T09:40:17Z"
+    },
+    "7f27f053": {
+      "session_id": "7f27f053",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b946be3ff6"
+      ],
+      "created_at": "2026-09-29T23:50:23Z",
+      "source": "saved_library",
+      "closed_at": "2026-09-29T23:50:23Z",
+      "selected_index": 0
+    },
+    "6315ec87": {
+      "session_id": "6315ec87",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-d84ee01975"
+      ],
+      "created_at": "2026-09-29T22:13:44Z",
+      "source": "saved_library",
+      "closed_at": "2026-09-29T22:13:44Z",
+      "selected_index": 0
+    },
     "1805f4a7": {
       "session_id": "1805f4a7",
       "scope": "podcast",
@@ -1260,28 +1515,6 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
-    },
-    "6315ec87": {
-      "session_id": "6315ec87",
-      "scope": "podcast",
-      "idea_ids": [
-        "idea-d84ee01975"
-      ],
-      "created_at": "2026-09-29T22:13:44Z",
-      "source": "saved_library",
-      "closed_at": "2026-09-29T22:13:44Z",
-      "selected_index": 0
-    },
-    "7f27f053": {
-      "session_id": "7f27f053",
-      "scope": "short",
-      "idea_ids": [
-        "idea-b946be3ff6"
-      ],
-      "created_at": "2026-09-29T23:50:23Z",
-      "source": "saved_library",
-      "closed_at": "2026-09-29T23:50:23Z",
-      "selected_index": 0
     }
   },
   "requests": {
@@ -1619,5 +1852,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-29T23:50:51Z"
+  "updated_at": "2026-09-30T09:40:17Z"
 }
