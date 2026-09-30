@@ -40,6 +40,12 @@ HOLD_REASONS = frozenset({
 })
 PAUSE_INTENTS = frozenset({"none", "micro", "emphasis", "transition", "ending"})
 AUDIO_ENERGIES = frozenset({"quiet", "low", "steady", "lift", "resolve"})
+EDITORIAL_HOLD_WEIGHTS = {
+    "idea_continues": 1.25,
+    "idea_changes": 1.00,
+    "hook_progression": 0.95,
+    "payoff_landing": 1.20,
+}
 _PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
 
 _WRITER_INTENT_DROP_TOKENS = frozenset({
