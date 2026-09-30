@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .visual_story import compact_searchable_visual_intent
+from .visual_story import EDITORIAL_HOLD_WEIGHTS, compact_searchable_visual_intent
 
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
@@ -123,16 +123,6 @@ _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
 PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
-
-# Meaning-led shot hold weights. They redistribute only an already-measured
-# section's visual share; the voice-owned timeline and number of semantic beats
-# remain untouched.
-EDITORIAL_HOLD_WEIGHTS = {
-    "idea_continues": 1.25,
-    "idea_changes": 1.00,
-    "hook_progression": 0.95,
-    "payoff_landing": 1.20,
-}
 
 # Short visuals are semantic-story owned: normally 3-5 real scenes total.
 # Measured voice owns timing only; duration never fabricates extra shots.
