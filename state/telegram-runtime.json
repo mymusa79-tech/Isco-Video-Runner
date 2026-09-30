@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "لماذا ننتظر الشعور المناسب قبل أن نتحرك؟",
-  "stage": "⚡ الشورت · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/36723134544",
-  "result": "",
-  "updated_at": 1790775665
+  "result": "failure",
+  "updated_at": 1790775701
 }
