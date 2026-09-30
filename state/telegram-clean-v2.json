@@ -2268,7 +2268,25 @@
         "likes": 2,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-09-30T23:18:14Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 64,
+      "hidden_subscribers": false,
+      "total_views": 39414,
+      "video_count": 144,
+      "last_long": null,
+      "last_short": {
+        "video_id": "miceGjYgWEo",
+        "title": "تعبان من الشغل طول الوقت؟ قد تكون محترقًا وظيفيًا",
+        "published_at": "2026-09-30T18:59:00Z",
+        "duration_seconds": 10,
+        "views": 357,
+        "likes": 6,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-09-30T22:34:37Z"
+  "updated_at": "2026-09-30T23:18:14Z"
 }
