@@ -101,7 +101,7 @@ class VisualSearchEvolutionTests(unittest.TestCase):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(b"x" * 2048)
 
-    def test_coverr_is_first_motion_source(self) -> None:
+    def test_hook_competes_all_three_motion_providers_and_uses_best_local_score(self) -> None:
         source = StockVisualSource()
         coverr_candidate = {
             "provider": "coverr",
@@ -113,13 +113,34 @@ class VisualSearchEvolutionTests(unittest.TestCase):
             "query": "person checking phone late at night",
             "media_kind": "video",
             "attribution_required": True,
+            "local_rank_score": 0.71,
+        }
+        pexels_candidate = {
+            "provider": "pexels",
+            "asset_id": "p1",
+            "download_url": "https://videos.pexels.com/video.mp4",
+            "source_url": "https://www.pexels.com/video/1/",
+            "creator": "Tester",
+            "creator_url": "",
+            "query": "person checking phone late at night",
+            "local_rank_score": 0.93,
+        }
+        pixabay_candidate = {
+            "provider": "pixabay",
+            "asset_id": "x1",
+            "download_url": "https://cdn.pixabay.com/video.mp4",
+            "source_url": "https://pixabay.com/videos/1/",
+            "creator": "Tester",
+            "creator_url": "",
+            "query": "person checking phone late at night",
+            "local_rank_score": 0.82,
         }
         with tempfile.TemporaryDirectory() as root, mock.patch.object(
             source, "_coverr", return_value=coverr_candidate
         ) as coverr, mock.patch.object(
-            source, "_pexels", return_value=None
+            source, "_pexels", return_value=pexels_candidate
         ) as pexels, mock.patch.object(
-            source, "_pixabay", return_value=None
+            source, "_pixabay", return_value=pixabay_candidate
         ) as pixabay, mock.patch.object(
             media_module, "_download_media", side_effect=self._write_fake_media
         ), mock.patch.object(
@@ -132,8 +153,49 @@ class VisualSearchEvolutionTests(unittest.TestCase):
                 max_visuals=1,
             )
         self.assertEqual(len(clips), 1)
-        self.assertEqual(rights[0]["provider"], "coverr")
+        self.assertEqual(rights[0]["provider"], "pexels")
         self.assertEqual(rights[0]["source_actual"], "stock_motion")
+        self.assertTrue(rights[0]["provider_competition_used"])
+        self.assertEqual(rights[0]["provider_competition_count"], 3)
+        coverr.assert_called_once()
+        pexels.assert_called_once()
+        pixabay.assert_called_once()
+
+    def test_body_keeps_cheap_coverr_first_sequential_policy(self) -> None:
+        source = StockVisualSource()
+        plan = self._plan()
+        plan["visual_story"]["beats"][0]["role"] = "body"
+        coverr_candidate = {
+            "provider": "coverr",
+            "asset_id": "c1",
+            "download_url": "https://cdn.coverr.co/videos/c1/download",
+            "source_url": "https://coverr.co",
+            "creator": "Coverr",
+            "creator_url": "https://coverr.co",
+            "query": "person checking phone late at night",
+            "media_kind": "video",
+            "attribution_required": True,
+            "local_rank_score": 0.60,
+        }
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_coverr", return_value=coverr_candidate
+        ) as coverr, mock.patch.object(
+            source, "_pexels", return_value=None
+        ) as pexels, mock.patch.object(
+            source, "_pixabay", return_value=None
+        ) as pixabay, mock.patch.object(
+            media_module, "_download_media", side_effect=self._write_fake_media
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, None)
+        ):
+            _clips, rights = source.acquire(
+                plan,
+                Path(root),
+                "short",
+                max_visuals=1,
+            )
+        self.assertEqual(rights[0]["provider"], "coverr")
+        self.assertFalse(rights[0]["provider_competition_used"])
         coverr.assert_called_once()
         pexels.assert_not_called()
         pixabay.assert_not_called()
