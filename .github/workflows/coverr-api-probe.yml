@@ -40,7 +40,9 @@ jobs:
           }
 
           def probe(path, params, label):
-              url = base + path + "?" + urllib.parse.urlencode(params)
+              url = base + path
+              if params:
+                  url += "?" + urllib.parse.urlencode(params)
               req = urllib.request.Request(url, headers=headers, method="GET")
               try:
                   with urllib.request.urlopen(req, timeout=20) as resp:
@@ -50,7 +52,11 @@ jobs:
                       print(f"{label}_HTTP={resp.status}")
                       print(f"{label}_TOTAL={data.get('total') if isinstance(data, dict) else 'n/a'}")
                       print(f"{label}_HITS={len(hits) if isinstance(hits, list) else 'n/a'}")
-                      for h in ("x-ratelimit-limit", "x-ratelimit-remaining", "ratelimit-limit", "ratelimit-remaining"):
+                      for h in (
+                          "x-ratelimit-limit", "x-ratelimit-remaining",
+                          "ratelimit-limit", "ratelimit-remaining",
+                          "x-rate-limit-limit", "x-rate-limit-remaining",
+                      ):
                           if resp.headers.get(h) is not None:
                               print(f"{label}_{h.upper().replace('-', '_')}={resp.headers.get(h)}")
                       return data
@@ -60,41 +66,45 @@ jobs:
                   print(f"{label}_ERROR_BODY={body[:300]}")
                   return None
 
-          videos = probe(
-              "/videos",
-              {"query": "anxious person city night", "page_size": 5, "urls": "true"},
-              "VIDEO",
-          )
+          videos = probe("/videos", {"page_size": 5, "urls": "true"}, "VIDEO_LIST")
           if isinstance(videos, dict) and videos.get("hits"):
               v = videos["hits"][0]
               urls = v.get("urls") or {}
               print("VIDEO_SAMPLE_ID=" + str(v.get("id", "")))
+              print("VIDEO_SAMPLE_TITLE=" + str(v.get("title", ""))[:120])
               print("VIDEO_SAMPLE_VERTICAL=" + str(v.get("is_vertical", "")))
               print("VIDEO_SAMPLE_DURATION=" + str(v.get("duration", "")))
               print("VIDEO_SAMPLE_MAX=" + str(v.get("max_width", "")) + "x" + str(v.get("max_height", "")))
               print("VIDEO_HAS_MP4=" + str(bool(urls.get("mp4"))).lower())
+              print("VIDEO_HAS_PREVIEW=" + str(bool(urls.get("mp4_preview"))).lower())
               print("VIDEO_HAS_DOWNLOAD=" + str(bool(urls.get("mp4_download"))).lower())
 
-          audios = probe(
-              "/audios",
-              {"query": "calm piano ambient", "page_size": 8},
-              "AUDIO",
-          )
+          for q in ("anxiety", "city", "walking", "night"):
+              data = probe("/videos", {"query": q, "page_size": 5, "urls": "false"}, "VIDEO_Q_" + q.upper())
+              if isinstance(data, dict) and data.get("hits"):
+                  print("VIDEO_Q_" + q.upper() + "_FIRST_TITLE=" + str(data["hits"][0].get("title", ""))[:120])
+
+          audios = probe("/audios", {"page_size": 8}, "AUDIO_LIST")
           if isinstance(audios, dict) and audios.get("hits"):
               a = audios["hits"][0]
+              urls = a.get("urls") or {}
               print("AUDIO_SAMPLE_ID=" + str(a.get("id", "")))
               print("AUDIO_SAMPLE_NAME=" + str(a.get("name") or a.get("title") or ""))
               print("AUDIO_SAMPLE_DURATION=" + str(a.get("duration", "")))
+              print("AUDIO_SAMPLE_PREMIUM=" + str(a.get("isPremium", "")))
               print("AUDIO_SAMPLE_GENRES=" + json.dumps(a.get("genres", []), ensure_ascii=True))
               print("AUDIO_SAMPLE_MOODS=" + json.dumps(a.get("moods", []), ensure_ascii=True))
               print("AUDIO_SAMPLE_INSTRUMENTS=" + json.dumps(a.get("instruments", []), ensure_ascii=True))
-              print("AUDIO_KEYS=" + ",".join(sorted(str(k) for k in a.keys())))
+              print("AUDIO_HAS_PREVIEW=" + str(bool(urls.get("preview"))).lower())
+              print("AUDIO_HAS_PREVIEW_DOWNLOAD=" + str(bool(urls.get("previewDownload"))).lower())
+              print("AUDIO_HAS_MASTER_DOWNLOAD=" + str(bool(urls.get("masterDownload"))).lower())
 
-          # This endpoint is intentionally probed once because Coverr's public
-          # API docs currently document videos/audios, not a stock-images endpoint.
-          probe(
-              "/images",
-              {"query": "city", "page_size": 1},
-              "IMAGE",
-          )
+          for q in ("piano", "ambient", "relaxing"):
+              data = probe("/audios", {"query": q, "page_size": 8}, "AUDIO_Q_" + q.upper())
+              if isinstance(data, dict) and data.get("hits"):
+                  a = data["hits"][0]
+                  print("AUDIO_Q_" + q.upper() + "_FIRST=" + str(a.get("name") or a.get("title") or ""))
+                  print("AUDIO_Q_" + q.upper() + "_PREMIUM=" + str(a.get("isPremium", "")))
+
+          probe("/images", {"query": "city", "page_size": 1}, "IMAGE")
           PY
