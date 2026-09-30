@@ -1880,30 +1880,31 @@ class StockVisualSource:
                         if candidate is not None:
                             candidates.append(candidate)
 
-                    # Provider helpers reserve their local winner immediately so the
-                    # normal cheap sequential path cannot repeat an asset. Release all
-                    # provisional reservations here; only the actually admitted winner
-                    # stays reserved.
-                    for candidate in candidates:
-                        identity = (
-                            str(candidate.get("provider") or ""),
-                            str(candidate.get("asset_id") or ""),
-                        )
-                        if identity[0] and identity[1]:
-                            self._used.discard(identity)
-
                     ranked_candidates = sorted(
                         candidates,
                         key=lambda item: float(item.get("local_rank_score") or -1.0),
                         reverse=True,
                     )
+                    identities = {
+                        (
+                            str(candidate.get("provider") or ""),
+                            str(candidate.get("asset_id") or ""),
+                        )
+                        for candidate in ranked_candidates
+                        if str(candidate.get("provider") or "")
+                        and str(candidate.get("asset_id") or "")
+                    }
+                    # Provider helpers reserve their page winner immediately. Keep
+                    # failed admissions reserved so an alternate query cannot retry a
+                    # bad download/security failure. If another provider wins, release
+                    # only the untried healthy losers for later beats.
+                    self._used.update(identities)
+                    failed_identities: set[tuple[str, str]] = set()
                     for candidate in ranked_candidates:
                         identity = (
                             str(candidate.get("provider") or ""),
                             str(candidate.get("asset_id") or ""),
                         )
-                        if identity[0] and identity[1]:
-                            self._used.add(identity)
                         candidate["provider_competition_used"] = True
                         candidate["provider_competition_count"] = len(ranked_candidates)
                         if _admit_stock_candidate(
@@ -1915,6 +1916,12 @@ class StockVisualSource:
                             as_still=False,
                             query_variant_index=query_variant_index,
                         ):
+                            for other_identity in identities:
+                                if (
+                                    other_identity != identity
+                                    and other_identity not in failed_identities
+                                ):
+                                    self._used.discard(other_identity)
                             self._event(
                                 str(candidate.get("provider") or "unknown"),
                                 query,
@@ -1927,7 +1934,7 @@ class StockVisualSource:
                             )
                             return True
                         if identity[0] and identity[1]:
-                            self._used.discard(identity)
+                            failed_identities.add(identity)
                     continue
 
                 # Body/still beats keep the low-cost sequential policy.
