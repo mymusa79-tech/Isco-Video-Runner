@@ -1470,9 +1470,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-09-30T12:00:01Z"
+      "research_pack": [
+        {
+          "source_title": "The Discipline Code: How to Build Habits That Actually Stick Every Day 🔥| Self-Discipline & Success✅",
+          "source_url": "https://youtu.be/C2THrkREt9M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "How to Stop Feeling Stuck - Take Action & Move Your Life Forward - Elvira Guzman-Barnett",
+          "source_url": "https://youtu.be/RKwERzvvATU",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Deja de esperar la motivación",
+          "source_url": "https://youtu.be/N63-UsgFMWM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-09-30T12:00:01Z",
+      "selected_at": "2026-09-30T13:38:19Z"
     },
     {
       "idea_id": "idea-b717533e70",
@@ -1733,6 +1750,17 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
+    },
+    "1f7df60e": {
+      "session_id": "1f7df60e",
+      "scope": "short",
+      "idea_ids": [
+        "idea-ecd20a76d0"
+      ],
+      "created_at": "2026-09-30T13:38:19Z",
+      "source": "saved_library",
+      "closed_at": "2026-09-30T13:38:19Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -1973,9 +2001,40 @@
       "confirmed_at": "2026-09-30T12:01:23Z",
       "dispatched_at": null,
       "request_sha256": "33323cb735eea4f032b18a0b9ed970f80a1d8c8e97d3970021e6b0a3c84ab385"
+    },
+    "req-99b056c56574": {
+      "schema_version": 1,
+      "request_id": "req-99b056c56574",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا ننتظر الشعور المناسب قبل أن نتحرك؟",
+      "research_pack": [
+        {
+          "source_title": "The Discipline Code: How to Build Habits That Actually Stick Every Day 🔥| Self-Discipline & Success✅",
+          "source_url": "https://youtu.be/C2THrkREt9M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "How to Stop Feeling Stuck - Take Action & Move Your Life Forward - Elvira Guzman-Barnett",
+          "source_url": "https://youtu.be/RKwERzvvATU",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Deja de esperar la motivación",
+          "source_url": "https://youtu.be/N63-UsgFMWM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-ecd20a76d0",
+      "selected_at": "2026-09-30T13:38:19Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "ede926d728574842db2661bba276cf41953129d9ca491af3476eb205ee198d8e"
     }
   },
-  "current_request_id": "req-78afd3788146",
+  "current_request_id": "req-99b056c56574",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -2176,5 +2235,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-30T12:54:21Z"
+  "updated_at": "2026-09-30T13:38:19Z"
 }
