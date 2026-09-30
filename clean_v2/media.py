@@ -137,6 +137,8 @@ SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 AI_STILL_CLIP_SECONDS = 12.0
 SHORT_MIN_COLOR_SATURATION_AVG = 5.0
+COVERR_MAX_SEARCHES_PER_RUN = 12
+STOCK_PRIMARY_PAGE_SIZE = 24
 
 
 def _utc_now() -> str:
@@ -1137,6 +1139,7 @@ class StockVisualSource:
         self.query_normalizer = query_normalizer
         self.media_preflight = media_preflight
         self.media_transform = media_transform
+        self._coverr_search_calls = 0
 
     def _event(
         self,
@@ -1157,6 +1160,272 @@ class StockVisualSource:
                 "reason": reason,
             }
         )
+
+    def _coverr(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("COVERR_API_KEY")
+        if not key:
+            self._event("coverr", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        if self._coverr_search_calls >= COVERR_MAX_SEARCHES_PER_RUN:
+            self._event(
+                "coverr",
+                query,
+                "skipped",
+                wire_attempted=False,
+                reason="run_search_budget_exhausted",
+            )
+            return None
+        self._coverr_search_calls += 1
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:160],
+                "page_size": STOCK_PRIMARY_PAGE_SIZE,
+                "sort": "popular",
+                "urls": "true",
+            }
+        )
+        try:
+            body = _get_json(
+                f"https://api.coverr.co/videos?{params}",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
+                asset_id = str(hit.get("id") or "").strip()
+                identity = ("coverr", asset_id)
+                if not asset_id or identity in self._used:
+                    continue
+                if bool(hit.get("is_ai") or hit.get("ai_generated")):
+                    continue
+                source_type = str(hit.get("source") or hit.get("type") or "").casefold()
+                if source_type in {"ai", "generated", "ai_generated"}:
+                    continue
+                urls = hit.get("urls") or {}
+                download_url = str(
+                    (urls.get("mp4_download") if isinstance(urls, Mapping) else "")
+                    or (urls.get("mp4") if isinstance(urls, Mapping) else "")
+                    or ""
+                ).strip()
+                if not download_url:
+                    continue
+                width = int(hit.get("max_width") or 0)
+                height = int(hit.get("max_height") or 0)
+                if not width or not height:
+                    vertical = bool(hit.get("is_vertical"))
+                    width, height = ((1080, 1920) if vertical else (1920, 1080))
+                metadata = " ".join(
+                    [
+                        str(hit.get("title") or ""),
+                        str(hit.get("description") or ""),
+                        " ".join(str(x) for x in (hit.get("tags") or []) if x),
+                        " ".join(str(x) for x in (hit.get("search_keywords") or []) if x),
+                    ]
+                )
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=width,
+                    height=height,
+                    duration=float(hit.get("duration") or 0.0),
+                    portrait=portrait,
+                    query=query,
+                    metadata=metadata,
+                )
+                ranked.append((score, hit, download_url, identity))
+            if ranked:
+                score, hit, download_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "coverr",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "coverr",
+                    "asset_id": identity[1],
+                    "download_url": download_url,
+                    "source_url": str(hit.get("url") or "https://coverr.co"),
+                    "creator": "Coverr",
+                    "creator_url": "https://coverr.co",
+                    "query": query,
+                    "media_kind": "video",
+                    "attribution_required": True,
+                }
+            self._event("coverr", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "coverr",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
+
+    def _pexels_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("PEXELS_API_KEY")
+        if not key:
+            self._event("pexels_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:200],
+                "orientation": "portrait" if portrait else "landscape",
+                "size": "large",
+                "per_page": STOCK_PRIMARY_PAGE_SIZE,
+                "locale": "en-US",
+            }
+        )
+        try:
+            body = _get_json(
+                f"https://api.pexels.com/v1/search?{params}",
+                headers={"Authorization": key},
+            )
+            photos = [item for item in (body.get("photos") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(photos))
+            for index, photo in enumerate(photos):
+                identity = ("pexels_photo", str(photo.get("id") or ""))
+                if not identity[1] or identity in self._used:
+                    continue
+                src = photo.get("src") or {}
+                if not isinstance(src, Mapping):
+                    continue
+                image_url = str(
+                    src.get("large2x")
+                    or src.get("large")
+                    or src.get("portrait" if portrait else "landscape")
+                    or src.get("original")
+                    or ""
+                ).strip()
+                if not image_url:
+                    continue
+                width = int(photo.get("width") or 0)
+                height = int(photo.get("height") or 0)
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=width,
+                    height=height,
+                    duration=4.0,
+                    portrait=portrait,
+                    query=query,
+                    metadata=" ".join(
+                        [str(photo.get("alt") or ""), str(photo.get("url") or "")]
+                    ),
+                )
+                ranked.append((score, photo, image_url, identity))
+            if ranked:
+                score, photo, image_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "pexels_photo",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "pexels",
+                    "asset_id": identity[1],
+                    "download_url": image_url,
+                    "source_url": str(photo.get("url") or ""),
+                    "creator": str(photo.get("photographer") or ""),
+                    "creator_url": str(photo.get("photographer_url") or ""),
+                    "query": query,
+                    "media_kind": "photo",
+                }
+            self._event("pexels_photo", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "pexels_photo",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
+
+    def _pixabay_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        key = _read_secret("PIXABAY_API_KEY")
+        if not key:
+            self._event("pixabay_photo", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return None
+        params = urllib.parse.urlencode(
+            {
+                "key": key,
+                "q": query[:100],
+                "image_type": "photo",
+                "orientation": "vertical" if portrait else "horizontal",
+                "safesearch": "true",
+                "order": "popular",
+                "per_page": STOCK_PRIMARY_PAGE_SIZE,
+            }
+        )
+        try:
+            body = _get_json(f"https://pixabay.com/api/?{params}")
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
+                identity = ("pixabay_photo", str(hit.get("id") or ""))
+                if not identity[1] or identity in self._used:
+                    continue
+                image_url = str(
+                    hit.get("largeImageURL")
+                    or hit.get("webformatURL")
+                    or hit.get("previewURL")
+                    or ""
+                ).strip()
+                if not image_url:
+                    continue
+                score = _stock_local_rank_score(
+                    index=index,
+                    count=count,
+                    width=int(hit.get("imageWidth") or hit.get("webformatWidth") or 0),
+                    height=int(hit.get("imageHeight") or hit.get("webformatHeight") or 0),
+                    duration=4.0,
+                    portrait=portrait,
+                    query=query,
+                    metadata=" ".join(
+                        [str(hit.get("tags") or ""), str(hit.get("pageURL") or "")]
+                    ),
+                )
+                ranked.append((score, hit, image_url, identity))
+            if ranked:
+                score, hit, image_url, identity = max(ranked, key=lambda item: item[0])
+                self._used.add(identity)
+                self._event(
+                    "pixabay_photo",
+                    query,
+                    "selected_ranked",
+                    wire_attempted=True,
+                    reason=f"score={score:.3f}",
+                )
+                return {
+                    "provider": "pixabay",
+                    "asset_id": identity[1],
+                    "download_url": image_url,
+                    "source_url": str(hit.get("pageURL") or ""),
+                    "creator": str(hit.get("user") or ""),
+                    "creator_url": "",
+                    "query": query,
+                    "media_kind": "photo",
+                }
+            self._event("pixabay_photo", query, "empty", wire_attempted=True)
+        except Exception as exc:
+            self._event(
+                "pixabay_photo",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return None
 
     def _pexels(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
         key = _read_secret("PEXELS_API_KEY")
