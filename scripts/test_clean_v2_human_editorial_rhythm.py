@@ -76,9 +76,13 @@ class HumanEditorialRhythmTests(unittest.TestCase):
         self.assertEqual(hook["hold_reason"], "hook_progression")
         self.assertEqual(hook["pause_intent"], "micro")
         self.assertEqual(hook["audio_energy"], "steady")
+        self.assertEqual(hook["shot_role"], "action")
+        self.assertTrue(hook["environment_family"])
         self.assertEqual(payoff["hold_reason"], "payoff_landing")
         self.assertEqual(payoff["pause_intent"], "ending")
         self.assertEqual(payoff["audio_energy"], "resolve")
+        self.assertEqual(payoff["shot_role"], "payoff")
+        self.assertTrue(payoff["environment_family"])
 
     def test_explicit_signals_are_preserved_and_invalid_signal_fails_closed(self) -> None:
         story = _story()
@@ -87,16 +91,25 @@ class HumanEditorialRhythmTests(unittest.TestCase):
                 "hold_reason": "idea_continues",
                 "pause_intent": "emphasis",
                 "audio_energy": "quiet",
+                "shot_role": "detail",
+                "environment_family": "workplace",
             }
         )
         validated = validate_visual_story(story, _plan())
         self.assertEqual(validated["beats"][0]["hold_reason"], "idea_continues")
         self.assertEqual(validated["beats"][0]["pause_intent"], "emphasis")
         self.assertEqual(validated["beats"][0]["audio_energy"], "quiet")
+        self.assertEqual(validated["beats"][0]["shot_role"], "detail")
+        self.assertEqual(validated["beats"][0]["environment_family"], "workplace")
 
         story = _story()
         story["beats"][0]["hold_reason"] = "random_longer"
         with self.assertRaisesRegex(ValueError, "invalid hold_reason"):
+            validate_visual_story(story, _plan())
+
+        story = _story()
+        story["beats"][0]["shot_role"] = "random_camera_move"
+        with self.assertRaisesRegex(ValueError, "invalid shot_role"):
             validate_visual_story(story, _plan())
 
     def test_planning_prompt_exposes_only_meaning_led_signals(self) -> None:
@@ -114,6 +127,10 @@ class HumanEditorialRhythmTests(unittest.TestCase):
         self.assertIn("hold_reason", prompt)
         self.assertIn("pause_intent", prompt)
         self.assertIn("audio_energy", prompt)
+        self.assertIn("shot_role", prompt)
+        self.assertIn("environment_family", prompt)
+        self.assertIn("EDITOR CONTRACT — SHORT", prompt)
+        self.assertIn("zero extra provider calls", prompt)
         self.assertIn("never random variation", prompt)
         self.assertIn("never inserts silence", prompt)
 
