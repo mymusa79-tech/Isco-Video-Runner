@@ -159,7 +159,6 @@ def _ranking_components(candidate: dict[str, Any], kind: str) -> dict[str, float
         "channel": _channel_score(candidate),
         "creative": _creative_score(candidate, kind),
         "execution": _execution_score(candidate),
-        "specificity": _specific_problem_score(candidate),
     }
 
 
@@ -329,7 +328,6 @@ def _candidate_detail(item: dict[str, Any], index: int) -> str:
         f"⭐ فرصة مركبة: {score:.1f}/10",
         f"🎯 ملاءمة القناة: {fit:.1f}/10",
         f"🎨 القوة الإبداعية: {creative:.1f}/10",
-        f"🎯 تحديد المشكلة الواقعية: {float(components.get('specificity', 0.0) or 0.0) * 10:.1f}/10",
         f"🛠️ ثقة التنفيذ: {execution:.1f}/10",
         f"📈 الاهتمام الحالي المقاس: {trend:.1f}/10",
         f"{_market_class_ar(item)}",
@@ -379,7 +377,6 @@ def install(*, core: Any, panel: Any) -> None:
         "_quality_qualified": _quality_qualified,
         "_market_class": _market_class,
         "_market_class_ar": _market_class_ar,
-        "_specific_problem_score": _specific_problem_score,
         "_ranking_components": _ranking_components,
         "_control_score": _control_score,
         "_candidate_reasons": _candidate_reasons,
