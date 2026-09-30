@@ -14,6 +14,8 @@ on:
       - "scripts/test_audience_reality_signals.py"
       - "scripts/tavily_research_lite.py"
       - "scripts/test_tavily_research_lite.py"
+      - "scripts/youtube_learning_lite.py"
+      - "scripts/test_youtube_learning_lite.py"
       - "scripts/topic_research_market_reliability.py"
       - "scripts/telegram_session_continuity.py"
       - "scripts/test_research_provider_reliability.py"
@@ -23,6 +25,7 @@ on:
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
       - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/clean-v2-youtube-snapshot.yml"
       - ".github/workflows/verify-topic-research-v2.yml"
 
 permissions:
@@ -81,6 +84,8 @@ jobs:
             scripts/test_audience_reality_signals.py \
             scripts/tavily_research_lite.py \
             scripts/test_tavily_research_lite.py \
+            scripts/youtube_learning_lite.py \
+            scripts/test_youtube_learning_lite.py \
             scripts/topic_research_market_reliability.py \
             scripts/telegram_session_continuity.py \
             scripts/test_research_provider_reliability.py \
@@ -114,6 +119,7 @@ jobs:
           python -m unittest scripts.test_research_provider_reliability -v
           python -m unittest scripts.test_audience_reality_signals -v
           python -m unittest scripts.test_tavily_research_lite -v
+          python -m unittest scripts.test_youtube_learning_lite -v
           python -m unittest scripts.test_topic_research_market_reliability -v
           python -m unittest scripts.test_topic_research_runtime_recovery -v
           python -m unittest scripts.test_telegram_session_continuity -v

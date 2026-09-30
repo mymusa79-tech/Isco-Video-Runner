@@ -179,6 +179,19 @@ jobs:
           echo "Telegram webhook is inactive; certified fallback polling owns ingress for this serialized run"
           python scripts/telegram_topic_research_v2.py poll --state "$CONTROL_STATE_PATH"
 
+      - name: Restore read-only YouTube learning for research
+        if: steps.poll.outputs.needs_engine == 'true'
+        run: |
+          set -euo pipefail
+          learning="$RUNNER_TEMP/isco-control/youtube-learning-source.json"
+          if git fetch --no-tags origin clean-v2-telegram-state:refs/remotes/origin/clean-v2-telegram-state 2>/dev/null \
+             && git show origin/clean-v2-telegram-state:state/telegram-clean-v2.json > "$learning" 2>/dev/null; then
+            echo "YOUTUBE_LEARNING_STATE_PATH=$learning" >> "$GITHUB_ENV"
+          else
+            printf '%s\n' '{}' > "$learning"
+            echo "YOUTUBE_LEARNING_STATE_PATH=$learning" >> "$GITHUB_ENV"
+          fi
+
       - name: Checkout exact private Engine for research only
         if: steps.poll.outputs.needs_engine == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

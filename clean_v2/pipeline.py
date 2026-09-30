@@ -4492,7 +4492,10 @@ signals to make the hook and narration concrete when they fit THIS topic; use si
 as preferred seeds for visual_story shot_intent and stock_query_en when they communicate the exact beat
 better than a generic mood shot. Paraphrase rather than quote, never invent usernames, and never force a
 signal that does not fit. A [Reddit ...] line, if an approved external source supplied one, follows the
-same rules and must never be invented by Planning.
+same rules and must never be invented by Planning. A [Channel learning] line is measured, own-channel
+observational evidence from recent YouTube Analytics. Use it only to prioritize structural choices such as
+opening directness, pacing, and ending review. It is not causal proof, must never justify a factual claim in
+the narration, and must never trigger an automatic production override or force imitation of a past topic.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
 English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search

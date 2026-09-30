@@ -57,6 +57,15 @@ jobs:
           set -euo pipefail
           python scripts/telegram_clean_v2_control.py snapshot             --state "$TELEGRAM_STATE_PATH"
 
+      - name: Refresh compact YouTube learning
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/youtube_learning_lite.py refresh --state "$TELEGRAM_STATE_PATH"
+
       - name: Persist bounded snapshot history
         run: |
           set -euo pipefail
@@ -64,6 +73,6 @@ jobs:
           git -C "$TELEGRAM_STATE_ROOT" config user.email "actions@users.noreply.github.com"
           git -C "$TELEGRAM_STATE_ROOT" add "$STATE_FILE"
           if ! git -C "$TELEGRAM_STATE_ROOT" diff --cached --quiet; then
-            git -C "$TELEGRAM_STATE_ROOT" commit -m "state: YouTube channel snapshot"
+            git -C "$TELEGRAM_STATE_ROOT" commit -m "state: YouTube snapshot and learning"
             git -C "$TELEGRAM_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
           fi
