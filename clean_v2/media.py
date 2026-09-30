@@ -2015,6 +2015,7 @@ class StockVisualSource:
                 beat,
                 auxiliary=auxiliary,
                 as_still=True,
+                prepare_query=_prepare_query,
             ):
                 return True
             return False
