@@ -134,6 +134,23 @@ class HumanEditorialRhythmTests(unittest.TestCase):
         self.assertIn("never random variation", prompt)
         self.assertIn("never inserts silence", prompt)
 
+    def test_editor_contract_is_format_specific_without_new_stage(self) -> None:
+        base = {
+            "approved_by_user": True,
+            "approved_topic": "ضغط العمل",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "شرح عملي",
+            "research_pack": [],
+            "hard_constraints": [],
+        }
+        film_prompt = _planning_prompt({**base, "format": "film"})
+        podcast_prompt = _planning_prompt({**base, "format": "podcast"})
+        self.assertIn("EDITOR CONTRACT — FILM", film_prompt)
+        self.assertNotIn("EDITOR CONTRACT — PODCAST", film_prompt)
+        self.assertIn("EDITOR CONTRACT — PODCAST", podcast_prompt)
+        self.assertIn("an A question never forces a cut", podcast_prompt)
+
     def test_hold_reason_redistributes_only_existing_section_time(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
