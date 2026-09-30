@@ -661,7 +661,7 @@ def _get_json(
 def _safe_media_host(url: str) -> bool:
     parsed = urllib.parse.urlparse(url)
     host = str(parsed.hostname or "").lower()
-    allowed = ("pexels.com", "pixabay.com")
+    allowed = ("pexels.com", "pixabay.com", "coverr.co")
     return parsed.scheme == "https" and any(
         host == suffix or host.endswith(f".{suffix}") for suffix in allowed
     )
@@ -975,26 +975,53 @@ def _hook_stock_retrieval_query(query: str, beat: Mapping[str, Any]) -> str:
     return " ".join([compact, *missing])[:260].strip()
 
 
-CHANNEL_STOCK_QUERY_SUFFIX = "warm neutral cinematic"
+CHANNEL_STOCK_QUERY_SUFFIX = ""
 
 
 def _channel_stock_query(query: str) -> str:
-    """Add one compact channel-style cue without changing search count or semantics."""
-    base = " ".join(str(query or "").split()).strip()
-    if not base:
-        return ""
-    lowered = base.lower()
-    missing = [
-        token
-        for token in CHANNEL_STOCK_QUERY_SUFFIX.split()
-        if token not in lowered
-    ]
-    if not missing:
-        return base
-    candidate = f"{base} {' '.join(missing)}".strip()
-    # Pixabay truncates at 100 chars; never sacrifice the semantic query just to
-    # force the style suffix into an unusually long search phrase.
-    return candidate if len(candidate) <= 96 else base
+    """Keep provider search semantic; channel styling is enforced after acquisition.
+
+    Historical searches appended ``warm neutral cinematic``. Provider docs and live
+    retrieval showed those generic style words consume scarce query space without
+    proving the action/state. The renderer already owns grade/composition, so stock
+    search now preserves only the concrete scene semantics.
+    """
+    return " ".join(str(query or "").split()).strip()
+
+
+def _stock_query_ladder(primary_query: str, beat: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return at most two meaning-preserving searches for one visual beat.
+
+    Planning may author one deliberately different real-world alternate. Old/resumed
+    artifacts without it get one local fallback from a concrete semantic cue. This is
+    bounded search evolution, not an open retry loop and it adds no model call.
+    """
+    raw_candidates: list[object] = [primary_query, beat.get("stock_query_alt_en")]
+    if not str(beat.get("stock_query_alt_en") or "").strip():
+        raw_candidates.extend(list(beat.get("semantic_must_have") or [])[:2])
+        raw_candidates.append(beat.get("stock_query_en"))
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_candidates:
+        compact = compact_searchable_visual_intent(
+            raw,
+            drop_tokens=_STOCK_INTENT_DROP_TOKENS,
+            max_words=10,
+        )
+        if not compact:
+            continue
+        key = " ".join(re.findall(r"[a-z0-9]+", compact.casefold()))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        queries.append(compact[:160])
+        if len(queries) >= 2:
+            break
+    if not queries:
+        fallback = " ".join(str(primary_query or "").split()).strip()
+        return (fallback[:160],) if fallback else ()
+    return tuple(queries)
 
 
 _STOCK_RANK_STOP_TOKENS = frozenset({
