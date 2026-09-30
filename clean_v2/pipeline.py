@@ -1707,6 +1707,27 @@ def _run_legacy_tone_naturalness_audit(
     }
     atomic_write_json(output_dir / "tone-naturalness-audit.json", report)
 
+    # Observation only (advisory, never blocks - #972 follow-up): print on
+    # every real audit call, pass or block, so how often filler/unearned-
+    # payoff/cold-open issues actually fire is visible in job logs across
+    # all runs, not just the ones that already fail for another reason.
+    # tone-naturalness-audit.json carries the same fields but lives solely
+    # in the uploaded artifact (Azure Blob, unreachable from this sandbox).
+    print(
+        "Clean V2 editorial voice advisory: "
+        + json.dumps(
+            {
+                "cold_open_story_violation": report.get("cold_open_story_violation"),
+                "filler_flags": report.get("filler_flags"),
+                "payoff_earned": report.get("payoff_earned"),
+                "status": report.get("status"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
     if result.get("status") == "block":
         # The full report only ever reaches tone-naturalness-audit.json, which
         # lives solely in the uploaded artifact (Azure Blob) - unreachable from
