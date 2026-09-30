@@ -11,6 +11,7 @@ on:
       - "scripts/test_clean_v2.py"
       - "scripts/test_clean_v2_channel_persona.py"
       - "scripts/test_clean_v2_human_feel.py"
+      - "scripts/test_clean_v2_human_editorial_rhythm.py"
       - "scripts/test_clean_v2_structural_ai_flags.py"
       - "scripts/test_clean_v2_tone_naturalness.py"
       - "scripts/test_clean_v2_opening_director.py"
@@ -104,6 +105,7 @@ jobs:
             scripts.test_clean_v2 \
             scripts.test_clean_v2_channel_persona \
             scripts.test_clean_v2_human_feel \
+            scripts.test_clean_v2_human_editorial_rhythm \
             scripts.test_clean_v2_structural_ai_flags \
             scripts.test_clean_v2_tone_naturalness \
             scripts.test_clean_v2_opening_director \

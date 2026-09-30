@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .music_library import select_music_track
+from .visual_story import EDITORIAL_HOLD_WEIGHTS
 
 # Format-aware music presence. Shorts can carry a more audible bed; long-form
 # stays progressively quieter so narration remains the unquestioned authority.
@@ -21,6 +22,23 @@ MUSIC_LEVELS_REL_DB = {
 }
 POST_MIX_LIMITER_LINEAR = 0.84
 LEVEL_TOLERANCE_DB = 1.0
+
+# Meaning-led music dynamics. These are relative adjustments to the already
+# normalized dialogue bed, never changes to narration gain or video duration.
+AUDIO_ENERGY_GAIN_DB = {
+    "quiet": -4.5,
+    "low": -2.0,
+    "steady": 0.0,
+    "lift": 1.5,
+    "resolve": 0.5,
+}
+PAUSE_DUCKS = {
+    "none": (0.0, 0.0),
+    "micro": (0.18, -1.0),
+    "emphasis": (0.35, -2.5),
+    "transition": (0.45, -3.5),
+    "ending": (0.65, -5.0),
+}
 
 # Compatibility constants. Generated SFX are intentionally disabled.
 SFX_TARGET_REL_DB = -120.0
@@ -126,6 +144,93 @@ def _topic_window(output_dir: Path) -> tuple[float, float]:
     raise RuntimeError("topic_music_window_missing")
 
 
+def _editorial_audio_windows(
+    output_dir: Path,
+    *,
+    topic_start: float,
+    topic_end: float,
+) -> list[dict[str, Any]]:
+    """Map selected semantic beats onto the measured voice timeline.
+
+    The mapping only shapes the local music bed. It never inserts silence,
+    stretches narration, adds cuts, or invents timing outside section bounds.
+    """
+    try:
+        timeline = json.loads((Path(output_dir) / "timeline-first.json").read_text(encoding="utf-8"))
+        rights = json.loads((Path(output_dir) / "rights-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    section_rows = timeline.get("section_events") if isinstance(timeline, Mapping) else None
+    assets = rights.get("assets") if isinstance(rights, Mapping) else None
+    if not isinstance(section_rows, list) or not isinstance(assets, list):
+        return []
+
+    assets_by_section: dict[str, list[Mapping[str, Any]]] = {}
+    seen_beats: set[str] = set()
+    for item in assets:
+        if not isinstance(item, Mapping):
+            continue
+        section_id = str(item.get("section_id") or "").strip()
+        beat_id = str(item.get("beat_id") or "").strip()
+        if not section_id or not beat_id or beat_id in seen_beats:
+            continue
+        seen_beats.add(beat_id)
+        assets_by_section.setdefault(section_id, []).append(item)
+
+    windows: list[dict[str, Any]] = []
+    for section in section_rows:
+        if not isinstance(section, Mapping):
+            continue
+        section_id = str(section.get("section_id") or "").strip()
+        beats = assets_by_section.get(section_id) or []
+        if not beats:
+            continue
+        try:
+            section_start = float(section.get("start"))
+            section_end = float(section.get("end"))
+        except (TypeError, ValueError):
+            continue
+        visible_start = max(topic_start, section_start)
+        visible_end = min(topic_end, section_end)
+        if visible_end <= visible_start:
+            continue
+
+        weights = [
+            EDITORIAL_HOLD_WEIGHTS.get(str(beat.get("hold_reason") or ""), 1.0)
+            for beat in beats
+        ]
+        total_weight = sum(max(0.01, float(weight)) for weight in weights)
+        cursor = section_start
+        section_duration = max(0.0, section_end - section_start)
+        for index, (beat, weight) in enumerate(zip(beats, weights)):
+            if index == len(beats) - 1:
+                beat_end = section_end
+            else:
+                beat_end = cursor + section_duration * (max(0.01, float(weight)) / total_weight)
+            start = max(topic_start, cursor)
+            end = min(topic_end, beat_end)
+            if end > start:
+                energy = str(beat.get("audio_energy") or "steady").strip()
+                pause = str(beat.get("pause_intent") or "none").strip()
+                if energy not in AUDIO_ENERGY_GAIN_DB:
+                    energy = "steady"
+                if pause not in PAUSE_DUCKS:
+                    pause = "none"
+                windows.append(
+                    {
+                        "section_id": section_id,
+                        "beat_id": str(beat.get("beat_id") or ""),
+                        "start": round(start - topic_start, 3),
+                        "end": round(end - topic_start, 3),
+                        "audio_energy": energy,
+                        "gain_db": AUDIO_ENERGY_GAIN_DB[energy],
+                        "pause_intent": pause,
+                    }
+                )
+            cursor = beat_end
+    return windows
+
+
 def _prepare_local_music_bed(src: Path, dest: Path, duration: float) -> Path:
     fade = min(0.65, max(0.12, duration / 6.0))
     fade_out_start = max(0.0, duration - fade)
@@ -149,14 +254,37 @@ def _mix_music_into_video(
     output_path: Path,
     music_path: Path,
     topic_start_seconds: float,
+    editorial_windows: list[Mapping[str, Any]] | None = None,
 ) -> None:
     delay_ms = int(round(topic_start_seconds * 1000))
+    music_filters: list[str] = []
+    for window in editorial_windows or []:
+        try:
+            start = max(0.0, float(window.get("start") or 0.0))
+            end = max(start, float(window.get("end") or start))
+            gain_db = float(window.get("gain_db") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        if abs(gain_db) > 0.001:
+            music_filters.append(
+                f"volume={gain_db:.3f}dB:enable='between(t,{start:.3f},{end:.3f})'"
+            )
+        pause = str(window.get("pause_intent") or "none")
+        duck_seconds, duck_db = PAUSE_DUCKS.get(pause, (0.0, 0.0))
+        if duck_seconds > 0.0 and duck_db < 0.0:
+            duck_start = max(start, end - duck_seconds)
+            music_filters.append(
+                f"volume={duck_db:.3f}dB:enable='between(t,{duck_start:.3f},{end:.3f})'"
+            )
+    envelope = (",".join(music_filters) + ",") if music_filters else ""
     _run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(final_path), "-i", str(music_path),
         "-filter_complex",
         (
-            f"[1:a]adelay={delay_ms}|{delay_ms}[music];"
+            f"[1:a]{envelope}adelay={delay_ms}|{delay_ms}[music];"
             "[0:a][music]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
             f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
         ),
@@ -200,6 +328,7 @@ def apply_topic_audio_polish(
     temp_mix = temp_dir / "final-audio-polished.mp4"
     topic_start: float | None = None
     topic_end: float | None = None
+    editorial_windows: list[dict[str, Any]] = []
     try:
         topic_start, topic_end = _topic_window(output_dir)
         topic_duration = topic_end - topic_start
@@ -232,11 +361,17 @@ def apply_topic_audio_polish(
             "track_title": library_report.get("selected_title"),
             **level,
         }
+        editorial_windows = _editorial_audio_windows(
+            output_dir,
+            topic_start=topic_start,
+            topic_end=topic_end,
+        )
         _mix_music_into_video(
             final_path=final_path,
             output_path=temp_mix,
             music_path=adjusted,
             topic_start_seconds=topic_start,
+            editorial_windows=editorial_windows,
         )
         os.replace(temp_mix, final_path)
         status = "pass"
@@ -271,6 +406,8 @@ def apply_topic_audio_polish(
             if topic_start is not None and topic_end is not None
             else None
         ),
+        "editorial_music_envelope": editorial_windows,
+        "editorial_music_envelope_applied": bool(editorial_windows),
         "music_before_topic": False,
         "music_during_outro": False,
         "music_during_final_silence": False,

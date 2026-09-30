@@ -28,6 +28,24 @@ SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
+
+# Three tiny semantic signals let the existing renderer behave more like a human
+# editor without becoming a second creative authority. They never add duration,
+# random timing, provider calls, or new scenes.
+HOLD_REASONS = frozenset({
+    "idea_continues",
+    "idea_changes",
+    "hook_progression",
+    "payoff_landing",
+})
+PAUSE_INTENTS = frozenset({"none", "micro", "emphasis", "transition", "ending"})
+AUDIO_ENERGIES = frozenset({"quiet", "low", "steady", "lift", "resolve"})
+EDITORIAL_HOLD_WEIGHTS = {
+    "idea_continues": 1.25,
+    "idea_changes": 1.00,
+    "hook_progression": 0.95,
+    "payoff_landing": 1.20,
+}
 _PRAYER_TEXT_MARKERS = ("اللهم", "محمد")
 
 _WRITER_INTENT_DROP_TOKENS = frozenset({
@@ -179,6 +197,27 @@ def _beat_role(index: int, total: int) -> str:
     return "body"
 
 
+def _default_editorial_signals(role: str) -> dict[str, str]:
+    """Meaning-led defaults for old/resumed plans that predate the signals."""
+    if role == "hook":
+        return {
+            "hold_reason": "hook_progression",
+            "pause_intent": "micro",
+            "audio_energy": "steady",
+        }
+    if role == "payoff":
+        return {
+            "hold_reason": "payoff_landing",
+            "pause_intent": "ending",
+            "audio_energy": "resolve",
+        }
+    return {
+        "hold_reason": "idea_changes",
+        "pause_intent": "transition",
+        "audio_energy": "low",
+    }
+
+
 def _fallback_retention_thread(plan: Mapping[str, Any]) -> dict[str, str]:
     sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
     first = sections[0] if sections else {}
@@ -235,6 +274,7 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "stock_query_en": str(section.get("visual_query_en") or "").strip(),
                 "display_text_ar": str(section.get("cover_text") or "").strip(),
                 "source_preference": "stock_motion",
+                **_default_editorial_signals(_beat_role(index - 1, len(sections))),
             }
         )
     if len(beats) == 1:
@@ -258,6 +298,7 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 "stock_query_en": payoff_query,
                 "display_text_ar": str(section.get("cover_text") or "").strip(),
                 "source_preference": "stock_motion",
+                **_default_editorial_signals("payoff"),
             }
         )
     # Provider-light/local fallback must not silently regress the production to
@@ -376,6 +417,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         source_preference = str(
             raw.get("source_preference") or "stock_motion"
         ).strip()
+        defaults = _default_editorial_signals(role)
+        hold_reason = str(raw.get("hold_reason") or defaults["hold_reason"]).strip()
+        pause_intent = str(raw.get("pause_intent") or defaults["pause_intent"]).strip()
+        audio_energy = str(raw.get("audio_energy") or defaults["audio_energy"]).strip()
         display_text_ar = " ".join(
             str(raw.get("display_text_ar") or "").split()
         ).strip()
@@ -436,6 +481,12 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(
                 f"visual_story beat {beat_id} source_preference must be stock_motion, stock_still, or ai_still"
             )
+        if hold_reason not in HOLD_REASONS:
+            raise ValueError(f"visual_story beat {beat_id} has invalid hold_reason")
+        if pause_intent not in PAUSE_INTENTS:
+            raise ValueError(f"visual_story beat {beat_id} has invalid pause_intent")
+        if audio_energy not in AUDIO_ENERGIES:
+            raise ValueError(f"visual_story beat {beat_id} has invalid audio_energy")
 
         prior_section_index = section_order[section_id]
         per_section[section_id] += 1
@@ -485,6 +536,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 **({"stock_query_alt_en": stock_query_alt_en} if stock_query_alt_en else {}),
                 "display_text_ar": display_text_ar,
                 "source_preference": source_preference,
+                "hold_reason": hold_reason,
+                "pause_intent": pause_intent,
+                "audio_energy": audio_energy,
                 **({"writer_anchor_ar": writer_anchor_ar} if writer_anchor_ar else {}),
             }
         )

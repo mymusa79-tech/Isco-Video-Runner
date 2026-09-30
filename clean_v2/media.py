@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .visual_story import compact_searchable_visual_intent
+from .visual_story import EDITORIAL_HOLD_WEIGHTS, compact_searchable_visual_intent
 
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
@@ -1723,6 +1723,9 @@ class StockVisualSource:
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
                     ).strip(),
+                    "hold_reason": str(raw_beat.get("hold_reason") or "").strip(),
+                    "pause_intent": str(raw_beat.get("pause_intent") or "").strip(),
+                    "audio_energy": str(raw_beat.get("audio_energy") or "").strip(),
                 }
             )
 
@@ -1839,6 +1842,9 @@ class StockVisualSource:
                 beat.get("source_preference") or "stock_motion"
             )
             admitted["source_actual"] = "stock_still" if as_still else "stock_motion"
+            admitted["hold_reason"] = str(beat.get("hold_reason") or "")
+            admitted["pause_intent"] = str(beat.get("pause_intent") or "")
+            admitted["audio_energy"] = str(beat.get("audio_energy") or "")
             admitted["query_variant_index"] = int(query_variant_index)
             admitted["query_evolution_used"] = bool(query_variant_index)
             if auxiliary:
@@ -2088,6 +2094,9 @@ class StockVisualSource:
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
                         "source_actual": "ai_still",
+                        "hold_reason": str(beat.get("hold_reason") or ""),
+                        "pause_intent": str(beat.get("pause_intent") or ""),
+                        "audio_energy": str(beat.get("audio_energy") or ""),
                         "ai_generated": True,
                         "ai_provenance": dict(provenance),
                         "query_variant_index": 0,
@@ -2826,6 +2835,29 @@ def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None
     return section_ids
 
 
+def _editorial_signals_by_local_file(
+    output_dir: Path,
+) -> dict[str, dict[str, str]]:
+    """Read optional semantic editing signals from the existing rights manifest."""
+    payload = _rights_manifest_payload(output_dir)
+    assets = payload.get("assets") if payload is not None else None
+    if not isinstance(assets, list):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for item in assets:
+        if not isinstance(item, Mapping):
+            continue
+        local_file = str(item.get("local_file") or "").strip()
+        if not local_file:
+            continue
+        result[local_file] = {
+            "hold_reason": str(item.get("hold_reason") or "").strip(),
+            "pause_intent": str(item.get("pause_intent") or "").strip(),
+            "audio_energy": str(item.get("audio_energy") or "").strip(),
+        }
+    return result
+
+
 def _exact_section_seconds_from_timeline(
     output_dir: Path,
 ) -> dict[str, float] | None:
@@ -2928,6 +2960,20 @@ def _section_slot_durations(
         flat_slot = total_seconds / max(1, len(order))
         section_share = {section_id: flat_slot for section_id in order}
 
+    # Human editorial hold is a weighted split INSIDE each already-measured
+    # section. Missing/legacy signals are exactly weight 1.0, preserving old behavior.
+    signals = _editorial_signals_by_local_file(output_dir)
+    weights = [
+        EDITORIAL_HOLD_WEIGHTS.get(
+            signals.get(path.name, {}).get("hold_reason", ""),
+            1.0,
+        )
+        for path in paths
+    ]
+    section_weight_totals: dict[str, float] = {section_id: 0.0 for section_id in order}
+    for section_id, weight in zip(section_ids, weights):
+        section_weight_totals[section_id] += max(0.01, float(weight))
+
     last_index_for_section = {
         section_id: index for index, section_id in enumerate(section_ids)
     }
@@ -2937,7 +2983,8 @@ def _section_slot_durations(
         if index == last_index_for_section[section_id]:
             clip_seconds = section_share[section_id] - allocated[section_id]
         else:
-            clip_seconds = section_share[section_id] / counts[section_id]
+            denominator = max(0.01, section_weight_totals[section_id])
+            clip_seconds = section_share[section_id] * (weights[index] / denominator)
             allocated[section_id] += clip_seconds
         durations.append(clip_seconds + pad)
     return durations
