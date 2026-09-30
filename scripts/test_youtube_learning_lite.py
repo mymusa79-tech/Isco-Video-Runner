@@ -124,6 +124,38 @@ class YouTubeLearningLiteTests(unittest.TestCase):
         self.assertTrue(line.startswith("[Channel learning]"))
         self.assertLessEqual(len(line), 240)
 
+    def test_topic_performance_signal_steers_research_from_strong_family_without_copying(self) -> None:
+        state = {
+            STATE_KEY: {
+                "samples": [
+                    {
+                        "video_id": "burnout",
+                        "title": "الاحتراق الوظيفي",
+                        "format": "short",
+                        "views": 500,
+                        "published_at": "2026-09-29T08:00:00Z",
+                        "observed_at": "2026-09-30T08:00:00Z",
+                    },
+                    {
+                        "video_id": "anxiety",
+                        "title": "القلق",
+                        "format": "short",
+                        "views": 1,
+                        "published_at": "2026-09-29T08:00:00Z",
+                        "observed_at": "2026-09-30T08:00:00Z",
+                    },
+                ],
+                "insights": {"formats": []},
+            }
+        }
+        memo = learning_memo(state, "short")
+        self.assertIn("TOPIC_PERFORMANCE_SIGNAL", memo)
+        self.assertIn("الاحتراق الوظيفي", memo)
+        self.assertIn("القلق", memo)
+        self.assertIn("adjacent specific real-life problems", memo)
+        self.assertIn("Do not copy it", memo)
+        self.assertIn("Downrank broad abstract themes", memo)
+
     def test_fewer_than_three_samples_never_create_actionable_format_learning(self) -> None:
         report = build_insights(
             [
