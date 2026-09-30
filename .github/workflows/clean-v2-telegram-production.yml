@@ -36,8 +36,8 @@ jobs:
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       STATE_BRANCH: clean-v2-telegram-state
       STATE_FILE: state/telegram-clean-v2.json
-      CLEAN_V2_RESUME: ${{ runner.temp }}/clean-v2-telegram-resume
-      CLEAN_V2_TTS_CACHE_PATH: ${{ runner.temp }}/clean-v2-tts-cache
+      CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-telegram-resume
+      CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
