@@ -266,6 +266,76 @@ class ShortTemplateSelectionTests(unittest.TestCase):
             "dialogue_qa",
         )
 
+    def test_editorial_dependency_and_visual_evidence_are_shared_without_new_schema(self) -> None:
+        story = {
+            "retention_thread": {
+                "hook_tension": "توتر محدد",
+                "payoff_answer": "نتيجة مستحقة",
+                "visual_motif": "حالة تتغير",
+            },
+            "beats": [],
+        }
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(format=fmt):
+                brief = _brief("لماذا تجعلنا كثرة الخيارات أقل حسمًا؟")
+                brief["format"] = fmt
+                planning = _planning_prompt(brief)
+                self.assertIn("EDITORIAL DEPENDENCY CONTRACT", planning)
+                self.assertIn("Section order must matter", planning)
+                self.assertIn("VISUAL EVIDENCE CONTRACT", planning)
+                self.assertIn("What can the viewer literally see here", planning)
+                self.assertIn("desk/laptop/notebook/writing", planning)
+
+                script = _script_prompt(
+                    brief,
+                    _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"]),
+                    visual_story=story,
+                )
+                self.assertIn("EDITORIAL DEPENDENCY CONTRACT", script)
+                self.assertIn("two adjacent", script)
+                self.assertIn("interchangeable", script)
+
+    def test_podcast_listener_proxy_turns_must_unlock_new_information(self) -> None:
+        podcast = _brief("لماذا نعرف ما يجب فعله ثم نؤجله؟")
+        podcast["format"] = "podcast"
+        planning = _planning_prompt(podcast)
+        self.assertIn("real question, a plausible doubt, a concrete objection, or a request for clarification", planning)
+        self.assertIn("If B would deliver essentially the same substance without that A turn, omit A", planning)
+        self.assertIn("do not invent a new schema or metadata field", planning)
+
+        script = _script_prompt(
+            podcast,
+            _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"]),
+            visual_story={
+                "retention_thread": {
+                    "hook_tension": "التأجيل رغم معرفة المطلوب",
+                    "payoff_answer": "تمييز يفسر الفجوة",
+                    "visual_motif": "مهمة معلقة ثم محسومة",
+                },
+                "beats": [],
+            },
+        )
+        self.assertIn("Every A turn must perform exactly one useful listener-proxy job", script)
+        self.assertIn("B must answer the specific gap opened by A", script)
+        self.assertIn("If removing an A turn would leave B saying essentially the same thing", script)
+
+        short = _brief("لماذا نؤجل ما نعرف أنه مهم؟")
+        self.assertNotIn(
+            "Every A turn must perform exactly one useful listener-proxy job",
+            _script_prompt(
+                short,
+                _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"]),
+                visual_story={
+                    "retention_thread": {
+                        "hook_tension": "تأجيل واضح",
+                        "payoff_answer": "تفسير واضح",
+                        "visual_motif": "مهمة تتغير حالتها",
+                    },
+                    "beats": [],
+                },
+            ),
+        )
+
     def test_quote_reflection_requires_real_quote_evidence(self) -> None:
         brief = _brief("هذه عبارة جميلة للتأمل")
         selection = select_short_template(brief)
