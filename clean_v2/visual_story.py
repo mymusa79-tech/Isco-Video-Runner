@@ -473,7 +473,8 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
     raw_beats = value.get("beats")
     if not visual_world or not isinstance(raw_arc, Mapping) or not isinstance(raw_beats, list):
         raise ValueError("visual_story requires visual_world, story_arc, and beats")
-    visual_world = require_channel_visual_world(visual_world)
+    if str(plan.get("_visual_identity_contract") or "") == "navy_gold_v1":
+        visual_world = require_channel_visual_world(visual_world)
 
     arc = {
         key: " ".join(str(raw_arc.get(key) or "").split()).strip()

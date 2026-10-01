@@ -3953,6 +3953,7 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
     # closed on adjacent/repeated visual families before any media retrieval.
     # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
     plan["_visual_diversity_contract"] = "v2_fail_closed"
+    plan["_visual_identity_contract"] = "navy_gold_v1"
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
         # Strict Planning schemas require this for current providers. The local
