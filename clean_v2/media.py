@@ -124,11 +124,13 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
-# Short visuals are semantic-story owned: normally 3-5 real scenes total.
-# Measured voice owns timing only; duration never fabricates extra shots.
+# Short visuals are semantic-story owned: the planner authors a three-shot
+# hook plus one body and one payoff beat. Measured voice only fits those authored
+# beats to time; runtime never fabricates unrelated coverage.
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
+SHORT_HOOK_THREE_SHOT_MIN_SECONDS = 0.75
 SHORT_MASTER_LOOK_FILTER = (
     "eq=contrast=1.04:saturation=0.90,"
     "colorbalance=rs=0.015:gs=0.003:bs=-0.012"
@@ -1220,30 +1222,52 @@ def _enforce_short_hook_shot_cap(
     *,
     hook_seconds: float,
 ) -> tuple[list[Path], list[float]]:
-    """Force one visible change inside a long Short hook without new media calls."""
+    """Fit the three authored s1 beats inside the measured Short hook.
+
+    The third hook beat may continue beneath the fixed identity sequence after
+    the hook; only the first two cut points are moved. Total section/video time
+    is preserved exactly and no new visual is fabricated.
+    """
     if (
-        hook_seconds <= SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS
+        hook_seconds <= 0
         or section_ids is None
         or len(paths) != len(durations)
         or len(paths) != len(section_ids)
-        or len(paths) < 2
+        or len(paths) < 3
     ):
         return list(paths), list(durations)
 
     first_section = section_ids[0]
-    if section_ids[1] != first_section:
+    if section_ids[:3] != [first_section, first_section, first_section]:
         return list(paths), list(durations)
 
     result_paths = list(paths)
     result_durations = list(durations)
-    first_budget = min(
+    first_section_indexes: list[int] = []
+    for index, section_id in enumerate(section_ids):
+        if section_id != first_section:
+            break
+        first_section_indexes.append(index)
+    if len(first_section_indexes) < 3:
+        return result_paths, result_durations
+
+    section_total = sum(result_durations[index] for index in first_section_indexes)
+    quick = min(
         SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS,
-        max(PACING_MIN_SHOT_SECONDS, hook_seconds * 0.55),
+        hook_seconds / 3.0,
     )
-    if result_durations[0] > first_budget:
-        moved = result_durations[0] - first_budget
-        result_durations[0] = first_budget
-        result_durations[1] += moved
+    if quick < SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
+        return result_paths, result_durations
+    if section_total <= (quick * 2.0) + SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
+        return result_paths, result_durations
+
+    result_durations[0] = quick
+    result_durations[1] = quick
+    # The Short planning contract supplies exactly three s1 beats. Keep any
+    # compatibility remainder on the third one so total timing is invariant.
+    result_durations[2] = section_total - (quick * 2.0)
+    for index in first_section_indexes[3:]:
+        result_durations[index] = 0.0
     return result_paths, result_durations
 
 
