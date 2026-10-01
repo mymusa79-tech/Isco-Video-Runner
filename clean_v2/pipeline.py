@@ -50,6 +50,7 @@ from .short_format import (
     HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
     normalize_short_script_candidate,
+    normalize_short_visual_queries,
     safe_word_boundary_trim,
     select_short_template,
     short_contract_report,
@@ -3911,6 +3912,7 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         if not practical_action:
             practical_action = "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
         plan["practical_action_ar"] = validate_short_practical_action(practical_action)
+        normalize_short_visual_queries(plan)
         validate_short_visual_queries(plan, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
