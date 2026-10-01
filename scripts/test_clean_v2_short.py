@@ -778,14 +778,16 @@ class ShortContractTests(unittest.TestCase):
             "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
         )
 
-        self.assertTrue(
+        original = script["sections"][2]["narration"]
+        self.assertFalse(
             apply_safe_short_s3_locked_payoff_fallback(script, locked_payoff)
         )
-        self.assertEqual(
-            script["sections"][2]["narration"],
-            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
-        )
-        validate_short_script(script)
+        self.assertEqual(script["sections"][2]["narration"], original)
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_s3_payoff_contains_forbidden_action_family",
+        ):
+            validate_short_script(script)
 
     def test_artifact_149_provider_outage_family_accepts_mistral_s3_via_local_rescue(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -804,7 +806,7 @@ class ShortContractTests(unittest.TestCase):
         visual_story = {
             "retention_thread": {
                 "payoff_answer": (
-                    "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
+                    "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة."
                 )
             }
         }
@@ -838,7 +840,7 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             accepted["sections"][2]["narration"],
-            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
+            "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة. اختر مهمة واحدة الآن.",
         )
         validate_short_script(accepted)
         self.assertEqual(
@@ -1913,9 +1915,14 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                     {"id": "s3", "narration": "ابدأ بخطوة صغيرة الآن."},
                 ]
             }
+            caption_report = dict(report)
+            caption_report["identity_events"] = [
+                {"kind": "hook", "start": 0.0, "end": 8.0},
+                {"kind": "topic", "start": 8.0, "end": 36.0},
+            ]
             events = build_events_from_voice_timeline(
                 script=script,
-                timeline_report=report,
+                timeline_report=caption_report,
             )
             self.assertEqual(events[0]["start"], 0.0)
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
