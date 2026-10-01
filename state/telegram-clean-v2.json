@@ -1702,7 +1702,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-30T22:33:05Z",
-      "selected_at": "2026-09-30T22:34:11Z"
+      "selected_at": "2026-10-01T08:23:15Z"
     },
     {
       "idea_id": "idea-3d0060205b",
@@ -2506,6 +2506,17 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
+    },
+    "6e669df0": {
+      "session_id": "6e669df0",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7457800a57"
+      ],
+      "created_at": "2026-10-01T08:23:15Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T08:23:15Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2741,9 +2752,30 @@
       "confirmed_at": "2026-10-01T06:38:28Z",
       "dispatched_at": "2026-10-01T06:38:31Z",
       "request_sha256": "b31cda9c078a2189b33ff76be86aea6b52860be3d738931fa4f391c3d6214cee"
+    },
+    "req-cbe532a77338": {
+      "schema_version": 1,
+      "request_id": "req-cbe532a77338",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "متى تتحول الراحة إلى هروب؟",
+      "research_pack": [
+        {
+          "source_title": "ليست كل راحة راحة",
+          "source_url": "https://youtu.be/O4tMtYmDKmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-7457800a57",
+      "selected_at": "2026-10-01T08:23:15Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "23cea243a6936b0c462c821471a3645362ce524ddb30906e234952dfb72ef78a"
     }
   },
-  "current_request_id": "req-0a9e424a5692",
+  "current_request_id": "req-cbe532a77338",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -2980,5 +3012,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T08:22:45Z"
+  "updated_at": "2026-10-01T08:23:16Z"
 }
