@@ -587,8 +587,7 @@ _S3_FORBIDDEN_ACTION_FAMILY_SAFE_WORDS = frozenset(
         # Descriptive start-point nouns are not hidden imperatives. Keeping them
         # safe prevents a topic-specific payoff such as "تقارن بدايتك..." from
         # being replaced by unrelated generic anti-procrastination copy.
-        "بداية", "البداية", "بدايتك", "بدايته", "بدايتها", "بدايتهم",
-        "بدايتنا", "بدايتي", "بدايات", "البدايات",
+        "بدايتك", "بدايته", "بدايتها", "بدايتهم", "بدايتنا", "بدايتي",
     )
 )
 
