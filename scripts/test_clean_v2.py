@@ -6273,6 +6273,47 @@ class FilmDerivedShortLiteTests(unittest.TestCase):
         self.assertEqual(promo["start"], 18.0)
         self.assertEqual(promo["end"], 36.0)
 
+    def test_film_selection_avoids_recent_pattern_when_an_alternative_exists(self) -> None:
+        from clean_v2.pipeline import _select_film_derived_short_window
+
+        sections = [
+            {"id": "s1", "narration": "افتتاح الحلقة."},
+            {
+                "id": "s2",
+                "narration": (
+                    "المشكلة أن القرار الجيد لا يعيش وحده في بيئة تعيد السلوك القديم كل يوم. "
+                    "ولهذا يصبح تغيير الإشارة السابقة للسلوك أهم من تكرار الوعد نفسه."
+                ),
+            },
+            {
+                "id": "s3",
+                "narration": (
+                    "لكن الإرادة ليست العامل الوحيد حين تبقى الظروف نفسها كما هي. "
+                    "بل يصبح البديل أسهل عندما تقلل الاحتكاك قبل لحظة الاختيار."
+                ),
+            },
+            {"id": "s4", "narration": "خاتمة الحلقة. نهاية القناة."},
+        ]
+        timeline = {
+            "audio_units": [
+                {"section_id": "s2", "chunk": 1, "role": "topic", "start": 10.0, "end": 23.0},
+                {"section_id": "s3", "chunk": 1, "role": "topic", "start": 23.0, "end": 36.0},
+            ]
+        }
+        first = _select_film_derived_short_window(sections, timeline)
+        self.assertIsNotNone(first)
+        assert first is not None
+        second = _select_film_derived_short_window(
+            sections,
+            timeline,
+            recent_signatures=(first["selection_signature"],),
+        )
+        self.assertIsNotNone(second)
+        assert second is not None
+        self.assertNotEqual(second["selection_signature"], first["selection_signature"])
+        self.assertNotEqual(second["section_id"], first["section_id"])
+        self.assertEqual(second["selection_basis"], "local_quality_score_v2_history_aware")
+
     def test_film_derived_short_is_fail_soft_and_adds_no_provider_call(self) -> None:
         from clean_v2.pipeline import _run_film_derived_short_lite
 
