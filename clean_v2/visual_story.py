@@ -822,6 +822,14 @@ def contextual_intent(
         "generic mood",
         20,
     )
+    retention = visual_story.get("retention_thread")
+    motif = ""
+    if isinstance(retention, Mapping) and role in {"hook", "payoff"}:
+        motif = _context_fragment(
+            retention.get("visual_motif"),
+            "",
+            28,
+        )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "opening",
@@ -855,12 +863,18 @@ def contextual_intent(
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     head_limit = 300 - len(tail)
     head = ". ".join(pieces) + "."
-    optional = (
-        f" Current:{current}.",
-        f" Avoid:{should_avoid}.",
-        f" Previous:{previous}.",
-        f" Next:{following}.",
+    optional_parts: list[str] = []
+    if motif:
+        optional_parts.append(f" Motif:{motif}.")
+    optional_parts.extend(
+        [
+            f" Current:{current}.",
+            f" Avoid:{should_avoid}.",
+            f" Previous:{previous}.",
+            f" Next:{following}.",
+        ]
     )
+    optional = tuple(optional_parts)
     for fragment in optional:
         if len(head) + len(fragment) <= head_limit:
             head += fragment
