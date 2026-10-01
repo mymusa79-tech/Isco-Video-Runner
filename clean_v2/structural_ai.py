@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 
 def _clean(value: object) -> str:
@@ -40,5 +41,15 @@ def structural_ai_flags(text: object, *, short_form: bool = False) -> tuple[str,
     tail = raw[-240:]
     if any(marker in tail for marker in generic_closers):
         flags.append("generic_motivational_closer")
+
+    openers = [
+        words[0]
+        for s in sentences
+        if len(words := _semantic_key(s).split()) >= 4
+    ]
+    if openers:
+        most_common_opener_count = max(Counter(openers).values())
+        if most_common_opener_count >= (2 if short_form else 3):
+            flags.append("repeated_sentence_opener")
 
     return tuple(dict.fromkeys(flags))
