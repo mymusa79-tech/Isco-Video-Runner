@@ -732,13 +732,17 @@ def bind_visual_story_to_script(
 
     prior_action_family = ""
     family_uses: dict[str, int] = {}
-    strict_diversity = any(
-        str(item.get("visual_query_alt_en") or "").strip()
-        for item in plan_sections
-    ) or any(
-        str(item.get("stock_query_alt_en") or "").strip()
-        for item in (story.get("beats") or [])
-        if isinstance(item, Mapping)
+    strict_diversity = (
+        str(plan.get("_visual_diversity_contract") or "") == "v2_fail_closed"
+        or any(
+            str(item.get("visual_query_alt_en") or "").strip()
+            for item in plan_sections
+        )
+        or any(
+            str(item.get("stock_query_alt_en") or "").strip()
+            for item in (story.get("beats") or [])
+            if isinstance(item, Mapping)
+        )
     )
     for section_id in expected_ids:
         section_beats = beats_by_section[section_id]
