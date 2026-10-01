@@ -444,7 +444,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         visual_story["beats"][2]["shot_intent"] = (
             "hands writing first line in notebook with pen on page"
         )
-        planned["sections"][1]["visual_query_alt_en"] = (
+        planned["sections"][0]["visual_query_alt_en"] = (
             "half empty bookshelf with one book pulled out no face"
         )
 
@@ -476,8 +476,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             bound["beats"][0]["shot_intent"],
         )
         self.assertIn("Role:hook", hook_context)
-        self.assertIn("Fam:stationery", hook_context)
-        self.assertIn("Hook must show an unresolved observable", hook_context)
+        self.assertIn("Meaning:", hook_context)
+        self.assertIn("Must show:", hook_context)
+        self.assertIn("Current:", hook_context)
 
     def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
         common = {
@@ -762,7 +763,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(story, planned)
         self.assertEqual(
             validated["beats"][1]["stock_query_en"],
-            planned["sections"][1]["visual_query_en"],
+            planned["sections"][0]["visual_query_alt_en"],
         )
 
         planned = _planning_value("short")
@@ -778,7 +779,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["role"] for beat in validated["beats"]],
-            ["hook", "body", "payoff"],
+            ["hook", "body", "body", "body", "payoff"],
         )
 
     def test_fresh_story_preserves_semantic_source_choice_across_all_roles(self) -> None:
@@ -789,11 +790,17 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["stock_motion", "ai_still", "stock_motion"],
+            ["stock_motion", "ai_still", "stock_motion", "stock_motion", "stock_motion"],
         )
         self.assertEqual(
             [beat["display_text_ar"] for beat in validated["beats"]],
-            ["لحظة مختلفة 1", "لحظة مختلفة 2", "لحظة مختلفة 3"],
+            [
+                "لحظة مختلفة 1",
+                "لحظة مختلفة 2",
+                "لحظة مختلفة 3",
+                "لحظة مختلفة 4",
+                "لحظة مختلفة 5",
+            ],
         )
 
     def test_partial_retention_thread_uses_existing_plan_without_provider_retry(self) -> None:
