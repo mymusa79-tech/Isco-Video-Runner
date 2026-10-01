@@ -838,14 +838,31 @@ def contextual_intent(
         f" PrevFam:{previous_family}" if previous_family else ""
     )
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
-    # Keep all established semantic/family labels and the new editor metadata
-    # inside the fixed 300-char provider contract. Hook has no PrevFam label;
-    # repeated body beats do, while using a compact Repeat rule.
-    head = (
-        f"Role:{role} Shot:{shot_role[:7]} Env:{environment_family[:8]} "
-        f"Fam:{current_family or 'other'}{previous_family_label}. {priority_rule}"
+
+    # Compatibility-first budgeting: the established semantic/family/neighbour
+    # contract is mandatory. New editor metadata is appended only when it fits;
+    # it must never evict Meaning/Must show/Avoid or Current/Previous/Next from
+    # the fixed 300-char provider boundary.
+    mandatory = (
+        f"Role:{role} Fam:{current_family or 'other'}{previous_family_label}. "
+        f"{priority_rule}"
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         f"Current: {current}. Previous: {previous}. Next: {following}."
     )
+    editor_parts: list[str] = []
+    if shot_role:
+        editor_parts.append(f"Shot:{shot_role[:7]}")
+    if environment_family and environment_family != "contextual":
+        editor_parts.append(f"Env:{environment_family[:8]}")
+    editor_prefix = (" ".join(editor_parts) + ". ") if editor_parts else ""
+
+    if len(mandatory) + len(editor_prefix) + len(tail) <= 300:
+        head = mandatory.replace(
+            f"Role:{role} ",
+            f"Role:{role} {editor_prefix}",
+            1,
+        )
+    else:
+        head = mandatory
     head_limit = max(0, 300 - len(tail))
     return head[:head_limit].rstrip() + tail
