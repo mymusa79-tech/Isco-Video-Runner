@@ -833,7 +833,7 @@ def contextual_intent(
         # QA/tests consume this phrase as compatibility surface.
         priority_rule = "Hook must show an unresolved observable tension. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat: changed state required. "
+        priority_rule = "Repeat: changed state. "
     previous_family_label = (
         f" PrevFam:{previous_family}" if previous_family else ""
     )
