@@ -18,17 +18,25 @@ from clean_v2.visual_story import contextual_intent, validate_visual_story
 
 
 class DirectorLayoutTighteningV1Tests(unittest.TestCase):
-    def test_rule_1_hook_single_shot_is_capped_at_five_seconds(self) -> None:
-        paths = [Path("hook-a.mp4"), Path("hook-b.mp4"), Path("body.mp4")]
+    def test_rule_1_hook_uses_three_authored_quick_shots(self) -> None:
+        paths = [
+            Path("hook-a.mp4"),
+            Path("hook-b.mp4"),
+            Path("hook-c.mp4"),
+            Path("body.mp4"),
+        ]
         result_paths, durations = media_module._enforce_short_hook_shot_cap(
             paths,
-            [8.0, 5.0, 7.0],
-            ["s1", "s1", "s2"],
+            [8.0, 5.0, 4.0, 7.0],
+            ["s1", "s1", "s1", "s2"],
             hook_seconds=8.0,
         )
         self.assertEqual(result_paths, paths)
         self.assertLessEqual(durations[0], 5.0)
-        self.assertAlmostEqual(sum(durations), 20.0)
+        self.assertLessEqual(durations[1], 5.0)
+        self.assertAlmostEqual(durations[0], 8.0 / 3.0, places=3)
+        self.assertAlmostEqual(durations[1], 8.0 / 3.0, places=3)
+        self.assertAlmostEqual(sum(durations), 24.0)
 
     def test_rule_2_and_7_all_formats_are_fully_opaque_and_final_frame_freezes(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -69,7 +77,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 self.assertNotIn("alpha=1", filters)
                 self.assertIn("tpad=stop_mode=clone", filters)
                 self.assertNotIn("ass='", filters)
-                self.assertIn("[v1][prayer]overlay=(W-w)/2:(H-h)/2", filters)
+                self.assertIn("[v1][prayer]overlay=0:0", filters)
                 self.assertIn("between(t,3.000,4.500)", filters)
                 self.assertIn("between(t,2.000,3.000)", filters)
                 self.assertIn("between(t,10.000,12.000)", filters)

@@ -124,15 +124,13 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
-# Short visuals are semantic-story owned: normally 3-5 real scenes total.
-# Measured voice owns timing only; duration never fabricates extra shots.
+# Short visuals are semantic-story owned: the planner authors a three-shot
+# hook plus one body and one payoff beat. Measured voice only fits those authored
+# beats to time; runtime never fabricates unrelated coverage.
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
-SHORT_MASTER_LOOK_FILTER = (
-    "eq=contrast=1.04:saturation=0.90,"
-    "colorbalance=rs=0.015:gs=0.003:bs=-0.012"
-)
+SHORT_HOOK_THREE_SHOT_MIN_SECONDS = 0.75
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 AI_STILL_CLIP_SECONDS = 12.0
@@ -1220,30 +1218,50 @@ def _enforce_short_hook_shot_cap(
     *,
     hook_seconds: float,
 ) -> tuple[list[Path], list[float]]:
-    """Force one visible change inside a long Short hook without new media calls."""
+    """Fit the three authored s1 beats inside the measured Short hook.
+
+    The third hook beat may continue beneath the fixed identity sequence after
+    the hook; only the first two cut points are moved. Total section/video time
+    is preserved exactly and no new visual is fabricated.
+    """
     if (
-        hook_seconds <= SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS
+        hook_seconds <= 0
         or section_ids is None
         or len(paths) != len(durations)
         or len(paths) != len(section_ids)
-        or len(paths) < 2
+        or len(paths) < 3
     ):
         return list(paths), list(durations)
 
     first_section = section_ids[0]
-    if section_ids[1] != first_section:
+    if section_ids[:3] != [first_section, first_section, first_section]:
         return list(paths), list(durations)
 
     result_paths = list(paths)
     result_durations = list(durations)
-    first_budget = min(
+    first_section_indexes: list[int] = []
+    for index, section_id in enumerate(section_ids):
+        if section_id != first_section:
+            break
+        first_section_indexes.append(index)
+    if len(first_section_indexes) != 3:
+        return result_paths, result_durations
+
+    section_total = sum(result_durations[index] for index in first_section_indexes)
+    quick = min(
         SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS,
-        max(PACING_MIN_SHOT_SECONDS, hook_seconds * 0.55),
+        hook_seconds / 3.0,
     )
-    if result_durations[0] > first_budget:
-        moved = result_durations[0] - first_budget
-        result_durations[0] = first_budget
-        result_durations[1] += moved
+    if quick < SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
+        return result_paths, result_durations
+    if section_total <= (quick * 2.0) + SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
+        return result_paths, result_durations
+
+    result_durations[0] = quick
+    result_durations[1] = quick
+    # The Short planning contract supplies exactly three s1 beats. Keep any
+    # compatibility remainder on the third one so total timing is invariant.
+    result_durations[2] = section_total - (quick * 2.0)
     return result_paths, result_durations
 
 
@@ -3083,25 +3101,37 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.62
-COLOR_MATCH_SCALE_MIN = 0.88
-COLOR_MATCH_SCALE_MAX = 1.12
-COLOR_MATCH_OFFSET_MAX = 18.0
+COLOR_MATCH_STRENGTH = 0.70
+COLOR_MATCH_SCALE_MIN = 0.94
+COLOR_MATCH_SCALE_MAX = 1.06
+COLOR_MATCH_OFFSET_MAX = 52.0
+COLOR_TARGET_MEAN_R = 116.0
+COLOR_TARGET_MEAN_G = 116.0
+COLOR_TARGET_MEAN_B = 118.0
+COLOR_TARGET_STD_R = 50.0
+COLOR_TARGET_STD_G = 50.0
+COLOR_TARGET_STD_B = 52.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.075
-MASTER_LOOK_SATURATION = 0.84
-MASTER_LOOK_WARM_R = -0.006
-MASTER_LOOK_WARM_G = -0.003
-MASTER_LOOK_WARM_B = 0.008
+MASTER_LOOK_CONTRAST = 1.10
+MASTER_LOOK_SATURATION = 0.86
+MASTER_LOOK_SHADOW_R = -0.030
+MASTER_LOOK_SHADOW_G = -0.016
+MASTER_LOOK_SHADOW_B = 0.024
+MASTER_LOOK_HIGHLIGHT_R = 0.018
+MASTER_LOOK_HIGHLIGHT_G = 0.010
+MASTER_LOOK_HIGHLIGHT_B = -0.010
+MASTER_LOOK_SHADOW_PIVOT = 0.52
+MASTER_LOOK_HIGHLIGHT_PIVOT = 0.60
+MASTER_LOOK_HIGHLIGHT_SHOULDER = 0.74
 
-# One restrained local finishing pass after the shared deep navy/charcoal LUT.
+# One restrained local finishing pass after the shared split-tone LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-navy-depth-finish-v4"
+CINEMATIC_FINISH_VERSION = "clean-v2-navy-gold-depth-finish-v5"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.065:brightness=-0.032:saturation=0.94:gamma=0.97,"
-    "unsharp=5:5:0.30:5:5:0.0,"
-    "vignette=PI/14"
+    "eq=contrast=1.055:brightness=-0.026:saturation=0.93:gamma=0.985,"
+    "unsharp=5:5:0.24:5:5:0.0,"
+    "vignette=PI/15"
 )
 
 
@@ -3123,6 +3153,18 @@ class _RgbStats:
             "std_g": round(self.std_g, 4),
             "std_b": round(self.std_b, 4),
         }
+
+
+def _channel_target_stats() -> _RgbStats:
+    """Fixed channel palette target; source stock never becomes color authority."""
+    return _RgbStats(
+        mean_r=COLOR_TARGET_MEAN_R,
+        mean_g=COLOR_TARGET_MEAN_G,
+        mean_b=COLOR_TARGET_MEAN_B,
+        std_r=COLOR_TARGET_STD_R,
+        std_g=COLOR_TARGET_STD_G,
+        std_b=COLOR_TARGET_STD_B,
+    )
 
 
 def _clamp_color(value: float, low: float, high: float) -> float:
@@ -3195,43 +3237,6 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
     )
 
 
-def _representative_reference(
-    measured: Mapping[str, _RgbStats],
-) -> str:
-    """Choose the real clip closest to the channel's restrained neutral/deep world.
-
-    The previous median-medoid rule could make one warm/beige stock clip the visual
-    authority for the whole episode. Keep one real reference, but prefer moderate
-    exposure, restrained channel imbalance and useful tonal spread so source stock
-    cannot redefine the channel palette.
-    """
-    if not measured:
-        raise ValueError("reference selection requires measured clips")
-    rows = list(measured.items())
-
-    def channel_distance(stats: _RgbStats) -> float:
-        luma = (
-            (0.2126 * stats.mean_r)
-            + (0.7152 * stats.mean_g)
-            + (0.0722 * stats.mean_b)
-        )
-        # Target a moderate/deep base rather than bright lifestyle stock.
-        exposure_penalty = abs(luma - 128.0) * 1.20
-        # Penalize strong warm/cool casts aggressively; stock must not redefine
-        # the channel palette just because it is closer to the episode median.
-        cast_penalty = (
-            abs(stats.mean_r - stats.mean_g) * 1.00
-            + abs(stats.mean_g - stats.mean_b) * 0.80
-        )
-        # Prefer enough local contrast/depth to avoid flat washed-out references.
-        spread = (stats.std_r + stats.std_g + stats.std_b) / 3.0
-        flat_penalty = max(0.0, 48.0 - spread) * 0.85
-        bright_penalty = max(0.0, luma - 150.0) * 1.60
-        return exposure_penalty + cast_penalty + flat_penalty + bright_penalty
-
-    return min(rows, key=lambda row: channel_distance(row[1]))[0]
-
-
 def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
     """Build one bounded RGB mean/std transfer for the entire source clip."""
     expressions: list[str] = []
@@ -3274,7 +3279,12 @@ def _build_reference_color_plan(
     paths: list[Path],
     output_dir: Path,
 ) -> dict[str, str]:
-    """Measure once, choose one real reference, and return a constant filter per clip."""
+    """Match every measurable clip to one fixed channel palette target.
+
+    A clip from the current episode must never become the color authority for the
+    rest of the episode. This keeps pink/beige/green stock from redefining the
+    channel look and also grades single-clip videos consistently.
+    """
     unique: list[Path] = []
     seen: set[str] = set()
     for raw in paths:
@@ -3293,26 +3303,25 @@ def _build_reference_color_plan(
             failures[path.name] = f"{type(exc).__name__}:{str(exc)[:120]}"
 
     filters: dict[str, str] = {}
+    target = _channel_target_stats()
     report: dict[str, Any] = {
-        "schema_version": 1,
-        "source": "clean-v2-reference-color-match-lite",
+        "schema_version": 2,
+        "source": "clean-v2-fixed-channel-palette-match",
         "provider_calls_added": 0,
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
-        "method": "channel_anchored_rgb_mean_std_reference_match_v2",
+        "method": "fixed_channel_rgb_mean_std_target_v1",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "channel_deep_neutral_v3",
+        "master_look": "channel_navy_gold_split_tone_v5",
         "measured_clip_count": len(measured),
+        "reference_file": None,
+        "target_stats": target.as_dict(),
         "failures": failures,
     }
 
-    if len(measured) >= 2:
-        reference_key = _representative_reference(measured)
-        reference = measured[reference_key]
+    rows: list[dict[str, Any]] = []
+    if measured:
         report["status"] = "applied"
-        report["reference_file"] = Path(reference_key).name
-        report["reference_stats"] = reference.as_dict()
-        rows: list[dict[str, Any]] = []
         for path in unique:
             key = str(path)
             stats = measured.get(key)
@@ -3327,31 +3336,29 @@ def _build_reference_color_plan(
                     }
                 )
                 continue
-            fragment = "" if key == reference_key else _reference_match_filter(stats, reference)
+            fragment = _reference_match_filter(stats, target)
             filters[key] = fragment
             rows.append(
                 {
                     "file": path.name,
-                    "mode": "reference" if key == reference_key else "reference_match",
+                    "mode": "fixed_channel_target",
                     "stats": stats.as_dict(),
                     "filter_applied": bool(fragment),
                 }
             )
-        report["clips"] = rows
     else:
         report["status"] = "legacy_fallback"
-        report["reference_file"] = None
-        report["clips"] = []
         for path in unique:
             fragment = _grade_clip_filter(path)
             filters[str(path)] = fragment
-            report["clips"].append(
+            rows.append(
                 {
                     "file": path.name,
                     "mode": "legacy_fallback",
                     "filter_applied": bool(fragment),
                 }
             )
+    report["clips"] = rows
 
     try:
         (Path(output_dir) / "color-match.json").write_text(
@@ -3364,21 +3371,68 @@ def _build_reference_color_plan(
 
 
 def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, float]:
-    """One restrained dark navy/charcoal look shared by every final frame."""
-    luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
-    r = luma + ((r - luma) * MASTER_LOOK_SATURATION)
-    g = luma + ((g - luma) * MASTER_LOOK_SATURATION)
-    b = luma + ((b - luma) * MASTER_LOOK_SATURATION)
+    """Shared navy-shadow / ivory-gold-highlight look with controlled highlight glow."""
+    source_luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
 
-    def contrast(value: float) -> float:
-        return 0.5 + ((value - 0.5) * MASTER_LOOK_CONTRAST)
+    # Keep the palette restrained before shaping exposure. This removes the
+    # pastel/lifestyle-stock feel without turning footage grey.
+    r = source_luma + ((r - source_luma) * MASTER_LOOK_SATURATION)
+    g = source_luma + ((g - source_luma) * MASTER_LOOK_SATURATION)
+    b = source_luma + ((b - source_luma) * MASTER_LOOK_SATURATION)
 
-    return (
-        _clamp_color(contrast(r) + MASTER_LOOK_WARM_R, 0.0, 1.0),
-        _clamp_color(contrast(g) + MASTER_LOOK_WARM_G, 0.0, 1.0),
-        _clamp_color(contrast(b) + MASTER_LOOK_WARM_B, 0.0, 1.0),
+    target_luma = 0.5 + ((source_luma - 0.5) * MASTER_LOOK_CONTRAST)
+    target_luma -= max(0.0, MASTER_LOOK_SHADOW_PIVOT - source_luma) * 0.035
+
+    # Compress bright stock rather than allowing white/pastel highlights to glow.
+    if target_luma > MASTER_LOOK_HIGHLIGHT_SHOULDER:
+        target_luma = MASTER_LOOK_HIGHLIGHT_SHOULDER + (
+            (target_luma - MASTER_LOOK_HIGHLIGHT_SHOULDER) * 0.72
+        )
+    target_luma = _clamp_color(target_luma, 0.0, 1.0)
+
+    if source_luma > 0.001:
+        luma_scale = target_luma / source_luma
+        r *= luma_scale
+        g *= luma_scale
+        b *= luma_scale
+
+    # Split tone instead of a blanket blue cast: navy/charcoal lives in shadows,
+    # while bright regions stay ivory-neutral with only a restrained warm-gold lift.
+    shadow_weight = _clamp_color(
+        (MASTER_LOOK_SHADOW_PIVOT - target_luma) / MASTER_LOOK_SHADOW_PIVOT,
+        0.0,
+        1.0,
+    )
+    highlight_weight = _clamp_color(
+        (target_luma - MASTER_LOOK_HIGHLIGHT_PIVOT)
+        / max(0.001, 1.0 - MASTER_LOOK_HIGHLIGHT_PIVOT),
+        0.0,
+        1.0,
     )
 
+    return (
+        _clamp_color(
+            r
+            + (MASTER_LOOK_SHADOW_R * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_R * highlight_weight),
+            0.0,
+            1.0,
+        ),
+        _clamp_color(
+            g
+            + (MASTER_LOOK_SHADOW_G * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_G * highlight_weight),
+            0.0,
+            1.0,
+        ),
+        _clamp_color(
+            b
+            + (MASTER_LOOK_SHADOW_B * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_B * highlight_weight),
+            0.0,
+            1.0,
+        ),
+    )
 
 def _write_master_look_lut(path: Path) -> Path:
     """Write a tiny deterministic Iridas .cube LUT; blue outer, red inner for FFmpeg."""
@@ -3386,7 +3440,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Navy Depth v4"',
+        'TITLE "Isco Navy Gold Depth v5"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
@@ -3663,8 +3717,9 @@ def render_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # All stock footage in this render shares one measured reference. M8 has
-    # already normalized technical color space; this step aligns appearance only.
+    # Every clip is normalized toward the fixed channel palette target. M8 has
+    # already normalized technical color space; no episode stock clip can become
+    # the creative color authority for the rest of the video.
     grade_filters = _build_reference_color_plan(paths, output_dir)
 
     opening_count = 3 if opening_enabled else 0
@@ -3734,13 +3789,12 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-charcoal-master-v4.cube")
+        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v5.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
-            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
+            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
+            f"{CINEMATIC_FINISH_FILTER}"
         )
-        if any(str(value or "").strip() for value in grade_filters.values()):
-            master_look = f"{master_look},{CINEMATIC_FINISH_FILTER}"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"

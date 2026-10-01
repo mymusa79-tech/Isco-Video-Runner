@@ -86,6 +86,14 @@ _ACTION_FAMILY_TERMS = {
     "window": ("window", "curtain", "glass"),
     "sitting": ("sit", "sitting", "chair", "desk"),
 }
+_ACTION_FAMILY_MAX_USES = 2
+_SEMANTIC_PROOF_NOISE = frozenset({
+    "cinematic", "lighting", "light", "lights", "warm", "cool", "dark", "bright",
+    "navy", "charcoal", "gold", "golden", "ivory", "shadow", "shadows", "highlight",
+    "highlights", "contrast", "depth", "soft", "natural", "premium", "frame",
+    "framing", "composition", "camera", "close", "wide", "medium", "shot", "mood",
+    "atmosphere", "tone", "color", "colour", "bokeh", "glow",
+})
 
 _QUERY_CLAUSE_BREAK_TOKENS = frozenset({"then", "while"})
 _QUERY_DANGLING_TOKENS = frozenset({
@@ -136,6 +144,36 @@ def _visual_action_family(value: object) -> str:
             best_name = name
             best_score = score
     return best_name if best_score > 0 else ""
+
+
+def _beat_action_family(beat: Mapping[str, Any]) -> str:
+    """Classify the actual searchable scene, not only one descriptive field."""
+    return _visual_action_family(
+        " ".join(
+            str(beat.get(key) or "")
+            for key in ("shot_intent", "stock_query_en")
+        )
+    )
+
+
+def _has_semantic_proof(cues: list[str]) -> bool:
+    """Reject must-have lists that contain only grade/composition/mood vocabulary."""
+    for cue in cues:
+        compact = " ".join(str(cue or "").split()).strip()
+        if not compact:
+            continue
+        if re.search(r"[\u0600-\u06ff]", compact):
+            if len(compact.split()) >= 2:
+                return True
+            continue
+        tokens = [
+            token
+            for token in re.findall(r"[a-z0-9]+", compact.casefold())
+            if token not in _SEMANTIC_PROOF_NOISE
+        ]
+        if len(tokens) >= 2:
+            return True
+    return False
 
 
 def _default_environment_family(value: object) -> str:
@@ -441,6 +479,8 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             if default_avoid not in semantic_should_avoid and len(semantic_should_avoid) < 4:
                 semantic_should_avoid.append(default_avoid)
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
+        if not semantic_must_have and shot_intent:
+            semantic_must_have = [shot_intent[:120]]
         role = (
             _beat_role(index - 1, len(raw_beats))
             if explicit_retention_contract
@@ -502,6 +542,11 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             raise ValueError(
                 f"visual_story beat {beat_id} requires viewer_intent, meaning_target, "
                 "shot_intent, and stock_query_en"
+            )
+        if explicit_retention_contract and not _has_semantic_proof(semantic_must_have):
+            raise ValueError(
+                f"visual_story beat {beat_id} semantic_must_have must contain observable "
+                "semantic evidence, not only mood/lighting/composition"
             )
         if len(display_text_ar.split()) > 10:
             raise ValueError(
@@ -603,6 +648,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             "visual_story must cover every planned section: missing=" + ",".join(missing)
         )
 
+    # Visual-family repetition is enforced after Writer binding, immediately
+    # before retrieval, so legacy/compatibility stories can still be normalized
+    # without weakening the production gate.
     ai_still_count = sum(
         beat["source_preference"] == "ai_still" for beat in beats
     )
@@ -683,6 +731,19 @@ def bind_visual_story_to_script(
             beats_by_section[section_id].append(beat)
 
     prior_action_family = ""
+    family_uses: dict[str, int] = {}
+    strict_diversity = (
+        str(plan.get("_visual_diversity_contract") or "") == "v2_fail_closed"
+        or any(
+            str(item.get("visual_query_alt_en") or "").strip()
+            for item in plan_sections
+        )
+        or any(
+            str(item.get("stock_query_alt_en") or "").strip()
+            for item in (story.get("beats") or [])
+            if isinstance(item, Mapping)
+        )
+    )
     for section_id in expected_ids:
         section_beats = beats_by_section[section_id]
         if not section_beats:
@@ -710,27 +771,48 @@ def bind_visual_story_to_script(
             current_family = _visual_action_family(beat.get("shot_intent"))
             if current_family and current_family == prior_action_family:
                 section = section_by_id.get(section_id) or {}
-                alternate = _writer_searchable_intent(section.get("visual_query_alt_en"))
-                alternate_family = _visual_action_family(alternate)
-                if alternate and alternate_family != current_family:
+                alternates = (
+                    _writer_searchable_intent(beat.get("stock_query_alt_en")),
+                    _writer_searchable_intent(section.get("visual_query_alt_en")),
+                )
+                replacement = ""
+                replacement_family = ""
+                for alternate in alternates:
+                    alternate_family = _visual_action_family(alternate)
+                    if alternate and alternate_family != current_family:
+                        replacement = alternate
+                        replacement_family = alternate_family
+                        break
+                if replacement:
                     # An unclassified alternate is still useful diversity. Requiring a
                     # second named family caused obviously different scenes (for example
                     # bookshelf/environment) to be ignored in favor of repeated stationery.
-                    beat["shot_intent"] = alternate
-                    beat["stock_query_en"] = alternate
-                    current_family = alternate_family
+                    beat["shot_intent"] = replacement
+                    beat["stock_query_en"] = replacement
+                    current_family = replacement_family
+                elif strict_diversity:
+                    raise ValueError(
+                        "writer visual binding would repeat the previous "
+                        f"{current_family} scene family without a distinct alternate"
+                    )
                 else:
                     avoids = [
                         str(item).strip()
                         for item in (beat.get("semantic_should_avoid") or [])
                         if str(item).strip()
                     ]
-                    repeat_avoid = (
-                        f"repeat of previous {current_family} action/composition"
-                    )
+                    repeat_avoid = f"repeat of previous {current_family} action/composition"
                     if repeat_avoid not in avoids:
                         avoids.insert(0, repeat_avoid)
                     beat["semantic_should_avoid"] = avoids[:4]
+
+            if strict_diversity and current_family:
+                family_uses[current_family] = family_uses.get(current_family, 0) + 1
+                if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
+                    raise ValueError(
+                        "writer visual binding repeats visual family too often: "
+                        f"{current_family}"
+                    )
 
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
@@ -770,6 +852,7 @@ def contextual_intent(
     beat_id: str,
     fallback_intent: str,
 ) -> str:
+    """Build a <=300-char Visual QA brief with semantic evidence first."""
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
         (index for index, item in enumerate(beats) if str(item.get("id") or "") == beat_id),
@@ -780,89 +863,106 @@ def contextual_intent(
 
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
-    shot_role = str(current_beat.get("shot_role") or "").strip() or "action"
-    environment_family = str(current_beat.get("environment_family") or "").strip() or "contextual"
-    current_family = _visual_action_family(
-        current_beat.get("shot_intent") or fallback_intent
-    )
+    current_family = _beat_action_family(current_beat)
     previous_family = (
-        _visual_action_family(beats[current_index - 1].get("shot_intent"))
+        _beat_action_family(beats[current_index - 1])
         if current_index > 0
         else ""
     )
-
-    # Keep all legacy context labels plus the new hook/family rule inside the
-    # existing 300-char provider contract. These labels are compatibility surface.
+    meaning = _context_fragment(
+        current_beat.get("meaning_target")
+        or current_beat.get("viewer_intent")
+        or current_beat.get("shot_intent"),
+        "specific visible meaning",
+        44,
+    )
+    raw_must = [
+        str(item).strip()
+        for item in (current_beat.get("semantic_must_have") or [])
+        if str(item).strip()
+    ]
+    raw_avoid = [
+        str(item).strip()
+        for item in (current_beat.get("semantic_should_avoid") or [])
+        if str(item).strip()
+    ]
+    must_have = _context_fragment(
+        ", ".join(raw_must) or current_beat.get("shot_intent"),
+        "visible proof",
+        34,
+    )
+    avoid = _context_fragment(", ".join(raw_avoid), "", 16) if raw_avoid else ""
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
-        "current beat",
-        20,
+        "current",
+        22,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        16,
+        20,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        13,
+        20,
     )
-    meaning = _context_fragment(
-        current_beat.get("meaning_target")
-        or current_beat.get("viewer_intent")
-        or current_beat.get("shot_intent"),
-        "specific",
-        8,
-    )
-    must_have = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
-        "concrete",
-        8,
-    )
-    should_avoid = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
-        "generic",
-        8,
-    )
-    priority_rule = ""
-    if role == "hook":
-        # Preserve the established semantic hook contract verbatim; downstream
-        # QA/tests consume this phrase as compatibility surface.
-        priority_rule = "Hook must show an unresolved observable tension. "
-    elif current_family and current_family == previous_family:
-        priority_rule = "Repeat: changed state. "
-    previous_family_label = (
-        f" PrevFam:{previous_family}" if previous_family else ""
-    )
-    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
 
-    # Compatibility-first budgeting: the established semantic/family/neighbour
-    # contract is mandatory. New editor metadata is appended only when it fits;
-    # it must never evict Meaning/Must show/Avoid or Current/Previous/Next from
-    # the fixed 300-char provider boundary.
-    mandatory = (
-        f"Role:{role} Fam:{current_family or 'other'}{previous_family_label}. "
-        f"{priority_rule}"
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        f"Current: {current}. Previous: {previous}. Next: {following}."
+    # Meaning/proof always come before family, mood and continuity metadata.
+    pieces = [
+        f"Role:{role}",
+        f"Meaning:{meaning}",
+        f"Must show:{must_have}",
+    ]
+    if avoid:
+        pieces.append(f"Avoid:{avoid}")
+    if current_family:
+        pieces.append(f"Fam:{current_family}")
+    if previous_family:
+        pieces.append(f"PrevFam:{previous_family}")
+    if current_family and previous_family == current_family:
+        pieces.append("Repeat: changed state only")
+    pieces.extend(
+        [
+            f"Current: {current}",
+            f"Previous: {previous}",
+            f"Next: {following}",
+        ]
     )
-    editor_parts: list[str] = []
-    if shot_role:
-        editor_parts.append(f"Shot:{shot_role[:7]}")
-    if environment_family and environment_family != "contextual":
-        editor_parts.append(f"Env:{environment_family[:8]}")
-    editor_prefix = (" ".join(editor_parts) + ". ") if editor_parts else ""
-
-    if len(mandatory) + len(editor_prefix) + len(tail) <= 300:
-        head = mandatory.replace(
-            f"Role:{role} ",
-            f"Role:{role} {editor_prefix}",
-            1,
+    if current_beat.get("writer_anchor_ar"):
+        pieces.append(
+            f"Narration:{_context_fragment(current_beat.get('writer_anchor_ar'), 'spoken', 24)}"
         )
-    else:
-        head = mandatory
-    head_limit = max(0, 300 - len(tail))
+    if role == "hook":
+        pieces.append("Hook: unresolved observable tension")
+
+    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    head_limit = 300 - len(tail)
+    head = ". ".join(pieces) + "."
+    if len(head) > head_limit:
+        # Preserve semantic evidence and all continuity labels; drop only optional
+        # narration first, then shorten family/repeat metadata by omission.
+        essential = [
+            f"Role:{role}",
+            f"Meaning:{meaning}",
+            f"Must show:{must_have}",
+        ]
+        if avoid:
+            essential.append(f"Avoid:{avoid}")
+        essential.extend(
+            [
+                f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 16)}",
+                f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 16)}",
+                f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 16)}",
+            ]
+        )
+        if current_family:
+            essential.append(f"Fam:{current_family}")
+        if previous_family:
+            essential.append(f"PrevFam:{previous_family}")
+        if current_family and previous_family == current_family:
+            essential.append("Repeat:changed-state")
+        head = ". ".join(essential) + "."
     return head[:head_limit].rstrip() + tail

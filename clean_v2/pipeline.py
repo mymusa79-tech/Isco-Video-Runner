@@ -18,6 +18,7 @@ from .identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
+    SHORT_CHANNEL_DEFINITION_LEGACY,
     channel_definition,
     identity_timing_profile,
     assert_spoken_identity,
@@ -340,7 +341,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 6
+RESUME_CONTRACT_VERSION = 8
 RESUMABLE_STAGES = ("planning", "script", TEXT_AUDIT_STAGE, "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 TEXT_AUDIT_CHECKPOINT_FILE = "audit-checkpoint.json"
@@ -1371,7 +1372,10 @@ def _trusted_identity_for_factuality(
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
     definition = channel_definition(fmt, str(identity.get("opener") or ""))
     phrases: list[str] = []
-    for phrase in (PRAYER_SENTENCE, definition):
+    trusted = [PRAYER_SENTENCE, definition]
+    if fmt == "short":
+        trusted.append(SHORT_CHANNEL_DEFINITION_LEGACY)
+    for phrase in trusted:
         normalized = " ".join(str(phrase or "").split()).strip()
         if normalized and normalized not in phrases:
             phrases.append(normalized)
@@ -3816,47 +3820,54 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
 
 
 def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
-    """Keep a Short to real semantic scenes without another model call or failure gate."""
+    """Lock the Short house cut: three semantic hook shots + body + payoff.
+
+    This is an authored-beat requirement, not duration-driven shot fabrication.
+    Planning must supply all five meanings in its existing response, so runtime
+    adds no model call and never turns one weak image into a fake fast montage.
+    """
     result = copy.deepcopy(dict(story))
     beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
-    max_beats = max(3, int(max_beats))
-    if len(beats) <= max_beats:
-        return result
+    if int(max_beats) < 5:
+        raise ValueError("short visual story requires max_visuals >= 5")
 
-    section_order: list[str] = []
-    indexes_by_section: dict[str, list[int]] = {}
-    for index, beat in enumerate(beats):
+    by_section: dict[str, list[Mapping[str, Any]]] = {"s1": [], "s2": [], "s3": []}
+    for beat in beats:
         section_id = str(beat.get("section_id") or "").strip()
-        if section_id not in indexes_by_section:
-            section_order.append(section_id)
-            indexes_by_section[section_id] = []
-        indexes_by_section[section_id].append(index)
+        if section_id in by_section:
+            by_section[section_id].append(beat)
 
-    keep: set[int] = {0, len(beats) - 1}
-    # Preserve at least one visual from every authored section.
-    for section_id in section_order:
-        indexes = indexes_by_section[section_id]
-        preferred = indexes[-1] if section_id == section_order[-1] else indexes[0]
-        keep.add(preferred)
+    if len(by_section["s1"]) < 3 or not by_section["s2"] or not by_section["s3"]:
+        raise ValueError(
+            "short visual story requires three authored s1 hook beats plus one s2 and one s3 beat"
+        )
 
-    # Add at most two genuinely authored extra states, balanced by section order.
-    while len(keep) < max_beats:
-        added = False
-        for section_id in section_order:
-            for index in indexes_by_section[section_id]:
-                if index in keep:
-                    continue
-                keep.add(index)
-                added = True
-                break
-            if len(keep) >= max_beats:
-                break
-        if not added:
-            break
+    selected = [
+        *[copy.deepcopy(item) for item in by_section["s1"][:3]],
+        copy.deepcopy(by_section["s2"][0]),
+        copy.deepcopy(by_section["s3"][-1]),
+    ]
+    hook_keys = {
+        " ".join(
+            re.findall(
+                r"[a-z0-9]+",
+                str(item.get("stock_query_en") or item.get("shot_intent") or "").casefold(),
+            )
+        )
+        for item in selected[:3]
+    }
+    if "" in hook_keys or len(hook_keys) != 3:
+        raise ValueError("short hook requires three distinct semantic visual queries")
 
-    selected = [copy.deepcopy(beats[index]) for index in sorted(keep)[:max_beats]]
     for index, beat in enumerate(selected):
-        beat["role"] = "hook" if index == 0 else "payoff" if index == len(selected) - 1 else "body"
+        if index < 3:
+            beat["role"] = "hook"
+            beat["hold_reason"] = "hook_progression"
+        elif index == 4:
+            beat["role"] = "payoff"
+            beat["hold_reason"] = "payoff_landing"
+        else:
+            beat["role"] = "body"
     result["beats"] = selected
     return result
 
@@ -3926,6 +3937,10 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         plan["narrative_format"] = str(
             _select_longform_narrative_profile(brief)["narrative_format"]
         )
+    # Local production contract: every fresh Short/Film/Podcast plan must fail
+    # closed on adjacent/repeated visual families before any media retrieval.
+    # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
+    plan["_visual_diversity_contract"] = "v2_fail_closed"
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
         # Strict Planning schemas require this for current providers. The local
@@ -4625,8 +4640,18 @@ VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
   relationship between objects/environment.
 - meaning_target says what must be proven; semantic_must_have names the visible proof; shot_intent and stock queries
   describe that proof directly. Prefer action/state-change wording over atmosphere-only adjectives.
+- At least ONE semantic_must_have item per beat must be semantic evidence of the idea itself. Lighting, framing,
+  darkness, side light, depth, hands-only, or "cinematic" qualities never count as the proof.
 - Do not default an abstract self-development idea to desk/laptop/notebook/writing B-roll unless that exact action
-  is itself evidence for the point. Cinematic light and composition support meaning; they never substitute for it.
+  is itself evidence for the point. The same rule applies to walking/path/sunset imagery: never use "person walking
+  forward" as a generic symbol for progress, recovery, a personal journey, or choosing your own path unless literal
+  walking/location is part of the spoken idea or the mapping is unmistakably established by adjacent beats.
+- For abstract RELATION ideas such as comparison, unequal starting conditions, hidden trade-offs, cause/consequence,
+  or before/after, show the relationship itself through a visible contrast, changed state, consequence, or paired
+  evidence. A phone, paper, keyboard, thoughtful person, or scenic path by itself is not evidence of that relation.
+- Before returning JSON, mentally remove the narration. If a neutral viewer could not state the beat's specific
+  meaning from the planned visible evidence, rewrite the beat rather than decorating it with mood.
+- Cinematic light and composition support meaning; they never substitute for it.
 """.strip()
 
 
@@ -4873,8 +4898,15 @@ walking/movement to another. Do not place the same dominant action family in con
 normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
 when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
 completed, so every new shot adds information instead of showing another angle of the same productivity prop.
-For Short specifically, use 3-5 semantic visual beats total. Never invent extra cuts to reach a shot-count
-target; if three strong scenes carry the complete miniature story, keep three.
+For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
+- beats 1-3 all belong to section_id=s1 and form the hook sequence;
+- beat 4 belongs to s2;
+- beat 5 belongs to s3.
+The three s1 hook beats must stay on the SAME precise tension while showing three genuinely different
+observable pieces of evidence (for example consequence -> triggering action/detail -> changed scale/context).
+They are a connected micro-sequence, never three unrelated attractive shots and never three angles of one prop.
+Give all three distinct stock_query_en/shot_intent wording and make each independently understandable with sound off.
+Runtime will fit these three authored beats inside the measured hook; do not add any other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened

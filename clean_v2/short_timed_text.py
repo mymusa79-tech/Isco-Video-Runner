@@ -132,8 +132,37 @@ def _sentences(text: object) -> list[str]:
     return sentences
 
 
+_CAPTION_SPLIT_CONNECTORS = frozenset({
+    "لكن", "ولكن", "لأن", "لان", "لذلك", "لهذا", "وهذا", "وهذه",
+    "وهو", "وهي", "عندما", "حين", "إذا", "اذا", "حتى", "ثم", "بل",
+})
+
+
+def _split_long_caption_chunk(chunk: str) -> list[str]:
+    """Bound display copy without changing or deleting any authored word."""
+    words = _clean(chunk).split()
+    result: list[str] = []
+    while len(words) > CAPTION_MAX_WORDS:
+        ceiling = min(CAPTION_MAX_WORDS, len(words) - CAPTION_MIN_WORDS)
+        floor = min(5, ceiling)
+        cut = 0
+        for index in range(ceiling, floor - 1, -1):
+            key = re.sub(r"[^\w\u0600-\u06FF]+", "", words[index]).strip()
+            if key in _CAPTION_SPLIT_CONNECTORS:
+                cut = index
+                break
+        if cut <= 0:
+            # Keep the first card balanced and leave at least two words for the next.
+            cut = min(10, ceiling)
+        result.append(" ".join(words[:cut]).strip())
+        words = words[cut:]
+    if words:
+        result.append(" ".join(words).strip())
+    return [item for item in result if item]
+
+
 def _phrase_chunks(text: object) -> list[str]:
-    """Preserve authored Arabic grammar: split only at real punctuation boundaries."""
+    """Preserve authored Arabic order while enforcing readable two-line cards."""
     chunks: list[str] = []
     for sentence in _sentences(text):
         clauses = [
@@ -141,21 +170,25 @@ def _phrase_chunks(text: object) -> list[str]:
             for item in re.split(r"(?<=[،؛:])\s+", sentence)
             if item.strip()
         ] or [sentence.strip()]
-        chunks.extend(clauses)
+        for clause in clauses:
+            chunks.extend(_split_long_caption_chunk(clause))
 
-    # A one-word clause is usually punctuation residue. Merge it with its nearest
-    # neighbor without rewriting or reordering any authored words.
+    # A one-word clause is usually punctuation residue. Merge it only when doing
+    # so stays within the hard display-word ceiling.
     index = 0
     while len(chunks) > 1 and index < len(chunks):
         if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
             index += 1
             continue
-        if index > 0:
+        if index > 0 and len((chunks[index - 1] + " " + chunks[index]).split()) <= CAPTION_MAX_WORDS:
             chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
             chunks.pop(index)
             continue
-        chunks[1] = f"{chunks[0]} {chunks[1]}"
-        chunks.pop(0)
+        if len((chunks[index] + " " + chunks[index + 1]).split()) <= CAPTION_MAX_WORDS:
+            chunks[index + 1] = f"{chunks[index]} {chunks[index + 1]}"
+            chunks.pop(index)
+            continue
+        index += 1
     return chunks
 
 
@@ -218,6 +251,8 @@ def validate_progressive_text(events: Sequence[Mapping[str, object]]) -> tuple[T
             raise ShortTimedTextError("timed_text_empty")
         if role not in ALLOWED_ROLES:
             raise ShortTimedTextError("timed_text_role_invalid")
+        if len(text.split()) > CAPTION_MAX_WORDS:
+            raise ShortTimedTextError("timed_text_caption_word_ceiling_exceeded")
         if end <= start:
             raise ShortTimedTextError("timed_text_duration_invalid")
         if index and start < previous_end - 0.001:
@@ -291,84 +326,49 @@ def build_events_from_section_audio(
     return events
 
 
-def _visual_asset_text_events(
-    *,
-    output_dir: Path,
+def _short_caption_window(
     timeline_report: Mapping[str, Any],
-) -> list[dict[str, object]]:
-    """Bind renderer-owned Arabic text to the exact semantic asset beat.
+    *,
+    section_id: str,
+) -> tuple[float, float] | None:
+    """Return the identity-safe window in which Short captions may exist.
 
-    This is local metadata only: no provider, ASR, or word-alignment call.
-    If any required mapping is missing, return [] so legacy narration captions
-    remain the compatibility fallback.
+    s1 is restricted to the measured hook. Later sections are restricted to
+    the measured topic window. Intro, prayer, channel identity and the final
+    outro card are therefore text-clean by construction.
     """
-    manifest_path = Path(output_dir) / "rights-manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    assets = manifest.get("assets") if isinstance(manifest, Mapping) else None
-    section_events = timeline_report.get("section_events")
-    if not isinstance(assets, list) or not isinstance(section_events, list):
-        return []
-
-    by_section: dict[str, list[Mapping[str, Any]]] = {}
-    for row in assets:
-        if not isinstance(row, Mapping):
+    raw_identity = timeline_report.get("identity_events")
+    raw_sections = timeline_report.get("section_events")
+    if not isinstance(raw_identity, list) or not isinstance(raw_sections, list):
+        return None
+    target_kind = "hook" if section_id == "s1" else "topic"
+    identity_window: tuple[float, float] | None = None
+    for raw in raw_identity:
+        if not isinstance(raw, Mapping) or str(raw.get("kind") or "") != target_kind:
             continue
-        section_id = str(row.get("section_id") or "").strip()
-        beat_id = str(row.get("beat_id") or "").strip()
-        display = _clean(row.get("display_text_ar"))
-        if (
-            not section_id
-            or not beat_id
-            or not display
-            or _contains_prayer_text(display)
-        ):
+        start = _seconds(raw.get("start"), f"{target_kind}_start")
+        end = _seconds(raw.get("end"), f"{target_kind}_end")
+        if end > start:
+            identity_window = (start, end)
+            break
+    if identity_window is None:
+        return None
+
+    section_window: tuple[float, float] | None = None
+    for raw in raw_sections:
+        if not isinstance(raw, Mapping) or str(raw.get("section_id") or "") != section_id:
             continue
-        by_section.setdefault(section_id, []).append(row)
+        start = _seconds(raw.get("start"), "section_start")
+        end = _seconds(raw.get("end"), "section_end")
+        if end > start:
+            section_window = (start, end)
+            break
+    if section_window is None:
+        return None
 
-    events: list[dict[str, object]] = []
-    for section_index, timing in enumerate(section_events):
-        if not isinstance(timing, Mapping):
-            return []
-        section_id = str(timing.get("section_id") or "").strip()
-        rows = by_section.get(section_id) or []
-        if not rows:
-            return []
-        start = _seconds(timing.get("start"), "start")
-        end = _seconds(timing.get("end"), "end")
-        if end <= start:
-            return []
-        slot = (end - start) / len(rows)
-        for row_index, row in enumerate(rows):
-            item_start = start + (slot * row_index)
-            item_end = end if row_index == len(rows) - 1 else start + (slot * (row_index + 1))
-            raw_role = str(row.get("role") or "").strip()
-            role = "hook" if raw_role == "hook" else ("payoff" if raw_role == "payoff" else "beat")
-            events.append(
-                {
-                    "start": round(item_start, 3),
-                    "end": round(item_end, 3),
-                    "text": _clean(row.get("display_text_ar")),
-                    "role": role,
-                    "section_id": section_id,
-                    "beat_id": str(row.get("beat_id") or ""),
-                    "text_source": "visual_beat_display_text_ar",
-                }
-            )
-
-    if not events:
-        return []
-    # The Short contract still owns a hook first and payoff last even when
-    # middle assets vary in count.
-    events[0]["role"] = "hook"
-    events[-1]["role"] = "payoff"
-    try:
-        validate_progressive_text(events)
-    except ShortTimedTextError:
-        return []
-    return events
+    start = max(identity_window[0], section_window[0])
+    end = min(identity_window[1], section_window[1])
+    return (start, end) if end > start else None
 
 
 def build_events_from_voice_timeline(
@@ -394,12 +394,21 @@ def build_events_from_voice_timeline(
         expected_id = f"s{section_index + 1}"
         if str(raw.get("section_id") or "") != expected_id:
             raise ShortTimedTextError("short_timed_text_voice_timeline_section_order_invalid")
+        caption_window = _short_caption_window(
+            timeline_report,
+            section_id=expected_id,
+        )
+        if caption_window is None:
+            raise ShortTimedTextError("short_timed_text_identity_safe_window_missing")
+        narration = section.get("narration")
+        if section_index == 0:
+            narration = _select_event_text(narration, "hook")
         events.extend(
             _section_phrase_events(
-                section.get("narration"),
+                narration,
                 section_index=section_index,
-                start=_seconds(raw.get("start"), "start"),
-                end=_seconds(raw.get("end"), "end"),
+                start=caption_window[0],
+                end=caption_window[1],
             )
         )
     validate_progressive_text(events)
@@ -917,7 +926,7 @@ def render_progressive_text(
         "word_highlight_count": 0,
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
-        "text_source_policy": "visual_beat_display_text_ar_when_available_else_verbatim_final_script",
+        "text_source_policy": "verbatim_final_audited_script_only",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
@@ -942,15 +951,10 @@ def apply_short_timed_text(
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid") from exc
         if not isinstance(timeline_report, Mapping):
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
-        events = _visual_asset_text_events(
-            output_dir=Path(output_dir),
+        events = build_events_from_voice_timeline(
+            script=script,
             timeline_report=timeline_report,
         )
-        if not events:
-            events = build_events_from_voice_timeline(
-                script=script,
-                timeline_report=timeline_report,
-            )
     else:
         # Compatibility for older artifacts/tests that predate the explicit
         # Voice-Owned Timeline certificate.

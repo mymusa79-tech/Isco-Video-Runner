@@ -108,14 +108,24 @@ jobs:
       - name: Install media dependencies
         run: |
           set -euo pipefail
-          APT_OPTS=(
-            -o Acquire::Retries=3
-            -o Acquire::http::Timeout=30
-            -o Acquire::https::Timeout=30
-            -o DPkg::Lock::Timeout=60
-          )
-          sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
-          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
+          missing=()
+          command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
+          font_match="$(fc-match "Noto Sans" 2>/dev/null || true)"
+          if [[ "${font_match,,}" != *noto* ]]; then
+            missing+=(fontconfig fonts-noto-core)
+          fi
+          if (( ${#missing[@]} )); then
+            APT_OPTS=(
+              -o Acquire::Retries=5
+              -o Acquire::http::Timeout=45
+              -o Acquire::https::Timeout=45
+              -o DPkg::Lock::Timeout=60
+            )
+            sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" update
+            sudo timeout --signal=TERM --kill-after=15s 420s apt-get "${APT_OPTS[@]}" install -y --no-install-recommends "${missing[@]}"
+          fi
+          ffmpeg -version >/dev/null 2>&1
+          fc-match "Noto Sans" >/dev/null 2>&1
           python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
 
       - name: Install locked Engine runtime

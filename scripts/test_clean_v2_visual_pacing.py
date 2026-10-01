@@ -1025,6 +1025,13 @@ def _brief() -> dict:
 
 
 def _plan() -> dict:
+    visual_queries = {
+        "s1": "closed notebook beside unfinished task hands only",
+        "s2": "phone face down beside one unfinished task hands only",
+        "s3": "door opening into quiet workspace back view",
+        "s4": "calendar page with one completed mark hands only",
+        "s5": "shoes crossing doorway toward morning light no face",
+    }
     return {
         "title": "خطوة واحدة",
         "promise": "فهم طريقة عملية للبدء",
@@ -1034,7 +1041,7 @@ def _plan() -> dict:
                 "id": section_id,
                 "heading": heading,
                 "purpose": "شرح مختصر",
-                "visual_query_en": "quiet desk notebook wide shot",
+                "visual_query_en": visual_queries[section_id],
             }
             for section_id, heading in (
                 ("s1", "المشكلة"),
@@ -1406,16 +1413,13 @@ class ColorGradeIntegrationTests(unittest.TestCase):
 
 
 class ReferenceColorMatchLiteTests(unittest.TestCase):
-    def test_representative_reference_chooses_real_clip_near_median(self) -> None:
-        measured = {
-            "cold.mp4": media_module._RgbStats(70, 85, 120, 35, 36, 38),
-            "middle.mp4": media_module._RgbStats(112, 108, 104, 42, 41, 40),
-            "hot.mp4": media_module._RgbStats(170, 145, 105, 58, 54, 48),
-        }
-        self.assertEqual(
-            media_module._representative_reference(measured),
-            "middle.mp4",
-        )
+    def test_fixed_channel_target_is_source_independent(self) -> None:
+        target = media_module._channel_target_stats()
+        self.assertEqual(target.mean_r, media_module.COLOR_TARGET_MEAN_R)
+        self.assertEqual(target.mean_g, media_module.COLOR_TARGET_MEAN_G)
+        self.assertEqual(target.mean_b, media_module.COLOR_TARGET_MEAN_B)
+        self.assertGreater(target.mean_b, target.mean_r)
+
 
     def test_channel_stock_query_keeps_provider_search_semantic(self) -> None:
         core = "hand closes laptop after finishing one task"
@@ -1458,18 +1462,22 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
             report = json.loads((Path(root) / "color-match.json").read_text(encoding="utf-8"))
 
         self.assertEqual(report["status"], "applied")
-        self.assertEqual(report["reference_file"], "b.mp4")
+        self.assertIsNone(report["reference_file"])
+        self.assertEqual(report["source"], "clean-v2-fixed-channel-palette-match")
         self.assertEqual(report["provider_calls_added"], 0)
         self.assertEqual(report["ai_calls_added"], 0)
-        self.assertEqual(filters["b.mp4"], "")
-        self.assertTrue(filters["a.mp4"].startswith("lutrgb="))
-        self.assertTrue(filters["c.mp4"].startswith("lutrgb="))
+        self.assertEqual(
+            {row["mode"] for row in report["clips"]},
+            {"fixed_channel_target"},
+        )
+        self.assertTrue(all(fragment.startswith("lutrgb=") for fragment in filters.values()))
+        self.assertEqual(report["target_stats"]["mean_b"], media_module.COLOR_TARGET_MEAN_B)
 
     def test_master_lut_has_expected_cube_shape(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             path = media_module._write_master_look_lut(Path(root) / "look.cube")
             lines = path.read_text(encoding="ascii").splitlines()
-        self.assertEqual(lines[0], 'TITLE "Isco Navy Depth v4"')
+        self.assertEqual(lines[0], 'TITLE "Isco Navy Gold Depth v5"')
         self.assertEqual(lines[1], f"LUT_3D_SIZE {media_module.MASTER_LOOK_LUT_SIZE}")
         self.assertEqual(
             len(lines),
@@ -1479,14 +1487,14 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
     def test_wakeful_depth_reduces_ad_like_saturation_without_network(self) -> None:
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.92)
         self.assertGreater(media_module.MASTER_LOOK_CONTRAST, 1.035)
-        self.assertIn("saturation=0.94", media_module.CINEMATIC_FINISH_FILTER)
-        self.assertIn("brightness=-0.032", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("saturation=0.93", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("brightness=-0.026", media_module.CINEMATIC_FINISH_FILTER)
 
     def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
         fragment = media_module.CINEMATIC_FINISH_FILTER
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-navy-depth-finish-v4",
+            "clean-v2-navy-gold-depth-finish-v5",
         )
         self.assertIn("eq=contrast=", fragment)
         self.assertIn("unsharp=", fragment)
@@ -1753,7 +1761,7 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
 
             final_command = captured[-1]
             filters = final_command[final_command.index("-filter_complex") + 1]
-            self.assertNotIn("eq=contrast", filters)
+            self.assertIn(media_module.CINEMATIC_FINISH_FILTER, filters)
             self.assertIn("trim=duration=7.000", filters)
             self.assertIn("trim=duration=12.000", filters)
 

@@ -106,6 +106,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 "hook_genericness",
                 "hook_body_continuity",
                 "payoff_resolves_hook",
+                "section_dependency",
+                "topic_fidelity",
                 "notes",
             },
         )

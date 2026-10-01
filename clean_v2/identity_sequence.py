@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
-SHORT_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
+SHORT_CHANNEL_DEFINITION = "هنا نداء اليقظة؛ وعيٌ أوضح للحياة اليومية."
+SHORT_CHANNEL_DEFINITION_LEGACY = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
 PODCAST_CHANNEL_DEFINITION = "بودكاست من نداء اليقظة"
 
@@ -26,11 +27,14 @@ _TIMING_PROFILES = {
     # only at major opening boundaries, never inside ordinary Gemini speech.
     # Long-form gets slightly more room than Shorts without becoming sluggish.
     "short": {
-        "post_hook_silence_seconds": 1.15,
-        "intro_silence_seconds": 1.15,
+        # Short retention: one brief breath, one-second branded intro, then
+        # the trusted prayer and a compact channel handoff. Identity must not
+        # consume the first half of the Short.
+        "post_hook_silence_seconds": 0.60,
+        "intro_silence_seconds": 1.00,
         "post_prayer_silence_seconds": 0.35,
-        "pre_topic_silence_seconds": 0.65,
-        "final_silence_seconds": 2.20,
+        "pre_topic_silence_seconds": 0.35,
+        "final_silence_seconds": 1.25,
     },
     "film": {
         "post_hook_silence_seconds": 1.15,
@@ -296,7 +300,7 @@ def inject_spoken_identity(
 
     for section in sections:
         narration = " ".join(str(section.get("narration") or "").split()).strip()
-        for phrase in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, LONG_CHANNEL_DEFINITION, definition, closer):
+        for phrase in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION, definition, closer):
             if phrase:
                 narration = " ".join(narration.replace(phrase, " ").split()).strip()
         section["narration"] = narration

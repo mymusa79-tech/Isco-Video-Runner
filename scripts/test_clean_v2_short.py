@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from clean_v2.contextual_cta import CtaMode, bind_contextual_cta
+from clean_v2.identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION
 from clean_v2.contracts import ContractError, validate_plan
 from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
@@ -31,7 +32,6 @@ from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
     GeminiOnlyVoiceSynthesizer,
     SHORT_CUT_DISSOLVE_SECONDS,
-    SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
     StockVisualSource,
     VoiceInfrastructureError,
@@ -779,14 +779,16 @@ class ShortContractTests(unittest.TestCase):
             "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
         )
 
-        self.assertTrue(
+        original = script["sections"][2]["narration"]
+        self.assertFalse(
             apply_safe_short_s3_locked_payoff_fallback(script, locked_payoff)
         )
-        self.assertEqual(
-            script["sections"][2]["narration"],
-            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
-        )
-        validate_short_script(script)
+        self.assertEqual(script["sections"][2]["narration"], original)
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_s3_payoff_contains_forbidden_action_family",
+        ):
+            validate_short_script(script)
 
     def test_artifact_149_provider_outage_family_accepts_mistral_s3_via_local_rescue(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -805,7 +807,7 @@ class ShortContractTests(unittest.TestCase):
         visual_story = {
             "retention_thread": {
                 "payoff_answer": (
-                    "يظهر أثر البداية الجديدة، مع شعور بالتحول من الجمود إلى الحركة."
+                    "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة."
                 )
             }
         }
@@ -839,7 +841,7 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             accepted["sections"][2]["narration"],
-            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة. اختر مهمة واحدة الآن.",
+            "المهمة الأصغر تقلل الاحتكاك وتعيد الإحساس بالقدرة. اختر مهمة واحدة الآن.",
         )
         validate_short_script(accepted)
         self.assertEqual(
@@ -1557,8 +1559,6 @@ class ShortContractTests(unittest.TestCase):
             ["s1", "s1", "s2", "s2", "s3", "s3"],
         )
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
-        self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
-        self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
         trim_source = inspect.getsource(media_module._trim_and_grade_clip)
         self.assertNotIn("_short_motion_filter", trim_source)
         self.assertNotIn("-stream_loop", trim_source)
@@ -1779,6 +1779,10 @@ class ShortTimedTextTests(unittest.TestCase):
                 {"section_id": "s2", "start": 5.0, "end": 10.0},
                 {"section_id": "s3", "start": 10.0, "end": 15.0},
             ],
+            "identity_events": [
+                {"kind": "hook", "start": 0.0, "end": 5.0},
+                {"kind": "topic", "start": 5.0, "end": 15.0},
+            ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
         self.assertEqual(len(events), 3)
@@ -1912,9 +1916,14 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                     {"id": "s3", "narration": "ابدأ بخطوة صغيرة الآن."},
                 ]
             }
+            caption_report = dict(report)
+            caption_report["identity_events"] = [
+                {"kind": "hook", "start": 0.0, "end": 8.0},
+                {"kind": "topic", "start": 8.0, "end": 36.0},
+            ]
             events = build_events_from_voice_timeline(
                 script=script,
-                timeline_report=report,
+                timeline_report=caption_report,
             )
             self.assertEqual(events[0]["start"], 0.0)
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
@@ -2023,7 +2032,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("social CTA remains visual-only", prompt)
         self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
-        self.assertIn("وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح.", prompt)
+        self.assertIn(SHORT_CHANNEL_DEFINITION, prompt)
         self.assertIn("one continuous thought, not three separate announcements", prompt)
         self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
@@ -2269,6 +2278,55 @@ class ShortNoFacePolicyTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["no_face_policy"], "pass")
+
+
+
+class SharedColorIdentityRegressionTests(unittest.TestCase):
+    def test_master_look_uses_navy_shadows_and_warm_highlights(self) -> None:
+        shadow = media_module._master_look_value(0.18, 0.18, 0.18)
+        highlight = media_module._master_look_value(0.88, 0.88, 0.88)
+        self.assertGreater(shadow[2], shadow[0])
+        self.assertGreater(highlight[0], highlight[2])
+        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.90)
+
+    def test_single_clip_uses_fixed_channel_target_not_episode_stock_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clip = root / "clip.mp4"
+            clip.write_bytes(b"fixture")
+            measured = media_module._RgbStats(
+                mean_r=170.0,
+                mean_g=150.0,
+                mean_b=145.0,
+                std_r=35.0,
+                std_g=36.0,
+                std_b=34.0,
+            )
+            with mock.patch(
+                "clean_v2.media._sample_rgb_stats",
+                return_value=measured,
+            ):
+                filters = media_module._build_reference_color_plan([clip], root)
+            self.assertTrue(filters[str(clip)])
+            report = json.loads((root / "color-match.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["source"], "clean-v2-fixed-channel-palette-match")
+            self.assertIsNone(report["reference_file"])
+            self.assertEqual(report["clips"][0]["mode"], "fixed_channel_target")
+            self.assertEqual(report["target_stats"]["mean_b"], 118.0)
+
+    def test_shared_finish_is_always_applied_after_master_lut(self) -> None:
+        source = inspect.getsource(media_module.render_video)
+        self.assertIn("CINEMATIC_FINISH_FILTER", source)
+        self.assertNotIn(
+            'if any(str(value or "").strip() for value in grade_filters.values())',
+            source,
+        )
+        self.assertIn("navy-gold-master-v5.cube", source)
+        self.assertEqual(
+            media_module.CINEMATIC_FINISH_VERSION,
+            "clean-v2-navy-gold-depth-finish-v5",
+        )
 
 
 if __name__ == "__main__":

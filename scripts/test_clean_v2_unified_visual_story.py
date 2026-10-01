@@ -45,33 +45,62 @@ def _brief(fmt: str = "film") -> dict:
 
 
 def _planning_value(fmt: str = "film") -> dict:
-    count = 3 if fmt == "short" else 5
+    section_count = 3 if fmt == "short" else 5
+    section_queries = [
+        "closed notebook beside unfinished task hands only",
+        "phone face down beside one unfinished task hands only",
+        "door opening into quiet workspace back view",
+        "calendar page with one completed mark hands only",
+        "shoes crossing doorway toward morning light no face",
+    ]
+    section_alts = [
+        "two task objects at visibly different starting positions",
+        "single object selected from surrounding clutter hands only",
+        "workspace cleared except one next-step object no face",
+    ]
     sections = [
         {
             "id": f"s{index}",
             "heading": f"قسم {index}",
             "purpose": f"يفهم المشاهد الفكرة {index}",
-            "visual_query_en": f"warm notebook workspace action {index} no face",
+            "visual_query_en": section_queries[index - 1],
             **(
-                {"visual_query_alt_en": f"warm desk detail action {index} no face"}
+                {"visual_query_alt_en": section_alts[index - 1]}
                 if fmt == "short"
                 else {}
             ),
         }
-        for index in range(1, count + 1)
+        for index in range(1, section_count + 1)
     ]
+
+    if fmt == "short":
+        beat_specs = [
+            ("s1", "closed notebook beside unfinished task hands only", "دفتر مغلق بجوار مهمة غير مكتملة"),
+            ("s1", "phone scrolling beside unfinished personal task hands only", "هاتف يزاحم المهمة الشخصية غير المكتملة"),
+            ("s1", "two progress markers at visibly different starting positions", "نقطتا بداية مختلفتان بوضوح"),
+            ("s2", "door opening into quiet workspace back view", "انتقال مرئي إلى مساحة أكثر وضوحًا"),
+            ("s3", "single completed progress marker beside next step object", "علامة تقدم مكتملة وخطوة تالية واضحة"),
+        ]
+    else:
+        beat_specs = [
+            (f"s{index}", section_queries[index - 1], f"مشهد ملموس يوضح الفكرة {index}")
+            for index in range(1, 6)
+        ]
+
     beats = []
-    for index in range(1, count + 1):
+    for index, (section_id, query, meaning) in enumerate(beat_specs, start=1):
         is_first = index == 1
-        is_last = index == count
+        is_last = index == len(beat_specs)
         beats.append(
             {
                 "id": f"b{index}",
-                "section_id": f"s{index}",
+                "section_id": section_id,
                 "viewer_intent": f"يفهم المشاهد التحول {index}",
-                "shot_intent": f"دفتر واحد يتغير بصريًا في المرحلة {index}",
+                "meaning_target": meaning,
+                "semantic_must_have": [query],
+                "shot_intent": query,
                 "role": "hook" if is_first else "payoff" if is_last else "body",
-                "stock_query_en": f"warm notebook workspace distinct action {index} hands only",
+                "stock_query_en": query,
                 "display_text_ar": f"لحظة مختلفة {index}",
                 "source_preference": (
                     "ai_still" if is_first or is_last else "stock_motion"
@@ -96,7 +125,7 @@ def _planning_value(fmt: str = "film") -> dict:
             "retention_thread": {
                 "hook_tension": "لماذا تبقى البداية عالقة رغم وضوح الهدف؟",
                 "payoff_answer": "تصغير الفعل الأول يزيل الاحتكاك ويبدأ الحركة.",
-                "visual_motif": "دفتر مغلق يصبح صفحة عليها خطوة واحدة مكتملة",
+                "visual_motif": "دفتر مغلق يصبح علامة تقدم مكتملة",
             },
             "beats": beats,
         },
@@ -120,16 +149,50 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
 
+    def test_fresh_plans_enable_fail_closed_visual_diversity_for_every_format(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                self.assertEqual(
+                    planned["_visual_diversity_contract"],
+                    "v2_fail_closed",
+                )
+
+    def test_film_writer_binding_rejects_adjacent_stationery_without_alternate(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("film"), _brief("film"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = "hand writing in notebook"
+        visual_story["beats"][0]["stock_query_en"] = "hand writing in notebook"
+        visual_story["beats"][1]["shot_intent"] = "pen marking sticky notes on paper"
+        visual_story["beats"][1]["stock_query_en"] = "pen marking sticky notes on paper"
+        visual_story["beats"][1].pop("stock_query_alt_en", None)
+        planned["sections"][1].pop("visual_query_alt_en", None)
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": f"معنى نهائي مكتمل للقسم {index}. وتظهر نتيجة واضحة.",
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            "repeat the previous stationery scene family",
+        ):
+            bind_visual_story_to_script(visual_story, planned, script)
+
     def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
         story = {
             "beats": [
-                {"id": "b1", "section_id": "s1", "role": "hook"},
-                {"id": "b2", "section_id": "s1", "role": "body"},
-                {"id": "b3", "section_id": "s1", "role": "body"},
-                {"id": "b4", "section_id": "s2", "role": "body"},
-                {"id": "b5", "section_id": "s2", "role": "body"},
-                {"id": "b6", "section_id": "s3", "role": "body"},
-                {"id": "b7", "section_id": "s3", "role": "payoff"},
+                {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "unequal starting marks wide shot"},
+                {"id": "b2", "section_id": "s1", "role": "body", "stock_query_en": "different progress positions close detail"},
+                {"id": "b3", "section_id": "s1", "role": "body", "stock_query_en": "same path different starting points"},
+                {"id": "b4", "section_id": "s2", "role": "body", "stock_query_en": "person checks own progress marker"},
+                {"id": "b5", "section_id": "s2", "role": "body", "stock_query_en": "phone comparison feed beside task"},
+                {"id": "b6", "section_id": "s3", "role": "body", "stock_query_en": "one chosen next step object"},
+                {"id": "b7", "section_id": "s3", "role": "payoff", "stock_query_en": "completed personal progress marker"},
             ]
         }
         bounded = _bound_short_visual_story(story, max_beats=5)
@@ -216,7 +279,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
                 story = validate_visual_story(planned["visual_story"], planned)
-                self.assertEqual(len(story["beats"]), 3 if fmt == "short" else 5)
+                self.assertEqual(len(story["beats"]), 5)
                 self.assertTrue(
                     all(
                         beat["source_preference"] in {"stock_motion", "stock_still", "ai_still"}
@@ -242,7 +305,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
-                self.assertIn("use 3-5 semantic visual beats total", prompt)
+                self.assertIn("return EXACTLY 5 semantic visual beats", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -340,6 +403,23 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 first["semantic_must_have"] = [
                     "smartphone screen with conflicting notification shapes"
                 ]
+                # This test is about screen/UI safety, while still exercising
+                # the real fail-closed diversity contract. Make every later beat a
+                # genuinely different active family so unrelated fixture repetition
+                # cannot mask the screen-safety assertion.
+                distinct_later_scenes = [
+                    "hands typing on keyboard beside closed notebook",
+                    "back view walking through quiet corridor",
+                    "closed door beside empty hallway",
+                    "open window above quiet table",
+                    "hand writing one line in notebook",
+                ]
+                for index, beat in enumerate(visual_story["beats"][1:]):
+                    scene = distinct_later_scenes[index % len(distinct_later_scenes)]
+                    beat["shot_intent"] = scene
+                    beat["stock_query_en"] = scene
+                    beat["semantic_must_have"] = [scene]
+                    beat.pop("stock_query_alt_en", None)
                 script = {
                     "title": "نص نهائي",
                     "sections": [
@@ -415,7 +495,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         visual_story["beats"][2]["shot_intent"] = (
             "hands writing first line in notebook with pen on page"
         )
-        planned["sections"][1]["visual_query_alt_en"] = (
+        planned["sections"][0]["visual_query_alt_en"] = (
             "half empty bookshelf with one book pulled out no face"
         )
 
@@ -447,8 +527,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             bound["beats"][0]["shot_intent"],
         )
         self.assertIn("Role:hook", hook_context)
-        self.assertIn("Fam:stationery", hook_context)
-        self.assertIn("Hook must show an unresolved observable", hook_context)
+        self.assertIn("Meaning:", hook_context)
+        self.assertIn("Must show:", hook_context)
+        self.assertIn("Current:", hook_context)
 
     def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
         common = {
@@ -733,7 +814,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(story, planned)
         self.assertEqual(
             validated["beats"][1]["stock_query_en"],
-            planned["sections"][1]["visual_query_en"],
+            planned["sections"][0]["visual_query_alt_en"],
         )
 
         planned = _planning_value("short")
@@ -749,7 +830,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["role"] for beat in validated["beats"]],
-            ["hook", "body", "payoff"],
+            ["hook", "body", "body", "body", "payoff"],
         )
 
     def test_fresh_story_preserves_semantic_source_choice_across_all_roles(self) -> None:
@@ -760,11 +841,17 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["stock_motion", "ai_still", "stock_motion"],
+            ["stock_motion", "ai_still", "stock_motion", "stock_motion", "stock_motion"],
         )
         self.assertEqual(
             [beat["display_text_ar"] for beat in validated["beats"]],
-            ["لحظة مختلفة 1", "لحظة مختلفة 2", "لحظة مختلفة 3"],
+            [
+                "لحظة مختلفة 1",
+                "لحظة مختلفة 2",
+                "لحظة مختلفة 3",
+                "لحظة مختلفة 4",
+                "لحظة مختلفة 5",
+            ],
         )
 
     def test_partial_retention_thread_uses_existing_plan_without_provider_retry(self) -> None:

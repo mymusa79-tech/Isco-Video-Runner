@@ -61,7 +61,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         short = identity_timing_profile("short")
         film = identity_timing_profile("film")
         podcast = identity_timing_profile("podcast")
-        self.assertEqual(short["intro_silence_seconds"], 1.15)
+        self.assertEqual(short["intro_silence_seconds"], 1.00)
         self.assertEqual(film["intro_silence_seconds"], 2.20)
         self.assertEqual(podcast["intro_silence_seconds"], 6.00)
         self.assertEqual(podcast["post_hook_silence_seconds"], 0.75)
@@ -145,27 +145,16 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         self.assertIn("warm gold only as a rare accent", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("no blanket blue wash", CHANNEL_VISUAL_IDENTITY)
 
-    def test_reference_color_prefers_channel_neutral_depth_over_warm_stock_medoid(self) -> None:
-        measured = {
-            "neutral.mp4": media._RgbStats(
-                mean_r=141.2, mean_g=131.7, mean_b=119.7,
-                std_r=76.0, std_g=75.0, std_b=80.5,
-            ),
-            "warm-beige.mp4": media._RgbStats(
-                mean_r=179.7, mean_g=138.6, mean_b=108.4,
-                std_r=56.4, std_g=57.5, std_b=54.7,
-            ),
-            "bright-warm.mp4": media._RgbStats(
-                mean_r=184.0, mean_g=150.8, mean_b=120.3,
-                std_r=43.0, std_g=42.7, std_b=40.4,
-            ),
-        }
-        self.assertEqual(
-            media._representative_reference(measured),
-            "neutral.mp4",
-        )
-        self.assertGreater(media.COLOR_MATCH_STRENGTH, 0.55)
-        self.assertLess(media.MASTER_LOOK_SATURATION, 0.875)
+    def test_reference_color_uses_fixed_channel_target_not_stock_medoid(self) -> None:
+        target = media._channel_target_stats()
+        self.assertEqual(target.mean_r, media.COLOR_TARGET_MEAN_R)
+        self.assertEqual(target.mean_g, media.COLOR_TARGET_MEAN_G)
+        self.assertEqual(target.mean_b, media.COLOR_TARGET_MEAN_B)
+        self.assertEqual(media.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertLess(media.MASTER_LOOK_SATURATION, 0.90)
+        source = inspect.getsource(media._build_reference_color_plan)
+        self.assertIn("fixed_channel_rgb_mean_std_target_v1", source)
+        self.assertNotIn("_representative_reference", source)
 
     def test_human_editorial_rhythm_and_voice_pacing_are_shared(self) -> None:
         for fmt in ("short", "film", "podcast"):

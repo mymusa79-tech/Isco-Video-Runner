@@ -351,7 +351,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("alpha=1", filters)
         self.assertIn("tpad=stop_mode=clone", filters)
         self.assertNotIn("ass='", filters)
-        self.assertIn("[v1][prayer]overlay=(W-w)/2:(H-h)/2", filters)
+        self.assertIn("[v1][prayer]overlay=0:0", filters)
         self.assertIn("between(t,3.000,4.500)", filters)
         self.assertIn("[0:v][intro]overlay", filters)
         self.assertIn("[v2][outro]overlay", filters)
@@ -408,7 +408,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.65)
         self.assertEqual(identity_timing_profile("podcast")["intro_silence_seconds"], 6.00)
         self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.00)
-        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.20)
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
         self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
         self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 6.50)
 
