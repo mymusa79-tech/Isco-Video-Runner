@@ -1121,6 +1121,11 @@ def run_final_cut_visual_qa(
                         "writer_anchor_ar",
                         "role",
                         "source_preference",
+                        "shot_role",
+                        "environment_family",
+                        "hold_reason",
+                        "pause_intent",
+                        "audio_energy",
                         "pacing_auxiliary",
                         "story_beat_auxiliary",
                     ):

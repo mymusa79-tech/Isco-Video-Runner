@@ -918,6 +918,8 @@ def _ai_still_prompt(
     should_avoid = ", ".join(str(item) for item in (beat.get("semantic_should_avoid") or []))[:220]
     scene = str(beat.get("shot_intent") or "").strip()[:260]
     role = str(beat.get("role") or "").strip()
+    shot_role = str(beat.get("shot_role") or "").strip()
+    environment_family = str(beat.get("environment_family") or "").strip()
     hook_visual_rule = (
         "HOOK FRAME: make the first frame visually arresting but truthful to the exact topic. "
         "Show an immediate observable tension, interrupted action, unusual state, visible consequence, "
@@ -937,7 +939,8 @@ def _ai_still_prompt(
         f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
         f"Visual world: {visual_world}. "
         f"Recurring motif: {motif}. "
-        f"Beat role: {role}. "
+        f"Story role: {role}. Editorial shot role: {shot_role}. "
+        f"Environment family: {environment_family}. "
         f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
         f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
@@ -1795,6 +1798,8 @@ class StockVisualSource:
                     "source_preference": str(
                         raw_beat.get("source_preference") or "stock_motion"
                     ).strip(),
+                    "shot_role": str(raw_beat.get("shot_role") or "").strip(),
+                    "environment_family": str(raw_beat.get("environment_family") or "").strip(),
                     "hold_reason": str(raw_beat.get("hold_reason") or "").strip(),
                     "pause_intent": str(raw_beat.get("pause_intent") or "").strip(),
                     "audio_energy": str(raw_beat.get("audio_energy") or "").strip(),
@@ -1914,6 +1919,8 @@ class StockVisualSource:
                 beat.get("source_preference") or "stock_motion"
             )
             admitted["source_actual"] = "stock_still" if as_still else "stock_motion"
+            admitted["shot_role"] = str(beat.get("shot_role") or "")
+            admitted["environment_family"] = str(beat.get("environment_family") or "")
             admitted["hold_reason"] = str(beat.get("hold_reason") or "")
             admitted["pause_intent"] = str(beat.get("pause_intent") or "")
             admitted["audio_energy"] = str(beat.get("audio_energy") or "")
@@ -2166,6 +2173,8 @@ class StockVisualSource:
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
                         "source_actual": "ai_still",
+                        "shot_role": str(beat.get("shot_role") or ""),
+                        "environment_family": str(beat.get("environment_family") or ""),
                         "hold_reason": str(beat.get("hold_reason") or ""),
                         "pause_intent": str(beat.get("pause_intent") or ""),
                         "audio_energy": str(beat.get("audio_energy") or ""),
