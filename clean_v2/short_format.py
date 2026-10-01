@@ -1369,13 +1369,71 @@ _FACE_SAFE_CUES = (
 )
 
 
-def _assert_no_explicit_face_query(query: str) -> None:
+def _has_explicit_face_risk(query: str) -> bool:
     lowered = _clean(query).casefold()
     if any(cue in lowered for cue in _FACE_SAFE_CUES):
-        return
+        return False
     tokens = set(re.findall(r"[a-z]+", lowered))
-    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS) or tokens & _FACE_RISK_TOKENS:
+    return bool(
+        any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS)
+        or tokens & _FACE_RISK_TOKENS
+    )
+
+
+def _assert_no_explicit_face_query(query: str) -> None:
+    if _has_explicit_face_risk(query):
         raise ShortFormatError("short_visual_query_explicit_face_forbidden")
+
+
+def _face_safe_query(query: object) -> str:
+    compact = _clean(query)
+    if not compact or not _has_explicit_face_risk(compact):
+        return compact
+    safe = compact
+    for pattern in sorted(_VISIBLE_FACE_PATTERNS, key=len, reverse=True):
+        safe = re.sub(re.escape(pattern), " ", safe, flags=re.I)
+    words = [
+        word
+        for word in safe.split()
+        if re.sub(r"[^a-z]+", "", word.casefold()) not in _FACE_RISK_TOKENS
+    ]
+    safe = " ".join(words).strip(" ,;:-")
+    return (safe + " hands only").strip()
+
+
+def normalize_short_visual_queries(plan: dict[str, Any]) -> bool:
+    """Apply only deterministic face-safety and adjacent-family swaps."""
+    sections = plan.get("sections")
+    if not isinstance(sections, list):
+        return False
+    changed = False
+    prior_families: set[str] = set()
+    for raw in sections:
+        if not isinstance(raw, dict):
+            continue
+        primary = _face_safe_query(raw.get("visual_query_en"))
+        alternate = _face_safe_query(raw.get("visual_query_alt_en"))
+        if primary != _clean(raw.get("visual_query_en")):
+            raw["visual_query_en"] = primary
+            changed = True
+        if alternate != _clean(raw.get("visual_query_alt_en")):
+            raw["visual_query_alt_en"] = alternate
+            changed = True
+
+        primary_families = _query_action_families(_query_words(primary))
+        alternate_families = _query_action_families(_query_words(alternate))
+        if (
+            prior_families
+            and primary_families & prior_families
+            and alternate
+            and not (alternate_families & prior_families)
+        ):
+            raw["visual_query_en"], raw["visual_query_alt_en"] = alternate, primary
+            primary, alternate = alternate, primary
+            primary_families, alternate_families = alternate_families, primary_families
+            changed = True
+        prior_families = primary_families
+    return changed
 
 
 def validate_short_visual_queries(
