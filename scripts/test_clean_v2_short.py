@@ -973,7 +973,7 @@ class ShortContractTests(unittest.TestCase):
             ShortFormatError,
             "short_practical_action_forbids_joined_second_action",
         ):
-            validate_short_practical_action("اختر مهمة واحدة ثم اكتبها الآن.")
+            validate_short_practical_action("اختر مهمة واحدة ثم راجعها الآن.")
 
     def test_visual_normalizer_makes_expression_query_face_safe(self) -> None:
         plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
