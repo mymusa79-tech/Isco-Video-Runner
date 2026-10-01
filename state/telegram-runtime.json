@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "الأثر التراكمي: قوة الـ 1% في تغيير حياتك",
-  "stage": "⚡ الشورت · 1/6 التخطيط ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/36920876476",
-  "result": "",
-  "updated_at": 1790886560
+  "result": "failure",
+  "updated_at": 1790886570
 }
