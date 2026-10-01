@@ -66,7 +66,15 @@ from .short_format import (
 )
 
 
-from .visual_story import bind_visual_story_to_script, fallback_visual_story, validate_visual_story
+from .visual_story import (
+    CHANNEL_VISUAL_IDENTITY,
+    VisualFamilyRepeatError,
+    VisualWorldIdentityError,
+    bind_visual_story_to_script,
+    fallback_visual_story,
+    validate_visual_story,
+    visual_action_family,
+)
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
@@ -75,6 +83,9 @@ STRUCTURAL_AI_STAGE = "structural_ai_flags"
 TEXT_AUDIT_STAGE = "text_audit"
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
+VISUAL_BIND_STAGE = "visual_binding"
+VISUAL_BIND_RECOVERY_MAX_ATTEMPTS = 2
+VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 2
 _PLANNING_FACTUALITY_RULE = (
     "Use precise scientific, psychological, medical, historical, legal, political, statistical or religious "
     "factual claims only when directly supported by APPROVED_RESEARCH_PACK. Never invent studies, numbers, "
@@ -362,6 +373,7 @@ STAGES = (
     "planning",
     IDENTITY_STAGE,
     "script",
+    VISUAL_BIND_STAGE,
     STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
     "voice",
@@ -4165,6 +4177,180 @@ def _bind_writer_visual_story(
     return bound
 
 
+def _append_runtime_event(router: Any, event: Mapping[str, Any]) -> None:
+    events = getattr(router, "events", None)
+    if isinstance(events, list):
+        events.append(dict(event))
+
+
+def _validate_plan_with_visual_world_recovery(
+    value: Any,
+    brief: Mapping[str, Any],
+    *,
+    router: Any,
+    state: dict[str, int],
+) -> dict[str, Any]:
+    try:
+        return _validate_plan_for_brief(value, brief)
+    except VisualWorldIdentityError:
+        state["identity_rejections"] = int(state.get("identity_rejections", 0)) + 1
+        rejection = state["identity_rejections"]
+        if rejection <= VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK:
+            raise
+
+        if not isinstance(value, Mapping):
+            raise
+        candidate = copy.deepcopy(dict(value))
+        story = candidate.get("visual_story")
+        if not isinstance(story, Mapping):
+            raise
+        story_copy = dict(story)
+        rejected_value = " ".join(str(story_copy.get("visual_world") or "").split()).strip()
+        story_copy["visual_world"] = CHANNEL_VISUAL_IDENTITY
+        candidate["visual_story"] = story_copy
+        _append_runtime_event(
+            router,
+            {
+                "stage": "planning",
+                "provider": "host",
+                "result": "warning_fallback",
+                "reason": "visual_world_identity_fallback",
+                "identity_rejections": rejection,
+                "rejected_visual_world": rejected_value[:240],
+                "fallback": "CHANNEL_VISUAL_IDENTITY",
+                "wire_attempted": False,
+            },
+        )
+        return _validate_plan_for_brief(candidate, brief)
+
+
+def _visual_family_recovery_prompt(
+    *,
+    error: VisualFamilyRepeatError,
+    visual_story: Mapping[str, Any],
+) -> str:
+    beat = next(
+        (
+            item for item in (visual_story.get("beats") or [])
+            if isinstance(item, Mapping)
+            and str(item.get("id") or "") == error.beat_id
+        ),
+        {},
+    )
+    meaning = " ".join(str(beat.get("meaning_target") or "").split()).strip()
+    cues = "; ".join(
+        " ".join(str(item).split()).strip()
+        for item in (beat.get("semantic_must_have") or [])
+        if " ".join(str(item).split()).strip()
+    )
+    return f"""
+You are repairing one stock-footage search intent for the same approved visual beat.
+The current Writer-bound choice violated the visual-family diversity gate.
+
+Rejected family: {error.family}
+Rejected query: {error.query[:180]}
+Beat meaning: {meaning[:320]}
+Visible proof required: {cues[:320]}
+
+Return one genuinely different English stock-footage query for the same beat meaning.
+Do not use the rejected family or visually interchangeable props/actions from it.
+Use one concrete observable action/state, 4-14 English words, no identifiable face,
+no Arabic text, no captions, no logos, and no multi-shot storyboard.
+Return only JSON with one key named alternate_query.
+""".strip()
+
+
+def _replace_visual_beat_query(
+    visual_story: Mapping[str, Any],
+    *,
+    beat_id: str,
+    alternate_query: str,
+) -> dict[str, Any]:
+    story = copy.deepcopy(dict(visual_story))
+    replaced = False
+    for beat in story.get("beats") or []:
+        if not isinstance(beat, dict) or str(beat.get("id") or "") != beat_id:
+            continue
+        beat["shot_intent"] = alternate_query
+        beat["stock_query_en"] = alternate_query
+        beat["stock_query_alt_en"] = alternate_query
+        replaced = True
+        break
+    if not replaced:
+        raise RuntimeError(f"visual family recovery could not find beat {beat_id}")
+    return story
+
+
+def _bind_writer_visual_story_with_recovery(
+    *,
+    router: Any,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+    visual_story: Mapping[str, Any],
+) -> dict[str, Any]:
+    from clean_v2.visual_qa import _validate_alternate_query
+
+    candidate_story = copy.deepcopy(dict(visual_story))
+    for attempt in range(VISUAL_BIND_RECOVERY_MAX_ATTEMPTS + 1):
+        try:
+            return _bind_writer_visual_story(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+                visual_story=candidate_story,
+            )
+        except VisualFamilyRepeatError as exc:
+            if attempt >= VISUAL_BIND_RECOVERY_MAX_ATTEMPTS:
+                raise
+            recovery_attempt = attempt + 1
+            _append_runtime_event(
+                router,
+                {
+                    "stage": VISUAL_BIND_STAGE,
+                    "provider": "host",
+                    "result": "retry",
+                    "reason": "visual_family_repeat",
+                    "rejected_family": exc.family,
+                    "beat_id": exc.beat_id,
+                    "section_id": exc.section_id,
+                    "recovery_attempt": recovery_attempt,
+                    "recovery_attempt_limit": VISUAL_BIND_RECOVERY_MAX_ATTEMPTS,
+                    "wire_attempted": False,
+                },
+            )
+
+            def validator(value: Any) -> dict[str, str]:
+                normalized = _validate_alternate_query(
+                    value,
+                    original_query=exc.query,
+                )
+                alternate = normalized["alternate_query"]
+                if visual_action_family(alternate) == exc.family:
+                    raise ValueError(
+                        f"alternate query still belongs to rejected family: {exc.family}"
+                    )
+                return normalized
+
+            recovered = router.route(
+                stage="visual_query_recovery",
+                prompt=_visual_family_recovery_prompt(
+                    error=exc,
+                    visual_story=candidate_story,
+                ),
+                max_tokens=180,
+                validator=validator,
+            )
+            candidate_story = _replace_visual_beat_query(
+                candidate_story,
+                beat_id=exc.beat_id,
+                alternate_query=str(recovered["alternate_query"]),
+            )
+    raise RuntimeError("visual family recovery loop exhausted unexpectedly")
+
+
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -5911,13 +6097,19 @@ class CleanV2Pipeline:
                     atomic_write_json(output_dir / "visual-story.json", visual_story)
                 journal.reuse("planning")
             else:
+                visual_world_recovery_state = {"identity_rejections": 0}
                 planned = journal.run(
                     "planning",
                     lambda: self.router.route(
                         stage="planning",
                         prompt=_planning_prompt(brief),
                         max_tokens=3000,
-                        validator=lambda value: _validate_plan_for_brief(value, brief),
+                        validator=lambda value: _validate_plan_with_visual_world_recovery(
+                            value,
+                            brief,
+                            router=self.router,
+                            state=visual_world_recovery_state,
+                        ),
                     ),
                 )
                 plan, visual_story = _persist_planning_artifacts(output_dir, planned)
@@ -5945,13 +6137,6 @@ class CleanV2Pipeline:
                     plan,
                     brief,
                     visual_story,
-                )
-                visual_story = _bind_writer_visual_story(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                    visual_story=visual_story,
                 )
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
@@ -6003,13 +6188,6 @@ class CleanV2Pipeline:
                         ),
                     ),
                 )
-                visual_story = _bind_writer_visual_story(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                    visual_story=visual_story,
-                )
                 fmt = str(brief["format"])
                 _apply_brand_signature(
                     script["sections"], fmt, identity["opener"], identity["closer"]
@@ -6043,6 +6221,19 @@ class CleanV2Pipeline:
                 (output_dir / "narration.txt").write_text(
                     transcript + "\n", encoding="utf-8"
                 )
+            visual_story = journal.run(
+                VISUAL_BIND_STAGE,
+                lambda: _bind_writer_visual_story_with_recovery(
+                    router=self.router,
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=visual_story,
+                ),
+            )
+            self._write_runtime_events(output_dir)
+
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="script",
