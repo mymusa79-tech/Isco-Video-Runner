@@ -3105,25 +3105,31 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.62
-COLOR_MATCH_SCALE_MIN = 0.88
-COLOR_MATCH_SCALE_MAX = 1.12
-COLOR_MATCH_OFFSET_MAX = 18.0
+COLOR_MATCH_STRENGTH = 0.76
+COLOR_MATCH_SCALE_MIN = 0.86
+COLOR_MATCH_SCALE_MAX = 1.14
+COLOR_MATCH_OFFSET_MAX = 22.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.075
-MASTER_LOOK_SATURATION = 0.84
-MASTER_LOOK_WARM_R = -0.006
-MASTER_LOOK_WARM_G = -0.003
-MASTER_LOOK_WARM_B = 0.008
+MASTER_LOOK_CONTRAST = 1.10
+MASTER_LOOK_SATURATION = 0.86
+MASTER_LOOK_SHADOW_R = -0.030
+MASTER_LOOK_SHADOW_G = -0.016
+MASTER_LOOK_SHADOW_B = 0.024
+MASTER_LOOK_HIGHLIGHT_R = 0.018
+MASTER_LOOK_HIGHLIGHT_G = 0.010
+MASTER_LOOK_HIGHLIGHT_B = -0.010
+MASTER_LOOK_SHADOW_PIVOT = 0.52
+MASTER_LOOK_HIGHLIGHT_PIVOT = 0.60
+MASTER_LOOK_HIGHLIGHT_SHOULDER = 0.74
 
-# One restrained local finishing pass after the shared deep navy/charcoal LUT.
+# One restrained local finishing pass after the shared split-tone LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-navy-depth-finish-v4"
+CINEMATIC_FINISH_VERSION = "clean-v2-navy-gold-depth-finish-v5"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.065:brightness=-0.032:saturation=0.94:gamma=0.97,"
-    "unsharp=5:5:0.30:5:5:0.0,"
-    "vignette=PI/14"
+    "eq=contrast=1.055:brightness=-0.026:saturation=0.93:gamma=0.985,"
+    "unsharp=5:5:0.24:5:5:0.0,"
+    "vignette=PI/15"
 )
 
 
@@ -3321,9 +3327,9 @@ def _build_reference_color_plan(
         "provider_calls_added": 0,
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
-        "method": "channel_anchored_rgb_mean_std_reference_match_v2",
+        "method": "channel_anchored_rgb_mean_std_reference_match_v3",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "channel_deep_neutral_v3",
+        "master_look": "channel_navy_gold_split_tone_v5",
         "measured_clip_count": len(measured),
         "failures": failures,
     }
@@ -3386,21 +3392,68 @@ def _build_reference_color_plan(
 
 
 def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, float]:
-    """One restrained dark navy/charcoal look shared by every final frame."""
-    luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
-    r = luma + ((r - luma) * MASTER_LOOK_SATURATION)
-    g = luma + ((g - luma) * MASTER_LOOK_SATURATION)
-    b = luma + ((b - luma) * MASTER_LOOK_SATURATION)
+    """Shared navy-shadow / ivory-gold-highlight look with controlled highlight glow."""
+    source_luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
 
-    def contrast(value: float) -> float:
-        return 0.5 + ((value - 0.5) * MASTER_LOOK_CONTRAST)
+    # Keep the palette restrained before shaping exposure. This removes the
+    # pastel/lifestyle-stock feel without turning footage grey.
+    r = source_luma + ((r - source_luma) * MASTER_LOOK_SATURATION)
+    g = source_luma + ((g - source_luma) * MASTER_LOOK_SATURATION)
+    b = source_luma + ((b - source_luma) * MASTER_LOOK_SATURATION)
 
-    return (
-        _clamp_color(contrast(r) + MASTER_LOOK_WARM_R, 0.0, 1.0),
-        _clamp_color(contrast(g) + MASTER_LOOK_WARM_G, 0.0, 1.0),
-        _clamp_color(contrast(b) + MASTER_LOOK_WARM_B, 0.0, 1.0),
+    target_luma = 0.5 + ((source_luma - 0.5) * MASTER_LOOK_CONTRAST)
+    target_luma -= max(0.0, MASTER_LOOK_SHADOW_PIVOT - source_luma) * 0.035
+
+    # Compress bright stock rather than allowing white/pastel highlights to glow.
+    if target_luma > MASTER_LOOK_HIGHLIGHT_SHOULDER:
+        target_luma = MASTER_LOOK_HIGHLIGHT_SHOULDER + (
+            (target_luma - MASTER_LOOK_HIGHLIGHT_SHOULDER) * 0.72
+        )
+    target_luma = _clamp_color(target_luma, 0.0, 1.0)
+
+    if source_luma > 0.001:
+        luma_scale = target_luma / source_luma
+        r *= luma_scale
+        g *= luma_scale
+        b *= luma_scale
+
+    # Split tone instead of a blanket blue cast: navy/charcoal lives in shadows,
+    # while bright regions stay ivory-neutral with only a restrained warm-gold lift.
+    shadow_weight = _clamp_color(
+        (MASTER_LOOK_SHADOW_PIVOT - target_luma) / MASTER_LOOK_SHADOW_PIVOT,
+        0.0,
+        1.0,
+    )
+    highlight_weight = _clamp_color(
+        (target_luma - MASTER_LOOK_HIGHLIGHT_PIVOT)
+        / max(0.001, 1.0 - MASTER_LOOK_HIGHLIGHT_PIVOT),
+        0.0,
+        1.0,
     )
 
+    return (
+        _clamp_color(
+            r
+            + (MASTER_LOOK_SHADOW_R * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_R * highlight_weight),
+            0.0,
+            1.0,
+        ),
+        _clamp_color(
+            g
+            + (MASTER_LOOK_SHADOW_G * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_G * highlight_weight),
+            0.0,
+            1.0,
+        ),
+        _clamp_color(
+            b
+            + (MASTER_LOOK_SHADOW_B * shadow_weight)
+            + (MASTER_LOOK_HIGHLIGHT_B * highlight_weight),
+            0.0,
+            1.0,
+        ),
+    )
 
 def _write_master_look_lut(path: Path) -> Path:
     """Write a tiny deterministic Iridas .cube LUT; blue outer, red inner for FFmpeg."""
@@ -3408,7 +3461,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Navy Depth v4"',
+        'TITLE "Isco Navy Gold Depth v5"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
@@ -3756,13 +3809,12 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-charcoal-master-v4.cube")
+        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v5.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
-            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
+            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
+            f"{CINEMATIC_FINISH_FILTER}"
         )
-        if any(str(value or "").strip() for value in grade_filters.values()):
-            master_look = f"{master_look},{CINEMATIC_FINISH_FILTER}"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"
