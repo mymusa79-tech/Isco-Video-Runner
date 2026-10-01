@@ -1025,6 +1025,13 @@ def _brief() -> dict:
 
 
 def _plan() -> dict:
+    visual_queries = {
+        "s1": "closed notebook beside unfinished task hands only",
+        "s2": "phone face down beside one unfinished task hands only",
+        "s3": "door opening into quiet workspace back view",
+        "s4": "calendar page with one completed mark hands only",
+        "s5": "shoes crossing doorway toward morning light no face",
+    }
     return {
         "title": "خطوة واحدة",
         "promise": "فهم طريقة عملية للبدء",
@@ -1034,7 +1041,7 @@ def _plan() -> dict:
                 "id": section_id,
                 "heading": heading,
                 "purpose": "شرح مختصر",
-                "visual_query_en": "quiet desk notebook wide shot",
+                "visual_query_en": visual_queries[section_id],
             }
             for section_id, heading in (
                 ("s1", "المشكلة"),
