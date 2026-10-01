@@ -5983,9 +5983,8 @@ class CleanV2Pipeline:
                             router=self.router,
                         ),
                     )
-                script = journal.run(
-                    "script",
-                    lambda: self.router.route(
+                def _route_script_and_bind_visuals() -> tuple[dict[str, Any], dict[str, Any]]:
+                    generated_script = self.router.route(
                         stage="script",
                         prompt=_script_prompt(
                             brief,
@@ -6001,14 +6000,19 @@ class CleanV2Pipeline:
                             brief,
                             visual_story,
                         ),
-                    ),
-                )
-                visual_story = _bind_writer_visual_story(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                    visual_story=visual_story,
+                    )
+                    bound_story = _bind_writer_visual_story(
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=generated_script,
+                        visual_story=visual_story,
+                    )
+                    return generated_script, bound_story
+
+                script, visual_story = journal.run(
+                    "script",
+                    _route_script_and_bind_visuals,
                 )
                 fmt = str(brief["format"])
                 _apply_brand_signature(

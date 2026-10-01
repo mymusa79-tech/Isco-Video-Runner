@@ -158,6 +158,57 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                     "v2_fail_closed",
                 )
 
+    def test_fresh_planning_repairs_global_stationery_overuse_before_script(self) -> None:
+        value = _planning_value("short")
+        repeated = [
+            "hand holding pen over blank notebook page",
+            "pen tip touching notebook paper slowly",
+            "top down blank notebook page with pen",
+            "hand drawing a checkmark on notebook paper",
+            "journal page filled with many small checkmarks",
+        ]
+        for beat, query in zip(value["visual_story"]["beats"], repeated):
+            beat["shot_intent"] = query
+            beat["stock_query_en"] = query
+            beat["semantic_must_have"] = [query]
+
+        value["sections"][0]["visual_query_alt_en"] = (
+            "person hesitating beside cluttered desk before first task"
+        )
+        value["sections"][1]["visual_query_alt_en"] = (
+            "seedling growing in a sunlit corner over time"
+        )
+        value["sections"][2]["visual_query_alt_en"] = (
+            "running shoes beside front door ready for next step"
+        )
+
+        planned = _validate_plan_for_brief(value, _brief("short"))
+        story = planned["visual_story"]
+
+        self.assertIn("cluttered desk", story["beats"][1]["shot_intent"])
+        self.assertIn("seedling", story["beats"][3]["shot_intent"])
+        self.assertIn("front door", story["beats"][4]["shot_intent"])
+        self.assertEqual(
+            story["beats"][3]["semantic_must_have"],
+            [story["beats"][3]["shot_intent"]],
+        )
+
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": (
+                        f"هذه هي الجملة النهائية للقسم {index}. "
+                        f"ثم تتقدم الفكرة في القسم {index}."
+                    ),
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        bound = bind_visual_story_to_script(story, planned, script)
+        self.assertEqual(len(bound["beats"]), 5)
+
     def test_film_writer_binding_rejects_adjacent_stationery_without_alternate(self) -> None:
         planned = _validate_plan_for_brief(_planning_value("film"), _brief("film"))
         visual_story = dict(planned.pop("visual_story"))
