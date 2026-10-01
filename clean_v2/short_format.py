@@ -358,8 +358,8 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "common-belief break, hidden cost, or cold open). It must create a real information gap without becoming clickbait. "
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
-        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
-        "For Planning, practical_action_ar MUST be one clear Arabic imperative sentence beginning directly with exactly ONE recognized action verb and expressing exactly ONE practical action; never join a second action with ثم/و or another clause. "
+        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
+        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. It must not append a second action with ثم/و, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
         "Planning self-check: practical_action_ar contains exactly one imperative marker. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
@@ -1049,8 +1049,8 @@ def normalize_short_script_candidate(
     locked_practical_action: object = "",
 ) -> dict[str, bool]:
     """Canonical deterministic Short normalization used at every script boundary."""
-    hook_split = apply_safe_short_hook_split(script)
     hook_trimmed = apply_safe_short_hook_trim(script)
+    hook_split = False if hook_trimmed else apply_safe_short_hook_split(script)
     locked_action_applied = False
     if _clean(locked_practical_action):
         locked_action_applied = apply_locked_short_practical_action(
@@ -1440,6 +1440,39 @@ def normalize_short_visual_queries(plan: dict[str, Any]) -> bool:
     return changed
 
 
+def validate_short_visual_safety(
+    plan: Mapping[str, Any],
+    *,
+    strict_repetition: bool = False,
+) -> dict[str, Any]:
+    """Narrow Planning safety for fresh Shorts; independent of template semantics."""
+    sections = plan.get("sections")
+    if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
+        raise ShortFormatError("short_visual_safety_requires_three_sections")
+
+    prior_families: set[str] = set()
+    for raw in sections:
+        if not isinstance(raw, Mapping):
+            raise ShortFormatError("short_visual_safety_invalid_section")
+        primary = _clean(raw.get("visual_query_en"))
+        alternate = _clean(raw.get("visual_query_alt_en"))
+        if not primary or not alternate:
+            raise ShortFormatError("short_visual_safety_missing_query")
+        _assert_no_explicit_face_query(primary)
+        _assert_no_explicit_face_query(alternate)
+
+        primary_families = _query_action_families(_query_words(primary))
+        alternate_families = _query_action_families(_query_words(alternate))
+        if strict_repetition and prior_families and primary_families & prior_families:
+            if not alternate_families or alternate_families & prior_families:
+                raise ShortFormatError(
+                    "short_visual_query_consecutive_action_family_without_distinct_alternate"
+                )
+        prior_families = primary_families
+
+    return {"status": "pass", "strict_repetition": bool(strict_repetition)}
+
+
 def validate_short_visual_queries(
     plan: Mapping[str, Any],
     brief: Mapping[str, Any],
@@ -1465,18 +1498,6 @@ def validate_short_visual_queries(
     for query in (*queries, *alternate_queries):
         _assert_no_explicit_face_query(query)
     words = [_query_words(query) for query in queries]
-    alternate_words = [_query_words(query) for query in alternate_queries]
-    action_families = [_query_action_families(item) for item in words]
-    alternate_families = [_query_action_families(item) for item in alternate_words]
-    for index in range(1, SHORT_SECTION_COUNT):
-        repeated = action_families[index] & action_families[index - 1]
-        if repeated and (
-            not alternate_families[index]
-            or alternate_families[index] & action_families[index - 1]
-        ):
-            raise ShortFormatError(
-                "short_visual_query_consecutive_action_family_without_distinct_alternate"
-            )
 
     if template == "inner_dialogue":
         allowed = _VISUAL_QUERY_TERMS[template]
