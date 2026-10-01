@@ -110,7 +110,8 @@ jobs:
           set -euo pipefail
           missing=()
           command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
-          if ! command -v fc-list >/dev/null 2>&1 || ! fc-list 2>/dev/null | grep -qi "Noto Sans"; then
+          font_match="$(fc-match "Noto Sans" 2>/dev/null || true)"
+          if [[ "${font_match,,}" != *noto* ]]; then
             missing+=(fontconfig fonts-noto-core)
           fi
           if (( ${#missing[@]} )); then
