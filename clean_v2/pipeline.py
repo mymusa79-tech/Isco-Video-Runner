@@ -18,6 +18,7 @@ from .identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
+    SHORT_CHANNEL_DEFINITION_LEGACY,
     channel_definition,
     identity_timing_profile,
     assert_spoken_identity,
@@ -1371,7 +1372,10 @@ def _trusted_identity_for_factuality(
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
     definition = channel_definition(fmt, str(identity.get("opener") or ""))
     phrases: list[str] = []
-    for phrase in (PRAYER_SENTENCE, definition):
+    trusted = [PRAYER_SENTENCE, definition]
+    if fmt == "short":
+        trusted.append(SHORT_CHANNEL_DEFINITION_LEGACY)
+    for phrase in trusted:
         normalized = " ".join(str(phrase or "").split()).strip()
         if normalized and normalized not in phrases:
             phrases.append(normalized)
