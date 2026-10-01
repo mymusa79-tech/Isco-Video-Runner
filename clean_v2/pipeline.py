@@ -60,7 +60,7 @@ from .short_format import (
     validate_short_hook_contract,
     validate_short_practical_action,
     validate_short_script,
-    validate_short_visual_queries,
+    validate_short_visual_safety,
 )
 
 
@@ -3908,12 +3908,14 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         # fallback is only backward compatibility for old checkpoints/tests or a
         # non-schema provider omission; it still creates one host-owned action and
         # prevents Script from inventing multiple commands.
-        practical_action = str(plan.get("practical_action_ar") or "").strip()
-        if not practical_action:
-            practical_action = "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
+        fresh_practical_action = str(plan.get("practical_action_ar") or "").strip()
+        practical_action = fresh_practical_action or "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
         plan["practical_action_ar"] = validate_short_practical_action(practical_action)
         normalize_short_visual_queries(plan)
-        validate_short_visual_queries(plan, brief)
+        validate_short_visual_safety(
+            plan,
+            strict_repetition=bool(fresh_practical_action),
+        )
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
