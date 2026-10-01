@@ -509,12 +509,42 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
     return chunks
 
 _PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
+_PODCAST_PROMO_STYLE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("problem", ("المشكلة", "الحقيقة", "وهنا")),
+    ("contrast", ("لكن", "بل")),
+    ("reason", ("لهذا", "لأن", "عندما", "حين")),
+)
+
+
+def _podcast_promo_signature(
+    excerpt: str,
+    *,
+    sentence_count: int,
+    section_index: int,
+    total_sections: int,
+) -> str:
+    """Describe the excerpt pattern, not its literal text, for cross-run variety."""
+    style = "plain"
+    best_hits = 0
+    for name, markers in _PODCAST_PROMO_STYLE_MARKERS:
+        hits = sum(1 for marker in markers if marker in excerpt)
+        if hits > best_hits:
+            style = name
+            best_hits = hits
+    if section_index <= max(1, total_sections // 3):
+        position = "early"
+    elif section_index >= total_sections - 1:
+        position = "late"
+    else:
+        position = "middle"
+    return f"{style}:{sentence_count}:{position}"
 
 
 def _select_podcast_promo_excerpt(
     sections: list[dict[str, Any]],
     *,
     identity_closer: str = "",
+    recent_signatures: tuple[str, ...] = (),
 ) -> dict[str, str] | None:
     """Pick one compact, self-contained passage locally from the final Podcast script.
 
@@ -524,7 +554,7 @@ def _select_podcast_promo_excerpt(
     if len(sections) < 2:
         return None
     closer = " ".join(str(identity_closer or "").split()).strip()
-    best: tuple[tuple[int, int, int, int], dict[str, str]] | None = None
+    candidates: list[tuple[tuple[int, int, int, int], dict[str, str]]] = []
     total_sections = len(sections)
     for section_index, raw in enumerate(sections[1:], start=1):
         section_id = str(raw.get("id") or f"s{section_index + 1}").strip()
@@ -556,10 +586,35 @@ def _select_podcast_promo_excerpt(
                     -section_index,
                     -start,
                 )
-                candidate = {"section_id": section_id, "text": excerpt}
-                if best is None or score > best[0]:
-                    best = (score, candidate)
-    return None if best is None else best[1]
+                signature = _podcast_promo_signature(
+                    excerpt,
+                    sentence_count=count,
+                    section_index=section_index,
+                    total_sections=total_sections,
+                )
+                candidate = {
+                    "section_id": section_id,
+                    "text": excerpt,
+                    "selection_signature": signature,
+                }
+                candidates.append((score, candidate))
+    if not candidates:
+        return None
+    recent = {str(value).strip() for value in recent_signatures if str(value or "").strip()}
+    eligible = [
+        item for item in candidates
+        if str(item[1].get("selection_signature") or "") not in recent
+    ]
+    history_applied = bool(recent and eligible)
+    pool = eligible if history_applied else candidates
+    best = max(pool, key=lambda item: item[0])
+    selected = dict(best[1])
+    selected["selection_basis"] = (
+        "local_quality_score_v2_history_aware"
+        if history_applied
+        else "local_quality_score_v2"
+    )
+    return selected
 
 
 def _isolate_podcast_promo_unit(
@@ -4557,7 +4612,19 @@ visual motif remains supportive and non-essential to a listener with the screen 
             f"- visual_grammar={longform_profile['visual']}\n"
             f"- voice_mode={longform_profile['voice']}\n"
             "Return exactly the locked narrative_format above. This profile is selected locally from the approved topic "
-            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script."
+            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script. "
+            "Shape every section's heading and purpose field itself in this performance, not only the later script: "
+            + (
+                "the locked narrative_format above is question_answer, so phrase each section after the first as the "
+                "new sincere question that section answers, never as an instructional step label such as "
+                "\"الخطوة الأولى\"/\"الخطوة الثانية\" or a numbered tip - a connected_list-style step skeleton here "
+                "forces the Script stage to invent questions afterward instead of simply writing to a plan that "
+                "already asks them."
+                if longform_profile["narrative_format"] == "question_answer"
+                else "phrase headings/purposes so they already perform writing_shape's described behavior above, "
+                "not a generic step/list shape, so the Script stage inherits a skeleton that already matches the "
+                "locked performance instead of having to invent it afterward."
+            )
         )
         if fmt in {"film", "podcast"}
         else ""
@@ -5579,7 +5646,9 @@ class CleanV2Pipeline:
         from clean_v2.mistral_executor import reset_mistral_executor_telemetry
         from clean_v2.narrative_history import (
             record_narrative_format,
+            record_podcast_promo_signature,
             recent_narrative_formats,
+            recent_podcast_promo_signatures,
         )
 
         reset_mistral_executor_telemetry()
@@ -5620,6 +5689,11 @@ class CleanV2Pipeline:
             brief["_recent_templates"] = recent_narrative_formats(
                 narrative_history_path, "short"
             ) if str(brief.get("format")) == "short" else ()
+            podcast_promo_history = (
+                recent_podcast_promo_signatures(narrative_history_path)
+                if str(brief.get("format")) == "podcast"
+                else ()
+            )
             resume = _load_resume_checkpoint(
                 resume_from,
                 approved_brief_sha256=approved_brief_digest,
@@ -5936,10 +6010,16 @@ class CleanV2Pipeline:
                     _select_podcast_promo_excerpt(
                         list(script["sections"]),
                         identity_closer=str(identity_runtime.get("closer") or ""),
+                        recent_signatures=podcast_promo_history,
                     )
                     if str(brief["format"]) == "podcast"
                     else None
                 )
+                if podcast_promo is not None and str(brief["format"]) == "podcast":
+                    record_podcast_promo_signature(
+                        narrative_history_path,
+                        str(podcast_promo.get("selection_signature") or ""),
+                    )
                 voice_result = journal.run(
                     "voice",
                     lambda: _synthesize_sectioned_voice(
