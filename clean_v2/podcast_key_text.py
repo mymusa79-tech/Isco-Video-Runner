@@ -143,6 +143,29 @@ def _seconds(value: object, label: str) -> float:
     return seconds
 
 
+def _identity_text_window(
+    timeline: Mapping[str, Any],
+    *,
+    kind: str,
+) -> tuple[float, float] | None:
+    """Return one text-safe identity window.
+
+    Sparse key text is allowed only over the spoken hook or topic. Intro,
+    prayer, channel identity, structural silences and outro remain clean.
+    """
+    raw = timeline.get("identity_events")
+    if not isinstance(raw, list):
+        return None
+    for item in raw:
+        if not isinstance(item, Mapping) or str(item.get("kind") or "") != kind:
+            continue
+        start = _seconds(item.get("start"), f"{kind}_start")
+        end = _seconds(item.get("end"), f"{kind}_end")
+        if end > start:
+            return start, end
+    return None
+
+
 def _film_selected_indices(section_count: int, total_seconds: float) -> list[int]:
     target = 3 if total_seconds < 240.0 else (4 if total_seconds < 420.0 else 5)
     target = min(target, section_count, FILM_MAX_EVENTS)
@@ -311,6 +334,14 @@ def _visual_beat_text_events(
             beat_end = section_end if row_index == len(rows) - 1 else section_start + slot * (row_index + 1)
             raw_role = str(row.get("role") or "").strip()
             role = "hook" if raw_role == "hook" else ("payoff" if raw_role == "payoff" else "turn")
+            allowed_kind = "hook" if role == "hook" else "topic"
+            allowed = _identity_text_window(timeline, kind=allowed_kind)
+            if allowed is None:
+                return []
+            beat_start = max(beat_start, allowed[0])
+            beat_end = min(beat_end, allowed[1])
+            if beat_end <= beat_start:
+                continue
             all_events.append(
                 {
                     "start": round(beat_start, 3),
