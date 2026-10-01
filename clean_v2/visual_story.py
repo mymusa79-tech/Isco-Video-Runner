@@ -354,6 +354,37 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
                 **_default_editorial_signals(_beat_role(index - 1, len(sections))),
             }
         )
+    # Short strict-schema providers intentionally return only section-level
+    # primary/alternate intents. Turn s1's already-authored alternate into the
+    # second hook shot locally so every provider gets the same 2-shot minimum
+    # without another model call or invented semantic content.
+    if str(plan.get("short_template") or "").strip() and len(sections) == 3:
+        first = sections[0]
+        primary_query = str(first.get("visual_query_en") or "").strip()
+        alternate_query = str(first.get("visual_query_alt_en") or "").strip()
+        if alternate_query and _query_key(alternate_query) != _query_key(primary_query):
+            purpose = str(first.get("purpose") or "").strip()
+            alternate_beat = {
+                "id": "b1-alt",
+                "section_id": str(first.get("id") or "s1"),
+                "viewer_intent": purpose,
+                "meaning_target": purpose or alternate_query,
+                "semantic_must_have": [alternate_query],
+                "semantic_should_avoid": [
+                    "repeat of the first hook action/composition",
+                    *CHANNEL_VISUAL_AVOID,
+                ][:4],
+                "shot_intent": alternate_query,
+                "role": "body",
+                "stock_query_en": alternate_query,
+                "display_text_ar": str(first.get("cover_text") or "").strip(),
+                "source_preference": "stock_motion",
+                "shot_role": "detail",
+                "environment_family": _default_environment_family(alternate_query),
+                **_default_editorial_signals("body"),
+            }
+            beats.insert(1, alternate_beat)
+
     if len(beats) == 1:
         section = sections[0]
         base_query = str(section.get("visual_query_en") or "").strip()
