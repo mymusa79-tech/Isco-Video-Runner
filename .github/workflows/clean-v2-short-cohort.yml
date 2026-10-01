@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
+      STATE_BRANCH: clean-v2-telegram-state
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.8-flash-tts
@@ -48,7 +49,7 @@ jobs:
       - name: Checkout exact Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
 
       - name: Verify exact Runner checkout
@@ -128,6 +129,23 @@ jobs:
           echo "brief_sha=$sha" >> "$GITHUB_OUTPUT"
           test "${#sha}" = 64
 
+      - name: Restore recent film and Short narrative history
+        run: |
+          set -euo pipefail
+          history_root="$RUNNER_TEMP/clean-v2-narrative-history-state"
+          history_file="$history_root/state/clean-v2-narrative-history.json"
+          if git fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH" 2>/dev/null; then
+            git worktree add -B "$STATE_BRANCH" "$history_root" "origin/$STATE_BRANCH"
+          else
+            git worktree add -b "$STATE_BRANCH" "$history_root" origin/main
+          fi
+          mkdir -p "$(dirname "$history_file")"
+          if [ ! -s "$history_file" ]; then
+            printf '%s\n' '{"schema_version":1}' > "$history_file"
+          fi
+          echo "CLEAN_V2_NARRATIVE_HISTORY=$history_file" >> "$GITHUB_ENV"
+          echo "CLEAN_V2_NARRATIVE_HISTORY_ROOT=$history_root" >> "$GITHUB_ENV"
+
       - name: Restore exact Short cohort checkpoint
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
@@ -175,6 +193,7 @@ jobs:
             --engine-sha "$ISCO_ENGINE_SHA" \
             --runner-sha "$GITHUB_SHA" \
             --resume-from "$CLEAN_V2_RESUME" \
+            --narrative-history "$CLEAN_V2_NARRATIVE_HISTORY" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
           production_status=$?
@@ -221,6 +240,20 @@ jobs:
         with:
           path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
           key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.attempt }}
+
+      - name: Persist recent film and Short narrative history
+        if: always()
+        run: |
+          set -euo pipefail
+          test -n "${CLEAN_V2_NARRATIVE_HISTORY_ROOT:-}"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" config user.email "actions@users.noreply.github.com"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" add state/clean-v2-narrative-history.json
+          if ! git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" diff --cached --quiet; then
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" pull --ff-only origin "$STATE_BRANCH"
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" commit -m "state: record narrative selection"
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" push origin "HEAD:$STATE_BRANCH"
+          fi
 
       - name: Verify Short V1 acceptance contract
         run: |

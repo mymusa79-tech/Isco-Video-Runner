@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Minimal cross-run memory of recently selected longform narrative_format values.
+"""Minimal cross-run memory of recently selected film narrative formats and Short templates.
 
 _select_longform_narrative_profile (clean_v2/pipeline.py) is otherwise pure and
 stateless: the same topic always picks the same narrative_format forever, which
@@ -21,9 +21,8 @@ from .contracts import atomic_write_json
 SCHEMA_VERSION = 1
 DEFAULT_MAX_HISTORY = 5
 
-# Only film uses this today - podcast is a fixed house style (dialogue_qa always)
-# and short does not select a longform narrative_format at all.
-TRACKED_FORMATS = ("film",)
+# Film and Short have independent keys; podcast remains a fixed house style.
+TRACKED_FORMATS = ("film", "short")
 
 
 def _read(path: Path) -> dict[str, Any]:

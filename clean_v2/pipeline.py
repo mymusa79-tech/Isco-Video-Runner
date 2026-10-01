@@ -3844,6 +3844,8 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         plan["narrative_format"] = str(
             _select_longform_narrative_profile(brief)["narrative_format"]
         )
+    if fmt == "short":
+        plan["short_template"] = str(select_short_template(brief)["template"])
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
@@ -5603,11 +5605,6 @@ class CleanV2Pipeline:
             journal.payload["approved_brief_sha256"] = compute_brief_sha256(brief)
             journal.payload["topic"] = str(brief["approved_topic"])
             journal.payload["format"] = str(brief["format"])
-            if str(brief["format"]) == "short":
-                short_report = short_contract_report(brief)
-                atomic_write_json(output_dir / "short-contract.json", short_report)
-                journal.payload["short_template"] = short_report["template"]
-                journal.payload["short_contract_version"] = short_report["schema_version"]
             journal._write()
 
             approved_brief_digest = compute_brief_sha256(brief)
@@ -5618,8 +5615,11 @@ class CleanV2Pipeline:
             # prompt, the plan validator, and the Script prompt all stay consistent
             # about which narrative_format is excluded for this one run.
             brief["_recent_narrative_formats"] = recent_narrative_formats(
-                narrative_history_path, str(brief.get("format") or "")
-            )
+                narrative_history_path, "film"
+            ) if str(brief.get("format")) == "film" else ()
+            brief["_recent_templates"] = recent_narrative_formats(
+                narrative_history_path, "short"
+            ) if str(brief.get("format")) == "short" else ()
             resume = _load_resume_checkpoint(
                 resume_from,
                 approved_brief_sha256=approved_brief_digest,
@@ -5635,11 +5635,31 @@ class CleanV2Pipeline:
                 journal._write()
 
             if resume is not None and _resume_includes(resume[1], "planning"):
+                saved_plan = _read_json_object(resume[0] / "plan.json")
+                if str(brief["format"]) == "short":
+                    from clean_v2.short_format import TEMPLATE_ORDER
+
+                    saved_template = str(saved_plan.get("short_template") or "")
+                    # Old checkpoints predate history; reconstruct their original pick.
+                    if saved_template not in TEMPLATE_ORDER:
+                        saved_template = str(select_short_template(
+                            dict(brief, _recent_templates=())
+                        )["template"])
+                    brief["_recent_templates"] = tuple(
+                        name for name in TEMPLATE_ORDER if name != saved_template
+                    )
+            if str(brief["format"]) == "short":
+                short_report = short_contract_report(brief)
+                atomic_write_json(output_dir / "short-contract.json", short_report)
+                journal.payload["short_template"] = short_report["template"]
+                journal.payload["short_contract_version"] = short_report["schema_version"]
+            journal._write()
+
+            if resume is not None and _resume_includes(resume[1], "planning"):
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
-                plan = validate_plan(
-                    _read_json_object(output_dir / "plan.json"),
-                    brief,
-                )
+                plan = validate_plan(saved_plan, brief)
+                if str(brief["format"]) == "short":
+                    plan["short_template"] = saved_template
                 resume_story_path = resume[0] / "visual-story.json"
                 if resume_story_path.is_file():
                     _copy_resume_artifact(resume[0], output_dir, "visual-story.json")
@@ -5666,7 +5686,8 @@ class CleanV2Pipeline:
                 record_narrative_format(
                     narrative_history_path,
                     str(brief.get("format") or ""),
-                    str(plan.get("narrative_format") or ""),
+                    str(plan.get("short_template") if str(brief["format"]) == "short"
+                        else plan.get("narrative_format") or ""),
                 )
             _write_resume_checkpoint(
                 output_dir,

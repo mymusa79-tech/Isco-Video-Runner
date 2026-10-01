@@ -1968,6 +1968,66 @@ class CleanV2NarrativeHistoryWiringTests(unittest.TestCase):
             self.assertEqual(plan["narrative_format"], "question_answer")
 
 
+class CleanV2ShortHistoryWiringTests(unittest.TestCase):
+    def test_short_exclusion_and_exhaustion(self) -> None:
+        from clean_v2.short_format import TEMPLATE_ORDER
+        brief = dict(_brief(), format="short")
+        original = select_short_template(brief)
+        excluded = select_short_template(dict(brief, _recent_templates=(original["template"],)))
+        self.assertNotEqual(original["template"], excluded["template"])
+        self.assertEqual(excluded["scores"][original["template"]], -100)
+        self.assertTrue(excluded["selection_basis"].endswith("_history_aware"))
+        exhausted = select_short_template(dict(brief, _recent_templates=TEMPLATE_ORDER))
+        self.assertEqual(exhausted["template"], original["template"])
+        self.assertEqual(exhausted["scores"], original["scores"])
+
+    def test_two_runs_and_resume_keep_shared_selection_and_clean_hash(self) -> None:
+        from scripts.test_clean_v2_short import _plan as short_plan, _TEMPLATE_FIXTURES
+        from clean_v2.narrative_history import record_narrative_format
+        from clean_v2.short_format import TEMPLATE_ORDER
+        brief = dict(_brief(), format="short")
+        owner = self
+
+        class Router(_PlanningOnlyRouter):
+            def route(self, *, stage, prompt, max_tokens, validator):
+                if stage != "planning":
+                    raise RuntimeError("script stopped deliberately")
+                selected = next(name for name in TEMPLATE_ORDER if f"template={name}" in prompt)
+                owner.assertIn(selected, prompt)
+                return validator(short_plan(_TEMPLATE_FIXTURES[selected]["queries"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "brief.json"
+            path.write_text(json.dumps(brief), encoding="utf-8")
+            history = root / "history.json"
+            record_narrative_format(history, "film", "question_answer")
+            def run(name, resume=None):
+                pipeline = CleanV2Pipeline(router=Router(), voice_synthesizer=_FakeVoice(),
+                    visual_source=_FakeVisuals(), narrative_identity=_passing_narrative_identity)
+                with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
+                    pipeline.run(brief_path=path, approved_sha256=compute_brief_sha256(brief),
+                        output_dir=root/name, engine_sha="a"*40, runner_sha="b"*40,
+                        max_visuals=2, narrative_history_path=history, resume_from=resume)
+                plan = json.loads((root/name/"plan.json").read_text())
+                report = json.loads((root/name/"short-contract.json").read_text())
+                self.assertEqual(plan["short_template"], report["template"])
+                self.assertEqual(json.loads((root/name/"brief.json").read_text()), brief)
+                manifest = json.loads((root/name/"run-manifest.json").read_text())
+                self.assertEqual(manifest["approved_brief_sha256"], compute_brief_sha256(brief))
+                return plan
+            first = run("first")
+            second = run("second")
+            self.assertNotEqual(first["short_template"], second["short_template"])
+            saved = history.read_text()
+            resumed = run("resumed", root/"first")
+            self.assertEqual(resumed["short_template"], first["short_template"])
+            self.assertEqual(history.read_text(), saved)
+            self.assertEqual(json.loads(saved)["film"], ["question_answer"])
+            self.assertEqual(json.loads(saved)["short"],
+                [first["short_template"], second["short_template"]])
+
+
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0

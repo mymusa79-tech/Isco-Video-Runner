@@ -301,6 +301,23 @@ def select_short_template(brief: Mapping[str, Any]) -> dict[str, Any]:
         }.get(pillar, "why_reframe")
         scores[fallback] = 1
 
+    # The shared brief freezes the same exclusions for every call in this run.
+    recent = tuple(
+        str(value).strip()
+        for value in (brief.get("_recent_templates") or ())
+        if str(value or "").strip()
+    )
+    selection_basis = "approved_topic_plus_evidence_plus_emotional_goal"
+    if recent:
+        history_scores = dict(scores)
+        for name in recent:
+            if name in history_scores:
+                history_scores[name] = -100
+        # Preserve quote eligibility and fall back if every eligible shape is excluded.
+        if max(history_scores.values()) > -100:
+            scores = history_scores
+            selection_basis += "_history_aware"
+
     best = max(scores.values())
     template = next(item for item in TEMPLATE_ORDER if scores[item] == best)
     if template == "quote_reflection" and not quote_evidence:
@@ -310,7 +327,8 @@ def select_short_template(brief: Mapping[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "template": template,
         "scores": scores,
-        "selection_basis": "approved_topic_plus_evidence_plus_emotional_goal",
+        "selection_basis": selection_basis,
+        "recent_templates_excluded": list(recent),
         "quote_evidence": quote_evidence,
         "beat_shape": TEMPLATE_COMPENSATION[template]["beat_shape"],
         "visual_rhythm": TEMPLATE_COMPENSATION[template]["visual_rhythm"],
