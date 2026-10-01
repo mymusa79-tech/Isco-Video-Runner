@@ -508,8 +508,8 @@ def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) 
         raise RuntimeError("Clean V2 voice chunk exceeds Gemini TTS bound")
     return chunks
 
-_PODCAST_PROMO_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
-_PODCAST_PROMO_STYLE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+_DERIVED_SHORT_MARKERS = ("لكن", "المشكلة", "الحقيقة", "وهنا", "لهذا", "لأن", "بل", "عندما", "حين")
+_DERIVED_SHORT_STYLE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("problem", ("المشكلة", "الحقيقة", "وهنا")),
     ("contrast", ("لكن", "بل")),
     ("reason", ("لهذا", "لأن", "عندما", "حين")),
@@ -526,7 +526,7 @@ def _derived_short_signature(
     """Describe the excerpt pattern, not its literal text, for cross-run variety."""
     style = "plain"
     best_hits = 0
-    for name, markers in _PODCAST_PROMO_STYLE_MARKERS:
+    for name, markers in _DERIVED_SHORT_STYLE_MARKERS:
         hits = sum(1 for marker in markers if marker in excerpt)
         if hits > best_hits:
             style = name
@@ -576,7 +576,7 @@ def _select_podcast_promo_excerpt(
                 chars = len(excerpt)
                 if words < 18 or words > 55 or chars > 360:
                     continue
-                marker_hits = sum(1 for marker in _PODCAST_PROMO_MARKERS if marker in excerpt)
+                marker_hits = sum(1 for marker in _DERIVED_SHORT_MARKERS if marker in excerpt)
                 length_score = 4 if 28 <= words <= 44 else 2
                 section_score = 2 if 1 <= section_index < total_sections - 1 else 1
                 statement_score = 1 if not excerpt.endswith("؟") else 0
@@ -4310,7 +4310,7 @@ def _select_film_derived_short_window(
             if not 7.0 <= duration <= 30.0:
                 continue
             words = len(chunk_text.split())
-            marker_hits = sum(1 for marker in _PODCAST_PROMO_MARKERS if marker in chunk_text)
+            marker_hits = sum(1 for marker in _DERIVED_SHORT_MARKERS if marker in chunk_text)
             length_score = 4 if 20 <= words <= 48 else 2
             section_score = 2 if section_index < total_sections - 1 else 1
             statement_score = 1 if not chunk_text.endswith("؟") else 0
