@@ -839,12 +839,7 @@ def contextual_intent(
     beat_id: str,
     fallback_intent: str,
 ) -> str:
-    """Build a <=300-char Visual QA brief with semantic evidence first.
-
-    Fresh production beats keep exact meaning/must-show proof. Compatibility beats
-    that predate semantic_must_have do not duplicate the shot three times; that
-    leaves room for recognizable Current/Previous/Next continuity context.
-    """
+    """Build a <=300-char Visual QA brief with semantic evidence first."""
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
         (index for index, item in enumerate(beats) if str(item.get("id") or "") == beat_id),
@@ -855,12 +850,18 @@ def contextual_intent(
 
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
+    current_family = _beat_action_family(current_beat)
+    previous_family = (
+        _beat_action_family(beats[current_index - 1])
+        if current_index > 0
+        else ""
+    )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        48,
+        44,
     )
     raw_must = [
         str(item).strip()
@@ -872,42 +873,44 @@ def contextual_intent(
         for item in (current_beat.get("semantic_should_avoid") or [])
         if str(item).strip()
     ]
-    writer_anchor = " ".join(str(current_beat.get("writer_anchor_ar") or "").split()).strip()
+    must_have = _context_fragment(
+        ", ".join(raw_must) or current_beat.get("shot_intent"),
+        "visible proof",
+        34,
+    )
+    avoid = _context_fragment(", ".join(raw_avoid), "", 16) if raw_avoid else ""
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
-        "current beat",
-        28,
+        "current",
+        22,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        24,
+        20,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        24,
+        20,
     )
 
-    pieces = [f"Role:{role}", f"Meaning:{meaning}"]
-    if raw_must:
-        pieces.append(
-            "Must show:" + _context_fragment(
-                ", ".join(raw_must),
-                "concrete visible proof",
-                42,
-            )
-        )
-    if raw_avoid:
-        pieces.append(
-            "Avoid:" + _context_fragment(", ".join(raw_avoid), "generic substitute", 22)
-        )
-    if writer_anchor:
-        pieces.append(
-            "Narration:" + _context_fragment(writer_anchor, "spoken beat", 34)
-        )
+    # Meaning/proof always come before family, mood and continuity metadata.
+    pieces = [
+        f"Role:{role}",
+        f"Meaning:{meaning}",
+        f"Must show:{must_have}",
+    ]
+    if avoid:
+        pieces.append(f"Avoid:{avoid}")
+    if current_family:
+        pieces.append(f"Fam:{current_family}")
+    if previous_family:
+        pieces.append(f"PrevFam:{previous_family}")
+    if current_family and previous_family == current_family:
+        pieces.append("Repeat: changed state only")
     pieces.extend(
         [
             f"Current: {current}",
@@ -915,35 +918,38 @@ def contextual_intent(
             f"Next: {following}",
         ]
     )
+    if current_beat.get("writer_anchor_ar"):
+        pieces.append(
+            f"Narration:{_context_fragment(current_beat.get('writer_anchor_ar'), 'spoken', 24)}"
+        )
     if role == "hook":
-        pieces.append("Hook: unresolved visible tension")
+        pieces.append("Hook: unresolved observable tension")
 
-    tail = " Same hook-to-payoff arc: judge continuity."
-    result = ". ".join(pieces) + "." + tail
-    if len(result) <= 300:
-        return result
-
-    # Compact metadata, not semantic proof. Keep recognizable neighbour phrases
-    # and all labels even under the provider's hard 300-character boundary.
-    compact = [f"Role:{role}", f"Meaning:{_context_fragment(meaning, 'meaning', 36)}"]
-    if raw_must:
-        compact.append(
-            "Must show:" + _context_fragment(", ".join(raw_must), "proof", 30)
-        )
-    if raw_avoid:
-        compact.append(
-            "Avoid:" + _context_fragment(", ".join(raw_avoid), "avoid", 14)
-        )
-    if writer_anchor:
-        compact.append(
-            "Narration:" + _context_fragment(writer_anchor, "spoken", 20)
-        )
-    compact.extend(
-        [
-            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 20)}",
-            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 18)}",
-            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 18)}",
+    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    head_limit = 300 - len(tail)
+    head = ". ".join(pieces) + "."
+    if len(head) > head_limit:
+        # Preserve semantic evidence and all continuity labels; drop only optional
+        # narration first, then shorten family/repeat metadata by omission.
+        essential = [
+            f"Role:{role}",
+            f"Meaning:{meaning}",
+            f"Must show:{must_have}",
         ]
-    )
-    result = ". ".join(compact) + "." + tail
-    return result[:300].rstrip()
+        if avoid:
+            essential.append(f"Avoid:{avoid}")
+        essential.extend(
+            [
+                f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 16)}",
+                f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 16)}",
+                f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 16)}",
+            ]
+        )
+        if current_family:
+            essential.append(f"Fam:{current_family}")
+        if previous_family:
+            essential.append(f"PrevFam:{previous_family}")
+        if current_family and previous_family == current_family:
+            essential.append("Repeat:changed-state")
+        head = ". ".join(essential) + "."
+    return head[:head_limit].rstrip() + tail
