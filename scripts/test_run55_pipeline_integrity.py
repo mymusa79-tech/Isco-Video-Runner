@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from clean_v2.pipeline import (
+    CleanV2Pipeline,
     IDENTITY_STAGE,
     VISUAL_BIND_STAGE,
     _Journal,
@@ -52,6 +54,28 @@ class _ExactWriterRouter:
 
 
 class Run55PipelineIntegrityTests(unittest.TestCase):
+    def test_script_checkpoint_stays_after_binding_and_post_script_persistence(self) -> None:
+        source = inspect.getsource(CleanV2Pipeline.run)
+        script_start = source.index('script = journal.run(')
+        checkpoint = source.index('completed_stage="script"', script_start)
+        pre_checkpoint = source[script_start:checkpoint]
+
+        binding = pre_checkpoint.index("VISUAL_BIND_STAGE")
+        brand = pre_checkpoint.index("_apply_brand_signature(")
+        cta = pre_checkpoint.index("bind_contextual_cta_to_script(")
+        script_write = pre_checkpoint.index(
+            'atomic_write_json(output_dir / "script.json", script)'
+        )
+        narration_write = pre_checkpoint.index(
+            '(output_dir / "narration.txt").write_text('
+        )
+
+        self.assertLess(binding, brand)
+        self.assertLess(brand, cta)
+        self.assertLess(cta, script_write)
+        self.assertLess(script_write, narration_write)
+        self.assertNotIn('completed_stage="script"', pre_checkpoint)
+
     def test_visual_binding_failure_marks_manifest_failed(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "run-manifest.json"
