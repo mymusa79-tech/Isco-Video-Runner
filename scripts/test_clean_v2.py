@@ -791,7 +791,7 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
         self.assertEqual(schema["properties"]["promise"]["maxLength"], 240)
 
-    def test_mistral_short_planning_prompt_and_schema_are_unchanged(self) -> None:
+    def test_mistral_short_planning_schema_requires_host_owned_practical_action(self) -> None:
         prompt = _planning_prompt(self._brief_for("short"))
         provider_prompt = providers_module._provider_prompt(
             prompt,
@@ -802,6 +802,9 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         schema = providers_module._mistral_planning_response_schema(provider_prompt)
         self.assertNotIn("maxLength", schema["properties"]["promise"])
         self.assertNotIn("narrative_format", schema["properties"])
+        self.assertIn("practical_action_ar", schema["properties"])
+        self.assertIn("practical_action_ar", schema["required"])
+        self.assertEqual(schema["properties"]["practical_action_ar"]["maxLength"], 240)
 
     def test_planning_schema_context_failure_is_no_wire(self) -> None:
         with mock.patch.object(
@@ -1894,7 +1897,7 @@ class _PlanningOnlyRouter(_FakeRouter):
 
 
 class CleanV2NarrativeHistoryWiringTests(unittest.TestCase):
-    def test_pipeline_run_avoids_repeating_recent_film_narrative_format(self) -> None:
+    def test_failed_film_after_planning_does_not_pollute_delivery_history(self) -> None:
         brief = _brief()
         self.assertEqual(brief["format"], "film")
         with tempfile.TemporaryDirectory() as temporary:
@@ -1911,9 +1914,6 @@ class CleanV2NarrativeHistoryWiringTests(unittest.TestCase):
                     visual_source=_FakeVisuals(),
                     narrative_identity=_passing_narrative_identity,
                 )
-                # The fixture router deliberately fails the script stage right
-                # after planning succeeds - plan.json is already durably written
-                # and recorded into history by then, which is all this test needs.
                 with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
                     pipeline.run(
                         brief_path=brief_path,
@@ -1929,19 +1929,10 @@ class CleanV2NarrativeHistoryWiringTests(unittest.TestCase):
                 )
 
             first_plan = _run_once("first")
-            self.assertEqual(first_plan["narrative_format"], "question_answer")
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-            self.assertEqual(history["film"], ["question_answer"])
-
-            # Second run, same topic, same brief: without history-awareness this
-            # would deterministically pick question_answer again forever. With the
-            # history this first run just recorded, it must pick something else.
             second_plan = _run_once("second")
-            self.assertNotEqual(second_plan["narrative_format"], "question_answer")
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-            self.assertEqual(
-                history["film"], ["question_answer", second_plan["narrative_format"]]
-            )
+            self.assertEqual(first_plan["narrative_format"], "question_answer")
+            self.assertEqual(second_plan["narrative_format"], "question_answer")
+            self.assertFalse(history_path.exists())
 
     def test_pipeline_run_without_history_path_behaves_exactly_as_before(self) -> None:
         brief = _brief()
@@ -2018,14 +2009,28 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                 return plan
             first = run("first")
             second = run("second")
-            self.assertNotEqual(first["short_template"], second["short_template"])
+            # Failed attempts never reached final delivery, so neither may rotate
+            # the cross-run template history.
+            self.assertEqual(first["short_template"], second["short_template"])
             saved = history.read_text()
             resumed = run("resumed", root/"first")
             self.assertEqual(resumed["short_template"], first["short_template"])
             self.assertEqual(history.read_text(), saved)
-            self.assertEqual(json.loads(saved)["film"], ["question_answer"])
-            self.assertEqual(json.loads(saved)["short"],
-                [first["short_template"], second["short_template"]])
+            saved_json = json.loads(saved)
+            self.assertEqual(saved_json["film"], ["question_answer"])
+            self.assertNotIn("short", saved_json)
+
+
+    def test_pipeline_records_narrative_history_only_on_delivery_path(self) -> None:
+        source = inspect.getsource(CleanV2Pipeline.run)
+        planning_slice = source.split('journal.run(\n                    "planning"', 1)[1].split(
+            "_write_resume_checkpoint(", 1
+        )[0]
+        self.assertNotIn("record_narrative_format(", planning_slice)
+        delivery_slice = source.split(
+            "# Narrative/template history represents delivered videos", 1
+        )[1].split("journal.complete(", 1)[0]
+        self.assertIn("record_narrative_format(", delivery_slice)
 
 
 class _FakeVoice:
