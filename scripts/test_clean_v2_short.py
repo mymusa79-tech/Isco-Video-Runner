@@ -1024,16 +1024,21 @@ class ShortContractTests(unittest.TestCase):
         self.assertNotIn("expression", plan["sections"][0]["visual_query_en"])
         validate_short_visual_queries(plan, _TEMPLATE_FIXTURES["why_reframe"]["brief"])
 
-    def test_consecutive_stationery_requires_a_real_alternate_family(self) -> None:
+    def test_run50_consecutive_stationery_is_advisory_not_planning_fatal(self) -> None:
         plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
         plan["sections"][0]["visual_query_en"] = "frustrated worker writing messy notebook"
         plan["sections"][1]["visual_query_en"] = "person pause rewriting notebook plan"
         plan["sections"][1]["visual_query_alt_en"] = "hands writing revised checklist"
         plan["sections"][2]["visual_query_en"] = "focused worker organizing workspace"
-        with self.assertRaisesRegex(
-            ShortFormatError,
-            "short_visual_query_consecutive_action_family_without_distinct_alternate",
-        ):
+        report = validate_short_visual_safety(plan, strict_repetition=True)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["repetition_advisories"], ["s2"])
+        self.assertEqual(report["repetition_owner"], "visual_story_and_visual_qa")
+
+    def test_short_visual_safety_still_fails_closed_on_missing_query(self) -> None:
+        plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
+        plan["sections"][1]["visual_query_alt_en"] = ""
+        with self.assertRaisesRegex(ShortFormatError, "short_visual_safety_missing_query"):
             validate_short_visual_safety(plan, strict_repetition=True)
 
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
