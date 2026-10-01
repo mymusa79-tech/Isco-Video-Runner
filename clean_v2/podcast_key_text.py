@@ -466,13 +466,10 @@ def _apply_sparse_key_text(
         except (OSError, json.JSONDecodeError):
             closer = ""
 
-    events = _visual_beat_text_events(
-        output_dir=Path(output_dir),
-        timeline=timeline,
-        fmt=fmt,
-    )
-    if not events:
-        events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
+    # On-screen Arabic is owned by the accepted final narration, never by
+    # planner-authored display_text_ar. This keeps Film/Podcast copy inside the
+    # same Arabic/tone audit that approved the spoken text.
+    events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
     max_events = MAX_EVENTS if fmt == "podcast" else FILM_MAX_EVENTS
     font_size = FONT_SIZE if fmt == "podcast" else FILM_FONT_SIZE
     if not events:
@@ -543,7 +540,7 @@ def _apply_sparse_key_text(
         "motion": "static_phrase_fade_180_240ms",
         "provider_calls_added": 0,
         "style_source": "shared_cairo_bold_offwhite_black_outline",
-        "text_source_policy": "visual_beat_display_text_ar_when_available_else_complete_script_sentence",
+        "text_source_policy": "final_audited_script_sentence_only",
         "rtl_policy": "full_phrase_static_offwhite_cairo_bold_no_directional_word_sweep",
         "burned_in_policy": "listener_question_plus_sparse_key_lines_not_full_transcript",
         "speaker_labels_visible": False,
