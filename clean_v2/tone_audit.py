@@ -102,6 +102,13 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   naturally inside its existing anchor section.
 - The narrative identity opener/closer are host-owned exact phrases. Do not request
   rewriting them; judge only the surrounding spoken transition.
+- SPOKEN ARABIC SURFACE CHECK — inside this SAME audit call and before the final verdict, scan
+  every authored narration sentence, not only the hook. Block clear Arabic grammar or sentence-
+  completeness defects that would sound wrong aloud: demonstrative/noun agreement (for example
+  «هذا التوقعات»), pronoun/reference agreement, broken conjunctions, or a dependent fragment
+  such as a section beginning with «مما ...» without a grammatical antecedent in that sentence.
+  For every such defect, add one naturalness_flags item that includes the affected section id
+  (s1/s2/...) and a short exact excerpt from the draft. Do not flag stylistic preference as grammar.
 - Evaluate the actual PLAN hook (the first spoken sentence) with six required booleans in the
   SAME audit response; this adds no provider call:
   * hook_specificity=true only when the hook names a concrete situation, tension, behavior,

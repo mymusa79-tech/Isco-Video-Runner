@@ -359,9 +359,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
-        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. It must not append a second action with ثم/و, punctuation, or another clause. "
+        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. It must not append a second action with ثم/و, an attached conjunction such as والتزم/واكتب, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
-        "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
+        "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. "
         "Planning self-check: practical_action_ar contains exactly one imperative marker. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
@@ -369,6 +369,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page, but never dumb the idea down. Use complete, grammatically sound "
         "sentences that carry enough context to be understood on first listen. Prefer concrete observations and natural sentence-length variation; "
         "avoid fragments, abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
+        "Before returning JSON, silently reread EVERY authored Arabic sentence for demonstrative/noun agreement, pronoun/reference agreement, "
+        "and sentence completeness. No section may open with a dependent fragment such as «مما ...» unless its grammatical antecedent is inside "
+        "that same sentence. Fix any such surface-language error in place before returning. "
         "The whole Short should feel like one complete miniature idea, not a chain of motivational captions.\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
@@ -451,6 +454,7 @@ _PRACTICAL_ACTION_MARKERS = (
     "اقرا",
     "توقف",
     "توقّف",
+    "التزم",
     "قم",
 )
 
@@ -501,6 +505,22 @@ def _practical_action_pattern(marker: str) -> str:
             re.escape(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES
         ) + ")?"
     return rf"(?<!\w){re.escape(marker)}{suffix}(?!\w)"
+
+
+def _conjoined_practical_action_pattern(marker: str) -> str:
+    """Match a second imperative joined to the prior clause as one Arabic word.
+
+    Arabic commonly attaches conjunctions to the following verb (e.g. والتزم,
+    واكتب). The main marker regex intentionally requires a word boundary so it
+    does not over-count arbitrary substrings; this narrow companion catches only
+    a leading waw/fa immediately before a configured imperative.
+    """
+    suffix = ""
+    if marker in _PRACTICAL_ACTION_OBJECT_SUFFIX_MARKERS:
+        suffix = "(?:" + "|".join(
+            re.escape(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES
+        ) + ")?"
+    return rf"(?<!\w)[وف]{re.escape(marker)}{suffix}(?!\w)"
 
 
 def _practical_action_base(word: str) -> str | None:
@@ -602,6 +622,11 @@ def validate_short_practical_action(value: object) -> str:
     if _practical_action_marker_count(sentence) != 1:
         raise ShortFormatError("short_practical_action_requires_one_action_only")
     if re.search(r"\s+(?:ثم|و)\s+", sentence):
+        raise ShortFormatError("short_practical_action_forbids_joined_second_action")
+    if any(
+        re.search(_conjoined_practical_action_pattern(marker), sentence, flags=re.I)
+        for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
+    ):
         raise ShortFormatError("short_practical_action_forbids_joined_second_action")
     if _SOCIAL_CTA_RE.search(sentence) or _DIALOGUE_LABEL_RE.search(sentence):
         raise ShortFormatError("short_practical_action_invalid_content")
@@ -988,8 +1013,24 @@ def normalize_short_practical_action(value: object) -> str:
     # the unchanged strict validator, so this cannot turn ambiguous prose into
     # an accepted action.
     connector = re.search(r"\s+(?:ثم|و)\s+", sentence)
-    if connector is not None:
-        head = sentence[: connector.start()].rstrip(" \t،,؛;:.!?؟!")
+    joined_starts = [
+        match.start()
+        for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
+        for match in re.finditer(
+            _conjoined_practical_action_pattern(marker), sentence, flags=re.I
+        )
+        if match.start() > 0
+    ]
+    split_at = (
+        min(
+            [connector.start()] if connector is not None else []
+            + joined_starts
+        )
+        if connector is not None or joined_starts
+        else None
+    )
+    if split_at is not None:
+        head = sentence[:split_at].rstrip(" \t،,؛;:.!?؟!")
         if _word_count(head) >= 3:
             candidate = head + "."
             try:

@@ -88,6 +88,10 @@ from clean_v2.short_voice_owned_timeline import (
     retime_events,
     section_duration_map,
 )
+from clean_v2.tone_audit import (
+    _LEGACY_RELIGIOUS_QUOTE_RULE,
+    _scope_clean_v2_tone_prompt,
+)
 from clean_v2.short_format import (
     SHORT_HEIGHT,
     SHORT_HOOK_MAX_WORDS,
@@ -1014,6 +1018,30 @@ class ShortContractTests(unittest.TestCase):
             "short_practical_action_forbids_joined_second_action",
         ):
             validate_short_practical_action("اختر مهمة واحدة ثم راجعها الآن.")
+
+    def test_run51_planning_action_normalizer_trims_attached_second_imperative(self) -> None:
+        original = "حدد خيارًا واحدًا فقط والتزم به لمدة أسبوع."
+        self.assertEqual(
+            normalize_short_practical_action(original),
+            "حدد خيارًا واحدًا فقط.",
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_practical_action_forbids_joined_second_action",
+        ):
+            validate_short_practical_action(original)
+
+    def test_run51_short_writer_preflights_arabic_surface_grammar(self) -> None:
+        context = short_prompt_context(_brief("لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"))
+        self.assertIn("demonstrative/noun agreement", context)
+        self.assertIn("«مما ...»", context)
+
+    def test_run51_tone_audit_checks_all_sentences_for_grammar_on_first_pass(self) -> None:
+        prompt = _scope_clean_v2_tone_prompt(_LEGACY_RELIGIOUS_QUOTE_RULE)
+        self.assertIn("SPOKEN ARABIC SURFACE CHECK", prompt)
+        self.assertIn("«هذا التوقعات»", prompt)
+        self.assertIn("affected section id", prompt)
+        self.assertIn("section beginning with «مما ...»", prompt)
 
     def test_visual_normalizer_makes_expression_query_face_safe(self) -> None:
         plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
