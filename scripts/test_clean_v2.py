@@ -6454,9 +6454,24 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
     def _plan(self) -> dict:
         return {
             "sections": [
-                {"id": "s1", "purpose": "open tension", "visual_query_en": "unequal progress markers"},
-                {"id": "s2", "purpose": "explain mechanism", "visual_query_en": "phone scrolling comparison feed"},
-                {"id": "s3", "purpose": "land payoff", "visual_query_en": "door opening into clear workspace"},
+                {
+                    "id": "s1",
+                    "purpose": "open tension",
+                    "visual_query_en": "unequal progress markers",
+                    "visual_query_alt_en": "two marked starting positions hands only",
+                },
+                {
+                    "id": "s2",
+                    "purpose": "explain mechanism",
+                    "visual_query_en": "phone scrolling comparison feed",
+                    "visual_query_alt_en": "phone face down beside unfinished personal task",
+                },
+                {
+                    "id": "s3",
+                    "purpose": "land payoff",
+                    "visual_query_en": "door opening into clear workspace",
+                    "visual_query_alt_en": "single completed progress marker beside next step",
+                },
             ]
         }
 
