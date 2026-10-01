@@ -291,6 +291,46 @@ def build_events_from_section_audio(
     return events
 
 
+def _short_caption_window(
+    timeline_report: Mapping[str, Any],
+    *,
+    section_id: str,
+) -> tuple[float, float] | None:
+    """Return the only narration window allowed to carry Short captions.
+
+    s1 captions belong to the spoken hook only. s2/s3 captions belong to topic
+    narration only. Intro, prayer, channel identity, structural silences, outro,
+    and final silence are deliberately text-clean.
+    """
+    raw_units = timeline_report.get("audio_units")
+    if not isinstance(raw_units, list):
+        return None
+    target_role = "hook" if section_id == "s1" else "topic"
+    windows: list[tuple[float, float]] = []
+    for raw in raw_units:
+        if not isinstance(raw, Mapping):
+            continue
+        if str(raw.get("section_id") or "").strip() != section_id:
+            continue
+        if str(raw.get("role") or "").strip() != target_role:
+            continue
+        start = _seconds(raw.get("start"), "start")
+        end = _seconds(raw.get("end"), "end")
+        if end > start:
+            windows.append((start, end))
+    if not windows:
+        return None
+    windows.sort()
+    # TTS may split one topic into adjacent chunks. Accept only a contiguous
+    # spoken window; never bridge across an identity/prayer/outro gap.
+    start, end = windows[0]
+    for next_start, next_end in windows[1:]:
+        if next_start > end + 0.01:
+            return None
+        end = max(end, next_end)
+    return start, end
+
+
 def _visual_asset_text_events(
     *,
     output_dir: Path,
@@ -299,8 +339,8 @@ def _visual_asset_text_events(
     """Bind renderer-owned Arabic text to the exact semantic asset beat.
 
     This is local metadata only: no provider, ASR, or word-alignment call.
-    If any required mapping is missing, return [] so legacy narration captions
-    remain the compatibility fallback.
+    Captions are constrained to hook/topic voice windows, so fixed identity
+    surfaces remain visually clean by construction.
     """
     manifest_path = Path(output_dir) / "rights-manifest.json"
     try:
@@ -336,8 +376,13 @@ def _visual_asset_text_events(
         rows = by_section.get(section_id) or []
         if not rows:
             return []
-        start = _seconds(timing.get("start"), "start")
-        end = _seconds(timing.get("end"), "end")
+        caption_window = _short_caption_window(
+            timeline_report,
+            section_id=section_id,
+        )
+        if caption_window is None:
+            return []
+        start, end = caption_window
         if end <= start:
             return []
         slot = (end - start) / len(rows)
