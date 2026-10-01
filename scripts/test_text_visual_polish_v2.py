@@ -69,39 +69,44 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertNotIn("Style: Extrusion", ass)
         self.assertNotIn("Style: Shadow", ass)
 
-    def test_short_visual_text_uses_same_beat_metadata_as_selected_images(self) -> None:
+    def test_short_visual_text_comes_only_from_final_audited_script(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "سؤال المقارنة يبدأ من صورة ناقصة."},
+                {"id": "s2", "narration": "نقطة البداية المختلفة تغيّر معنى النتيجة."},
+                {"id": "s3", "narration": "التقدم الشخصي هو المقياس الأكثر صدقًا."},
+            ]
+        }
         timeline = {
             "status": "pass",
             "section_events": [
-                {"section_id": "s1", "start": 0.0, "end": 6.0},
-                {"section_id": "s2", "start": 6.0, "end": 12.0},
-                {"section_id": "s3", "start": 12.0, "end": 18.0},
+                {"section_id": "s1", "start": 0.0, "end": 8.0},
+                {"section_id": "s2", "start": 8.0, "end": 13.0},
+                {"section_id": "s3", "start": 13.0, "end": 18.0},
+            ],
+            "identity_events": [
+                {"kind": "hook", "start": 0.0, "end": 3.0},
+                {"kind": "topic", "start": 8.0, "end": 18.0},
             ],
         }
-        manifest = {
-            "assets": [
-                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "لحظة التردد"},
-                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "بداية التحول"},
-                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "خطوة واضحة"},
+        events = text_module.build_events_from_voice_timeline(
+            script=script,
+            timeline_report=timeline,
+        )
+        text = " ".join(str(event["text"]) for event in events)
+        self.assertIn("المقارنة", text)
+        self.assertIn("البداية", text)
+        self.assertIn("التقدم", text)
+        self.assertFalse(hasattr(text_module, "_visual_asset_text_events"))
+
+    def test_film_and_podcast_sparse_text_comes_only_from_final_script(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "توتر البداية الحقيقي يظهر عندما تقارن نتيجتك بغيرك."},
+                {"id": "s2", "narration": "التحول يبدأ بفهم اختلاف الظروف ونقاط الانطلاق."},
+                {"id": "s3", "narration": "النتيجة الأصدق هي قياس تقدمك من موضعك أنت."},
             ]
         }
-        with tempfile.TemporaryDirectory() as root:
-            Path(root, "rights-manifest.json").write_text(
-                json.dumps(manifest, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            events = text_module._visual_asset_text_events(
-                output_dir=Path(root),
-                timeline_report=timeline,
-            )
-        self.assertEqual([event["beat_id"] for event in events], ["b1", "b2", "b3"])
-        self.assertEqual(
-            [event["text"] for event in events],
-            ["لحظة التردد", "بداية التحول", "خطوة واضحة"],
-        )
-        self.assertEqual([event["role"] for event in events], ["hook", "beat", "payoff"])
-
-    def test_film_and_podcast_sparse_text_can_come_from_same_visual_beats(self) -> None:
         timeline = {
             "status": "pass",
             "section_events": [
@@ -110,34 +115,22 @@ class TextVisualPolishV2Tests(unittest.TestCase):
                 {"section_id": "s3", "start": 40.0, "end": 60.0},
             ],
         }
-        manifest = {
-            "assets": [
-                {"section_id": "s1", "beat_id": "b1", "role": "hook", "display_text_ar": "توتر البداية"},
-                {"section_id": "s2", "beat_id": "b2", "role": "body", "display_text_ar": "تغير صغير"},
-                {"section_id": "s3", "beat_id": "b3", "role": "payoff", "display_text_ar": "النتيجة ظهرت"},
-            ]
-        }
-        with tempfile.TemporaryDirectory() as root:
-            Path(root, "rights-manifest.json").write_text(
-                json.dumps(manifest, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            podcast_events = podcast_text_module._visual_beat_text_events(
-                output_dir=Path(root),
-                timeline=timeline,
-                fmt="podcast",
-            )
-            film_events = podcast_text_module._visual_beat_text_events(
-                output_dir=Path(root),
-                timeline=timeline,
-                fmt="film",
-            )
-        self.assertEqual(
-            [event["text"] for event in podcast_events],
-            ["توتر البداية", "تغير صغير", "النتيجة ظهرت"],
+        podcast_events = build_sparse_events(
+            script=script,
+            timeline=timeline,
+            fmt="podcast",
         )
-        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in podcast_events))
-        self.assertTrue(all(event["text_source"] == "visual_beat_display_text_ar" for event in film_events))
+        film_events = build_sparse_events(
+            script=script,
+            timeline=timeline,
+            fmt="film",
+        )
+        combined = " ".join(
+            str(event["text"]) for event in [*podcast_events, *film_events]
+        )
+        self.assertIn("البداية", combined)
+        self.assertIn("النتيجة", combined)
+        self.assertFalse(hasattr(podcast_text_module, "_visual_beat_text_events"))
 
     def test_short_renderer_disables_karaoke_and_keeps_voice_owned_event_timing(self) -> None:
         item = text_module.TimedTextEvent(
