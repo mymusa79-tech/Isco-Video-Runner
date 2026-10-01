@@ -4195,7 +4195,7 @@ def _validate_plan_with_visual_world_recovery(
     except VisualWorldIdentityError:
         state["identity_rejections"] = int(state.get("identity_rejections", 0)) + 1
         rejection = state["identity_rejections"]
-        if rejection <= VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK:
+        if rejection < VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK:
             raise
 
         if not isinstance(value, Mapping):
