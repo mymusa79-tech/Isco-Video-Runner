@@ -776,8 +776,11 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(provider_prompt, prompt)
 
         schema = providers_module._mistral_planning_response_schema(provider_prompt)
-        self.assertNotIn("visual_story", schema["properties"])
-        self.assertNotIn("visual_story", schema["required"])
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        visual_beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(visual_beats["minItems"], 5)
+        self.assertEqual(visual_beats["maxItems"], 15)
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
         item = schema["properties"]["sections"]["items"]["properties"]
