@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
   "kind": "",
   "topic": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/36840609446",
-  "result": "",
-  "updated_at": 1790845623
+  "result": "failure",
+  "updated_at": 1790845748
 }
