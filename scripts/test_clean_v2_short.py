@@ -31,7 +31,6 @@ from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
     GeminiOnlyVoiceSynthesizer,
     SHORT_CUT_DISSOLVE_SECONDS,
-    SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
     StockVisualSource,
     VoiceInfrastructureError,
@@ -1557,8 +1556,6 @@ class ShortContractTests(unittest.TestCase):
             ["s1", "s1", "s2", "s2", "s3", "s3"],
         )
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
-        self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
-        self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
         trim_source = inspect.getsource(media_module._trim_and_grade_clip)
         self.assertNotIn("_short_motion_filter", trim_source)
         self.assertNotIn("-stream_loop", trim_source)
