@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from clean_v2.contextual_cta import CtaMode, bind_contextual_cta
+from clean_v2.identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION
 from clean_v2.contracts import ContractError, validate_plan
 from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
