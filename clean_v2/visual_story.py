@@ -865,4 +865,3 @@ def contextual_intent(
         if len(head) + len(fragment) <= head_limit:
             head += fragment
     return head[:head_limit].rstrip() + tail
-
