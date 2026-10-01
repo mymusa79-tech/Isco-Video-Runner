@@ -45,33 +45,62 @@ def _brief(fmt: str = "film") -> dict:
 
 
 def _planning_value(fmt: str = "film") -> dict:
-    count = 3 if fmt == "short" else 5
+    section_count = 3 if fmt == "short" else 5
+    section_queries = [
+        "closed notebook beside unfinished task hands only",
+        "phone face down beside one unfinished task hands only",
+        "door opening into quiet workspace back view",
+        "calendar page with one completed mark hands only",
+        "shoes crossing doorway toward morning light no face",
+    ]
+    section_alts = [
+        "two task objects at visibly different starting positions",
+        "single object selected from surrounding clutter hands only",
+        "workspace cleared except one next-step object no face",
+    ]
     sections = [
         {
             "id": f"s{index}",
             "heading": f"قسم {index}",
             "purpose": f"يفهم المشاهد الفكرة {index}",
-            "visual_query_en": f"warm notebook workspace action {index} no face",
+            "visual_query_en": section_queries[index - 1],
             **(
-                {"visual_query_alt_en": f"warm desk detail action {index} no face"}
+                {"visual_query_alt_en": section_alts[index - 1]}
                 if fmt == "short"
                 else {}
             ),
         }
-        for index in range(1, count + 1)
+        for index in range(1, section_count + 1)
     ]
+
+    if fmt == "short":
+        beat_specs = [
+            ("s1", "closed notebook beside unfinished task hands only", "دفتر مغلق بجوار مهمة غير مكتملة"),
+            ("s1", "phone scrolling beside unfinished personal task hands only", "هاتف يزاحم المهمة الشخصية غير المكتملة"),
+            ("s1", "two progress markers at visibly different starting positions", "نقطتا بداية مختلفتان بوضوح"),
+            ("s2", "door opening into quiet workspace back view", "انتقال مرئي إلى مساحة أكثر وضوحًا"),
+            ("s3", "single completed progress marker beside next step object", "علامة تقدم مكتملة وخطوة تالية واضحة"),
+        ]
+    else:
+        beat_specs = [
+            (f"s{index}", section_queries[index - 1], f"مشهد ملموس يوضح الفكرة {index}")
+            for index in range(1, 6)
+        ]
+
     beats = []
-    for index in range(1, count + 1):
+    for index, (section_id, query, meaning) in enumerate(beat_specs, start=1):
         is_first = index == 1
-        is_last = index == count
+        is_last = index == len(beat_specs)
         beats.append(
             {
                 "id": f"b{index}",
-                "section_id": f"s{index}",
+                "section_id": section_id,
                 "viewer_intent": f"يفهم المشاهد التحول {index}",
-                "shot_intent": f"دفتر واحد يتغير بصريًا في المرحلة {index}",
+                "meaning_target": meaning,
+                "semantic_must_have": [query],
+                "shot_intent": query,
                 "role": "hook" if is_first else "payoff" if is_last else "body",
-                "stock_query_en": f"warm notebook workspace distinct action {index} hands only",
+                "stock_query_en": query,
                 "display_text_ar": f"لحظة مختلفة {index}",
                 "source_preference": (
                     "ai_still" if is_first or is_last else "stock_motion"
@@ -96,7 +125,7 @@ def _planning_value(fmt: str = "film") -> dict:
             "retention_thread": {
                 "hook_tension": "لماذا تبقى البداية عالقة رغم وضوح الهدف؟",
                 "payoff_answer": "تصغير الفعل الأول يزيل الاحتكاك ويبدأ الحركة.",
-                "visual_motif": "دفتر مغلق يصبح صفحة عليها خطوة واحدة مكتملة",
+                "visual_motif": "دفتر مغلق يصبح علامة تقدم مكتملة",
             },
             "beats": beats,
         },
