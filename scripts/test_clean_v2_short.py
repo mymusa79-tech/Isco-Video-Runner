@@ -17,7 +17,9 @@ from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
     CleanV2Pipeline,
     _audit_narrative_format_for_brief,
+    _lock_longform_narrative_format,
     _planning_prompt,
+    _select_longform_narrative_profile,
     _script_prompt,
     _short_identity_not_applicable,
     _synthesize_sectioned_voice,
@@ -98,6 +100,7 @@ from clean_v2.short_format import (
     apply_safe_short_s3_action_prefix_trim,
     apply_safe_short_s3_locked_payoff_fallback,
     apply_safe_short_s3_single_action_trim,
+    normalize_short_practical_action,
     normalize_short_script_candidate,
     normalize_short_visual_queries,
     select_short_template,
@@ -239,6 +242,25 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         film = dict(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
         film["format"] = "film"
         self.assertEqual(_audit_narrative_format_for_brief(film), "direct_cinematic")
+
+    def test_longform_host_owned_narrative_format_is_locked_before_validation(self) -> None:
+        for fmt in ("film", "podcast"):
+            with self.subTest(format=fmt):
+                brief = _brief("كيف تستعيد تركيزك بعد أيام من التشتت؟")
+                brief["format"] = fmt
+                raw = {"narrative_format": "provider-typo-profile"}
+                locked = _lock_longform_narrative_format(raw, brief)
+                self.assertEqual(
+                    locked["narrative_format"],
+                    _select_longform_narrative_profile(brief)["narrative_format"],
+                )
+                self.assertEqual(raw["narrative_format"], "provider-typo-profile")
+        podcast = _brief("لماذا نؤجل ما نعرف أنه مهم؟")
+        podcast["format"] = "podcast"
+        self.assertEqual(
+            _lock_longform_narrative_format({}, podcast)["narrative_format"],
+            "dialogue_qa",
+        )
 
     def test_quote_reflection_requires_real_quote_evidence(self) -> None:
         brief = _brief("هذه عبارة جميلة للتأمل")
@@ -962,6 +984,29 @@ class ShortContractTests(unittest.TestCase):
             "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اختر مهمة واحدة واضحة الآن.",
         )
         validate_short_script(accepted)
+
+    def test_run49_planning_action_normalizer_rescues_safe_prefix_and_joined_tail(self) -> None:
+        self.assertEqual(
+            normalize_short_practical_action("لهذا، اختر مهمة واحدة واضحة الآن."),
+            "اختر مهمة واحدة واضحة الآن.",
+        )
+        self.assertEqual(
+            normalize_short_practical_action("اختر مهمة واحدة واضحة ثم راجعها الآن."),
+            "اختر مهمة واحدة واضحة.",
+        )
+        self.assertEqual(
+            normalize_short_practical_action("لذلك اختر مهمة واحدة واضحة و اكتبها الآن."),
+            "اختر مهمة واحدة واضحة.",
+        )
+
+    def test_planning_action_normalizer_does_not_invent_an_unrecognized_action(self) -> None:
+        original = "رتب مكتبك الآن."
+        self.assertEqual(normalize_short_practical_action(original), original)
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_practical_action_must_begin_with_direct_imperative",
+        ):
+            validate_short_practical_action(original)
 
     def test_planning_owned_action_rejects_joined_second_action(self) -> None:
         with self.assertRaisesRegex(
