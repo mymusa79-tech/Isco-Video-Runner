@@ -403,19 +403,23 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 first["semantic_must_have"] = [
                     "smartphone screen with conflicting notification shapes"
                 ]
-                # This test is about screen/UI safety, not family repetition.
-                # Keep the next authored beat visibly distinct so the production
-                # diversity gate can remain fail-closed.
-                if len(visual_story["beats"]) > 1:
-                    visual_story["beats"][1]["shot_intent"] = (
-                        "hands folding plain cloth on wooden table"
-                    )
-                    visual_story["beats"][1]["stock_query_en"] = (
-                        "hands folding plain cloth on wooden table"
-                    )
-                    visual_story["beats"][1]["semantic_must_have"] = [
-                        "hands folding plain cloth on wooden table"
-                    ]
+                # This test is about screen/UI safety, while still exercising
+                # the real fail-closed diversity contract. Make every later beat a
+                # genuinely different active family so unrelated fixture repetition
+                # cannot mask the screen-safety assertion.
+                distinct_later_scenes = [
+                    "hands typing on keyboard beside closed notebook",
+                    "back view walking through quiet corridor",
+                    "closed door beside empty hallway",
+                    "open window above quiet table",
+                    "hand writing one line in notebook",
+                ]
+                for index, beat in enumerate(visual_story["beats"][1:]):
+                    scene = distinct_later_scenes[index % len(distinct_later_scenes)]
+                    beat["shot_intent"] = scene
+                    beat["stock_query_en"] = scene
+                    beat["semantic_must_have"] = [scene]
+                    beat.pop("stock_query_alt_en", None)
                 script = {
                     "title": "نص نهائي",
                     "sections": [
