@@ -731,6 +731,7 @@ def bind_visual_story_to_script(
             beats_by_section[section_id].append(beat)
 
     prior_action_family = ""
+    family_uses: dict[str, int] = {}
     strict_diversity = any(
         str(item.get("visual_query_alt_en") or "").strip()
         for item in plan_sections
@@ -800,6 +801,14 @@ def bind_visual_story_to_script(
                     if repeat_avoid not in avoids:
                         avoids.insert(0, repeat_avoid)
                     beat["semantic_should_avoid"] = avoids[:4]
+
+            if strict_diversity and current_family:
+                family_uses[current_family] = family_uses.get(current_family, 0) + 1
+                if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
+                    raise ValueError(
+                        "writer visual binding repeats visual family too often: "
+                        f"{current_family}"
+                    )
 
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
