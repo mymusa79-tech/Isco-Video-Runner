@@ -154,7 +154,7 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
     "content_dependency:" with the affected section id and exact short excerpt.
 - Extend the existing JSON object with these two required booleans:
   "section_dependency", "topic_fidelity".
-- Extend the existing JSON object with exactly these required boolean fields:
+- The JSON object must include these required hook booleans:
   "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness",
   "hook_body_continuity", "payoff_resolves_hook".
 - EDITORIAL_VOICE_ADVISORY (observation only - this never changes status and never
