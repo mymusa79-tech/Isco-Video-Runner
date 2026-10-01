@@ -2653,7 +2653,25 @@
         "likes": 6,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-01T06:36:49Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 64,
+      "hidden_subscribers": false,
+      "total_views": 39572,
+      "video_count": 146,
+      "last_long": null,
+      "last_short": {
+        "video_id": "nkFO3Iho9kc",
+        "title": "تعبان من الشغل كل يوم؟ هذه بداية الاحتراق الوظيفي",
+        "published_at": "2026-10-01T05:13:31Z",
+        "duration_seconds": 12,
+        "views": 0,
+        "likes": 0,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-01T06:36:30Z"
+  "updated_at": "2026-10-01T06:36:49Z"
 }
