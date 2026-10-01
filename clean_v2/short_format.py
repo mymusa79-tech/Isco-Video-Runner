@@ -504,7 +504,7 @@ def _practical_action_pattern(marker: str) -> str:
         suffix = "(?:" + "|".join(
             re.escape(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES
         ) + ")?"
-    return rf"(?<!\\w){re.escape(marker)}{suffix}(?!\\w)"
+    return rf"(?<!\w){re.escape(marker)}{suffix}(?!\w)"
 
 
 def _conjoined_practical_action_pattern(marker: str) -> str:
@@ -520,7 +520,7 @@ def _conjoined_practical_action_pattern(marker: str) -> str:
         suffix = "(?:" + "|".join(
             re.escape(item) for item in _PRACTICAL_ACTION_OBJECT_SUFFIXES
         ) + ")?"
-    return rf"(?<!\\w)[وف]{re.escape(marker)}{suffix}(?!\\w)"
+    return rf"(?<!\w)[وف]{re.escape(marker)}{suffix}(?!\w)"
 
 
 def _practical_action_base(word: str) -> str | None:
