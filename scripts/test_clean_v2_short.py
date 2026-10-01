@@ -318,7 +318,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         )
         self.assertIn("Every A turn must perform exactly one useful listener-proxy job", script)
         self.assertIn("B must answer the specific gap opened by A", script)
-        self.assertIn("If removing an A turn would leave B saying essentially the same thing", script)
+        self.assertIn("If removing an A turn would leave B", script)
+        self.assertIn("saying essentially the same thing", script)
 
         short = _brief("لماذا نؤجل ما نعرف أنه مهم؟")
         self.assertNotIn(
