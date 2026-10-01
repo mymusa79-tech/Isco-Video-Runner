@@ -3903,9 +3903,14 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         )
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
-        plan["practical_action_ar"] = validate_short_practical_action(
-            plan.get("practical_action_ar")
-        )
+        # Strict Planning schemas require this for current providers. The local
+        # fallback is only backward compatibility for old checkpoints/tests or a
+        # non-schema provider omission; it still creates one host-owned action and
+        # prevents Script from inventing multiple commands.
+        practical_action = str(plan.get("practical_action_ar") or "").strip()
+        if not practical_action:
+            practical_action = "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
+        plan["practical_action_ar"] = validate_short_practical_action(practical_action)
         validate_short_visual_queries(plan, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
