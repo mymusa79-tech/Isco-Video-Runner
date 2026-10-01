@@ -1520,13 +1520,22 @@ def validate_short_visual_safety(
     *,
     strict_repetition: bool = False,
 ) -> dict[str, Any]:
-    """Narrow Planning safety for fresh Shorts; independent of template semantics."""
+    """Keep true Short visual safety fail-closed; treat family repetition as quality.
+
+    Missing queries and explicit face-risk language are hard Planning failures.
+    Consecutive action-family repetition is not: the richer visual_story layer owns
+    beat-level diversity and already applies a distinct alternate when available or
+    carries a repeat-avoid instruction into downstream Visual QA. Rejecting the whole
+    plan here duplicated that logic with a smaller taxonomy and caused valid provider
+    plans to die before the stronger visual pipeline could inspect them.
+    """
     sections = plan.get("sections")
     if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
         raise ShortFormatError("short_visual_safety_requires_three_sections")
 
     prior_families: set[str] = set()
-    for raw in sections:
+    repetition_advisories: list[str] = []
+    for index, raw in enumerate(sections, start=1):
         if not isinstance(raw, Mapping):
             raise ShortFormatError("short_visual_safety_invalid_section")
         primary = _clean(raw.get("visual_query_en"))
@@ -1539,13 +1548,17 @@ def validate_short_visual_safety(
         primary_families = _query_action_families(_query_words(primary))
         alternate_families = _query_action_families(_query_words(alternate))
         if strict_repetition and prior_families and primary_families & prior_families:
-            if not alternate_families or alternate_families & prior_families:
-                raise ShortFormatError(
-                    "short_visual_query_consecutive_action_family_without_distinct_alternate"
-                )
+            has_distinct_alternate = bool(alternate_families - prior_families)
+            if not has_distinct_alternate:
+                repetition_advisories.append(f"s{index}")
         prior_families = primary_families
 
-    return {"status": "pass", "strict_repetition": bool(strict_repetition)}
+    return {
+        "status": "pass",
+        "strict_repetition": bool(strict_repetition),
+        "repetition_advisories": repetition_advisories,
+        "repetition_owner": "visual_story_and_visual_qa",
+    }
 
 
 def validate_short_visual_queries(
