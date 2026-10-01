@@ -145,7 +145,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-24T13:21:49Z",
-      "selected_at": "2026-09-26T14:28:26Z"
+      "selected_at": "2026-10-01T17:18:18Z"
     },
     {
       "idea_id": "idea-774b34bae6",
@@ -2561,6 +2561,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-01T12:16:05Z",
       "selected_index": 0
+    },
+    "c329ffe6": {
+      "session_id": "c329ffe6",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b6fd6e4fe9"
+      ],
+      "created_at": "2026-10-01T17:18:18Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T17:18:18Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2931,9 +2942,40 @@
       "confirmed_at": "2026-10-01T12:30:22Z",
       "dispatched_at": "2026-10-01T12:30:27Z",
       "request_sha256": "31bc2c792e892134e036037816292005e70ea869a957f5d2b47a1ba6f6569067"
+    },
+    "req-6ffa8998d96f": {
+      "schema_version": 1,
+      "request_id": "req-6ffa8998d96f",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا نشعر أننا متأخرون عن الآخرين؟",
+      "research_pack": [
+        {
+          "source_title": "Your Life Is Not A Race: Why You’re Right Where You Need To Be",
+          "source_url": "https://youtu.be/h0_QVQbGN0M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "🚨 ¿COMPARARTE TE MOTIVA? PIÉNSALO. 👀💔 #mikaasmr #stream #vtuber #reflexion",
+          "source_url": "https://youtu.be/9YPzfEHib2s",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Why being 'behind' is a lie you tell yourself #mindset #motivation",
+          "source_url": "https://youtu.be/CawnKSeD-MI",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b6fd6e4fe9",
+      "selected_at": "2026-10-01T17:18:18Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "53b02875577892e7e595fd3dbfc8e336f64779c26893eec896d05cafbcef2659"
     }
   },
-  "current_request_id": "req-96fd896c3271",
+  "current_request_id": "req-6ffa8998d96f",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3188,5 +3230,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T12:30:45Z"
+  "updated_at": "2026-10-01T17:18:19Z"
 }
