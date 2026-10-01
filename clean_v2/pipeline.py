@@ -6180,18 +6180,6 @@ class CleanV2Pipeline:
                 journal.reuse(IDENTITY_STAGE)
                 journal.reuse("script")
                 journal.reuse(VISUAL_BIND_STAGE)
-                visual_story = journal.run(
-                    VISUAL_BIND_STAGE,
-                    lambda: _bind_writer_visual_story_with_recovery(
-                        router=self.router,
-                        output_dir=output_dir,
-                        brief=brief,
-                        plan=plan,
-                        script=script,
-                        visual_story=visual_story,
-                    ),
-                )
-                self._write_runtime_events(output_dir)
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
                 )
