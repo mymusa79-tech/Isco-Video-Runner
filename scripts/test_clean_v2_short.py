@@ -109,6 +109,7 @@ from clean_v2.short_format import (
     validate_short_practical_action,
     validate_short_script,
     validate_short_visual_queries,
+    validate_short_visual_safety,
 )
 
 
@@ -180,19 +181,14 @@ _TEMPLATE_FIXTURES = {
 
 
 class ShortMistralS3PromptClarityTests(unittest.TestCase):
-    def test_mistral_script_prompt_teaches_one_validator_true_good_bad_pair(self) -> None:
+    def test_mistral_script_prompt_respects_host_owned_s3_action(self) -> None:
         base = "SHORT_FORMAT_CONTRACT:\nbase contract"
         prompt = _provider_prompt(base, provider="mistral", stage="script")
-        self.assertIn(
-            'GOOD s3: "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن."',
-            prompt,
-        )
-        self.assertIn(
-            'BAD s3: "الكتابة البسيطة تقلل الاحتكاك. لذلك، اكتب مهمة واحدة تستطيع إنهاءها الآن."',
-            prompt,
-        )
-        self.assertIn('begins immediately with the single allowlisted imperative "اكتب"', prompt)
-        self.assertIn('begins with "لذلك" instead of beginning directly with the imperative', prompt)
+        self.assertIn("LOCKED_PLAN.practical_action_ar is host-owned", prompt)
+        self.assertIn("Do NOT write, repeat, paraphrase, or replace it", prompt)
+        self.assertIn("ZERO practical-action/imperative markers", prompt)
+        self.assertIn("purely descriptive state/result", prompt)
+        self.assertNotIn("GOOD s3:", prompt)
         self.assertEqual(_provider_prompt(base, provider="groq", stage="script"), base)
 
         report = validate_short_script(
@@ -459,11 +455,10 @@ class ShortContractTests(unittest.TestCase):
 
     def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
         prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
-        self.assertIn("MUST begin with a direct Arabic imperative verb", prompt)
-        self.assertIn("STRICTER SAFEGUARD", prompt)
-        self.assertIn("SELF-CHECK", prompt)
-        for example in ("ابدأ بمهمة واحدة", "جرّب أن", "افعل شيئًا واحدًا", "اختر مهمة واحدة", "اكتب أول خطوة"):
-            self.assertIn(example, prompt)
+        self.assertIn("practical_action_ar MUST begin with a direct Arabic imperative verb", prompt)
+        self.assertIn("Planning self-check", prompt)
+        self.assertIn("Script self-check", prompt)
+        self.assertIn("host adds the locked Planning action afterward", prompt)
 
         no_action = {
             "title": "شورت",
@@ -994,7 +989,7 @@ class ShortContractTests(unittest.TestCase):
             ShortFormatError,
             "short_visual_query_consecutive_action_family_without_distinct_alternate",
         ):
-            validate_short_visual_queries(plan, _TEMPLATE_FIXTURES["why_reframe"]["brief"])
+            validate_short_visual_safety(plan, strict_repetition=True)
 
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
