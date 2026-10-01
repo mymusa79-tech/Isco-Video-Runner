@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Minimal cross-run memory of recently selected film narrative formats and Short templates.
+"""Minimal cross-run memory for narrative variety and Podcast promo excerpt variety.
 
 _select_longform_narrative_profile (clean_v2/pipeline.py) is otherwise pure and
 stateless: the same topic always picks the same narrative_format forever, which
@@ -21,8 +21,10 @@ from .contracts import atomic_write_json
 SCHEMA_VERSION = 1
 DEFAULT_MAX_HISTORY = 5
 
-# Film and Short have independent keys; podcast remains a fixed house style.
+# Film and Short have independent narrative-selection keys; Podcast itself remains a fixed house style.
 TRACKED_FORMATS = ("film", "short")
+PODCAST_PROMO_HISTORY_KEY = "podcast_promo"
+PODCAST_PROMO_MAX_HISTORY = 4
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -69,4 +71,43 @@ def record_narrative_format(
     history = [str(v) for v in history if str(v or "").strip()] if isinstance(history, list) else []
     history.append(narrative_format)
     data[fmt] = history[-limit:]
+    atomic_write_json(path, data)
+
+
+
+def recent_podcast_promo_signatures(
+    path: Path | None,
+    *,
+    limit: int = PODCAST_PROMO_MAX_HISTORY,
+) -> tuple[str, ...]:
+    """Recent derived-Podcast promo selection signatures, oldest first.
+
+    This is deliberately separate from the Podcast narrative_format: the episode
+    house style remains dialogue_qa; only the locally selected derived-Short
+    excerpt pattern gets cross-run memory.
+    """
+    if path is None:
+        return ()
+    values = _read(path).get(PODCAST_PROMO_HISTORY_KEY)
+    if not isinstance(values, list):
+        return ()
+    return tuple(str(value).strip() for value in values[-limit:] if str(value or "").strip())
+
+
+def record_podcast_promo_signature(
+    path: Path | None,
+    signature: str,
+    *,
+    limit: int = PODCAST_PROMO_MAX_HISTORY,
+) -> None:
+    """Append one selected derived-Podcast promo pattern signature."""
+    signature = str(signature or "").strip()
+    if path is None or not signature:
+        return
+    data = _read(path)
+    data["schema_version"] = SCHEMA_VERSION
+    history = data.get(PODCAST_PROMO_HISTORY_KEY)
+    history = [str(v) for v in history if str(v or "").strip()] if isinstance(history, list) else []
+    history.append(signature)
+    data[PODCAST_PROMO_HISTORY_KEY] = history[-limit:]
     atomic_write_json(path, data)
