@@ -24,6 +24,7 @@ from clean_v2.pipeline import (
     _script_prompt,
     _short_identity_not_applicable,
     _synthesize_sectioned_voice,
+    _validate_plan_for_brief,
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
@@ -423,7 +424,30 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                     self.assertIn("visually arresting through composition rather than frantic motion", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
+                self.assertIn("Runtime builds the bounded semantic visual story locally", prompt)
+                self.assertNotIn('"visual_story": {', prompt)
+                provider_prompt = _provider_prompt(
+                    prompt,
+                    provider="mistral",
+                    stage="planning",
+                )
+                self.assertLess(
+                    len(provider_prompt.encode("utf-8")),
+                    26000,
+                    "Short Planning prompt must stay well below the Run54 38KB regression",
+                )
                 self.assertEqual(selection["extra_ai_calls"], 0)
+
+    def test_run54_strict_schema_plan_builds_four_beat_story_locally(self) -> None:
+        brief = _TEMPLATE_FIXTURES["why_reframe"]["brief"]
+        candidate = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
+        candidate["practical_action_ar"] = "اختر خيارًا واحدًا واضحًا الآن."
+        planned = _validate_plan_for_brief(candidate, brief)
+        beats = planned["visual_story"]["beats"]
+        self.assertEqual(len(beats), 4)
+        self.assertEqual([beat["section_id"] for beat in beats], ["s1", "s1", "s2", "s3"])
+        self.assertEqual([beat["role"] for beat in beats], ["hook", "hook", "body", "payoff"])
+        self.assertNotEqual(beats[0]["stock_query_en"], beats[1]["stock_query_en"])
 
 
 
