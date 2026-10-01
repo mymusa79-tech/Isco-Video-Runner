@@ -516,7 +516,7 @@ _PODCAST_PROMO_STYLE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def _podcast_promo_signature(
+def _derived_short_signature(
     excerpt: str,
     *,
     sentence_count: int,
@@ -586,7 +586,7 @@ def _select_podcast_promo_excerpt(
                     -section_index,
                     -start,
                 )
-                signature = _podcast_promo_signature(
+                signature = _derived_short_signature(
                     excerpt,
                     sentence_count=count,
                     section_index=section_index,
@@ -4270,6 +4270,7 @@ def _select_film_derived_short_window(
     timeline: Mapping[str, Any],
     *,
     identity_closer: str = "",
+    recent_signatures: tuple[str, ...] = (),
 ) -> dict[str, Any] | None:
     """Select one already-synthesized Film topic unit without changing TTS chunking."""
     if len(sections) < 2:
@@ -4284,7 +4285,7 @@ def _select_film_derived_short_window(
     }
     closer = " ".join(str(identity_closer or "").split()).strip()
     total_sections = len(sections)
-    best: tuple[tuple[int, int, int, int], dict[str, Any]] | None = None
+    candidates: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
     for section_index, raw in enumerate(sections[1:], start=1):
         section_id = str(raw.get("id") or f"s{section_index + 1}").strip()
         text = " ".join(str(raw.get("narration") or "").split()).strip()
@@ -4319,6 +4320,15 @@ def _select_film_derived_short_window(
                 -section_index,
                 -chunk_index,
             )
+            signature = _derived_short_signature(
+                chunk_text,
+                sentence_count=max(
+                    1,
+                    len([item for item in re.split(r"(?<=[.!؟!])\s+", chunk_text) if item.strip()]),
+                ),
+                section_index=section_index,
+                total_sections=total_sections,
+            )
             candidate = {
                 "section_id": section_id,
                 "chunk": chunk_index,
@@ -4326,10 +4336,26 @@ def _select_film_derived_short_window(
                 "start": start,
                 "end": end,
                 "duration_seconds": duration,
+                "selection_signature": signature,
             }
-            if best is None or score > best[0]:
-                best = (score, candidate)
-    return None if best is None else best[1]
+            candidates.append((score, candidate))
+    if not candidates:
+        return None
+    recent = {str(value).strip() for value in recent_signatures if str(value or "").strip()}
+    eligible = [
+        item for item in candidates
+        if str(item[1].get("selection_signature") or "") not in recent
+    ]
+    history_applied = bool(recent and eligible)
+    pool = eligible if history_applied else candidates
+    best = max(pool, key=lambda item: item[0])
+    selected = dict(best[1])
+    selected["selection_basis"] = (
+        "local_quality_score_v2_history_aware"
+        if history_applied
+        else "local_quality_score_v2"
+    )
+    return selected
 
 
 def _run_film_derived_short_lite(
@@ -4339,6 +4365,7 @@ def _run_film_derived_short_lite(
     script: Mapping[str, Any],
     identity_closer: str,
     final_master_qc: Callable[[Path], dict[str, Any]],
+    recent_signatures: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Derive one optional Film promo from an existing measured voice unit, fail-soft."""
     report_path = output_dir / "long-short.json"
@@ -4361,6 +4388,7 @@ def _run_film_derived_short_lite(
             sections,
             timeline,
             identity_closer=identity_closer,
+            recent_signatures=recent_signatures,
         )
         if promo is None:
             report = {**base, "status": "skipped_no_existing_7_30_topic_unit"}
@@ -4398,6 +4426,8 @@ def _run_film_derived_short_lite(
             "width": (stream or {}).get("width"),
             "height": (stream or {}).get("height"),
             "final_master_qc_status": "pass",
+            "selection_signature": promo.get("selection_signature"),
+            "selection_basis": promo.get("selection_basis"),
             "file": delivered.name,
         }
         atomic_write_json(report_path, report)
@@ -5645,10 +5675,10 @@ class CleanV2Pipeline:
     ) -> dict[str, Any]:
         from clean_v2.mistral_executor import reset_mistral_executor_telemetry
         from clean_v2.narrative_history import (
+            record_derived_short_signature,
             record_narrative_format,
-            record_podcast_promo_signature,
+            recent_derived_short_signatures,
             recent_narrative_formats,
-            recent_podcast_promo_signatures,
         )
 
         reset_mistral_executor_telemetry()
@@ -5690,8 +5720,13 @@ class CleanV2Pipeline:
                 narrative_history_path, "short"
             ) if str(brief.get("format")) == "short" else ()
             podcast_promo_history = (
-                recent_podcast_promo_signatures(narrative_history_path)
+                recent_derived_short_signatures(narrative_history_path, "podcast")
                 if str(brief.get("format")) == "podcast"
+                else ()
+            )
+            film_promo_history = (
+                recent_derived_short_signatures(narrative_history_path, "film")
+                if str(brief.get("format")) == "film"
                 else ()
             )
             resume = _load_resume_checkpoint(
@@ -5986,6 +6021,7 @@ class CleanV2Pipeline:
 
             identity_runtime = _read_json_object(output_dir / "narrative-identity.json")
             narration_path = output_dir / "narration.wav"
+            podcast_promo: dict[str, Any] | None = None
             if resume is not None and _resume_includes(resume[1], "voice"):
                 _copy_resume_artifact(resume[0], output_dir, "narration.wav")
                 resume_artifacts = resume[1].get("artifacts") or {}
@@ -6015,11 +6051,6 @@ class CleanV2Pipeline:
                     if str(brief["format"]) == "podcast"
                     else None
                 )
-                if podcast_promo is not None and str(brief["format"]) == "podcast":
-                    record_podcast_promo_signature(
-                        narrative_history_path,
-                        str(podcast_promo.get("selection_signature") or ""),
-                    )
                 voice_result = journal.run(
                     "voice",
                     lambda: _synthesize_sectioned_voice(
@@ -6469,10 +6500,22 @@ class CleanV2Pipeline:
                     script=script,
                     identity_closer=str(identity_runtime.get("closer") or ""),
                     final_master_qc=self.final_master_qc,
+                    recent_signatures=film_promo_history,
                 )
                 if str(brief["format"]) == "film"
                 else {"status": "not_applicable"}
             )
+            if (
+                str(brief["format"]) == "podcast"
+                and podcast_short_report.get("status") == "pass"
+                and isinstance(podcast_promo, Mapping)
+            ):
+                record_derived_short_signature(
+                    narrative_history_path,
+                    "podcast",
+                    str(podcast_promo.get("selection_signature") or ""),
+                )
+
             long_short_cover_report = (
                 run_cover_lite_fail_soft(
                     output_dir=output_dir,
@@ -6487,6 +6530,16 @@ class CleanV2Pipeline:
                 if long_short_report.get("status") == "pass"
                 else {"status": "not_applicable"}
             )
+
+            if (
+                str(brief["format"]) == "film"
+                and long_short_report.get("status") == "pass"
+            ):
+                record_derived_short_signature(
+                    narrative_history_path,
+                    "film",
+                    str(long_short_report.get("selection_signature") or ""),
+                )
 
             journal.complete(
                 final_file=final_path.name,
