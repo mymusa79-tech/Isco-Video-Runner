@@ -1248,7 +1248,7 @@ def _enforce_short_hook_shot_cap(
         if section_id != first_section:
             break
         first_section_indexes.append(index)
-    if len(first_section_indexes) < 3:
+    if len(first_section_indexes) != 3:
         return result_paths, result_durations
 
     section_total = sum(result_durations[index] for index in first_section_indexes)
@@ -1266,8 +1266,6 @@ def _enforce_short_hook_shot_cap(
     # The Short planning contract supplies exactly three s1 beats. Keep any
     # compatibility remainder on the third one so total timing is invariant.
     result_durations[2] = section_total - (quick * 2.0)
-    for index in first_section_indexes[3:]:
-        result_durations[index] = 0.0
     return result_paths, result_durations
 
 
