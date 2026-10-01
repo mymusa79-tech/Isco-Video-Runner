@@ -6523,6 +6523,10 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         }
 
     def test_writer_bound_story_rejects_adjacent_repeated_action_family(self) -> None:
+        plan = self._plan()
+        # Presence of a modern alternate contract elsewhere marks this as a fresh
+        # production plan; b2 itself deliberately has no usable alternate.
+        plan["sections"][2]["visual_query_alt_en"] = "curtain opening toward quiet window"
         story = self._story()
         story["beats"][0]["shot_intent"] = "hand writing in notebook"
         story["beats"][0]["stock_query_en"] = "hand writing notebook task"
@@ -6530,7 +6534,7 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         story["beats"][1]["shot_intent"] = "pen marking sticky notes on paper"
         story["beats"][1]["stock_query_en"] = "pen marking sticky notes paper"
         story["beats"][1]["semantic_must_have"] = ["pen marking one sticky note on paper"]
-        validated = visual_story_module.validate_visual_story(story, self._plan())
+        validated = visual_story_module.validate_visual_story(story, plan)
         script = {
             "sections": [
                 {"id": "s1", "narration": "تبدأ المقارنة من نقطة غير عادلة."},
@@ -6539,7 +6543,7 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
             ]
         }
         with self.assertRaisesRegex(ValueError, "repeat the previous stationery scene family"):
-            visual_story_module.bind_visual_story_to_script(validated, self._plan(), script)
+            visual_story_module.bind_visual_story_to_script(validated, plan, script)
 
     def test_visual_story_rejects_mood_only_semantic_proof(self) -> None:
         story = self._story()
