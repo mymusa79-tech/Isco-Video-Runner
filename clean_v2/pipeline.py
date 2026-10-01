@@ -58,6 +58,7 @@ from .short_format import (
     validate_short_duration,
     validate_short_dimensions,
     validate_short_hook_contract,
+    normalize_short_practical_action,
     validate_short_practical_action,
     validate_short_script,
     validate_short_visual_safety,
@@ -3890,11 +3891,34 @@ def _bound_ai_still_preferences(
     return result
 
 
+def _lock_longform_narrative_format(
+    value: Any,
+    brief: Mapping[str, Any],
+) -> Any:
+    """Replace provider-owned longform label drift with the deterministic host choice.
+
+    The model does not own narrative_format for Film or Podcast: Film is selected
+    from approved input and recent history, while Podcast is the fixed dialogue_qa
+    house style. Locking that one metadata field before generic plan validation
+    prevents an otherwise-good plan from being discarded for a typo or stale label.
+    Content, section count, CTA, visual queries, and visual story remain fully
+    validated and unchanged.
+    """
+    fmt = str(brief.get("format") or "")
+    if fmt not in {"film", "podcast"} or not isinstance(value, Mapping):
+        return value
+    candidate = dict(value)
+    candidate["narrative_format"] = str(
+        _select_longform_narrative_profile(brief)["narrative_format"]
+    )
+    return candidate
+
+
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
-    plan = validate_plan(value, brief)
     fmt = str(brief.get("format") or "")
+    plan = validate_plan(_lock_longform_narrative_format(value, brief), brief)
     if fmt in {"film", "podcast"}:
         # The profile is selected from approved input before provider output. Keep
         # the plan metadata aligned locally instead of spending another repair call
@@ -3910,7 +3934,10 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         # prevents Script from inventing multiple commands.
         fresh_practical_action = str(plan.get("practical_action_ar") or "").strip()
         practical_action = fresh_practical_action or "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
-        plan["practical_action_ar"] = validate_short_practical_action(practical_action)
+        normalized_practical_action = normalize_short_practical_action(practical_action)
+        plan["practical_action_ar"] = validate_short_practical_action(
+            normalized_practical_action
+        )
         normalize_short_visual_queries(plan)
         validate_short_visual_safety(
             plan,
