@@ -6161,6 +6161,20 @@ class CleanV2Pipeline:
                     brief,
                     visual_story,
                 )
+                journal.reuse(IDENTITY_STAGE)
+                journal.reuse("script")
+                visual_story = journal.run(
+                    VISUAL_BIND_STAGE,
+                    lambda: _bind_writer_visual_story_with_recovery(
+                        router=self.router,
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=script,
+                        visual_story=visual_story,
+                    ),
+                )
+                self._write_runtime_events(output_dir)
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
                 )
@@ -6168,8 +6182,6 @@ class CleanV2Pipeline:
                     encoding="utf-8"
                 ) != transcript + "\n":
                     raise RuntimeError("Clean V2 resume narration does not match script")
-                journal.reuse(IDENTITY_STAGE)
-                journal.reuse("script")
             else:
                 if str(brief["format"]) == "short":
                     identity = journal.run(
@@ -6211,6 +6223,18 @@ class CleanV2Pipeline:
                         ),
                     ),
                 )
+                visual_story = journal.run(
+                    VISUAL_BIND_STAGE,
+                    lambda: _bind_writer_visual_story_with_recovery(
+                        router=self.router,
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=script,
+                        visual_story=visual_story,
+                    ),
+                )
+                self._write_runtime_events(output_dir)
                 fmt = str(brief["format"])
                 _apply_brand_signature(
                     script["sections"], fmt, identity["opener"], identity["closer"]
@@ -6244,19 +6268,6 @@ class CleanV2Pipeline:
                 (output_dir / "narration.txt").write_text(
                     transcript + "\n", encoding="utf-8"
                 )
-            visual_story = journal.run(
-                VISUAL_BIND_STAGE,
-                lambda: _bind_writer_visual_story_with_recovery(
-                    router=self.router,
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                    visual_story=visual_story,
-                ),
-            )
-            self._write_runtime_events(output_dir)
-
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="script",
