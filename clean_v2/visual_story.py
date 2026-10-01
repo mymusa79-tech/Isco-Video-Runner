@@ -151,7 +151,7 @@ def _beat_action_family(beat: Mapping[str, Any]) -> str:
     return _visual_action_family(
         " ".join(
             str(beat.get(key) or "")
-            for key in ("shot_intent", "stock_query_en", "stock_query_alt_en")
+            for key in ("shot_intent", "stock_query_en")
         )
     )
 
