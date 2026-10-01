@@ -815,12 +815,12 @@ def contextual_intent(
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific",
-        10,
+        8,
     )
     must_have = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
         "concrete",
-        10,
+        8,
     )
     should_avoid = _context_fragment(
         ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
@@ -829,16 +829,16 @@ def contextual_intent(
     )
     priority_rule = ""
     if role == "hook":
-        priority_rule = "Hook tension must be observable, not generic. "
+        priority_rule = "Hook tension observable. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeated family needs changed state. "
+        priority_rule = "Repeat needs changed state. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
     # The provider contract is capped at 300 characters. Keep editor metadata
-    # compact so it never displaces the legacy semantic + neighbor contract:
-    # Meaning/Must show/Avoid and Current/Previous/Next are all higher priority.
+    # compact while preserving the established family + semantic + neighbor
+    # labels that downstream QA/recovery contracts already consume.
     head = (
-        f"Role:{role} Shot:{shot_role[:8]} Env:{environment_family[:10]}. "
-        f"{priority_rule}"
+        f"Role:{role} Shot:{shot_role[:7]} Env:{environment_family[:8]} "
+        f"Fam:{current_family or 'other'}. {priority_rule}"
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         f"Current: {current}. Previous: {previous}. Next: {following}."
     )
