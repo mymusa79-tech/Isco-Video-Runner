@@ -87,6 +87,67 @@ _ACTION_FAMILY_TERMS = {
     "sitting": ("sit", "sitting", "chair", "desk"),
 }
 _ACTION_FAMILY_MAX_USES = 2
+
+VISUAL_WORLD_DARK_MARKERS = (
+    "navy", "dark blue", "deep blue", "charcoal", "slate",
+    "dark shadow", "deep shadow", "كحلي", "أزرق داكن", "ازرق داكن", "فحمي", "فحمية",
+)
+VISUAL_WORLD_GOLD_MARKERS = (
+    "gold", "golden", "warm gold", "gold accent", "golden accent", "amber accent",
+    "ذهبي", "ذهبية", "لمسة ذهبية", "لمسات ذهبية",
+)
+
+
+class VisualWorldIdentityError(ValueError):
+    pass
+
+
+class VisualFamilyRepeatError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        family: str,
+        beat_id: str,
+        section_id: str,
+        query: str,
+    ) -> None:
+        super().__init__(message)
+        self.family = family
+        self.beat_id = beat_id
+        self.section_id = section_id
+        self.query = query
+
+
+def visual_world_identity_report(value: object) -> dict[str, object]:
+    compact = " ".join(str(value or "").split()).casefold()
+    dark_hits = [marker for marker in VISUAL_WORLD_DARK_MARKERS if marker.casefold() in compact]
+    gold_hits = [marker for marker in VISUAL_WORLD_GOLD_MARKERS if marker.casefold() in compact]
+    return {
+        "dark_identity_present": bool(dark_hits),
+        "gold_identity_present": bool(gold_hits),
+        "dark_matches": dark_hits[:4],
+        "gold_matches": gold_hits[:4],
+    }
+
+
+def require_channel_visual_world(value: object) -> str:
+    compact = " ".join(str(value or "").split()).strip()
+    report = visual_world_identity_report(compact)
+    missing = []
+    if not report["dark_identity_present"]:
+        missing.append("navy/dark-blue/charcoal")
+    if not report["gold_identity_present"]:
+        missing.append("gold/golden-accent")
+    if missing:
+        raise VisualWorldIdentityError(
+            "visual_world_identity_missing " + ",".join(missing)
+        )
+    return compact
+
+
+def visual_action_family(value: object) -> str:
+    return _visual_action_family(value)
 _SEMANTIC_PROOF_NOISE = frozenset({
     "cinematic", "lighting", "light", "lights", "warm", "cool", "dark", "bright",
     "navy", "charcoal", "gold", "golden", "ivory", "shadow", "shadows", "highlight",
@@ -412,6 +473,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
     raw_beats = value.get("beats")
     if not visual_world or not isinstance(raw_arc, Mapping) or not isinstance(raw_beats, list):
         raise ValueError("visual_story requires visual_world, story_arc, and beats")
+    visual_world = require_channel_visual_world(visual_world)
 
     arc = {
         key: " ".join(str(raw_arc.get(key) or "").split()).strip()
@@ -791,9 +853,13 @@ def bind_visual_story_to_script(
                     beat["stock_query_en"] = replacement
                     current_family = replacement_family
                 elif strict_diversity:
-                    raise ValueError(
+                    raise VisualFamilyRepeatError(
                         "writer visual binding would repeat the previous "
-                        f"{current_family} scene family without a distinct alternate"
+                        f"{current_family} scene family without a distinct alternate",
+                        family=current_family,
+                        beat_id=str(beat.get("id") or ""),
+                        section_id=section_id,
+                        query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
                     )
                 else:
                     avoids = [
@@ -809,9 +875,13 @@ def bind_visual_story_to_script(
             if strict_diversity and current_family:
                 family_uses[current_family] = family_uses.get(current_family, 0) + 1
                 if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
-                    raise ValueError(
+                    raise VisualFamilyRepeatError(
                         "writer visual binding repeats visual family too often: "
-                        f"{current_family}"
+                        f"{current_family}",
+                        family=current_family,
+                        beat_id=str(beat.get("id") or ""),
+                        section_id=section_id,
+                        query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
                     )
 
             # The Writer may own overlay copy, but image providers never own text.
