@@ -296,39 +296,44 @@ def _short_caption_window(
     *,
     section_id: str,
 ) -> tuple[float, float] | None:
-    """Return the only narration window allowed to carry Short captions.
+    """Return the identity-safe window in which Short captions may exist.
 
-    s1 captions belong to the spoken hook only. s2/s3 captions belong to topic
-    narration only. Intro, prayer, channel identity, structural silences, outro,
-    and final silence are deliberately text-clean.
+    s1 is restricted to the measured hook. Later sections are restricted to
+    the measured topic window. Intro, prayer, channel identity and the final
+    outro card are therefore text-clean by construction.
     """
-    raw_units = timeline_report.get("audio_units")
-    if not isinstance(raw_units, list):
+    raw_identity = timeline_report.get("identity_events")
+    raw_sections = timeline_report.get("section_events")
+    if not isinstance(raw_identity, list) or not isinstance(raw_sections, list):
         return None
-    target_role = "hook" if section_id == "s1" else "topic"
-    windows: list[tuple[float, float]] = []
-    for raw in raw_units:
-        if not isinstance(raw, Mapping):
+    target_kind = "hook" if section_id == "s1" else "topic"
+    identity_window: tuple[float, float] | None = None
+    for raw in raw_identity:
+        if not isinstance(raw, Mapping) or str(raw.get("kind") or "") != target_kind:
             continue
-        if str(raw.get("section_id") or "").strip() != section_id:
-            continue
-        if str(raw.get("role") or "").strip() != target_role:
-            continue
-        start = _seconds(raw.get("start"), "start")
-        end = _seconds(raw.get("end"), "end")
+        start = _seconds(raw.get("start"), f"{target_kind}_start")
+        end = _seconds(raw.get("end"), f"{target_kind}_end")
         if end > start:
-            windows.append((start, end))
-    if not windows:
+            identity_window = (start, end)
+            break
+    if identity_window is None:
         return None
-    windows.sort()
-    # TTS may split one topic into adjacent chunks. Accept only a contiguous
-    # spoken window; never bridge across an identity/prayer/outro gap.
-    start, end = windows[0]
-    for next_start, next_end in windows[1:]:
-        if next_start > end + 0.01:
-            return None
-        end = max(end, next_end)
-    return start, end
+
+    section_window: tuple[float, float] | None = None
+    for raw in raw_sections:
+        if not isinstance(raw, Mapping) or str(raw.get("section_id") or "") != section_id:
+            continue
+        start = _seconds(raw.get("start"), "section_start")
+        end = _seconds(raw.get("end"), "section_end")
+        if end > start:
+            section_window = (start, end)
+            break
+    if section_window is None:
+        return None
+
+    start = max(identity_window[0], section_window[0])
+    end = min(identity_window[1], section_window[1])
+    return (start, end) if end > start else None
 
 
 def _visual_asset_text_events(
@@ -439,12 +444,21 @@ def build_events_from_voice_timeline(
         expected_id = f"s{section_index + 1}"
         if str(raw.get("section_id") or "") != expected_id:
             raise ShortTimedTextError("short_timed_text_voice_timeline_section_order_invalid")
+        caption_window = _short_caption_window(
+            timeline_report,
+            section_id=expected_id,
+        )
+        if caption_window is None:
+            raise ShortTimedTextError("short_timed_text_identity_safe_window_missing")
+        narration = section.get("narration")
+        if section_index == 0:
+            narration = _select_event_text(narration, "hook")
         events.extend(
             _section_phrase_events(
-                section.get("narration"),
+                narration,
                 section_index=section_index,
-                start=_seconds(raw.get("start"), "start"),
-                end=_seconds(raw.get("end"), "end"),
+                start=caption_window[0],
+                end=caption_window[1],
             )
         )
     validate_progressive_text(events)
@@ -962,7 +976,7 @@ def render_progressive_text(
         "word_highlight_count": 0,
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
-        "text_source_policy": "visual_beat_display_text_ar_when_available_else_verbatim_final_script",
+        "text_source_policy": "verbatim_final_audited_script_only",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
@@ -987,15 +1001,10 @@ def apply_short_timed_text(
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid") from exc
         if not isinstance(timeline_report, Mapping):
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
-        events = _visual_asset_text_events(
-            output_dir=Path(output_dir),
+        events = build_events_from_voice_timeline(
+            script=script,
             timeline_report=timeline_report,
         )
-        if not events:
-            events = build_events_from_voice_timeline(
-                script=script,
-                timeline_report=timeline_report,
-            )
     else:
         # Compatibility for older artifacts/tests that predate the explicit
         # Voice-Owned Timeline certificate.
