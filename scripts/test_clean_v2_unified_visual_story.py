@@ -408,11 +408,14 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 # diversity gate can remain fail-closed.
                 if len(visual_story["beats"]) > 1:
                     visual_story["beats"][1]["shot_intent"] = (
-                        "door opening into quiet workspace back view"
+                        "hands folding plain cloth on wooden table"
                     )
                     visual_story["beats"][1]["stock_query_en"] = (
-                        "door opening into quiet workspace back view"
+                        "hands folding plain cloth on wooden table"
                     )
+                    visual_story["beats"][1]["semantic_must_have"] = [
+                        "hands folding plain cloth on wooden table"
+                    ]
                 script = {
                     "title": "نص نهائي",
                     "sections": [
