@@ -801,14 +801,14 @@ def contextual_intent(
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        24,
+        16,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        14,
+        13,
     )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
@@ -829,16 +829,15 @@ def contextual_intent(
     )
     priority_rule = ""
     if role == "hook":
-        priority_rule = "Hook must show an unresolved observable tension; not generic prop. "
+        priority_rule = "Hook tension must be observable, not generic. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat: same family fails unless changed-state motif. "
+        priority_rule = "Repeated family needs changed state. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
-    # Put the semantic audit contract before navigation context so the fixed
-    # 300-char provider boundary can never truncate Meaning/Must show/Avoid when
-    # editor metadata is present. Navigation context is useful but secondary.
+    # The provider contract is capped at 300 characters. Keep editor metadata
+    # compact so it never displaces the legacy semantic + neighbor contract:
+    # Meaning/Must show/Avoid and Current/Previous/Next are all higher priority.
     head = (
-        f"Role:{role} Shot:{shot_role[:10]} Env:{environment_family[:14]} "
-        f"Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
+        f"Role:{role} Shot:{shot_role[:8]} Env:{environment_family[:10]}. "
         f"{priority_rule}"
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         f"Current: {current}. Previous: {previous}. Next: {following}."
