@@ -18,25 +18,37 @@ from clean_v2.visual_story import contextual_intent, validate_visual_story
 
 
 class DirectorLayoutTighteningV1Tests(unittest.TestCase):
-    def test_rule_1_hook_uses_three_authored_quick_shots(self) -> None:
-        paths = [
-            Path("hook-a.mp4"),
-            Path("hook-b.mp4"),
-            Path("hook-c.mp4"),
-            Path("body.mp4"),
-        ]
-        result_paths, durations = media_module._enforce_short_hook_shot_cap(
-            paths,
-            [8.0, 5.0, 4.0, 7.0],
-            ["s1", "s1", "s1", "s2"],
-            hook_seconds=8.0,
+    def test_rule_1_hook_uses_two_or_three_authored_quick_shots(self) -> None:
+        cases = (
+            (
+                [Path("hook-a.mp4"), Path("hook-b.mp4"), Path("body.mp4")],
+                [8.0, 5.0, 7.0],
+                ["s1", "s1", "s2"],
+                8.0,
+                2,
+            ),
+            (
+                [Path("hook-a.mp4"), Path("hook-b.mp4"), Path("hook-c.mp4"), Path("body.mp4")],
+                [8.0, 5.0, 4.0, 7.0],
+                ["s1", "s1", "s1", "s2"],
+                8.0,
+                3,
+            ),
         )
-        self.assertEqual(result_paths, paths)
-        self.assertLessEqual(durations[0], 5.0)
-        self.assertLessEqual(durations[1], 5.0)
-        self.assertAlmostEqual(durations[0], 8.0 / 3.0, places=3)
-        self.assertAlmostEqual(durations[1], 8.0 / 3.0, places=3)
-        self.assertAlmostEqual(sum(durations), 24.0)
+        for paths, source_durations, section_ids, hook_seconds, hook_shots in cases:
+            with self.subTest(hook_shots=hook_shots):
+                result_paths, durations = media_module._enforce_short_hook_shot_cap(
+                    paths,
+                    source_durations,
+                    section_ids,
+                    hook_seconds=hook_seconds,
+                )
+                self.assertEqual(result_paths, paths)
+                expected_quick = hook_seconds / hook_shots
+                for index in range(hook_shots - 1):
+                    self.assertLessEqual(durations[index], 5.0)
+                    self.assertAlmostEqual(durations[index], expected_quick, places=3)
+                self.assertAlmostEqual(sum(durations), sum(source_durations))
 
     def test_rule_2_and_7_all_formats_are_fully_opaque_and_final_frame_freezes(self) -> None:
         for fmt in ("short", "film", "podcast"):
