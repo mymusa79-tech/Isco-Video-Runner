@@ -31,7 +31,8 @@ class Run144RecoveryQueryShapeTests(unittest.TestCase):
         )
         self.assertIn("4 to 14 English words only", prompt)
         self.assertIn("ONE observable action or ONE simple setting", prompt)
-        self.assertIn("Do not use comparisons", prompt)
+        self.assertIn("If the beat's meaning IS a comparison", prompt)
+        self.assertIn("preserve that relation", prompt)
 
     def test_attempt1_verbose_query_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
