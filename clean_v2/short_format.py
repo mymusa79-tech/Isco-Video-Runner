@@ -943,7 +943,7 @@ def normalize_short_practical_action(value: object) -> str:
 
     sentences = [
         item.strip()
-        for item in re.split(r"(?<=[.!؟!])\\s+", original)
+        for item in re.split(r"(?<=[.!؟!])\s+", original)
         if item.strip()
     ]
     if len(sentences) != 1:
@@ -987,7 +987,7 @@ def normalize_short_practical_action(value: object) -> str:
     # only a clearly joined tail. The remaining head must independently pass
     # the unchanged strict validator, so this cannot turn ambiguous prose into
     # an accepted action.
-    connector = re.search(r"\\s+(?:ثم|و)\\s+", sentence)
+    connector = re.search(r"\s+(?:ثم|و)\s+", sentence)
     if connector is not None:
         head = sentence[: connector.start()].rstrip(" \t،,؛;:.!?؟!")
         if _word_count(head) >= 3:
