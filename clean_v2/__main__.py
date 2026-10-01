@@ -46,8 +46,8 @@ def _parser() -> argparse.ArgumentParser:
         ),
         help=(
             "Optional path to a small JSON file recording recently selected "
-            "longform narrative_format values, to avoid repeating the same "
-            "shape across recent film runs."
+            "film narrative formats and Short templates, to avoid repeating the same "
+            "shape across recent runs."
         ),
     )
     parser.add_argument("--max-visuals", type=int, choices=range(1, 6), default=5)

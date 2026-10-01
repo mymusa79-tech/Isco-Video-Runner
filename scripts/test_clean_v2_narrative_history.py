@@ -34,6 +34,16 @@ class NarrativeHistoryTests(unittest.TestCase):
             self.assertEqual(data["film"], ["question_answer", "story_analysis"])
             self.assertEqual(data["schema_version"], 1)
 
+    def test_short_round_trip_is_independent_of_film(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.json"
+            record_narrative_format(path, "film", "question_answer")
+            record_narrative_format(path, "short", "inner_dialogue")
+            record_narrative_format(path, "short", "why_reframe")
+            self.assertEqual(recent_narrative_formats(path, "film"), ("question_answer",))
+            self.assertEqual(recent_narrative_formats(path, "short"),
+                             ("inner_dialogue", "why_reframe"))
+
     def test_only_the_most_recent_limit_entries_are_kept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "narrative-history.json"
@@ -48,9 +58,7 @@ class NarrativeHistoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "narrative-history.json"
             record_narrative_format(path, "podcast", "dialogue_qa")
-            record_narrative_format(path, "short", "inner_dialogue")
             self.assertEqual(recent_narrative_formats(path, "podcast"), ())
-            self.assertEqual(recent_narrative_formats(path, "short"), ())
             # Nothing was ever written for an untracked format.
             self.assertFalse(path.is_file())
 

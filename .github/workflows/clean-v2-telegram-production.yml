@@ -113,7 +113,7 @@ jobs:
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
-      - name: Restore recent film narrative_format history
+      - name: Restore recent film and Short narrative history
         run: |
           set -euo pipefail
           history_root="$RUNNER_TEMP/clean-v2-narrative-history-state"
@@ -314,7 +314,7 @@ jobs:
           path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
           key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Persist recent film narrative_format history
+      - name: Persist recent film and Short narrative history
         if: always()
         run: |
           set -euo pipefail
@@ -324,7 +324,7 @@ jobs:
           git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" add state/clean-v2-narrative-history.json
           if ! git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" diff --cached --quiet; then
             git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" pull --ff-only origin "$STATE_BRANCH"
-            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" commit -m "state: record film narrative_format selection"
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" commit -m "state: record narrative selection"
             git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" push origin "HEAD:$STATE_BRANCH"
           fi
 
