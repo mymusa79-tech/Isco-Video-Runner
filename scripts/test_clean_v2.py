@@ -2001,7 +2001,7 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                 value = short_plan(_TEMPLATE_FIXTURES[selected]["queries"])
                 queries = _TEMPLATE_FIXTURES[selected]["queries"]
                 value["visual_story"] = {
-                    "visual_world": "grounded cinematic realism no identifiable faces",
+                    "visual_world": "dark navy and charcoal cinematic depth with restrained warm gold accent, no identifiable faces",
                     "story_arc": {
                         "beginning": "the exact tension is visible",
                         "transformation": "the mechanism becomes visible",
