@@ -23,6 +23,8 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "hook_genericness": {"type": "boolean"},
         "hook_body_continuity": {"type": "boolean"},
         "payoff_resolves_hook": {"type": "boolean"},
+        "section_dependency": {"type": "boolean"},
+        "topic_fidelity": {"type": "boolean"},
         "notes": {"type": "array", "items": {"type": "string"}},
         "filler_flags": {"type": "array", "items": {"type": "string"}},
         "payoff_earned": {"type": "boolean"},
@@ -41,6 +43,8 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "hook_genericness",
         "hook_body_continuity",
         "payoff_resolves_hook",
+        "section_dependency",
+        "topic_fidelity",
         "notes",
     ],
     "additionalProperties": False,
@@ -64,6 +68,7 @@ _HOOK_QUALITY_FIELDS = (
     "hook_body_continuity",
     "payoff_resolves_hook",
 )
+_CONTENT_DEPENDENCY_FIELDS = ("section_dependency", "topic_fidelity")
 
 
 _LEGACY_RELIGIOUS_QUOTE_RULE = (
@@ -137,6 +142,18 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   already approved material, not more factual claims. For each concrete defect add one concise
   narrative_format_flags item prefixed exactly "content_depth:" and include the affected section id
   (for example content_depth:s2 ...). Set status=block when any such defect exists.
+- DEPENDENCY / TOPIC-FIDELITY TEST — still inside this SAME audit call:
+  * section_dependency=true only when every non-identity section adds a distinct piece of reasoning whose
+    position matters. Set it false if a section can be removed or swapped without weakening the explanation,
+    or if it jumps from the episode's tension into generic advice.
+  * topic_fidelity=true only when every explanatory or prescriptive sentence is earned by THIS episode's
+    central tension and preceding reasoning. Set it false when a sentence introduces a generic mechanism or
+    slogan that could close many unrelated videos. Example pattern to reject: saying that a "small step reduces
+    friction" in an episode about social comparison when friction was never established or explained.
+  * When either boolean is false, set status=block and add a concise narrative_format_flags item prefixed
+    "content_dependency:" with the affected section id and exact short excerpt.
+- Extend the existing JSON object with these two required booleans:
+  "section_dependency", "topic_fidelity".
 - Extend the existing JSON object with exactly these required boolean fields:
   "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness",
   "hook_body_continuity", "payoff_resolves_hook".
@@ -199,6 +216,33 @@ def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _enforce_content_dependency_contract(result: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed when the same audit detects generic or swappable reasoning."""
+    wrong = [
+        field
+        for field in _CONTENT_DEPENDENCY_FIELDS
+        if field not in result or type(result[field]) is not bool
+    ]
+    if wrong:
+        raise ValueError(
+            "tone audit response missing/invalid content boolean(s): "
+            + ", ".join(wrong)
+        )
+    failed: list[str] = []
+    if not result["section_dependency"]:
+        failed.append("section_dependency")
+    if not result["topic_fidelity"]:
+        failed.append("topic_fidelity")
+    if failed:
+        result["status"] = "block"
+        flags = result.get("narrative_format_flags")
+        if not isinstance(flags, list):
+            raise ValueError("tone audit narrative_format_flags must be an array")
+        if not any(str(item).startswith("content_dependency:") for item in flags):
+            flags.append("content_dependency: failed " + ", ".join(failed))
+    return result
+
+
 def _normalize_editorial_voice_advisory(result: dict[str, Any]) -> dict[str, Any]:
     """Coerce the observation-only editorial-voice fields to safe defaults.
 
@@ -228,6 +272,7 @@ def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     try:
         validate_audit_payload(result, required_arrays=_REQUIRED_ARRAYS)
         result = _enforce_hook_quality_contract(result)
+        result = _enforce_content_dependency_contract(result)
         return _normalize_editorial_voice_advisory(result)
     except Exception as exc:
         raise MistralExecutorWireFailure(
@@ -299,6 +344,9 @@ def audit_tone_and_naturalness_with_mistral(
                     result["filler_flags"] = raw["filler_flags"]
                 if type(raw.get("payoff_earned")) is bool:
                     result["payoff_earned"] = raw["payoff_earned"]
+                for field in _CONTENT_DEPENDENCY_FIELDS:
+                    if type(raw.get(field)) is bool:
+                        result[field] = raw[field]
                 if type(raw.get("cold_open_story_violation")) is bool:
                     result["cold_open_story_violation"] = raw["cold_open_story_violation"]
             return _normalize_editorial_voice_advisory(result)
