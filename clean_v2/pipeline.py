@@ -4183,6 +4183,17 @@ def _append_runtime_event(router: Any, event: Mapping[str, Any]) -> None:
         events.append(dict(event))
 
 
+def _last_successful_provider(router: Any, stage: str) -> str:
+    for event in reversed(list(getattr(router, "events", []))):
+        if (
+            isinstance(event, Mapping)
+            and str(event.get("stage") or "") == stage
+            and str(event.get("result") or "") == "success"
+        ):
+            return str(event.get("provider") or "").strip()
+    return ""
+
+
 def _validate_plan_with_visual_world_recovery(
     value: Any,
     brief: Mapping[str, Any],
@@ -4334,7 +4345,13 @@ def _bind_writer_visual_story_with_recovery(
                     )
                 return normalized
 
-            recovered = router.route(
+            writer_provider = _last_successful_provider(router, "script")
+            if not writer_provider:
+                raise RuntimeError(
+                    "visual family recovery cannot identify successful script provider"
+                )
+            recovered = router.route_exact_provider(
+                provider_name=writer_provider,
                 stage="visual_query_recovery",
                 prompt=_visual_family_recovery_prompt(
                     error=exc,
