@@ -772,7 +772,7 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
         source = inspect.getsource(CleanV2Pipeline.run)
         self.assertIn("podcast_promo=podcast_promo", source)
         self.assertIn("recent_signatures=podcast_promo_history", source)
-        self.assertIn("record_podcast_promo_signature(", source)
+        self.assertIn("record_derived_short_signature(", source)
 
     def test_local_promo_selection_avoids_opening_and_preserves_text(self) -> None:
         sections = [
