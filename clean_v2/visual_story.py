@@ -770,6 +770,12 @@ def contextual_intent(
     beat_id: str,
     fallback_intent: str,
 ) -> str:
+    """Build the bounded semantic brief consumed by the existing Visual QA.
+
+    The accepted Writer anchor is the primary semantic evidence. Planning mood,
+    stock wording and neighbour context are secondary. Keep the established
+    300-character provider boundary and add no call/stage.
+    """
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
         (index for index, item in enumerate(beats) if str(item.get("id") or "") == beat_id),
@@ -780,8 +786,6 @@ def contextual_intent(
 
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
-    shot_role = str(current_beat.get("shot_role") or "").strip() or "action"
-    environment_family = str(current_beat.get("environment_family") or "").strip() or "contextual"
     current_family = _visual_action_family(
         current_beat.get("shot_intent") or fallback_intent
     )
@@ -791,78 +795,74 @@ def contextual_intent(
         else ""
     )
 
-    # Keep all legacy context labels plus the new hook/family rule inside the
-    # existing 300-char provider contract. These labels are compatibility surface.
+    narration = _context_fragment(
+        current_beat.get("writer_anchor_ar"),
+        "spoken beat",
+        52,
+    )
+    meaning = _context_fragment(
+        current_beat.get("meaning_target")
+        or current_beat.get("viewer_intent")
+        or current_beat.get("shot_intent"),
+        "specific visible meaning",
+        34,
+    )
+    must_have = _context_fragment(
+        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
+        "concrete proof",
+        26,
+    )
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
         "current beat",
+        28,
+    )
+    should_avoid = _context_fragment(
+        ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
+        "generic mood",
         20,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
-        "story opening",
+        "opening",
         16,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
-        "story arrival",
-        13,
+        "arrival",
+        16,
     )
-    meaning = _context_fragment(
-        current_beat.get("meaning_target")
-        or current_beat.get("viewer_intent")
-        or current_beat.get("shot_intent"),
-        "specific",
-        8,
-    )
-    must_have = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
-        "concrete",
-        8,
-    )
-    should_avoid = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_should_avoid") or [])),
-        "generic",
-        8,
-    )
-    priority_rule = ""
+
+    pieces = [f"Role:{role}"]
+    if current_family:
+        pieces.append(f"Fam:{current_family}")
+    if previous_family:
+        pieces.append(f"PrevFam:{previous_family}")
     if role == "hook":
-        # Preserve the established semantic hook contract verbatim; downstream
-        # QA/tests consume this phrase as compatibility surface.
-        priority_rule = "Hook must show an unresolved observable tension. "
+        pieces.append("Hook must show an unresolved observable tension")
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat: changed state. "
-    previous_family_label = (
-        f" PrevFam:{previous_family}" if previous_family else ""
+        pieces.append("Repeat must show a changed state")
+    pieces.extend(
+        [
+            f"Narration:{narration}",
+            f"Meaning:{meaning}",
+            f"Must show:{must_have}",
+        ]
     )
+
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
-
-    # Compatibility-first budgeting: the established semantic/family/neighbour
-    # contract is mandatory. New editor metadata is appended only when it fits;
-    # it must never evict Meaning/Must show/Avoid or Current/Previous/Next from
-    # the fixed 300-char provider boundary.
-    mandatory = (
-        f"Role:{role} Fam:{current_family or 'other'}{previous_family_label}. "
-        f"{priority_rule}"
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
-        f"Current: {current}. Previous: {previous}. Next: {following}."
+    head_limit = 300 - len(tail)
+    head = ". ".join(pieces) + "."
+    optional = (
+        f" Current:{current}.",
+        f" Avoid:{should_avoid}.",
+        f" Previous:{previous}.",
+        f" Next:{following}.",
     )
-    editor_parts: list[str] = []
-    if shot_role:
-        editor_parts.append(f"Shot:{shot_role[:7]}")
-    if environment_family and environment_family != "contextual":
-        editor_parts.append(f"Env:{environment_family[:8]}")
-    editor_prefix = (" ".join(editor_parts) + ". ") if editor_parts else ""
-
-    if len(mandatory) + len(editor_prefix) + len(tail) <= 300:
-        head = mandatory.replace(
-            f"Role:{role} ",
-            f"Role:{role} {editor_prefix}",
-            1,
-        )
-    else:
-        head = mandatory
-    head_limit = max(0, 300 - len(tail))
+    for fragment in optional:
+        if len(head) + len(fragment) <= head_limit:
+            head += fragment
     return head[:head_limit].rstrip() + tail
+
