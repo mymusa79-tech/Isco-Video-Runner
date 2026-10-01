@@ -149,6 +149,40 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
 
+    def test_fresh_plans_enable_fail_closed_visual_diversity_for_every_format(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+                self.assertEqual(
+                    planned["_visual_diversity_contract"],
+                    "v2_fail_closed",
+                )
+
+    def test_film_writer_binding_rejects_adjacent_stationery_without_alternate(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("film"), _brief("film"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = "hand writing in notebook"
+        visual_story["beats"][0]["stock_query_en"] = "hand writing in notebook"
+        visual_story["beats"][1]["shot_intent"] = "pen marking sticky notes on paper"
+        visual_story["beats"][1]["stock_query_en"] = "pen marking sticky notes on paper"
+        visual_story["beats"][1].pop("stock_query_alt_en", None)
+        planned["sections"][1].pop("visual_query_alt_en", None)
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": f"معنى نهائي مكتمل للقسم {index}. وتظهر نتيجة واضحة.",
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            "repeat the previous stationery scene family",
+        ):
+            bind_visual_story_to_script(visual_story, planned, script)
+
     def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
         story = {
             "beats": [
