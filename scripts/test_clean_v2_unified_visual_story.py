@@ -123,13 +123,13 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
     def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
         story = {
             "beats": [
-                {"id": "b1", "section_id": "s1", "role": "hook"},
-                {"id": "b2", "section_id": "s1", "role": "body"},
-                {"id": "b3", "section_id": "s1", "role": "body"},
-                {"id": "b4", "section_id": "s2", "role": "body"},
-                {"id": "b5", "section_id": "s2", "role": "body"},
-                {"id": "b6", "section_id": "s3", "role": "body"},
-                {"id": "b7", "section_id": "s3", "role": "payoff"},
+                {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "unequal starting marks wide shot"},
+                {"id": "b2", "section_id": "s1", "role": "body", "stock_query_en": "different progress positions close detail"},
+                {"id": "b3", "section_id": "s1", "role": "body", "stock_query_en": "same path different starting points"},
+                {"id": "b4", "section_id": "s2", "role": "body", "stock_query_en": "person checks own progress marker"},
+                {"id": "b5", "section_id": "s2", "role": "body", "stock_query_en": "phone comparison feed beside task"},
+                {"id": "b6", "section_id": "s3", "role": "body", "stock_query_en": "one chosen next step object"},
+                {"id": "b7", "section_id": "s3", "role": "payoff", "stock_query_en": "completed personal progress marker"},
             ]
         }
         bounded = _bound_short_visual_story(story, max_beats=5)
