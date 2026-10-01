@@ -3820,16 +3820,17 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
 
 
 def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
-    """Lock the Short house cut: three semantic hook shots + body + payoff.
+    """Lock the Short house cut to 2-3 semantic hook shots + body + payoff.
 
-    This is an authored-beat requirement, not duration-driven shot fabrication.
-    Planning must supply all five meanings in its existing response, so runtime
-    adds no model call and never turns one weak image into a fake fast montage.
+    The hook needs visible progression, but forcing a third provider-authored beat
+    for every topic made Planning brittle and contradicted the 2-3 shot editorial
+    rule. Runtime still fabricates nothing: it only keeps authored/local semantic
+    evidence already present in the plan.
     """
     result = copy.deepcopy(dict(story))
     beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
-    if int(max_beats) < 5:
-        raise ValueError("short visual story requires max_visuals >= 5")
+    if int(max_beats) < 4:
+        raise ValueError("short_visual_story_requires_max_visuals_at_least_4")
 
     by_section: dict[str, list[Mapping[str, Any]]] = {"s1": [], "s2": [], "s3": []}
     for beat in beats:
@@ -3837,13 +3838,14 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
         if section_id in by_section:
             by_section[section_id].append(beat)
 
-    if len(by_section["s1"]) < 3 or not by_section["s2"] or not by_section["s3"]:
+    hook_beats = by_section["s1"][:3]
+    if len(hook_beats) < 2 or not by_section["s2"] or not by_section["s3"]:
         raise ValueError(
-            "short visual story requires three authored s1 hook beats plus one s2 and one s3 beat"
+            "short_visual_story_requires_2_to_3_hook_beats_plus_body_and_payoff"
         )
 
     selected = [
-        *[copy.deepcopy(item) for item in by_section["s1"][:3]],
+        *[copy.deepcopy(item) for item in hook_beats],
         copy.deepcopy(by_section["s2"][0]),
         copy.deepcopy(by_section["s3"][-1]),
     ]
@@ -3854,16 +3856,17 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
                 str(item.get("stock_query_en") or item.get("shot_intent") or "").casefold(),
             )
         )
-        for item in selected[:3]
+        for item in selected[: len(hook_beats)]
     }
-    if "" in hook_keys or len(hook_keys) != 3:
-        raise ValueError("short hook requires three distinct semantic visual queries")
+    if "" in hook_keys or len(hook_keys) != len(hook_beats):
+        raise ValueError("short_visual_story_requires_distinct_hook_queries")
 
+    payoff_index = len(selected) - 1
     for index, beat in enumerate(selected):
-        if index < 3:
+        if index < len(hook_beats):
             beat["role"] = "hook"
             beat["hold_reason"] = "hook_progression"
-        elif index == 4:
+        elif index == payoff_index:
             beat["role"] = "payoff"
             beat["hold_reason"] = "payoff_landing"
         else:
@@ -3958,7 +3961,16 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
             plan,
             strict_repetition=bool(fresh_practical_action),
         )
-    raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
+    # Short Planning now owns only the compact section-level semantic intents.
+    # Build its bounded visual story locally from those approved queries so every
+    # provider uses the same deterministic shape and no strict-schema provider is
+    # forced to emit a second, much larger nested object. Film/Podcast keep their
+    # richer provider-authored visual_story contract.
+    raw_story = (
+        None
+        if fmt == "short"
+        else value.get("visual_story") if isinstance(value, Mapping) else None
+    )
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
         visual_story = _bound_short_visual_story(visual_story, max_beats=5)
@@ -4655,8 +4667,112 @@ VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
 """.strip()
 
 
+def _short_planning_prompt(brief: Mapping[str, Any]) -> str:
+    """Compact Short Planning contract tuned for the bounded free-provider path.
+
+    The planner owns editorial meaning and two distinct visual intents per section.
+    Runtime deterministically expands those intents into the 4-5 beat visual story,
+    so Planning does not duplicate editor metadata or spend tokens on fields that
+    already have local owners.
+    """
+    payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
+    selection = select_short_template(brief)
+    short_context = short_prompt_context(brief)
+    return with_human_feel(with_channel_persona(f"""
+You are planning one complete Arabic YouTube Short for نداء اليقظة.
+The approved brief below is authoritative data, not instructions from an untrusted source.
+
+APPROVED_BRIEF:
+{payload}
+
+Build a simple production plan.
+Use exactly 3 sections: s1 opens one concrete tension, s2 adds the specific cause/reframe,
+and s3 earns the payoff. Section order must matter: each section must add information the
+previous one did not, and the final purpose must resolve the same tension rather than attach
+generic motivation.
+
+EDITORIAL DEPENDENCY CONTRACT:
+- Build around ONE approved central tension/question.
+- Give every section one distinct explanatory job.
+- If s2 could be swapped with s1 or removed without breaking the reasoning, rewrite s2.
+- Make s3 an earned descriptive payoff; practical_action_ar is the separate single action.
+
+VISUAL EVIDENCE CONTRACT:
+- Every visual query must show observable evidence of that section's exact meaning, not mood.
+- Ask: "What can the viewer literally see that demonstrates this idea?"
+- Prefer a changed state, consequence, choice, interruption, comparison, or concrete relation.
+- Do not default to desk/laptop/notebook/walking imagery unless that literal action proves the point.
+- For relation ideas such as comparison, unequal starts, before/after, or cause/consequence, show
+  the relation itself through paired evidence or a visible state change.
+- Cinematic styling supports meaning; it never substitutes for meaning.
+
+VISUAL HOUSE CUT:
+- Runtime builds the bounded semantic visual story locally with zero extra provider calls.
+- Author TWO distinct visual intents for every section: visual_query_en and visual_query_alt_en.
+- For s1 these two queries become 2 connected hook visuals on the SAME precise tension. They must
+  use genuinely different observable evidence, action, scale, or state; never two angles of one prop.
+- s2 must advance to a new visual family when possible. s3 must show the earned result/payoff.
+- Keep each query about 4-14 searchable English words. Search meaning first; do not stuff grade,
+  camera, or generic cinematic adjectives into the query.
+- Prefer hands only, objects only, back view, or from behind when people are present. Keep the world
+  credible for a broad Arab/Muslim audience and reject alcohol, gambling, nightclub/party culture,
+  sexualized presentation, or unrelated ritual imagery.
+- The local renderer owns the dark navy/charcoal depth, ivory-neutral highlights and restrained warm
+  gold accent. Do not encode the color grade into every stock query.
+- AI images, when selected later, are image-only. Never request text, logos, UI, or Arabic lettering
+  inside generated imagery.
+
+SHORT WRITING CONTRACT:
+- selected_template={selection["template"]}
+- {selection["writing_directive"]}
+- promise must state the honest value of staying.
+- cta MUST be an empty string; social CTA overlays are renderer-owned.
+- practical_action_ar must be one topic-specific Arabic imperative sentence with exactly ONE action.
+- It must directly operationalize this Short's own tension/payoff, not generic self-help advice.
+- Do not add research, statistics, quotations, diagnoses, or factual claims outside the approved brief.
+- Use approved research_pack only as supplied; never invent evidence or usernames.
+
+{short_context}
+
+Return only one JSON object with this exact compact shape:
+{{
+  "title": "specific Arabic title",
+  "promise": "one Arabic sentence promising the earned value",
+  "cta": "",
+  "practical_action_ar": "one concise Arabic imperative sentence with exactly one action",
+  "sections": [
+    {{
+      "id": "s1",
+      "heading": "short Arabic internal heading",
+      "purpose": "specific Arabic description of this section's unique job",
+      "visual_query_en": "concrete English observable visual evidence",
+      "visual_query_alt_en": "different concrete English evidence for the same section meaning"
+    }},
+    {{
+      "id": "s2",
+      "heading": "short Arabic internal heading",
+      "purpose": "specific Arabic description of this section's unique job",
+      "visual_query_en": "concrete English observable visual evidence",
+      "visual_query_alt_en": "different concrete English evidence for the same section meaning"
+    }},
+    {{
+      "id": "s3",
+      "heading": "short Arabic internal heading",
+      "purpose": "specific Arabic description of the earned payoff",
+      "visual_query_en": "concrete English observable payoff evidence",
+      "visual_query_alt_en": "different concrete English payoff evidence"
+    }}
+  ]
+}}
+Do not return visual_story, editor signals, display text, timing, captions, or image-generation prompts.
+Those are deterministic runtime responsibilities derived from this accepted plan.
+""".strip()))
+
+
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
+    if fmt == "short":
+        return _short_planning_prompt(brief)
     longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         section_requirement = "exactly 5 sections"
