@@ -619,7 +619,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-27T21:38:18Z",
-      "selected_at": "2026-09-27T21:52:09Z"
+      "selected_at": "2026-10-01T09:34:21Z"
     },
     {
       "idea_id": "idea-3acd0c729b",
@@ -2528,6 +2528,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-01T09:06:20Z",
       "selected_index": 0
+    },
+    "01958bb1": {
+      "session_id": "01958bb1",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-01T09:34:21Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T09:34:21Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2815,9 +2826,40 @@
       "confirmed_at": "2026-10-01T09:06:44Z",
       "dispatched_at": "2026-10-01T09:06:49Z",
       "request_sha256": "9574cd933575e27d8c2abab3c8266439e750ea2ebb98e1812416f55fd6c038c7"
+    },
+    "req-47af23717897": {
+      "schema_version": 1,
+      "request_id": "req-47af23717897",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+      "research_pack": [
+        {
+          "source_title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+          "source_url": "https://youtu.be/b7X96liZ0g4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
+          "source_url": "https://youtu.be/-Dto_7_d7-c",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
+          "source_url": "https://youtu.be/pC4Hw7lRBmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-1dffada5b5",
+      "selected_at": "2026-10-01T09:34:21Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "1607ff32c0b62621af0bb2f4233bba387046c57651e2987824ab9ac71d330828"
     }
   },
-  "current_request_id": "req-794d5c054f23",
+  "current_request_id": "req-47af23717897",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3072,5 +3114,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T09:33:54Z"
+  "updated_at": "2026-10-01T09:34:21Z"
 }
