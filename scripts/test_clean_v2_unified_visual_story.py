@@ -216,7 +216,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
                 story = validate_visual_story(planned["visual_story"], planned)
-                self.assertEqual(len(story["beats"]), 3 if fmt == "short" else 5)
+                self.assertEqual(len(story["beats"]), 5)
                 self.assertTrue(
                     all(
                         beat["source_preference"] in {"stock_motion", "stock_still", "ai_still"}
@@ -242,7 +242,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
-                self.assertIn("use 3-5 semantic visual beats total", prompt)
+                self.assertIn("return EXACTLY 5 semantic visual beats", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
