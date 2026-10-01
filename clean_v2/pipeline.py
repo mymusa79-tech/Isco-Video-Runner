@@ -293,6 +293,27 @@ def _select_longform_narrative_profile(brief: Mapping[str, Any]) -> dict[str, An
         if scores.get(name, 0) < floor:
             scores[name] = -100
 
+    # Cross-run variety: similar topics otherwise pick the same narrative_format
+    # forever, since this scoring has no memory of its own. _recent_narrative_formats
+    # is a private key the caller stashes on this SAME brief dict (never part of the
+    # public brief schema) so every call site within one production run excludes the
+    # identical recent history and stays consistent with each other. Never exclude
+    # down to zero eligible candidates - a run must still be able to pick something.
+    recent = tuple(
+        str(value).strip()
+        for value in (brief.get("_recent_narrative_formats") or ())
+        if str(value or "").strip()
+    )
+    selection_basis = "approved_topic_plus_approved_context_deterministic_v1"
+    if recent:
+        history_scores = dict(scores)
+        for name in recent:
+            if name in history_scores:
+                history_scores[name] = -100
+        if max(history_scores.values()) > -100:
+            scores = history_scores
+            selection_basis += "_history_aware"
+
     best = max(scores.values())
     selected = next(name for name in _LONGFORM_PROFILE_ORDER if scores.get(name, -100) == best)
     if selected not in _LONGFORM_PROFILES:
@@ -303,8 +324,9 @@ def _select_longform_narrative_profile(brief: Mapping[str, Any]) -> dict[str, An
         "writing": profile["writing"],
         "visual": profile["visual"],
         "voice": profile["voice"],
-        "selection_basis": "approved_topic_plus_approved_context_deterministic_v1",
+        "selection_basis": selection_basis,
         "scores": scores,
+        "recent_narrative_formats_excluded": list(recent),
         "extra_ai_calls": 0,
     }
 QUALITY_STAGE = "final_master_qc"
@@ -5550,8 +5572,13 @@ class CleanV2Pipeline:
         runner_sha: str | None = None,
         max_visuals: int = 5,
         resume_from: Path | None = None,
+        narrative_history_path: Path | None = None,
     ) -> dict[str, Any]:
         from clean_v2.mistral_executor import reset_mistral_executor_telemetry
+        from clean_v2.narrative_history import (
+            record_narrative_format,
+            recent_narrative_formats,
+        )
 
         reset_mistral_executor_telemetry()
         engine_sha = require_exact_engine_sha(engine_sha)
@@ -5584,6 +5611,15 @@ class CleanV2Pipeline:
             journal._write()
 
             approved_brief_digest = compute_brief_sha256(brief)
+            # Private, not part of the public brief schema, the on-disk brief.json
+            # above, or either sha256 digest just computed from the clean brief:
+            # _select_longform_narrative_profile reads this straight off the SAME
+            # brief mapping every call site in this run shares, so Planning's
+            # prompt, the plan validator, and the Script prompt all stay consistent
+            # about which narrative_format is excluded for this one run.
+            brief["_recent_narrative_formats"] = recent_narrative_formats(
+                narrative_history_path, str(brief.get("format") or "")
+            )
             resume = _load_resume_checkpoint(
                 resume_from,
                 approved_brief_sha256=approved_brief_digest,
@@ -5627,6 +5663,11 @@ class CleanV2Pipeline:
                 )
                 plan, visual_story = _persist_planning_artifacts(output_dir, planned)
                 self._write_runtime_events(output_dir)
+                record_narrative_format(
+                    narrative_history_path,
+                    str(brief.get("format") or ""),
+                    str(plan.get("narrative_format") or ""),
+                )
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="planning",

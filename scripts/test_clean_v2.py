@@ -1878,6 +1878,96 @@ class _RepairInfrastructureRouter(_FakeRouter):
         )
 
 
+class _PlanningOnlyRouter(_FakeRouter):
+    """Succeeds Planning (so plan.json is written and recordable), then fails
+    closed on the script stage - no ffmpeg/voice/visual fixtures needed to test
+    narrative_history wiring through a real CleanV2Pipeline.run() call. Pair
+    with narrative_identity=_passing_narrative_identity so the stage between
+    planning and script (which calls the real, unavailable-in-this-sandbox
+    isco_video_agent Engine package directly, not through this router) does
+    not need the Engine either."""
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        if stage != "planning":
+            raise RuntimeError(f"{stage} stopped deliberately after planning in this fixture")
+        return super().route(stage=stage, prompt=prompt, max_tokens=max_tokens, validator=validator)
+
+
+class CleanV2NarrativeHistoryWiringTests(unittest.TestCase):
+    def test_pipeline_run_avoids_repeating_recent_film_narrative_format(self) -> None:
+        brief = _brief()
+        self.assertEqual(brief["format"], "film")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            history_path = root / "narrative-history.json"
+            brief_path = root / "brief.json"
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            approved_sha256 = compute_brief_sha256(brief)
+
+            def _run_once(output_name: str) -> dict:
+                pipeline = CleanV2Pipeline(
+                    router=_PlanningOnlyRouter(),
+                    voice_synthesizer=_FakeVoice(),
+                    visual_source=_FakeVisuals(),
+                    narrative_identity=_passing_narrative_identity,
+                )
+                # The fixture router deliberately fails the script stage right
+                # after planning succeeds - plan.json is already durably written
+                # and recorded into history by then, which is all this test needs.
+                with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
+                    pipeline.run(
+                        brief_path=brief_path,
+                        approved_sha256=approved_sha256,
+                        output_dir=root / output_name,
+                        engine_sha="a" * 40,
+                        runner_sha="b" * 40,
+                        max_visuals=2,
+                        narrative_history_path=history_path,
+                    )
+                return json.loads(
+                    (root / output_name / "plan.json").read_text(encoding="utf-8")
+                )
+
+            first_plan = _run_once("first")
+            self.assertEqual(first_plan["narrative_format"], "question_answer")
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            self.assertEqual(history["film"], ["question_answer"])
+
+            # Second run, same topic, same brief: without history-awareness this
+            # would deterministically pick question_answer again forever. With the
+            # history this first run just recorded, it must pick something else.
+            second_plan = _run_once("second")
+            self.assertNotEqual(second_plan["narrative_format"], "question_answer")
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                history["film"], ["question_answer", second_plan["narrative_format"]]
+            )
+
+    def test_pipeline_run_without_history_path_behaves_exactly_as_before(self) -> None:
+        brief = _brief()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "brief.json"
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            pipeline = CleanV2Pipeline(
+                router=_PlanningOnlyRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=root / "out",
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            plan = json.loads((root / "out" / "plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(plan["narrative_format"], "question_answer")
+
+
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
