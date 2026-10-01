@@ -84,6 +84,7 @@ TEXT_AUDIT_STAGE = "text_audit"
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
 VISUAL_BIND_STAGE = "visual_binding"
+POST_TEXT_VISUAL_BIND_STAGE = "post_text_visual_binding"
 VISUAL_BIND_RECOVERY_MAX_ATTEMPTS = 2
 VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 2
 _PLANNING_FACTUALITY_RULE = (
@@ -376,6 +377,7 @@ STAGES = (
     VISUAL_BIND_STAGE,
     STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
+    POST_TEXT_VISUAL_BIND_STAGE,
     "voice",
     AUDIO_MASTERING_STAGE,
     "visuals",
@@ -6301,6 +6303,7 @@ class CleanV2Pipeline:
                 )
                 journal.reuse(STRUCTURAL_AI_STAGE)
                 journal.reuse(TEXT_AUDIT_STAGE)
+                journal.reuse(POST_TEXT_VISUAL_BIND_STAGE)
                 # The current output started with a freshly written script-level
                 # checkpoint. Promote it again before Voice so another quota
                 # failure cannot downgrade the durable cache and force a repeated
@@ -6366,13 +6369,18 @@ class CleanV2Pipeline:
                 (output_dir / "narration.txt").write_text(
                     transcript + "\n", encoding="utf-8"
                 )
-                visual_story = _bind_writer_visual_story(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                    visual_story=visual_story,
+                visual_story = journal.run(
+                    POST_TEXT_VISUAL_BIND_STAGE,
+                    lambda: _bind_writer_visual_story_with_recovery(
+                        router=self.router,
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=script,
+                        visual_story=visual_story,
+                    ),
                 )
+                self._write_runtime_events(output_dir)
                 _write_text_audit_checkpoint(output_dir, text_audit_report)
                 _write_resume_checkpoint(
                     output_dir,
