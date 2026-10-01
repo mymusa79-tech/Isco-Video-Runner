@@ -841,8 +841,9 @@ def contextual_intent(
 ) -> str:
     """Build a <=300-char Visual QA brief with semantic evidence first.
 
-    Meaning and visible proof are never displaced by mood metadata, while compact
-    Current/Previous/Next labels remain mandatory for continuity judging.
+    Fresh production beats keep exact meaning/must-show proof. Compatibility beats
+    that predate semantic_must_have do not duplicate the shot three times; that
+    leaves room for recognizable Current/Previous/Next continuity context.
     """
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
@@ -866,72 +867,70 @@ def contextual_intent(
         for item in (current_beat.get("semantic_must_have") or [])
         if str(item).strip()
     ]
-    must_have = _context_fragment(
-        ", ".join(raw_must) or current_beat.get("shot_intent"),
-        "concrete visible proof",
-        38,
-    )
-    narration = _context_fragment(
-        current_beat.get("writer_anchor_ar"),
-        "spoken beat",
-        28,
-    )
+    writer_anchor = " ".join(str(current_beat.get("writer_anchor_ar") or "").split()).strip()
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
         "current beat",
-        18,
+        28,
     )
     previous = _context_fragment(
         beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
         "story opening",
-        14,
+        24,
     )
     following = _context_fragment(
         beats[current_index + 1].get("shot_intent")
         if current_index + 1 < len(beats)
         else "",
         "story arrival",
-        14,
+        24,
     )
 
-    pieces = [
-        f"Role:{role}",
-        f"Meaning:{meaning}",
-        f"Must show:{must_have}",
-        f"Narration:{narration}",
-        f"Current: {current}",
-        f"Previous: {previous}",
-        f"Next: {following}",
-    ]
+    pieces = [f"Role:{role}", f"Meaning:{meaning}"]
+    if raw_must:
+        pieces.append(
+            "Must show:" + _context_fragment(
+                ", ".join(raw_must),
+                "concrete visible proof",
+                42,
+            )
+        )
+    if writer_anchor:
+        pieces.append(
+            "Narration:" + _context_fragment(writer_anchor, "spoken beat", 34)
+        )
+    pieces.extend(
+        [
+            f"Current: {current}",
+            f"Previous: {previous}",
+            f"Next: {following}",
+        ]
+    )
     if role == "hook":
         pieces.append("Hook: unresolved visible tension")
+
     tail = " Same hook-to-payoff arc: judge continuity."
     result = ". ".join(pieces) + "." + tail
     if len(result) <= 300:
         return result
 
-    # Last-resort deterministic compaction: semantics stay longer than context.
-    meaning = _context_fragment(
-        current_beat.get("meaning_target")
-        or current_beat.get("viewer_intent")
-        or current_beat.get("shot_intent"),
-        "specific meaning",
-        38,
-    )
-    must_have = _context_fragment(
-        ", ".join(raw_must) or current_beat.get("shot_intent"),
-        "visible proof",
-        28,
-    )
-    result = ". ".join(
+    # Compact metadata, not semantic proof. Keep recognizable neighbour phrases
+    # and all labels even under the provider's hard 300-character boundary.
+    compact = [f"Role:{role}", f"Meaning:{_context_fragment(meaning, 'meaning', 36)}"]
+    if raw_must:
+        compact.append(
+            "Must show:" + _context_fragment(", ".join(raw_must), "proof", 30)
+        )
+    if writer_anchor:
+        compact.append(
+            "Narration:" + _context_fragment(writer_anchor, "spoken", 20)
+        )
+    compact.extend(
         [
-            f"Role:{role}",
-            f"Meaning:{meaning}",
-            f"Must show:{must_have}",
-            f"Narration:{_context_fragment(current_beat.get('writer_anchor_ar'), 'spoken', 18)}",
-            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 12)}",
-            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 10)}",
-            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 10)}",
+            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 20)}",
+            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 18)}",
+            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 18)}",
         ]
-    ) + "." + tail
+    )
+    result = ". ".join(compact) + "." + tail
     return result[:300].rstrip()
