@@ -6572,5 +6572,32 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         self.assertIn("Next:", intent)
 
 
+class PlanningProviderSchemaRegressionTests(unittest.TestCase):
+    def _short_prompt(self) -> str:
+        brief = _brief()
+        brief["format"] = "short"
+        return _planning_prompt(brief)
+
+    def test_mistral_planning_schema_requires_unified_visual_story(self) -> None:
+        schema = providers_module._mistral_planning_response_schema(self._short_prompt())
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+        self.assertIn(
+            "stock_still",
+            beats["items"]["properties"]["source_preference"]["enum"],
+        )
+
+    def test_groq_planning_schema_carries_same_visual_story_contract(self) -> None:
+        schema = providers_module._groq_planning_response_schema(self._short_prompt())
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+
+
 if __name__ == "__main__":
     unittest.main()
