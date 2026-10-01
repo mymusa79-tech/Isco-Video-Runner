@@ -4699,9 +4699,9 @@ EDITORIAL DEPENDENCY CONTRACT:
 
 VISUAL EVIDENCE CONTRACT:
 - Every visual query must show observable evidence of that section's exact meaning, not mood.
-- Ask: "What can the viewer literally see that demonstrates this idea?"
+- Ask: "What can the viewer literally see here that demonstrates this idea?"
 - Prefer a changed state, consequence, choice, interruption, comparison, or concrete relation.
-- Do not default to desk/laptop/notebook/walking imagery unless that literal action proves the point.
+- Do not default to desk/laptop/notebook/writing or walking imagery unless that literal action proves the point.
 - For relation ideas such as comparison, unequal starts, before/after, or cause/consequence, show
   the relation itself through paired evidence or a visible state change.
 - Cinematic styling supports meaning; it never substitutes for meaning.
