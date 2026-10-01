@@ -14,6 +14,10 @@ SHORT_HOOK_MAX_WORDS = 18
 # conservative local trim back to SHORT_HOOK_MAX_WORDS first. Keeping this
 # separate prevents providers from treating 20 words as the writing target.
 SHORT_HOOK_RESCUE_MAX_WORDS = 20
+# A longer provider hook may still contain two clean thoughts. We may split it
+# locally only at a proven natural boundary, preserving every word, instead of
+# spending another provider call. Anything beyond this stays fail-closed.
+SHORT_HOOK_SAFE_SPLIT_MAX_WORDS = 32
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
 SHORT_HOOK_PREFERRED_MAX_WORDS = 16
 
@@ -583,6 +587,32 @@ def _sentence_begins_with_direct_action(sentence: object) -> bool:
     return _practical_action_base(first) is not None
 
 
+def validate_short_practical_action(value: object) -> str:
+    """Validate the Planning-owned single Short action sentence."""
+    action = _clean(value)
+    if not action:
+        raise ShortFormatError("short_practical_action_missing")
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", action)
+        if item.strip()
+    ]
+    if len(sentences) != 1:
+        raise ShortFormatError("short_practical_action_requires_one_sentence")
+    sentence = sentences[0]
+    if not _sentence_begins_with_direct_action(sentence):
+        raise ShortFormatError("short_practical_action_must_begin_with_direct_imperative")
+    if _practical_action_marker_count(sentence) != 1:
+        raise ShortFormatError("short_practical_action_requires_one_action_only")
+    if re.search(r"\s+(?:ثم|و)\s+", sentence):
+        raise ShortFormatError("short_practical_action_forbids_joined_second_action")
+    if _SOCIAL_CTA_RE.search(sentence) or _DIALOGUE_LABEL_RE.search(sentence):
+        raise ShortFormatError("short_practical_action_invalid_content")
+    if _word_count(sentence) > 18:
+        raise ShortFormatError("short_practical_action_too_long")
+    return sentence
+
+
 def _salvage_safe_payoff_clause(sentence: object) -> str:
     """Keep only a clearly separated safe descriptive clause from payoff prose."""
     compact = _clean(sentence)
@@ -707,6 +737,9 @@ def apply_safe_short_s3_locked_payoff_fallback(
 _SAFE_HOOK_TRIM_MAX_OVERRUN = 4
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
+_SAFE_HOOK_SPLIT_CONNECTORS = {
+    "لكن", "ولكن", "بل", "لهذا", "لذلك", "إذن", "اذن", "ثم", "وهنا"
+}
 _SAFE_HOOK_INCOMPLETE_ENDINGS = {
     "في", "من", "إلى", "الى", "على", "عن", "مع", "بلا", "بدون", "دون",
     "قبل", "بعد", "عند", "بين", "خلال", "لدى", "أن", "ان", "إن", "لأن", "لان",
@@ -767,6 +800,68 @@ def _safe_word_boundary_trim_candidate(
 def _safe_short_hook_trim_candidate(hook: str) -> str | None:
     """Return a conservative local trim only for a 1-4 word hook overrun."""
     return _safe_word_boundary_trim_candidate(hook, max_words=SHORT_HOOK_MAX_WORDS)
+
+
+def _safe_short_hook_split_candidate(hook: str) -> tuple[str, str] | None:
+    """Split a long provider hook at one natural boundary without deleting meaning."""
+    words = _clean(hook).split()
+    if not (SHORT_HOOK_RESCUE_MAX_WORDS < len(words) <= SHORT_HOOK_SAFE_SPLIT_MAX_WORDS):
+        return None
+
+    candidates: list[tuple[int, bool]] = []
+    ceiling = min(SHORT_HOOK_MAX_WORDS, len(words) - 1)
+    for index in range(_SAFE_HOOK_TRIM_MIN_WORDS, ceiling + 1):
+        word = words[index - 1]
+        if re.search(r"[،,؛;:]$", word):
+            candidates.append((index, True))
+        if index < len(words):
+            connector = re.sub(
+                r"^[^\w\u0600-\u06ff]+|[^\w\u0600-\u06ff]+$",
+                "",
+                words[index],
+            )
+            if _semantic_key(connector) in {
+                _semantic_key(item) for item in _SAFE_HOOK_SPLIT_CONNECTORS
+            }:
+                candidates.append((index, False))
+
+    for cut, punctuation_boundary in reversed(candidates):
+        head_words = words[:cut]
+        tail_words = words[cut:]
+        if not head_words or not tail_words:
+            continue
+        last = re.sub(r"[^\w\u0600-\u06ff]+$", "", head_words[-1])
+        if not last or _semantic_key(last) in _SAFE_HOOK_INCOMPLETE_KEYS:
+            continue
+        head = " ".join(head_words).strip()
+        head = re.sub(r"[،,؛;:.!?؟!]+$", "", head).strip()
+        tail = " ".join(tail_words).strip()
+        if not head or not tail or _word_count(head) > SHORT_HOOK_MAX_WORDS:
+            continue
+        first_key = _semantic_key(head).split()[0] if _semantic_key(head).split() else ""
+        terminal = "؟" if first_key in {"هل", "لماذا", "كيف", "متى", "اين", "أين", "ماذا"} else "."
+        return head + terminal, tail
+    return None
+
+
+def apply_safe_short_hook_split(script: dict[str, Any]) -> bool:
+    """Turn one overlong first sentence into hook + continuation at a safe boundary."""
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections or not isinstance(sections[0], dict):
+        return False
+    narration = _clean(sections[0].get("narration"))
+    hook = _first_sentence(narration)
+    if not hook or _word_count(hook) <= SHORT_HOOK_RESCUE_MAX_WORDS:
+        return False
+    split = _safe_short_hook_split_candidate(hook)
+    if split is None:
+        return False
+    head, tail = split
+    remainder = narration[len(hook):].lstrip()
+    sections[0]["narration"] = " ".join(
+        item for item in (head, tail, remainder) if item
+    ).strip()
+    return True
 
 
 def safe_word_boundary_trim(text: str, *, max_words: int, terminal: str = ".") -> str | None:
@@ -900,13 +995,72 @@ def apply_safe_short_s3_action_prefix_trim(script: dict[str, Any]) -> bool:
     return True
 
 
+def apply_locked_short_practical_action(
+    script: dict[str, Any],
+    locked_action: object,
+    *,
+    locked_payoff_answer: object = "",
+) -> bool:
+    """Replace provider-authored Short advice with the one Planning-owned action."""
+    action = validate_short_practical_action(locked_action)
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    original = sections[2].get("narration")
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", _clean(original))
+        if item.strip()
+    ]
+    payoff: list[str] = []
+    for sentence in sentences:
+        if _practical_action_marker_count(sentence) > 0:
+            continue
+        if _contains_forbidden_action_family(sentence):
+            salvaged = _salvage_safe_payoff_clause(sentence)
+            if salvaged:
+                payoff.append(salvaged)
+            continue
+        payoff.append(sentence)
+
+    if not payoff:
+        fallback = _safe_locked_payoff_text(locked_payoff_answer)
+        if fallback:
+            payoff.append(fallback)
+    if not payoff:
+        return False
+
+    candidate = " ".join([*payoff, action]).strip()
+    sections[2]["narration"] = candidate
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return _clean(original) != candidate
+
+
 def normalize_short_script_candidate(
     script: dict[str, Any],
     *,
     locked_payoff_answer: object = "",
+    locked_practical_action: object = "",
 ) -> dict[str, bool]:
     """Canonical deterministic Short normalization used at every script boundary."""
+    hook_split = apply_safe_short_hook_split(script)
     hook_trimmed = apply_safe_short_hook_trim(script)
+    locked_action_applied = False
+    if _clean(locked_practical_action):
+        locked_action_applied = apply_locked_short_practical_action(
+            script,
+            locked_practical_action,
+            locked_payoff_answer=locked_payoff_answer,
+        )
     action_prefix_trimmed = apply_safe_short_s3_action_prefix_trim(script)
     s3_trimmed = apply_safe_short_s3_single_action_trim(script)
     locked_payoff_fallback = apply_safe_short_s3_locked_payoff_fallback(
@@ -915,11 +1069,11 @@ def normalize_short_script_candidate(
     )
     action_prefix_trimmed_after_s3 = apply_safe_short_s3_action_prefix_trim(script)
     return {
-        "hook_trimmed": bool(hook_trimmed),
+        "hook_trimmed": bool(hook_split or hook_trimmed),
         "s3_action_prefix_trimmed": bool(
             action_prefix_trimmed or action_prefix_trimmed_after_s3
         ),
-        "s3_trimmed": bool(s3_trimmed),
+        "s3_trimmed": bool(locked_action_applied or s3_trimmed),
         "s3_locked_payoff_fallback": bool(locked_payoff_fallback),
     }
 
@@ -1202,6 +1356,7 @@ _VISIBLE_FACE_PATTERNS = (
     "looking at camera",
     "smiling face",
 )
+_FACE_RISK_TOKENS = frozenset({"face", "faces", "facial", "portrait", "selfie", "expression", "expressions"})
 _FACE_SAFE_CUES = (
     "no face",
     "no-face",
@@ -1210,6 +1365,10 @@ _FACE_SAFE_CUES = (
     "hidden face",
     "from behind",
     "back view",
+    "hands only",
+    "objects only",
+    "over shoulder",
+    "over-the-shoulder",
 )
 
 
@@ -1217,7 +1376,8 @@ def _assert_no_explicit_face_query(query: str) -> None:
     lowered = _clean(query).casefold()
     if any(cue in lowered for cue in _FACE_SAFE_CUES):
         return
-    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS):
+    tokens = set(re.findall(r"[a-z]+", lowered))
+    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS) or tokens & _FACE_RISK_TOKENS:
         raise ShortFormatError("short_visual_query_explicit_face_forbidden")
 
 
@@ -1246,6 +1406,18 @@ def validate_short_visual_queries(
     for query in (*queries, *alternate_queries):
         _assert_no_explicit_face_query(query)
     words = [_query_words(query) for query in queries]
+    alternate_words = [_query_words(query) for query in alternate_queries]
+    action_families = [_query_action_families(item) for item in words]
+    alternate_families = [_query_action_families(item) for item in alternate_words]
+    for index in range(1, SHORT_SECTION_COUNT):
+        repeated = action_families[index] & action_families[index - 1]
+        if repeated and (
+            not alternate_families[index]
+            or alternate_families[index] & action_families[index - 1]
+        ):
+            raise ShortFormatError(
+                "short_visual_query_consecutive_action_family_without_distinct_alternate"
+            )
 
     if template == "inner_dialogue":
         allowed = _VISUAL_QUERY_TERMS[template]
