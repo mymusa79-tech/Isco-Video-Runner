@@ -36,6 +36,20 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional fail-closed Clean V2 pre-QC checkpoint directory.",
     )
+    parser.add_argument(
+        "--narrative-history",
+        type=Path,
+        default=(
+            Path(os.environ["CLEAN_V2_NARRATIVE_HISTORY_PATH"])
+            if os.environ.get("CLEAN_V2_NARRATIVE_HISTORY_PATH")
+            else None
+        ),
+        help=(
+            "Optional path to a small JSON file recording recently selected "
+            "longform narrative_format values, to avoid repeating the same "
+            "shape across recent film runs."
+        ),
+    )
     parser.add_argument("--max-visuals", type=int, choices=range(1, 6), default=5)
     return parser
 
@@ -62,6 +76,7 @@ def main() -> None:
         runner_sha=args.runner_sha or None,
         max_visuals=args.max_visuals,
         resume_from=args.resume_from,
+        narrative_history_path=args.narrative_history,
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 

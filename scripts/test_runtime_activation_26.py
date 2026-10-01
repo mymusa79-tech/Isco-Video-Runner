@@ -162,6 +162,30 @@ class RuntimeActivation26Tests(unittest.TestCase):
     def test_06_film_question_answer_runtime(self) -> None:
         self._assert_film_type("question_answer")
 
+    def test_film_narrative_profile_excludes_recent_history_but_never_fully_blocks(
+        self,
+    ) -> None:
+        brief = FILM_CASES["question_answer"]
+        unexcluded = _select_longform_narrative_profile(brief)
+        self.assertEqual(unexcluded["narrative_format"], "question_answer")
+        self.assertEqual(unexcluded["recent_narrative_formats_excluded"], [])
+
+        excluded_brief = dict(brief, _recent_narrative_formats=("question_answer",))
+        excluded = _select_longform_narrative_profile(excluded_brief)
+        self.assertNotEqual(excluded["narrative_format"], "question_answer")
+        self.assertEqual(
+            excluded["recent_narrative_formats_excluded"], ["question_answer"]
+        )
+        self.assertTrue(excluded["selection_basis"].endswith("_history_aware"))
+
+        # Excluding every possible profile must never leave the selection with
+        # no eligible candidate - it falls back to the unexcluded pick instead.
+        every_profile = tuple(unexcluded["scores"].keys())
+        exhausted_brief = dict(brief, _recent_narrative_formats=every_profile)
+        exhausted = _select_longform_narrative_profile(exhausted_brief)
+        self.assertEqual(exhausted["narrative_format"], "question_answer")
+        self.assertFalse(exhausted["selection_basis"].endswith("_history_aware"))
+
     def test_07_film_dialogue_qa_runtime(self) -> None:
         self._assert_film_type("dialogue_qa")
 

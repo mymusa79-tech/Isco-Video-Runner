@@ -113,6 +113,23 @@ jobs:
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
+      - name: Restore recent film narrative_format history
+        run: |
+          set -euo pipefail
+          history_root="$RUNNER_TEMP/clean-v2-narrative-history-state"
+          history_file="$history_root/state/clean-v2-narrative-history.json"
+          if git fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH" 2>/dev/null; then
+            git worktree add -B "$STATE_BRANCH" "$history_root" "origin/$STATE_BRANCH"
+          else
+            git worktree add -b "$STATE_BRANCH" "$history_root" origin/main
+          fi
+          mkdir -p "$(dirname "$history_file")"
+          if [ ! -s "$history_file" ]; then
+            printf '%s\n' '{"schema_version":1}' > "$history_file"
+          fi
+          echo "CLEAN_V2_NARRATIVE_HISTORY=$history_file" >> "$GITHUB_ENV"
+          echo "CLEAN_V2_NARRATIVE_HISTORY_ROOT=$history_root" >> "$GITHUB_ENV"
+
       - name: Restore exact Telegram request checkpoint
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
@@ -211,6 +228,7 @@ jobs:
               --engine-sha "$ISCO_ENGINE_SHA" \
               --runner-sha "$GITHUB_SHA" \
               --resume-from "$CLEAN_V2_RESUME/$fmt" \
+              --narrative-history "$CLEAN_V2_NARRATIVE_HISTORY" \
               --max-visuals 5 \
               --output "$out"
             local status=$?
@@ -295,6 +313,20 @@ jobs:
         with:
           path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
           key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Persist recent film narrative_format history
+        if: always()
+        run: |
+          set -euo pipefail
+          test -n "${CLEAN_V2_NARRATIVE_HISTORY_ROOT:-}"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" config user.email "actions@users.noreply.github.com"
+          git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" add state/clean-v2-narrative-history.json
+          if ! git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" diff --cached --quiet; then
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" pull --ff-only origin "$STATE_BRANCH"
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" commit -m "state: record film narrative_format selection"
+            git -C "$CLEAN_V2_NARRATIVE_HISTORY_ROOT" push origin "HEAD:$STATE_BRANCH"
+          fi
 
       - name: Upload Telegram Clean V2 production evidence
         id: upload
