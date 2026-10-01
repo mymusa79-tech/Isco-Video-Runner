@@ -255,24 +255,50 @@ def build_events(
         if section_end <= section_start:
             raise PodcastKeyTextError("podcast_key_text_duration_invalid")
 
-        if fmt == "podcast" and role == "hook" and isinstance(hook_window, Mapping):
-            start_seconds = _seconds(hook_window.get("start"), "hook_start")
-            end_seconds = min(_seconds(hook_window.get("end"), "hook_end"), start_seconds + display_seconds)
-        elif role == "payoff" and (
-            isinstance(pre_outro_window, Mapping) or isinstance(outro_window, Mapping)
-        ):
-            boundary = (
-                _seconds(pre_outro_window.get("start"), "pre_outro_start")
-                if isinstance(pre_outro_window, Mapping)
-                else _seconds(outro_window.get("start"), "outro_start") - 0.35
+        if role == "hook" and isinstance(hook_window, Mapping):
+            allowed_start = _seconds(hook_window.get("start"), "hook_start")
+            allowed_end = _seconds(hook_window.get("end"), "hook_end")
+            start_seconds = max(section_start, allowed_start)
+            end_seconds = min(section_end, allowed_end, start_seconds + display_seconds)
+        elif role == "payoff":
+            allowed_start = (
+                _seconds(topic_window.get("start"), "topic_start")
+                if isinstance(topic_window, Mapping)
+                else section_start
             )
-            end_seconds = max(section_start, min(section_end, boundary))
-            start_seconds = max(section_start, end_seconds - display_seconds)
+            allowed_end = (
+                _seconds(topic_window.get("end"), "topic_end")
+                if isinstance(topic_window, Mapping)
+                else section_end
+            )
+            if isinstance(pre_outro_window, Mapping):
+                allowed_end = min(
+                    allowed_end,
+                    _seconds(pre_outro_window.get("start"), "pre_outro_start"),
+                )
+            elif isinstance(outro_window, Mapping):
+                allowed_end = min(
+                    allowed_end,
+                    _seconds(outro_window.get("start"), "outro_start") - 0.35,
+                )
+            end_seconds = min(section_end, allowed_end)
+            start_seconds = max(section_start, allowed_start, end_seconds - display_seconds)
         else:
-            start_seconds = section_start + min(1.2, max(0.0, (section_end - section_start) * 0.22))
-            if fmt == "film" and index == 0 and isinstance(topic_window, Mapping):
-                start_seconds = max(start_seconds, _seconds(topic_window.get("start"), "topic_start") + 0.8)
-            end_seconds = min(section_end, start_seconds + display_seconds)
+            allowed_start = (
+                _seconds(topic_window.get("start"), "topic_start")
+                if isinstance(topic_window, Mapping)
+                else section_start
+            )
+            allowed_end = (
+                _seconds(topic_window.get("end"), "topic_end")
+                if isinstance(topic_window, Mapping)
+                else section_end
+            )
+            start_seconds = max(
+                allowed_start,
+                section_start + min(1.2, max(0.0, (section_end - section_start) * 0.22)),
+            )
+            end_seconds = min(section_end, allowed_end, start_seconds + display_seconds)
 
         if fmt == "film" and start_seconds - previous_end < FILM_MIN_GAP_SECONDS:
             continue
