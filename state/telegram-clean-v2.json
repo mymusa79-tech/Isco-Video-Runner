@@ -2073,9 +2073,266 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-01T06:36:30Z"
+    },
+    {
+      "idea_id": "idea-e196198c65",
+      "title": "الأثر التراكمي: قوة الـ 1% في تغيير حياتك",
+      "normalized_title": "الاثر التراكمي قوة الـ 1 في تغيير حياتك",
+      "market_query": "بناء عادات يومية إيجابية",
+      "reason": "يوضح كيف تُحدث التغييرات السلوكية البسيطة واليومية فارقاً كبيراً ومستداماً على المدى الطويل دون إرهاق.",
+      "market_score": 0.718,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 6215.1,
+        "median_views_per_day": 327.3,
+        "top_samples": [
+          {
+            "video_id": "QqvYVkj_CCE",
+            "title": "Start Your Day Right! Morning motivation | Easy English podcast | B1-B2 Listening practice",
+            "channel": "Daily English Podcast",
+            "published_at": "2026-09-08T14:00:32Z",
+            "views": 141035,
+            "views_per_day": 6215.1
+          },
+          {
+            "video_id": "7EwseyNpTJg",
+            "title": "Change Everything in 90 Days  Transform Your Life with Discipline and Focus  Motivational Video 🔥",
+            "channel": "ENGLISH WITH  HK",
+            "published_at": "2026-09-06T15:00:18Z",
+            "views": 34712,
+            "views_per_day": 1408.1
+          },
+          {
+            "video_id": "aHdenlwdwis",
+            "title": "النظافة حلوة كتير 🚿😍  تعلم النظافة اليومية مع أجمل أغنية للأطفال #السعودية #الكويت #قطر",
+            "channel": "زون تون",
+            "published_at": "2026-09-27T08:38:36Z",
+            "views": 1513,
+            "views_per_day": 386.4
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:38Z"
+    },
+    {
+      "idea_id": "idea-8fa6f8fb18",
+      "title": "فخ المقارنة: مسارك الزمني خاص بك وحدك",
+      "normalized_title": "فخ المقارنة مسارك الزمني خاص بك وحدك",
+      "market_query": "التخلص من المقارنة بالآخرين",
+      "reason": "يفكك القلق المرتبط بمقارنة الإنجازات مع الآخرين، ويوضح أهمية احترام وتيرة النمو الشخصي وتراكم التجارب.",
+      "market_score": 0.532,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 224.0,
+        "median_views_per_day": 51.7,
+        "top_samples": [
+          {
+            "video_id": "cY_InAo5P7w",
+            "title": "let me help you stop comparing yourself | psychology & affirmations (asmr)",
+            "channel": "ASMR SOO",
+            "published_at": "2026-09-03T10:01:08Z",
+            "views": 6239,
+            "views_per_day": 224.0
+          },
+          {
+            "video_id": "ICCDbyv-qmo",
+            "title": "Smetto di Paragonarmi agli Altri | Affermazioni del Mattino per l'Autostima",
+            "channel": "Mindfulnessy",
+            "published_at": "2026-09-09T05:00:04Z",
+            "views": 1798,
+            "views_per_day": 81.5
+          },
+          {
+            "video_id": "qkBPLHdfe4o",
+            "title": "كيف تدمر المقارنة سعادتك ونجاحك دون أن تشعر؟ 🧠🚫 #تطوير_الذات #المقارنة #سيكولوجيا_النجاح #الراحة",
+            "channel": "Arab AI Studio",
+            "published_at": "2026-09-11T16:25:09Z",
+            "views": 1174,
+            "views_per_day": 59.9
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:36Z"
+    },
+    {
+      "idea_id": "idea-91ca350ff2",
+      "title": "فن قول «لا» بذكاء ودون شعور بالذنب",
+      "normalized_title": "فن قول لا بذكاء ودون شعور بالذنب",
+      "market_query": "فن وضع الحدود الشخصية",
+      "reason": "يركز على حماية الطاقة النفسية عبر وضع حدود صحية وواضحة في العلاقات دون صدام أو قسوة.",
+      "market_score": 0.621,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 5,
+        "max_views_per_day": 1077.3,
+        "median_views_per_day": 127.7,
+        "top_samples": [
+          {
+            "video_id": "f9XXjzawCTM",
+            "title": "Master the Art of Choosing Yourself Without Guilt, Fear, or Explanation | Machiavelli",
+            "channel": "Machiavellian Inspired",
+            "published_at": "2026-09-11T11:00:26Z",
+            "views": 21350,
+            "views_per_day": 1077.3
+          },
+          {
+            "video_id": "L4bukTObiDs",
+            "title": "EVITA estos ERRORES al HABLAR: Cómo Ganar AUTORIDAD y RESPETO | Audiolibro Completo",
+            "channel": "Nerun y el Despertar",
+            "published_at": "2026-09-24T01:11:32Z",
+            "views": 4262,
+            "views_per_day": 589.8
+          },
+          {
+            "video_id": "u0qIhqeXV9E",
+            "title": "El LENGUAJE del PODER: Cómo HABLAR con ELEGANCIA | Audiolibro Completo",
+            "channel": "Nerun y el Despertar",
+            "published_at": "2026-09-16T12:00:18Z",
+            "views": 2887,
+            "views_per_day": 195.4
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:37Z"
+    },
+    {
+      "idea_id": "idea-7e847dd029",
+      "title": "المرونة بعد العثرة: أنت تبدأ من الخبرة لا من الصفر",
+      "normalized_title": "المرونة بعد العثرة انت تبدا من الخبرة لا من الصفر",
+      "market_query": "كيفية التعافي بعد الفشل",
+      "reason": "يعيد تعريف التعثر كأداة تعلّم موضوعية، مشجعاً على الاستمرار بواقعية وتجنب لوم الذات المفرط.",
+      "market_score": 0.595,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 5,
+        "max_views_per_day": 578.5,
+        "median_views_per_day": 122.7,
+        "top_samples": [
+          {
+            "video_id": "_jjTrGHSaSc",
+            "title": "Failed Lawn Renovation? Called Out?  What's Happening?!",
+            "channel": "Turf Logic NJ",
+            "published_at": "2026-09-24T19:30:13Z",
+            "views": 3739,
+            "views_per_day": 578.5
+          },
+          {
+            "video_id": "Ln_RibnsjV8",
+            "title": "Failed Juji Gatame￼ arm bar recovery #jiujitsu #bjj #grappling",
+            "channel": "Placido Santos",
+            "published_at": "2026-09-15T11:59:52Z",
+            "views": 3159,
+            "views_per_day": 200.2
+          },
+          {
+            "video_id": "V4zWYM1_gAo",
+            "title": "#tiktoklive #livehighlights Liver failure and \"once and alcoholic always an alcoholic\" being the",
+            "channel": "Kohdi Rvyne",
+            "published_at": "2026-09-22T13:07:58Z",
+            "views": 1420,
+            "views_per_day": 162.7
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:37Z"
+    },
+    {
+      "idea_id": "idea-b5aeb82c72",
+      "title": "وهم المثالية: لماذا الإنجاز الناقص أفضل من التردد؟",
+      "normalized_title": "وهم المثالية لماذا الانجاز الناقص افضل من التردد؟",
+      "market_query": "التغلب على المثالية المفرطة",
+      "reason": "يعالج مشكلة التسويف والجمود الناجمين عن الرغبة في الكمال، ويدعو لتبني ثقافة الخطوة الأولى الممكنة.",
+      "market_score": 0.16,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 3.9,
+        "median_views_per_day": 3.9,
+        "top_samples": [
+          {
+            "video_id": "tYr7xGkFk-4",
+            "title": "سلوكيات ( المثالية المفرطة )",
+            "channel": "دكتور رضوان تليلي  (الكناشة)",
+            "published_at": "2026-09-02T18:54:49Z",
+            "views": 111,
+            "views_per_day": 3.9
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:37Z"
+    },
+    {
+      "idea_id": "idea-f27933f1cb",
+      "title": "سر الثبات النفسي عندما يتأخر تقديرك",
+      "normalized_title": "سر الثبات النفسي عندما يتاخر تقديرك",
+      "market_query": "كيفية التعامل مع التهميش في العمل",
+      "reason": "يعالج مشاعر الإحباط عند غياب التقدير الفوري، ويشرح كيفية بناء قيمة ذاتية داخلية مستقرة تركز على الاستعداد المهني والنفسي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:35Z"
+    },
+    {
+      "idea_id": "idea-908a3214b5",
+      "title": "زاوية الرؤية: كيف تُغيّر نظرتك للأزمات اليومية؟",
+      "normalized_title": "زاوية الروية كيف تُغيّر نظرتك للازمات اليومية؟",
+      "market_query": "تغيير النظرة السلبية للحياة",
+      "reason": "يقدم أداة عقلية سريعة لإعادة التأطير المعرفي، مما يساعد المشاهد على خفض حدة التوتر عند مواجهة التحديات المفاجئة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:36Z"
+    },
+    {
+      "idea_id": "idea-9ebca7f2f4",
+      "title": "قوة الصمت المؤقت: دقيقة لاستعادة توازنك",
+      "normalized_title": "قوة الصمت الموقت دقيقة لاستعادة توازنك",
+      "market_query": "تمارين استعادة التركيز والهدوء",
+      "reason": "يقترح خطوة يقظة ذهنية عملية وقصيرة تناسب إيقاع الحياة السريع لتهدئة الجهاز العصبي وتحسين اتخاذ القرار.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-01T06:37:36Z"
     }
   ],
   "sessions": {
+    "57596d82": {
+      "session_id": "57596d82",
+      "scope": "short",
+      "idea_ids": [
+        "idea-e196198c65",
+        "idea-8fa6f8fb18",
+        "idea-91ca350ff2"
+      ],
+      "created_at": "2026-10-01T06:37:38Z"
+    },
     "a9e6d4b6": {
       "session_id": "a9e6d4b6",
       "scope": "long",
@@ -2673,5 +2930,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T06:36:49Z"
+  "updated_at": "2026-10-01T06:37:38Z"
 }
