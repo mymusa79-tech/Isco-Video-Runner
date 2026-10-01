@@ -359,7 +359,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
-        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. It must not append a second action with ثم/و, punctuation, or another clause. "
+        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. It must not append a second action with ثم/و, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
         "Planning self-check: practical_action_ar contains exactly one imperative marker. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
@@ -923,6 +923,81 @@ _SAFE_S3_ACTION_PREFIX_KEYS = frozenset({
         "هنا",
     )
 })
+
+
+def normalize_short_practical_action(value: object) -> str:
+    """Rescue only deterministic shape drift in the Planning-owned Short action.
+
+    This never invents or paraphrases an action. It may remove a harmless
+    discourse prefix before the one recognized imperative, or keep only the
+    already-valid first action when a provider appends a joined second clause.
+    Anything else remains fail-closed in validate_short_practical_action().
+    """
+    original = _clean(value)
+    if not original:
+        return original
+    try:
+        return validate_short_practical_action(original)
+    except ShortFormatError:
+        pass
+
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\\s+", original)
+        if item.strip()
+    ]
+    if len(sentences) != 1:
+        return original
+    sentence = sentences[0]
+
+    spans: list[tuple[int, int]] = []
+    for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS):
+        spans.extend(
+            match.span()
+            for match in re.finditer(
+                _practical_action_pattern(marker), sentence, flags=re.I
+            )
+        )
+    spans = sorted(set(spans))
+    if not spans:
+        return original
+
+    first_start = spans[0][0]
+    if first_start > 0:
+        raw_prefix = sentence[:first_start].strip(" \t،,؛;:-")
+        prefix_words = [
+            _semantic_key(word)
+            for word in raw_prefix.split()
+            if _semantic_key(word)
+        ]
+        if not prefix_words or any(
+            word not in _SAFE_S3_ACTION_PREFIX_KEYS for word in prefix_words
+        ):
+            return original
+        sentence = sentence[first_start:].lstrip()
+
+    if not _sentence_begins_with_direct_action(sentence):
+        return original
+    try:
+        return validate_short_practical_action(sentence)
+    except ShortFormatError:
+        pass
+
+    # Run49 class: keep the provider's already-valid first action and discard
+    # only a clearly joined tail. The remaining head must independently pass
+    # the unchanged strict validator, so this cannot turn ambiguous prose into
+    # an accepted action.
+    connector = re.search(r"\\s+(?:ثم|و)\\s+", sentence)
+    if connector is not None:
+        head = sentence[: connector.start()].rstrip(" \t،,؛;:.!?؟!")
+        if _word_count(head) >= 3:
+            candidate = head + "."
+            try:
+                return validate_short_practical_action(candidate)
+            except ShortFormatError:
+                pass
+
+    return original
 
 
 def apply_safe_short_s3_action_prefix_trim(script: dict[str, Any]) -> bool:
