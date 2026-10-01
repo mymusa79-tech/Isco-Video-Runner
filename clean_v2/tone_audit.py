@@ -139,9 +139,14 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   could fit unrelated topics, gives generic advice before explaining the episode-specific tension, or
   reaches a payoff that does not depend on the reasoning built before it. Do NOT demand new facts,
   studies, statistics, diagnoses, or unsupported mechanisms; depth means clearer reasoning from the
-  already approved material, not more factual claims. For each concrete defect add one concise
-  narrative_format_flags item prefixed exactly "content_depth:" and include the affected section id
-  (for example content_depth:s2 ...). Set status=block when any such defect exists.
+  already approved material, not more factual claims. For Short specifically, inspect the FINAL s3
+  practical-action sentence as part of the same semantic spine: it must directly operationalize the
+  exact hook/payoff tension. A generic action that could close an unrelated productivity, procrastination,
+  confidence, or motivation video is a content_depth:s3 defect even when its Arabic is grammatical.
+  Also block topic drift where the payoff suddenly switches mechanisms (for example from comparison to
+  friction/procrastination) merely because the closing sentence sounds useful in isolation. For each
+  concrete defect add one concise narrative_format_flags item prefixed exactly "content_depth:" and
+  include the affected section id (for example content_depth:s2 ...). Set status=block when any such defect exists.
 - DEPENDENCY / TOPIC-FIDELITY TEST — still inside this SAME audit call:
   * section_dependency=true only when every non-identity section adds a distinct piece of reasoning whose
     position matters. Set it false if a section can be removed or swapped without weakening the explanation,
