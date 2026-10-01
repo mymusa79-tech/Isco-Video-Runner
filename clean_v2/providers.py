@@ -38,20 +38,10 @@ MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 - If a complete draft still lands at 17-20 words, DO NOT return it. Rewrite the first sentence itself to 12-16 words and move secondary detail to sentence two, then recount the first sentence.
 
 MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
-- Isolate s3 and split it into complete sentences.
-- s3 MUST contain at least one descriptive payoff/explanation sentence BEFORE the final action sentence; the payoff must still make sense if the action sentence is removed.
-- Exactly ONE s3 sentence may contain a practical-action/imperative marker. That sentence must begin with a direct Arabic imperative verb and contain exactly ONE imperative/action marker.
-- For that one action sentence, begin with EXACTLY ONE validator-recognized imperative from this allowlist: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. Do not substitute a synonym outside this list.
-- Every other s3 sentence is payoff/explanation only: ZERO command verbs and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
-- Never join a second action with ثم, و, punctuation, or another clause inside the action sentence.
-- Preflight algorithm: count action sentences -> require exactly 1 -> count imperative/action markers inside that sentence -> require exactly 1 -> scan every payoff sentence for forbidden action-family terms -> require zero.
-- If ANY payoff sentence contains a forbidden action-family term, rewrite that payoff sentence as a purely descriptive state/result with zero command/action-family stems, then rescan all of s3 from the beginning.
-- Concrete GOOD/BAD pair — copy the structure, not the wording:
-  GOOD s3: "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن."
-  GOOD because the payoff sentence is purely descriptive and contains zero forbidden action-family stems; the action sentence begins immediately with the single allowlisted imperative "اكتب".
-  BAD s3: "الكتابة البسيطة تقلل الاحتكاك. لذلك، اكتب مهمة واحدة تستطيع إنهاءها الآن."
-  BAD because "الكتابة" belongs to the forbidden كتب action family inside payoff prose, AND the action sentence begins with "لذلك" instead of beginning directly with the imperative. Rewrite both defects before returning JSON.
-- If any count or rescan fails, rewrite s3 completely and repeat the checks before returning JSON.
+- LOCKED_PLAN.practical_action_ar is host-owned and will be appended by runtime after validation. Do NOT write, repeat, paraphrase, or replace it.
+- Isolate s3 and write at least one complete descriptive payoff/explanation sentence that resolves the same hook tension.
+- Every authored s3 sentence must contain ZERO practical-action/imperative markers and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
+- If any s3 sentence contains advice or an action-family term, rewrite that sentence as a purely descriptive state/result and rescan s3 from the beginning.
 - Do not rely on downstream repair or trimming to fix Hook or s3.
 """.strip()
 
@@ -673,6 +663,14 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         },
     }
     plan_required = ["title", "promise", "cta", "sections"]
+    if fmt == "short":
+        plan_properties["practical_action_ar"] = {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 240,
+            "pattern": r"\S",
+        }
+        plan_required.append("practical_action_ar")
     if long_form:
         plan_properties["narrative_format"] = {
             "type": "string",
@@ -780,6 +778,9 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
         },
     }
     required = ["title", "promise", "cta", "sections"]
+    if "practical_action_ar" in source["properties"]:
+        properties["practical_action_ar"] = dict(source["properties"]["practical_action_ar"])
+        required.append("practical_action_ar")
     if "narrative_format" in source["properties"]:
         properties["narrative_format"] = dict(source["properties"]["narrative_format"])
         required.append("narrative_format")

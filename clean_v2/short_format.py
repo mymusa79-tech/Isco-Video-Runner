@@ -14,6 +14,10 @@ SHORT_HOOK_MAX_WORDS = 18
 # conservative local trim back to SHORT_HOOK_MAX_WORDS first. Keeping this
 # separate prevents providers from treating 20 words as the writing target.
 SHORT_HOOK_RESCUE_MAX_WORDS = 20
+# A longer provider hook may still contain two clean thoughts. We may split it
+# locally only at a proven natural boundary, preserving every word, instead of
+# spending another provider call. Anything beyond this stays fail-closed.
+SHORT_HOOK_SAFE_SPLIT_MAX_WORDS = 32
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
 SHORT_HOOK_PREFERRED_MAX_WORDS = 16
 
@@ -354,14 +358,11 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "common-belief break, hidden cost, or cold open). It must create a real information gap without becoming clickbait. "
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
-        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
-        "That action sentence MUST begin with a direct Arabic imperative verb, contain exactly ONE imperative verb, and express exactly ONE practical action. "
-        "That action sentence must not append a second action with ثم/و, punctuation, or any other construction. Every other sentence in s3 must be purely descriptive, with ZERO command verbs. "
-        "STRICTER SAFEGUARD: outside the single designated action sentence, do not use any of these words or any inflection/derivative of them, even as a noun, past tense, or description: "
+        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
+        "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. It must not append a second action with ثم/و, punctuation, or another clause. "
+        "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
-        "SELF-CHECK before finalizing s3: count every imperative verb in the whole s3 and every sentence containing one; both counts must equal exactly 1. If either count is not 1, rewrite s3 completely. "
-        "Good examples: \"ابدأ بمهمة واحدة تستطيع إنهاءها اليوم.\", \"جرّب أن تبدأ بخطوة واحدة فقط.\", \"افعل شيئًا واحدًا واضحًا الآن.\", \"اختر مهمة واحدة تستحق وقتك اليوم.\", \"اكتب أول خطوة تستطيع تنفيذها الآن.\". "
-        "Bad examples: \"اكتب... ثم اخرج...\", \"توقف عن الانتظار. ابدأ بخطوة صغيرة الآن.\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
+        "Planning self-check: practical_action_ar contains exactly one imperative marker. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
@@ -583,6 +584,32 @@ def _sentence_begins_with_direct_action(sentence: object) -> bool:
     return _practical_action_base(first) is not None
 
 
+def validate_short_practical_action(value: object) -> str:
+    """Validate the Planning-owned single Short action sentence."""
+    action = _clean(value)
+    if not action:
+        raise ShortFormatError("short_practical_action_missing")
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", action)
+        if item.strip()
+    ]
+    if len(sentences) != 1:
+        raise ShortFormatError("short_practical_action_requires_one_sentence")
+    sentence = sentences[0]
+    if not _sentence_begins_with_direct_action(sentence):
+        raise ShortFormatError("short_practical_action_must_begin_with_direct_imperative")
+    if _practical_action_marker_count(sentence) != 1:
+        raise ShortFormatError("short_practical_action_requires_one_action_only")
+    if re.search(r"\s+(?:ثم|و)\s+", sentence):
+        raise ShortFormatError("short_practical_action_forbids_joined_second_action")
+    if _SOCIAL_CTA_RE.search(sentence) or _DIALOGUE_LABEL_RE.search(sentence):
+        raise ShortFormatError("short_practical_action_invalid_content")
+    if _word_count(sentence) > 18:
+        raise ShortFormatError("short_practical_action_too_long")
+    return sentence
+
+
 def _salvage_safe_payoff_clause(sentence: object) -> str:
     """Keep only a clearly separated safe descriptive clause from payoff prose."""
     compact = _clean(sentence)
@@ -707,6 +734,9 @@ def apply_safe_short_s3_locked_payoff_fallback(
 _SAFE_HOOK_TRIM_MAX_OVERRUN = 4
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
+_SAFE_HOOK_SPLIT_CONNECTORS = {
+    "لكن", "ولكن", "بل", "لهذا", "لذلك", "إذن", "اذن", "ثم", "وهنا"
+}
 _SAFE_HOOK_INCOMPLETE_ENDINGS = {
     "في", "من", "إلى", "الى", "على", "عن", "مع", "بلا", "بدون", "دون",
     "قبل", "بعد", "عند", "بين", "خلال", "لدى", "أن", "ان", "إن", "لأن", "لان",
@@ -767,6 +797,68 @@ def _safe_word_boundary_trim_candidate(
 def _safe_short_hook_trim_candidate(hook: str) -> str | None:
     """Return a conservative local trim only for a 1-4 word hook overrun."""
     return _safe_word_boundary_trim_candidate(hook, max_words=SHORT_HOOK_MAX_WORDS)
+
+
+def _safe_short_hook_split_candidate(hook: str) -> tuple[str, str] | None:
+    """Split a long provider hook at one natural boundary without deleting meaning."""
+    words = _clean(hook).split()
+    if not (SHORT_HOOK_RESCUE_MAX_WORDS < len(words) <= SHORT_HOOK_SAFE_SPLIT_MAX_WORDS):
+        return None
+
+    candidates: list[tuple[int, bool]] = []
+    ceiling = min(SHORT_HOOK_MAX_WORDS, len(words) - 1)
+    for index in range(_SAFE_HOOK_TRIM_MIN_WORDS, ceiling + 1):
+        word = words[index - 1]
+        if re.search(r"[،,؛;:]$", word):
+            candidates.append((index, True))
+        if index < len(words):
+            connector = re.sub(
+                r"^[^\w\u0600-\u06ff]+|[^\w\u0600-\u06ff]+$",
+                "",
+                words[index],
+            )
+            if _semantic_key(connector) in {
+                _semantic_key(item) for item in _SAFE_HOOK_SPLIT_CONNECTORS
+            }:
+                candidates.append((index, False))
+
+    for cut, punctuation_boundary in reversed(candidates):
+        head_words = words[:cut]
+        tail_words = words[cut:]
+        if not head_words or not tail_words:
+            continue
+        last = re.sub(r"[^\w\u0600-\u06ff]+$", "", head_words[-1])
+        if not last or _semantic_key(last) in _SAFE_HOOK_INCOMPLETE_KEYS:
+            continue
+        head = " ".join(head_words).strip()
+        head = re.sub(r"[،,؛;:.!?؟!]+$", "", head).strip()
+        tail = " ".join(tail_words).strip()
+        if not head or not tail or _word_count(head) > SHORT_HOOK_MAX_WORDS:
+            continue
+        first_key = _semantic_key(head).split()[0] if _semantic_key(head).split() else ""
+        terminal = "؟" if first_key in {"هل", "لماذا", "كيف", "متى", "اين", "أين", "ماذا"} else "."
+        return head + terminal, tail
+    return None
+
+
+def apply_safe_short_hook_split(script: dict[str, Any]) -> bool:
+    """Turn one overlong first sentence into hook + continuation at a safe boundary."""
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections or not isinstance(sections[0], dict):
+        return False
+    narration = _clean(sections[0].get("narration"))
+    hook = _first_sentence(narration)
+    if not hook or _word_count(hook) <= SHORT_HOOK_RESCUE_MAX_WORDS:
+        return False
+    split = _safe_short_hook_split_candidate(hook)
+    if split is None:
+        return False
+    head, tail = split
+    remainder = narration[len(hook):].lstrip()
+    sections[0]["narration"] = " ".join(
+        item for item in (head, tail, remainder) if item
+    ).strip()
+    return True
 
 
 def safe_word_boundary_trim(text: str, *, max_words: int, terminal: str = ".") -> str | None:
@@ -900,13 +992,72 @@ def apply_safe_short_s3_action_prefix_trim(script: dict[str, Any]) -> bool:
     return True
 
 
+def apply_locked_short_practical_action(
+    script: dict[str, Any],
+    locked_action: object,
+    *,
+    locked_payoff_answer: object = "",
+) -> bool:
+    """Replace provider-authored Short advice with the one Planning-owned action."""
+    action = validate_short_practical_action(locked_action)
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    original = sections[2].get("narration")
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", _clean(original))
+        if item.strip()
+    ]
+    payoff: list[str] = []
+    for sentence in sentences:
+        if _practical_action_marker_count(sentence) > 0:
+            continue
+        if _contains_forbidden_action_family(sentence):
+            salvaged = _salvage_safe_payoff_clause(sentence)
+            if salvaged:
+                payoff.append(salvaged)
+            continue
+        payoff.append(sentence)
+
+    if not payoff:
+        fallback = _safe_locked_payoff_text(locked_payoff_answer)
+        if fallback:
+            payoff.append(fallback)
+    if not payoff:
+        return False
+
+    candidate = " ".join([*payoff, action]).strip()
+    sections[2]["narration"] = candidate
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return _clean(original) != candidate
+
+
 def normalize_short_script_candidate(
     script: dict[str, Any],
     *,
     locked_payoff_answer: object = "",
+    locked_practical_action: object = "",
 ) -> dict[str, bool]:
     """Canonical deterministic Short normalization used at every script boundary."""
     hook_trimmed = apply_safe_short_hook_trim(script)
+    hook_split = False if hook_trimmed else apply_safe_short_hook_split(script)
+    locked_action_applied = False
+    if _clean(locked_practical_action):
+        locked_action_applied = apply_locked_short_practical_action(
+            script,
+            locked_practical_action,
+            locked_payoff_answer=locked_payoff_answer,
+        )
     action_prefix_trimmed = apply_safe_short_s3_action_prefix_trim(script)
     s3_trimmed = apply_safe_short_s3_single_action_trim(script)
     locked_payoff_fallback = apply_safe_short_s3_locked_payoff_fallback(
@@ -915,11 +1066,11 @@ def normalize_short_script_candidate(
     )
     action_prefix_trimmed_after_s3 = apply_safe_short_s3_action_prefix_trim(script)
     return {
-        "hook_trimmed": bool(hook_trimmed),
+        "hook_trimmed": bool(hook_split or hook_trimmed),
         "s3_action_prefix_trimmed": bool(
             action_prefix_trimmed or action_prefix_trimmed_after_s3
         ),
-        "s3_trimmed": bool(s3_trimmed),
+        "s3_trimmed": bool(locked_action_applied or s3_trimmed),
         "s3_locked_payoff_fallback": bool(locked_payoff_fallback),
     }
 
@@ -1172,7 +1323,11 @@ _MICRO_STORY_ACTION_TERMS = frozenset({
 })
 
 _VISUAL_ACTION_FAMILIES = {
-    "writing_desk": frozenset({"write", "writing", "rewriting", "notebook", "journal", "paper", "desk", "typing"}),
+    "stationery": frozenset({
+        "write", "writing", "rewriting", "notebook", "journal", "paper", "page",
+        "planner", "checklist", "sticky", "note", "notes", "pen", "pencil",
+    }),
+    "typing": frozenset({"type", "typing", "keyboard", "laptop", "computer"}),
     "walking": frozenset({"walk", "walking", "leaving", "moving", "steps", "path"}),
     "phone": frozenset({"phone", "scrolling", "screen", "checking"}),
     "reading": frozenset({"read", "reading", "book"}),
@@ -1202,6 +1357,7 @@ _VISIBLE_FACE_PATTERNS = (
     "looking at camera",
     "smiling face",
 )
+_FACE_RISK_TOKENS = frozenset({"face", "faces", "facial", "portrait", "selfie", "expression", "expressions"})
 _FACE_SAFE_CUES = (
     "no face",
     "no-face",
@@ -1210,15 +1366,111 @@ _FACE_SAFE_CUES = (
     "hidden face",
     "from behind",
     "back view",
+    "hands only",
+    "objects only",
+    "over shoulder",
+    "over-the-shoulder",
 )
 
 
-def _assert_no_explicit_face_query(query: str) -> None:
+def _has_explicit_face_risk(query: str) -> bool:
     lowered = _clean(query).casefold()
     if any(cue in lowered for cue in _FACE_SAFE_CUES):
-        return
-    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS):
+        return False
+    tokens = set(re.findall(r"[a-z]+", lowered))
+    return bool(
+        any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS)
+        or tokens & _FACE_RISK_TOKENS
+    )
+
+
+def _assert_no_explicit_face_query(query: str) -> None:
+    if _has_explicit_face_risk(query):
         raise ShortFormatError("short_visual_query_explicit_face_forbidden")
+
+
+def _face_safe_query(query: object) -> str:
+    compact = _clean(query)
+    if not compact or not _has_explicit_face_risk(compact):
+        return compact
+    safe = compact
+    for pattern in sorted(_VISIBLE_FACE_PATTERNS, key=len, reverse=True):
+        safe = re.sub(re.escape(pattern), " ", safe, flags=re.I)
+    words = [
+        word
+        for word in safe.split()
+        if re.sub(r"[^a-z]+", "", word.casefold()) not in _FACE_RISK_TOKENS
+    ]
+    safe = " ".join(words).strip(" ,;:-")
+    return (safe + " hands only").strip()
+
+
+def normalize_short_visual_queries(plan: dict[str, Any]) -> bool:
+    """Apply only deterministic face-safety and adjacent-family swaps."""
+    sections = plan.get("sections")
+    if not isinstance(sections, list):
+        return False
+    changed = False
+    prior_families: set[str] = set()
+    for raw in sections:
+        if not isinstance(raw, dict):
+            continue
+        primary = _face_safe_query(raw.get("visual_query_en"))
+        alternate = _face_safe_query(raw.get("visual_query_alt_en"))
+        if primary != _clean(raw.get("visual_query_en")):
+            raw["visual_query_en"] = primary
+            changed = True
+        if alternate != _clean(raw.get("visual_query_alt_en")):
+            raw["visual_query_alt_en"] = alternate
+            changed = True
+
+        primary_families = _query_action_families(_query_words(primary))
+        alternate_families = _query_action_families(_query_words(alternate))
+        if (
+            prior_families
+            and primary_families & prior_families
+            and alternate
+            and not (alternate_families & prior_families)
+        ):
+            raw["visual_query_en"], raw["visual_query_alt_en"] = alternate, primary
+            primary, alternate = alternate, primary
+            primary_families, alternate_families = alternate_families, primary_families
+            changed = True
+        prior_families = primary_families
+    return changed
+
+
+def validate_short_visual_safety(
+    plan: Mapping[str, Any],
+    *,
+    strict_repetition: bool = False,
+) -> dict[str, Any]:
+    """Narrow Planning safety for fresh Shorts; independent of template semantics."""
+    sections = plan.get("sections")
+    if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
+        raise ShortFormatError("short_visual_safety_requires_three_sections")
+
+    prior_families: set[str] = set()
+    for raw in sections:
+        if not isinstance(raw, Mapping):
+            raise ShortFormatError("short_visual_safety_invalid_section")
+        primary = _clean(raw.get("visual_query_en"))
+        alternate = _clean(raw.get("visual_query_alt_en"))
+        if not primary or not alternate:
+            raise ShortFormatError("short_visual_safety_missing_query")
+        _assert_no_explicit_face_query(primary)
+        _assert_no_explicit_face_query(alternate)
+
+        primary_families = _query_action_families(_query_words(primary))
+        alternate_families = _query_action_families(_query_words(alternate))
+        if strict_repetition and prior_families and primary_families & prior_families:
+            if not alternate_families or alternate_families & prior_families:
+                raise ShortFormatError(
+                    "short_visual_query_consecutive_action_family_without_distinct_alternate"
+                )
+        prior_families = primary_families
+
+    return {"status": "pass", "strict_repetition": bool(strict_repetition)}
 
 
 def validate_short_visual_queries(

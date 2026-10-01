@@ -119,6 +119,7 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     cta = str(value.get("cta") or "").strip()
     raw_cover_text = " ".join(str(value.get("cover_text") or "").split()).strip()
     cover_text = raw_cover_text[:100] if 1 <= len(raw_cover_text.split()) <= 6 else ""
+    practical_action_ar = " ".join(str(value.get("practical_action_ar") or "").split()).strip()
     raw_sections = value.get("sections")
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
@@ -220,6 +221,8 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         result["narrative_format"] = narrative_format
     if cover_text:
         result["cover_text"] = cover_text
+    if fmt == "short" and practical_action_ar:
+        result["practical_action_ar"] = practical_action_ar[:240]
     return result
 
 

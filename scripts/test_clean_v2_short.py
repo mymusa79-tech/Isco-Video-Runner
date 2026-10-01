@@ -99,14 +99,17 @@ from clean_v2.short_format import (
     apply_safe_short_s3_locked_payoff_fallback,
     apply_safe_short_s3_single_action_trim,
     normalize_short_script_candidate,
+    normalize_short_visual_queries,
     select_short_template,
     short_contract_report,
     short_prompt_context,
     validate_short_dimensions,
     validate_short_duration,
     validate_short_hook_contract,
+    validate_short_practical_action,
     validate_short_script,
     validate_short_visual_queries,
+    validate_short_visual_safety,
 )
 
 
@@ -178,19 +181,14 @@ _TEMPLATE_FIXTURES = {
 
 
 class ShortMistralS3PromptClarityTests(unittest.TestCase):
-    def test_mistral_script_prompt_teaches_one_validator_true_good_bad_pair(self) -> None:
+    def test_mistral_script_prompt_respects_host_owned_s3_action(self) -> None:
         base = "SHORT_FORMAT_CONTRACT:\nbase contract"
         prompt = _provider_prompt(base, provider="mistral", stage="script")
-        self.assertIn(
-            'GOOD s3: "المهمة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اكتب مهمة واحدة تستطيع إنهاءها الآن."',
-            prompt,
-        )
-        self.assertIn(
-            'BAD s3: "الكتابة البسيطة تقلل الاحتكاك. لذلك، اكتب مهمة واحدة تستطيع إنهاءها الآن."',
-            prompt,
-        )
-        self.assertIn('begins immediately with the single allowlisted imperative "اكتب"', prompt)
-        self.assertIn('begins with "لذلك" instead of beginning directly with the imperative', prompt)
+        self.assertIn("LOCKED_PLAN.practical_action_ar is host-owned", prompt)
+        self.assertIn("Do NOT write, repeat, paraphrase, or replace it", prompt)
+        self.assertIn("ZERO practical-action/imperative markers", prompt)
+        self.assertIn("purely descriptive state/result", prompt)
+        self.assertNotIn("GOOD s3:", prompt)
         self.assertEqual(_provider_prompt(base, provider="groq", stage="script"), base)
 
         report = validate_short_script(
@@ -312,6 +310,9 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("visual_query_alt_en", prompt)
                 self.assertIn("TWO distinct visual intents", prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
+                self.assertIn("practical_action_ar", prompt)
+                self.assertIn("hands only", prompt)
+                self.assertIn("dominant action family", prompt)
                 self.assertIn("scroll-stop visual beat", prompt)
                 self.assertIn("must not feel visually flat", prompt)
                 if expected == "why_reframe":
@@ -352,26 +353,46 @@ class ShortHookBoundedRecoveryTests(unittest.TestCase):
             "حين تفقد الدافع تمامًا لا يعني ذلك أنك كسول بل أن البداية تبدو ثقيلة.",
         )
 
-    def test_five_word_overrun_stays_fail_closed(self) -> None:
+    def test_long_hook_without_natural_boundary_stays_fail_closed(self) -> None:
         script = {
             "sections": [
                 {
                     "id": "s1",
                     "narration": (
-                        "حين تفقد الدافع تمامًا لا يعني ذلك أنك كسول بل أن البداية تبدو ثقيلة، "
-                        "لأنك تنتظر شعورًا كاملًا قبل أول خطوة صغيرة اليوم."
+                        "حين تفقد الدافع تمامًا قد تظن أن المشكلة فيك لأن البداية ثقيلة ولأنك تنتظر "
+                        "شعورًا كاملًا يساعدك على بدء أول خطوة صغيرة واضحة اليوم."
                     ),
                 }
             ]
         }
-        self.assertEqual(
+        self.assertGreater(
             len(script["sections"][0]["narration"].split()),
-            SHORT_HOOK_MAX_WORDS + 5,
+            SHORT_HOOK_RESCUE_MAX_WORDS,
         )
         report = normalize_short_script_candidate(script)
         self.assertFalse(report["hook_trimmed"])
         with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
             validate_short_hook_contract(script)
+
+    def test_run48_style_long_hook_splits_at_safe_boundary_without_losing_tail(self) -> None:
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "قد تظن أن كثرة المهام تعني أنك تحتاج خطة أقوى كل صباح، لكن المشكلة الحقيقية "
+                        "أن يومك يبدأ أصلًا بأكثر مما تستطيع إنهاءه بهدوء ومن دون استنزاف."
+                    ),
+                }
+            ]
+        }
+        original = script["sections"][0]["narration"]
+        self.assertGreater(len(original.split()), SHORT_HOOK_RESCUE_MAX_WORDS)
+        report = normalize_short_script_candidate(script)
+        self.assertTrue(report["hook_trimmed"])
+        accepted = validate_short_hook_contract(script)
+        self.assertLessEqual(accepted["hook_words"], SHORT_HOOK_MAX_WORDS)
+        self.assertIn("لكن المشكلة الحقيقية", script["sections"][0]["narration"])
 
 
 class ShortProviderDiagnosticsTests(unittest.TestCase):
@@ -434,11 +455,10 @@ class ShortContractTests(unittest.TestCase):
 
     def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
         prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
-        self.assertIn("MUST begin with a direct Arabic imperative verb", prompt)
-        self.assertIn("STRICTER SAFEGUARD", prompt)
-        self.assertIn("SELF-CHECK", prompt)
-        for example in ("ابدأ بمهمة واحدة", "جرّب أن", "افعل شيئًا واحدًا", "اختر مهمة واحدة", "اكتب أول خطوة"):
-            self.assertIn(example, prompt)
+        self.assertIn("practical_action_ar MUST begin with a direct Arabic imperative verb", prompt)
+        self.assertIn("Planning self-check", prompt)
+        self.assertIn("Script self-check", prompt)
+        self.assertIn("host adds the locked Planning action afterward", prompt)
 
         no_action = {
             "title": "شورت",
@@ -912,16 +932,64 @@ class ShortContractTests(unittest.TestCase):
         self.assertIn("17-18 words as validator headroom only", seen["mistral"])
         self.assertIn("move secondary detail to sentence two", seen["mistral"])
         self.assertIn("MISTRAL_SHORT_S3_COMPLIANCE", seen["mistral"])
-        self.assertIn("at least one descriptive payoff/explanation sentence BEFORE", seen["mistral"])
-        self.assertIn("rewrite that payoff sentence as a purely descriptive state/result", seen["mistral"])
-        self.assertIn("Exactly ONE s3 sentence", seen["mistral"])
-        self.assertIn("validator-recognized imperative from this allowlist", seen["mistral"])
-        self.assertIn("ابدأ", seen["mistral"])
-        self.assertIn("اختر", seen["mistral"])
-        self.assertIn("Do not substitute a synonym outside this list", seen["mistral"])
-        self.assertIn("count action sentences", seen["mistral"])
-        self.assertIn("require exactly 1", seen["mistral"])
-        self.assertIn("scan every payoff sentence", seen["mistral"])
+        self.assertIn("LOCKED_PLAN.practical_action_ar is host-owned", seen["mistral"])
+        self.assertIn("Do NOT write, repeat, paraphrase, or replace it", seen["mistral"])
+        self.assertIn("descriptive payoff/explanation sentence", seen["mistral"])
+        self.assertIn("ZERO practical-action/imperative markers", seen["mistral"])
+        self.assertIn("purely descriptive state/result", seen["mistral"])
+
+    def test_planning_owned_action_replaces_provider_commands_locally(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        plan["practical_action_ar"] = "اختر مهمة واحدة واضحة الآن."
+        value = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {
+                    "id": "s3",
+                    "narration": (
+                        "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. "
+                        "اكتب قائمة طويلة الآن. ثم اخرج للمشي."
+                    ),
+                },
+            ],
+        }
+        accepted = _validate_script_for_brief(value, plan, brief)
+        self.assertEqual(
+            accepted["sections"][2]["narration"],
+            "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نقطة واضحة للعودة. اختر مهمة واحدة واضحة الآن.",
+        )
+        validate_short_script(accepted)
+
+    def test_planning_owned_action_rejects_joined_second_action(self) -> None:
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_practical_action_forbids_joined_second_action",
+        ):
+            validate_short_practical_action("اختر مهمة واحدة ثم راجعها الآن.")
+
+    def test_visual_normalizer_makes_expression_query_face_safe(self) -> None:
+        plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
+        plan["sections"][0]["visual_query_en"] = "frustrated expression at messy office desk"
+        changed = normalize_short_visual_queries(plan)
+        self.assertTrue(changed)
+        self.assertIn("hands only", plan["sections"][0]["visual_query_en"])
+        self.assertNotIn("expression", plan["sections"][0]["visual_query_en"])
+        validate_short_visual_queries(plan, _TEMPLATE_FIXTURES["why_reframe"]["brief"])
+
+    def test_consecutive_stationery_requires_a_real_alternate_family(self) -> None:
+        plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
+        plan["sections"][0]["visual_query_en"] = "frustrated worker writing messy notebook"
+        plan["sections"][1]["visual_query_en"] = "person pause rewriting notebook plan"
+        plan["sections"][1]["visual_query_alt_en"] = "hands writing revised checklist"
+        plan["sections"][2]["visual_query_en"] = "focused worker organizing workspace"
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_visual_query_consecutive_action_family_without_distinct_alternate",
+        ):
+            validate_short_visual_safety(plan, strict_repetition=True)
 
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]

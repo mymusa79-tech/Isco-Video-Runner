@@ -720,7 +720,10 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         story = planned.pop("visual_story")
         prompt = _script_prompt(_brief("short"), planned, visual_story=story)
         self.assertIn("hard maximum of 18 Arabic words", prompt)
-        self.assertIn("express payoff_answer as descriptive resolution", prompt)
+        self.assertIn("LOCKED_PLAN.practical_action_ar is already final and host-owned", prompt)
+        self.assertIn("Author s3 as descriptive payoff only", prompt)
+        self.assertIn("runtime appends the locked action sentence afterward", prompt)
+        self.assertNotIn("express payoff_answer as descriptive resolution", prompt)
         self.assertNotIn("Do not optimize for a fixed word count or duration", prompt)
 
     def test_fresh_story_repairs_repeated_search_but_rejects_repeated_intent(self) -> None:
