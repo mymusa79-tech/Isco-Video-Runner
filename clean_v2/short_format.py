@@ -362,7 +362,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. It must not append a second action with ثم/و, an attached conjunction such as والتزم/واكتب, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. "
-        "Planning self-check: practical_action_ar contains exactly one imperative marker. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
+        "Planning self-check: practical_action_ar contains exactly one imperative marker. It must DIRECTLY operationalize this video's own hook_tension/payoff_answer and name the same topic-specific object, contrast, or behavior; if the same action could close an unrelated self-development Short, rewrite it. Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
@@ -584,6 +584,11 @@ _S3_FORBIDDEN_ACTION_FAMILY_SAFE_WORDS = frozenset(
         "فعلا", "فعليا", "الفعل", "بالفعل", "والفعل", "بفعل", "أفعال", "الأفعال",
         "قراءة", "القراءة", "بالقراءة", "والقراءة",
         "حركة", "الحركة", "بالحركة", "والحركة",
+        # Descriptive start-point nouns are not hidden imperatives. Keeping them
+        # safe prevents a topic-specific payoff such as "تقارن بدايتك..." from
+        # being replaced by unrelated generic anti-procrastination copy.
+        "بداية", "البداية", "بدايتك", "بدايته", "بدايتها", "بدايتهم",
+        "بدايتنا", "بدايتي", "بدايات", "البدايات",
     )
 )
 
@@ -673,11 +678,6 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
-_SAFE_S3_LOCKED_PAYOFF_LAST_RESORT = (
-    "الخطوة الصغيرة تقلل الاحتكاك وتمنحك نتيجة واضحة."
-)
-
-
 def _safe_locked_payoff_text(payoff_answer: object) -> str:
     """Return a validator-clean local payoff without spending another provider call."""
     fallback = _clean(payoff_answer)
@@ -697,12 +697,10 @@ def _safe_locked_payoff_text(payoff_answer: object) -> str:
     if salvaged:
         return salvaged
 
-    # The planning payoff is already locked semantic context. If every clause is
-    # contaminated only by the deliberately broad action-family guard (for example
-    # descriptive nouns such as الفعل / التحول / الحركة), use one fixed,
-    # validator-clean descriptive sentence rather than failing an otherwise valid
-    # last-resort script. The unchanged strict validator still owns acceptance.
-    return _SAFE_S3_LOCKED_PAYOFF_LAST_RESORT
+    # Never substitute topic-agnostic copy for a locked semantic payoff.
+    # If the locked answer cannot be represented safely, fail closed and let the
+    # normal provider/repair path own the wording instead of changing the subject.
+    return ""
 
 
 def apply_safe_short_s3_locked_payoff_fallback(
