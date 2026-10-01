@@ -137,6 +137,95 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("hook_body_continuity=true", film_script)
         self.assertIn("payoff_resolves_hook=true", film_script)
 
+    def test_narrative_format_fidelity_selfcheck_appears_for_film_and_podcast_only(self) -> None:
+        # Run #47 (Telegram film) was blocked post-repair on "editorial_promise_continuity:
+        # narrative format mismatch": the locked plan declared narrative_format=question_answer
+        # but the delivered narration read as a flat sequence of instructional steps, never
+        # posing a new question after the hook. Neither the script prompt nor the repair prompt
+        # ever told the Writer to check the ACTUAL narration against writing_shape's described
+        # behavior, only to keep the label - so this closes that gap explicitly.
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        podcast_script = _script_prompt(brief, self._plan(3))
+        self.assertIn("NARRATIVE FORMAT FIDELITY", podcast_script)
+        self.assertIn("do not merely keep the narrative_format LABEL", podcast_script)
+        self.assertIn(
+            "must still pose one new sincere question that sharpens or deepens the SAME inquiry",
+            podcast_script,
+        )
+
+        film_script = _script_prompt({**brief, "format": "film"}, self._plan(5))
+        self.assertIn("NARRATIVE FORMAT FIDELITY", film_script)
+        self.assertIn(
+            "must still pose one new sincere question that sharpens or deepens the SAME inquiry",
+            film_script,
+        )
+
+        short_brief = {**brief, "format": "short"}
+        short_plan = {
+            "title": "عنوان",
+            "sections": [
+                {"id": "s1", "heading": "1", "purpose": "غرض", "visual_query_en": "shot"},
+                {"id": "s2", "heading": "2", "purpose": "غرض", "visual_query_en": "shot"},
+                {"id": "s3", "heading": "3", "purpose": "غرض", "visual_query_en": "shot"},
+            ],
+        }
+        short_script = _script_prompt(short_brief, short_plan)
+        self.assertNotIn("NARRATIVE FORMAT FIDELITY", short_script)
+
+    def test_tone_repair_prompt_restores_locked_narrative_format_writing_shape_on_mismatch(
+        self,
+    ) -> None:
+        film_brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+            "format": "film",
+            "language": "ar",
+            "research_pack": [],
+        }
+        plan = {**self._plan(3), "narrative_format": "question_answer"}
+        script = {
+            "title": "عنوان",
+            "sections": [
+                {"id": "s1", "narration": "هل تشتت انتباهك مؤخرًا؟"},
+                {"id": "s2", "narration": "الخطوة الأولى: اختر مهمة واحدة."},
+                {"id": "s3", "narration": "الخطوة الثانية: التزم بها."},
+            ],
+        }
+        prompt = _tone_repair_prompt(
+            brief=film_brief,
+            plan=plan,
+            script=script,
+            identity={"opener": "", "closer": ""},
+            cta_plan={"spoken_text": "", "anchor_section_id": ""},
+            revision_note=(
+                "editorial_promise_continuity: narrative format mismatch: question_answer plan "
+                "but s2/s3 read as flat instructional steps with no question"
+            ),
+        )
+        self.assertIn("narrative_format=question_answer", prompt)
+        self.assertIn(
+            "asks sincere progressively deeper questions and answers them; never a flat FAQ",
+            prompt,
+        )
+        self.assertIn("Rewrite any section that reads as a flat instructional step", prompt)
+
+        # A plan with no narrative_format at all (e.g. short) must not gain this guidance.
+        no_format_prompt = _tone_repair_prompt(
+            brief=film_brief,
+            plan=self._plan(3),
+            script=script,
+            identity={"opener": "", "closer": ""},
+            cta_plan={"spoken_text": "", "anchor_section_id": ""},
+            revision_note="s2 and s3 repeat the same idea instead of advancing the central question",
+        )
+        self.assertNotIn("Rewrite any section that reads as a flat instructional step", no_format_prompt)
+
     def test_podcast_prompt_states_the_exact_18_word_a_turn_cap(self) -> None:
         # Run #26 failed with "podcast_listener_proxy_question_too_long words=20
         # maximum=18" - the validator's hard cap was never actually stated as a
