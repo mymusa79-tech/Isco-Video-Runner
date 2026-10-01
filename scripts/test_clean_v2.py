@@ -6526,8 +6526,8 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         plan = self._plan()
         plan["_visual_diversity_contract"] = "v2_fail_closed"
         # A fresh production plan must fail if the repeated beat itself has no
-        # distinct alternate; an unrelated alternate elsewhere must not rescue it.
-        plan["sections"][2]["visual_query_alt_en"] = "curtain opening toward quiet window"
+        # distinct alternate; unrelated alternates elsewhere must not rescue it.
+        plan["sections"][1].pop("visual_query_alt_en", None)
         story = self._story()
         story["beats"][0]["shot_intent"] = "hand writing in notebook"
         story["beats"][0]["stock_query_en"] = "hand writing notebook task"
