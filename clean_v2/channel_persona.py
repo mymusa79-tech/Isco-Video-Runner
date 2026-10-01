@@ -86,8 +86,10 @@ def with_channel_persona(prompt: str) -> str:
             "\nDIALOGUE VOICE CONTRACT: If the selected narrative_format is dialogue_qa, every spoken turn must begin "
             "on a new line with exactly `A:` or `B:`. A is always the concise questioner/challenger. B is always the "
             "thoughtful responder and fixed primary channel voice. Use both roles in each dialogue section; never add "
-            "speaker names or swap roles. The first turn should normally be B when it carries the hook/channel opener. "
-            "For inner_dialogue, never use A:/B: labels: it remains one primary channel voice."
+            "speaker names or swap roles. For podcast / خارج النص, the first turn MUST be A because its fixed listener-proxy "
+            "hook is the listener's question; B answers immediately after the identity/prayer break. For other dialogue_qa formats, "
+            "the first turn may be B when it carries the hook/channel opener. For inner_dialogue, never use A:/B: labels: it remains "
+            "one primary channel voice."
         )
     enriched = (
         prompt
