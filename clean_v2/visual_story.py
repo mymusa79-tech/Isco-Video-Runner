@@ -833,11 +833,15 @@ def contextual_intent(
     elif current_family and current_family == previous_family:
         priority_rule = "Repeat: same family fails unless changed-state motif. "
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    # Put the semantic audit contract before navigation context so the fixed
+    # 300-char provider boundary can never truncate Meaning/Must show/Avoid when
+    # editor metadata is present. Navigation context is useful but secondary.
     head = (
-        f"Role:{role} Shot:{shot_role} Env:{environment_family} Fam:{current_family or 'other'} "
-        f"PrevFam:{previous_family or 'none'}. {priority_rule}"
-        f"Current: {current}. Previous: {previous}. Next: {following}. "
-        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}."
+        f"Role:{role} Shot:{shot_role[:10]} Env:{environment_family[:14]} "
+        f"Fam:{current_family or 'other'} PrevFam:{previous_family or 'none'}. "
+        f"{priority_rule}"
+        f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
+        f"Current: {current}. Previous: {previous}. Next: {following}."
     )
     head_limit = max(0, 300 - len(tail))
     return head[:head_limit].rstrip() + tail
