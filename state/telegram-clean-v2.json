@@ -2175,7 +2175,7 @@
       ],
       "selected": true,
       "created_at": "2026-10-01T06:37:36Z",
-      "selected_at": "2026-10-01T06:38:11Z"
+      "selected_at": "2026-10-01T12:16:05Z"
     },
     {
       "idea_id": "idea-91ca350ff2",
@@ -2550,6 +2550,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-01T12:06:54Z",
       "selected_index": 0
+    },
+    "0b14a62a": {
+      "session_id": "0b14a62a",
+      "scope": "short",
+      "idea_ids": [
+        "idea-8fa6f8fb18"
+      ],
+      "created_at": "2026-10-01T12:16:05Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T12:16:05Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2889,9 +2900,40 @@
       "confirmed_at": "2026-10-01T12:07:13Z",
       "dispatched_at": "2026-10-01T12:07:16Z",
       "request_sha256": "786899ed07e527608c97174ab224ea13ada598032e1f5aa2877033cffe2bac3b"
+    },
+    "req-96fd896c3271": {
+      "schema_version": 1,
+      "request_id": "req-96fd896c3271",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فخ المقارنة: مسارك الزمني خاص بك وحدك",
+      "research_pack": [
+        {
+          "source_title": "let me help you stop comparing yourself | psychology & affirmations (asmr)",
+          "source_url": "https://youtu.be/cY_InAo5P7w",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Smetto di Paragonarmi agli Altri | Affermazioni del Mattino per l'Autostima",
+          "source_url": "https://youtu.be/ICCDbyv-qmo",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كيف تدمر المقارنة سعادتك ونجاحك دون أن تشعر؟ 🧠🚫 #تطوير_الذات #المقارنة #سيكولوجيا_النجاح #الراحة",
+          "source_url": "https://youtu.be/qkBPLHdfe4o",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-8fa6f8fb18",
+      "selected_at": "2026-10-01T12:16:05Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "31bc2c792e892134e036037816292005e70ea869a957f5d2b47a1ba6f6569067"
     }
   },
-  "current_request_id": "req-0cdd8410d963",
+  "current_request_id": "req-96fd896c3271",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3146,5 +3188,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T12:07:16Z"
+  "updated_at": "2026-10-01T12:16:05Z"
 }
