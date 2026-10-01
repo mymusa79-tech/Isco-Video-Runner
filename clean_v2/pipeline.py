@@ -341,7 +341,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 7
+RESUME_CONTRACT_VERSION = 8
 RESUMABLE_STAGES = ("planning", "script", TEXT_AUDIT_STAGE, "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 TEXT_AUDIT_CHECKPOINT_FILE = "audit-checkpoint.json"
@@ -3937,6 +3937,10 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         plan["narrative_format"] = str(
             _select_longform_narrative_profile(brief)["narrative_format"]
         )
+    # Local production contract: every fresh Short/Film/Podcast plan must fail
+    # closed on adjacent/repeated visual families before any media retrieval.
+    # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
+    plan["_visual_diversity_contract"] = "v2_fail_closed"
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
         # Strict Planning schemas require this for current providers. The local
