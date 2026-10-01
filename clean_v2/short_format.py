@@ -1323,7 +1323,11 @@ _MICRO_STORY_ACTION_TERMS = frozenset({
 })
 
 _VISUAL_ACTION_FAMILIES = {
-    "writing_desk": frozenset({"write", "writing", "rewriting", "notebook", "journal", "paper", "desk", "typing"}),
+    "stationery": frozenset({
+        "write", "writing", "rewriting", "notebook", "journal", "paper", "page",
+        "planner", "checklist", "sticky", "note", "notes", "pen", "pencil",
+    }),
+    "typing": frozenset({"type", "typing", "keyboard", "laptop", "computer"}),
     "walking": frozenset({"walk", "walking", "leaving", "moving", "steps", "path"}),
     "phone": frozenset({"phone", "scrolling", "screen", "checking"}),
     "reading": frozenset({"read", "reading", "book"}),
