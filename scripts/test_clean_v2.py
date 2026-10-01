@@ -62,6 +62,7 @@ from clean_v2.providers import (
 from clean_v2.identity_sequence import PRAYER_SENTENCE
 from clean_v2.short_format import select_short_template
 from clean_v2 import visual_qa as visual_qa_module
+from clean_v2 import visual_story as visual_story_module
 from clean_v2 import providers as providers_module
 from clean_v2 import media as media_module
 from clean_v2 import text_audit as text_audit_module
@@ -6372,6 +6373,101 @@ class FilmDerivedShortLiteTests(unittest.TestCase):
             self.assertEqual(report["tts_calls_added"], 0)
             self.assertTrue(final_path.is_file())
             self.assertFalse((root / "long-short.mp4").exists())
+
+
+class VisualStorySemanticRegressionTests(unittest.TestCase):
+    def _plan(self) -> dict:
+        return {
+            "sections": [
+                {"id": "s1", "purpose": "open tension", "visual_query_en": "unequal progress markers"},
+                {"id": "s2", "purpose": "explain mechanism", "visual_query_en": "phone scrolling comparison feed"},
+                {"id": "s3", "purpose": "land payoff", "visual_query_en": "door opening into clear workspace"},
+            ]
+        }
+
+    def _story(self) -> dict:
+        return {
+            "visual_world": "grounded cinematic realism",
+            "story_arc": {
+                "beginning": "show unequal starts",
+                "transformation": "show comparison mechanism",
+                "arrival": "show a grounded next step",
+            },
+            "retention_thread": {
+                "hook_tension": "same destination, unequal starts",
+                "payoff_answer": "judge your own movement from your actual starting point",
+                "visual_motif": "two progress markers",
+            },
+            "beats": [
+                {
+                    "id": "b1",
+                    "section_id": "s1",
+                    "viewer_intent": "see unequal starting positions",
+                    "meaning_target": "two people can be moving while starting from visibly unequal positions",
+                    "semantic_must_have": ["two progress markers at visibly different starting positions"],
+                    "shot_intent": "two progress markers starting from visibly different positions",
+                    "stock_query_en": "two runners starting from different marked positions",
+                    "source_preference": "stock_motion",
+                },
+                {
+                    "id": "b2",
+                    "section_id": "s2",
+                    "viewer_intent": "see comparison distort progress",
+                    "meaning_target": "attention shifts from own movement to somebody else's visible result",
+                    "semantic_must_have": ["phone feed beside an unfinished personal task"],
+                    "shot_intent": "hand scrolling phone beside unfinished personal task",
+                    "stock_query_en": "hand scrolling phone beside unfinished task",
+                    "source_preference": "stock_motion",
+                },
+                {
+                    "id": "b3",
+                    "section_id": "s3",
+                    "viewer_intent": "see grounded return to own next step",
+                    "meaning_target": "one concrete next step becomes visible after comparison stops",
+                    "semantic_must_have": ["one chosen object isolated from surrounding clutter"],
+                    "shot_intent": "one selected object isolated from surrounding clutter",
+                    "stock_query_en": "single selected object emerging from clutter",
+                    "source_preference": "stock_motion",
+                },
+            ],
+        }
+
+    def test_visual_story_rejects_adjacent_repeated_action_family(self) -> None:
+        story = self._story()
+        story["beats"][0]["shot_intent"] = "hand writing in notebook"
+        story["beats"][0]["stock_query_en"] = "hand writing notebook task"
+        story["beats"][0]["semantic_must_have"] = ["hand writing one visible task in notebook"]
+        story["beats"][1]["shot_intent"] = "pen marking sticky notes on paper"
+        story["beats"][1]["stock_query_en"] = "pen marking sticky notes paper"
+        story["beats"][1]["semantic_must_have"] = ["pen marking one sticky note on paper"]
+        with self.assertRaisesRegex(ValueError, "adjacent beats repeat visual family: stationery"):
+            visual_story_module.validate_visual_story(story, self._plan())
+
+    def test_visual_story_rejects_mood_only_semantic_proof(self) -> None:
+        story = self._story()
+        story["beats"][0]["semantic_must_have"] = [
+            "warm cinematic lighting, navy shadows, soft contrast and depth"
+        ]
+        with self.assertRaisesRegex(ValueError, "semantic_must_have must contain observable semantic evidence"):
+            visual_story_module.validate_visual_story(story, self._plan())
+
+    def test_contextual_intent_preserves_meaning_and_visual_proof_within_budget(self) -> None:
+        story = self._story()
+        story["beats"][0]["writer_anchor_ar"] = (
+            "قد ترى النتيجة النهائية لشخص آخر وتنسى أن نقطة بدايته لم تكن نقطة بدايتك."
+        )
+        intent = visual_story_module.contextual_intent(
+            story,
+            "b1",
+            "fallback",
+        )
+        self.assertLessEqual(len(intent), 300)
+        self.assertIn("Meaning:two people can be moving", intent)
+        self.assertIn("Must show:two progress markers", intent)
+        self.assertIn("Narration:", intent)
+        self.assertNotIn(" Previous:", intent)
+        self.assertNotIn(" Next:", intent)
+
 
 if __name__ == "__main__":
     unittest.main()
