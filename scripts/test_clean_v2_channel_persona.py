@@ -76,6 +76,15 @@ class CleanV2ChannelPersonaTests(unittest.TestCase):
             self.assertIn("generic_rejection_rule", prompt)
             self.assertEqual(with_channel_persona(prompt), prompt)
 
+    def test_podcast_dialogue_contract_never_conflicts_on_first_speaker(self):
+        prompt = _script_prompt(_brief("podcast"), _plan(3))
+        self.assertIn("For podcast / خارج النص, the first turn MUST be A", prompt)
+        self.assertIn("B answers immediately after the identity/prayer break", prompt)
+        self.assertNotIn(
+            "The first turn should normally be B when it carries the hook/channel opener",
+            prompt,
+        )
+
     def test_same_enriched_prompt_reaches_every_content_provider(self):
         for stage, prompt in (
             ("planning", _planning_prompt(_brief())),
