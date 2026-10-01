@@ -403,6 +403,16 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 first["semantic_must_have"] = [
                     "smartphone screen with conflicting notification shapes"
                 ]
+                # This test is about screen/UI safety, not family repetition.
+                # Keep the next authored beat visibly distinct so the production
+                # diversity gate can remain fail-closed.
+                if len(visual_story["beats"]) > 1:
+                    visual_story["beats"][1]["shot_intent"] = (
+                        "door opening into quiet workspace back view"
+                    )
+                    visual_story["beats"][1]["stock_query_en"] = (
+                        "door opening into quiet workspace back view"
+                    )
                 script = {
                     "title": "نص نهائي",
                     "sections": [
