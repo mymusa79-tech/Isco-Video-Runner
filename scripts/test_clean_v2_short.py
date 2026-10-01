@@ -1779,6 +1779,10 @@ class ShortTimedTextTests(unittest.TestCase):
                 {"section_id": "s2", "start": 5.0, "end": 10.0},
                 {"section_id": "s3", "start": 10.0, "end": 15.0},
             ],
+            "identity_events": [
+                {"kind": "hook", "start": 0.0, "end": 5.0},
+                {"kind": "topic", "start": 5.0, "end": 15.0},
+            ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
         self.assertEqual(len(events), 3)
@@ -2269,6 +2273,30 @@ class ShortNoFacePolicyTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["no_face_policy"], "pass")
+
+
+
+class SharedColorIdentityRegressionTests(unittest.TestCase):
+    def test_master_look_uses_navy_shadows_and_warm_highlights(self) -> None:
+        shadow = media_module._master_look_value(0.18, 0.18, 0.18)
+        highlight = media_module._master_look_value(0.88, 0.88, 0.88)
+        self.assertGreater(shadow[2], shadow[0])
+        self.assertGreater(highlight[0], highlight[2])
+        self.assertGreater(media_module.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.90)
+
+    def test_shared_finish_is_always_applied_after_master_lut(self) -> None:
+        source = inspect.getsource(media_module.render_video)
+        self.assertIn("CINEMATIC_FINISH_FILTER", source)
+        self.assertNotIn(
+            'if any(str(value or "").strip() for value in grade_filters.values())',
+            source,
+        )
+        self.assertIn("navy-gold-master-v5.cube", source)
+        self.assertEqual(
+            media_module.CINEMATIC_FINISH_VERSION,
+            "clean-v2-navy-gold-depth-finish-v5",
+        )
 
 
 if __name__ == "__main__":
