@@ -4604,6 +4604,32 @@ def _inspect_final_with_short_gate(
     return report
 
 
+EDITORIAL_DEPENDENCY_GUIDANCE = """
+EDITORIAL DEPENDENCY CONTRACT — Short, Film, and Podcast:
+- Build around ONE approved central tension/question. Do not plan several loosely related lessons.
+- Give every section ONE distinct explanatory job that adds something the previous section did not: reveal, cause,
+  distinction, consequence, implication, example, or earned resolution.
+- Section order must matter. Before returning JSON, compare every adjacent pair: if the later section could be
+  removed or swapped earlier without breaking the reasoning, its purpose is too redundant; rewrite that purpose
+  so it depends on what the listener/viewer has just learned.
+- The final section must earn its payoff from the preceding reasoning rather than attach generic advice.
+- Keep each format's own house shape: Short stays a compact miniature idea, Film keeps its locked narrative_format,
+  and Podcast keeps its fixed listener-proxy dialogue identity.
+""".strip()
+
+VISUAL_EVIDENCE_GUIDANCE = """
+VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
+- Plan each beat as visible evidence of its exact meaning, not as a merely attractive mood image.
+- Ask silently: "What can the viewer literally see here that proves or demonstrates this beat?" The answer should
+  be an observable action, changed state, consequence, comparison, choice, interruption, completion, or concrete
+  relationship between objects/environment.
+- meaning_target says what must be proven; semantic_must_have names the visible proof; shot_intent and stock queries
+  describe that proof directly. Prefer action/state-change wording over atmosphere-only adjectives.
+- Do not default an abstract self-development idea to desk/laptop/notebook/writing B-roll unless that exact action
+  is itself evidence for the point. Cinematic light and composition support meaning; they never substitute for it.
+""".strip()
+
+
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
     longform_profile = _select_longform_narrative_profile(brief)
@@ -4632,11 +4658,15 @@ The episode title must be specific to THIS episode and carry its real tension or
 
 خارج النص has one fixed listener-proxy dialogue identity. The first spoken sentence MUST be A: and
 must be one short, concrete question the listener plausibly has in their own head. B: is the established
-Charon channel voice and carries the real explanation. A is sparse: use a short question, doubt, or
-objection only when it unlocks a genuinely new layer; never use A as a host, interviewer, co-presenter,
-or setup machine. Do not alternate A/B mechanically after every sentence. The runtime will insert the
-prayer and fixed خارج النص definition between the first A hook and B's first answer, so B's first words
-must pick up the SAME noun/tension from the hook naturally rather than restarting the topic.
+Charon channel voice and carries the real explanation. A is sparse: use only one of four listener-proxy jobs when it genuinely unlocks a new layer:
+a real question, a plausible doubt, a concrete objection, or a request for clarification. Never use A as
+a host, interviewer, co-presenter, agreement filler, or setup machine. Each planned A turn must create a
+specific gap that the immediately following B turn answers before another A appears. If B would deliver
+essentially the same substance without that A turn, omit A instead of manufacturing dialogue. Do not
+alternate A/B mechanically after every sentence. Express this progression through the existing section
+purpose fields; do not invent a new schema or metadata field. The runtime will insert the prayer and fixed
+خارج النص definition between the first A hook and B's first answer, so B's first words must pick up the
+SAME noun/tension from the hook naturally rather than restarting the topic.
 
 Keep the visual companion deliberately sparse and audio-first. For section 1, use TWO semantic beats:
 (1) the A-hook beat is a close/medium no-face unresolved detail, interrupted action, or visible consequence
@@ -4780,7 +4810,9 @@ observational evidence from recent YouTube Analytics. Use it only to prioritize 
 opening directness, pacing, and ending review. It is not causal proof, must never justify a factual claim in
 the narration, and must never trigger an automatic production override or force imitation of a past topic.
 Use {section_requirement} for format
-{fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
+{fmt}. Keep the arc practical, natural, hopeful, and direct.
+{EDITORIAL_DEPENDENCY_GUIDANCE}
+Each visual query must be a concrete
 English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
 words: one observable action OR one simple setting, plus only the few composition/light cues that
 materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
@@ -4887,6 +4919,7 @@ The existing hold_reason remains the cut/hold decision signal; do NOT invent a s
 second cut_reason field. semantic_should_avoid remains the explicit avoid-list, and audio_energy remains the
 music-state signal. This keeps the editor contract inside the existing plan with zero extra provider calls.
 {editor_contract_guidance}
+{VISUAL_EVIDENCE_GUIDANCE}
 For each beat, viewer_intent states what the viewer should
 understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
@@ -5105,13 +5138,16 @@ For podcast / خارج النص, use the fixed listener-proxy dialogue house sty
 A maps to Orus and represents the listener's own concrete question, doubt, or objection. B maps to Charon
 and remains the established channel voice. Preserve explicit A:/B: labels only at turn boundaries.
 A is sparse and short: normally one natural sentence, preferably 4-14 Arabic words, only when it unlocks
-the next layer. B carries the substance in a fuller answer before A returns. Never alternate mechanically
-line-by-line. No greetings, names, host/guest framing, thanks, fake agreement, jokes inserted for chemistry,
-or staged interview filler. A must sound like a real listener thinking aloud, not a prompt engineered to
-feed B's answer. The first hook should normally be an A question/objection that a real listener could have
-thought before pressing play, and B's first topic sentence after prayer/identity must answer that SAME
-question immediately rather than restarting the episode. Keep both voices simple, deep, conversational,
-and non-theatrical.
+the next layer. Every A turn must perform exactly one useful listener-proxy job: real question, plausible
+doubt, concrete objection, or request for clarification. B must answer the specific gap opened by A before
+another A turn appears. If removing an A turn would leave B saying essentially the same thing, remove that A
+turn; do not manufacture dialogue merely to preserve alternation. B carries the substance in a fuller answer
+before A returns. Never alternate mechanically line-by-line. No greetings, names, host/guest framing, thanks,
+fake agreement, jokes inserted for chemistry, or staged interview filler. A must sound like a real listener
+thinking aloud, not a prompt engineered to feed B's answer. The first hook should normally be an A
+question/objection that a real listener could have thought before pressing play, and B's first topic sentence
+after prayer/identity must answer that SAME question immediately rather than restarting the episode. Keep both
+voices simple, deep, conversational, and non-theatrical.
 """.strip()
 
 
@@ -5279,6 +5315,10 @@ same idea, and the ending must deliver payoff_answer. The final payoff should ve
 same tension while the visual plan returns to visual_motif in a changed state. Do not invent a second
 unrelated hook, abandon the promised question after the identity handoff, or save all useful value
 for the last sentence; give an earned partial answer as the body advances.
+{EDITORIAL_DEPENDENCY_GUIDANCE}
+Do not redesign the locked plan: perform its distinct section jobs in narration. If two adjacent
+sections end up interchangeable or one merely paraphrases the other, rewrite only the later section
+so it adds the missing approved explanatory step before returning JSON.
 {short_payoff_guidance}
 
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
