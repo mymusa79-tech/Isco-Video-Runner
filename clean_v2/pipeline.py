@@ -4533,7 +4533,19 @@ visual motif remains supportive and non-essential to a listener with the screen 
             f"- visual_grammar={longform_profile['visual']}\n"
             f"- voice_mode={longform_profile['voice']}\n"
             "Return exactly the locked narrative_format above. This profile is selected locally from the approved topic "
-            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script."
+            "and adds zero provider calls/stages. The same profile must shape section purposes, visual_story beats and the later script. "
+            "Shape every section's heading and purpose field itself in this performance, not only the later script: "
+            + (
+                "the locked narrative_format above is question_answer, so phrase each section after the first as the "
+                "new sincere question that section answers, never as an instructional step label such as "
+                "\"الخطوة الأولى\"/\"الخطوة الثانية\" or a numbered tip - a connected_list-style step skeleton here "
+                "forces the Script stage to invent questions afterward instead of simply writing to a plan that "
+                "already asks them."
+                if longform_profile["narrative_format"] == "question_answer"
+                else "phrase headings/purposes so they already perform writing_shape's described behavior above, "
+                "not a generic step/list shape, so the Script stage inherits a skeleton that already matches the "
+                "locked performance instead of having to invent it afterward."
+            )
         )
         if fmt in {"film", "podcast"}
         else ""

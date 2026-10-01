@@ -226,6 +226,51 @@ class PodcastFormatTests(unittest.TestCase):
         )
         self.assertNotIn("Rewrite any section that reads as a flat instructional step", no_format_prompt)
 
+    def test_planning_prompt_shapes_section_headings_to_the_locked_narrative_format(self) -> None:
+        # Run #47's plan.json locked narrative_format=question_answer (this exact topic
+        # deterministically selects it) but s2-s5 headings still read as step labels
+        # ("الخطوة الأولى: ...", "الخطوة الثانية: ...") - a connected_list skeleton the
+        # Script stage then had to force into questions after the fact. Planning must
+        # now say so explicitly for its own heading/purpose fields.
+        film_brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+            "format": "film",
+            "language": "ar",
+            "research_pack": [],
+        }
+        planning = _planning_prompt(film_brief)
+        self.assertIn("narrative_format=question_answer", planning)
+        self.assertIn("the locked narrative_format above is question_answer", planning)
+        self.assertIn(
+            "phrase each section after the first as the new sincere question", planning
+        )
+        self.assertIn("الخطوة الأولى", planning)
+        self.assertNotIn(
+            "phrase headings/purposes so they already perform writing_shape's described behavior above",
+            planning,
+        )
+
+        # Podcast is fixed to dialogue_qa, never question_answer, so it must get the
+        # generic branch instead, and never the question_answer-specific wording.
+        podcast_brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        podcast_planning = _planning_prompt(podcast_brief)
+        self.assertIn("narrative_format=dialogue_qa", podcast_planning)
+        self.assertNotIn("narrative_format=question_answer", podcast_planning)
+        self.assertIn(
+            "phrase headings/purposes so they already perform writing_shape's described behavior above",
+            podcast_planning,
+        )
+        self.assertNotIn(
+            "phrase each section after the first as the new sincere question", podcast_planning
+        )
+
     def test_podcast_prompt_states_the_exact_18_word_a_turn_cap(self) -> None:
         # Run #26 failed with "podcast_listener_proxy_question_too_long words=20
         # maximum=18" - the validator's hard cap was never actually stated as a
