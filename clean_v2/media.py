@@ -3717,8 +3717,9 @@ def render_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # All stock footage in this render shares one measured reference. M8 has
-    # already normalized technical color space; this step aligns appearance only.
+    # Every clip is normalized toward the fixed channel palette target. M8 has
+    # already normalized technical color space; no episode stock clip can become
+    # the creative color authority for the rest of the video.
     grade_filters = _build_reference_color_plan(paths, output_dir)
 
     opening_count = 3 if opening_enabled else 0
