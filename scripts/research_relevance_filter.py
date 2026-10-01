@@ -30,5 +30,5 @@ def market_sample_relevance(query: str, snippet: Mapping[str, Any]) -> tuple[boo
         return False, []
     candidate_tokens = relevance_tokens(f"{snippet.get('title') or ''} {snippet.get('description') or ''}")
     overlap = sorted(query_tokens & candidate_tokens)
-    minimum = 1 if len(query_tokens) == 1 else 2
+    minimum = 1 if len(query_tokens) <= 3 else 2
     return len(overlap) >= minimum, overlap
