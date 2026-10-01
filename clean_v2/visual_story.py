@@ -829,16 +829,21 @@ def contextual_intent(
     )
     priority_rule = ""
     if role == "hook":
-        priority_rule = "Hook tension observable. "
+        # Preserve the established semantic hook contract verbatim; downstream
+        # QA/tests consume this phrase as compatibility surface.
+        priority_rule = "Hook must show an unresolved observable tension. "
     elif current_family and current_family == previous_family:
-        priority_rule = "Repeat needs changed state. "
+        priority_rule = "Repeat: changed state required. "
+    previous_family_label = (
+        f" PrevFam:{previous_family}" if previous_family else ""
+    )
     tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
-    # The provider contract is capped at 300 characters. Keep editor metadata
-    # compact while preserving the established family + semantic + neighbor
-    # labels that downstream QA/recovery contracts already consume.
+    # Keep all established semantic/family labels and the new editor metadata
+    # inside the fixed 300-char provider contract. Hook has no PrevFam label;
+    # repeated body beats do, while using a compact Repeat rule.
     head = (
         f"Role:{role} Shot:{shot_role[:7]} Env:{environment_family[:8]} "
-        f"Fam:{current_family or 'other'}. {priority_rule}"
+        f"Fam:{current_family or 'other'}{previous_family_label}. {priority_rule}"
         f"Meaning: {meaning}. Must show: {must_have}. Avoid: {should_avoid}. "
         f"Current: {current}. Previous: {previous}. Next: {following}."
     )
