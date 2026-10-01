@@ -41,7 +41,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
         self.assertLess(first.index(PRAYER_SENTENCE), first.index(SHORT_CHANNEL_DEFINITION))
-        self.assertTrue(SHORT_CHANNEL_DEFINITION.startswith("وهنا في نداء اليقظة"))
+        self.assertTrue(SHORT_CHANNEL_DEFINITION.startswith("هنا نداء اليقظة"))
         self.assertIn(
             f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION} حين تتوقف قليلًا",
             first,
