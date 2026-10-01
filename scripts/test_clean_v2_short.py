@@ -2024,7 +2024,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("social CTA remains visual-only", prompt)
         self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
-        self.assertIn("وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح.", prompt)
+        self.assertIn(SHORT_CHANNEL_DEFINITION, prompt)
         self.assertIn("one continuous thought, not three separate announcements", prompt)
         self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
