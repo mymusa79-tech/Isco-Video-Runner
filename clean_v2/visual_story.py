@@ -867,6 +867,11 @@ def contextual_intent(
         for item in (current_beat.get("semantic_must_have") or [])
         if str(item).strip()
     ]
+    raw_avoid = [
+        str(item).strip()
+        for item in (current_beat.get("semantic_should_avoid") or [])
+        if str(item).strip()
+    ]
     writer_anchor = " ".join(str(current_beat.get("writer_anchor_ar") or "").split()).strip()
     current = _context_fragment(
         current_beat.get("shot_intent") or fallback_intent,
@@ -895,6 +900,10 @@ def contextual_intent(
                 42,
             )
         )
+    if raw_avoid:
+        pieces.append(
+            "Avoid:" + _context_fragment(", ".join(raw_avoid), "generic substitute", 22)
+        )
     if writer_anchor:
         pieces.append(
             "Narration:" + _context_fragment(writer_anchor, "spoken beat", 34)
@@ -920,6 +929,10 @@ def contextual_intent(
     if raw_must:
         compact.append(
             "Must show:" + _context_fragment(", ".join(raw_must), "proof", 30)
+        )
+    if raw_avoid:
+        compact.append(
+            "Avoid:" + _context_fragment(", ".join(raw_avoid), "avoid", 14)
         )
     if writer_anchor:
         compact.append(
