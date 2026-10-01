@@ -16,7 +16,10 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from scripts.research_relevance_filter import market_sample_relevance
+try:
+    from scripts.research_relevance_filter import market_sample_relevance
+except ModuleNotFoundError:
+    from research_relevance_filter import market_sample_relevance
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
