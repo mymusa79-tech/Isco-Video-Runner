@@ -268,7 +268,7 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertIn("walking", bound["beats"][1]["shot_intent"])
         self.assertEqual(bound["beats"][1]["stock_query_en"], bound["beats"][1]["shot_intent"])
 
-    # 18: existing Visual QA receives the role and neighboring family context.
+    # 18: Visual QA receives semantics first plus compact continuity context.
     def test_18_shared_visual_qa_family_context_runtime(self) -> None:
         story = {
             "beats": [
@@ -279,25 +279,29 @@ class RuntimeActivation26Tests(unittest.TestCase):
         hook = contextual_intent(story, "b1", "")
         body = contextual_intent(story, "b2", "")
         self.assertIn("Role:hook", hook)
-        self.assertIn("Fam:stationery", hook)
-        self.assertIn("PrevFam:stationery", body)
-        self.assertIn("Repeat:", body)
+        self.assertIn("Meaning:hesitation", hook)
+        self.assertIn("Current: hand frozen above", hook)
+        self.assertIn("Next: sticky note", hook)
+        self.assertIn("Previous: hand frozen", body)
+        self.assertLessEqual(len(hook), 300)
+        self.assertLessEqual(len(body), 300)
 
-    # 19: Short never re-expands to the retired 6-9 cut target.
+    # 19: Short has exactly five authored semantic beats: three hook shots + body + payoff.
     def test_19_short_three_to_five_semantic_beats_runtime(self) -> None:
         story = {
             "beats": [
-                {"id": f"b{i}", "section_id": "s1" if i <= 3 else ("s2" if i <= 5 else "s3"), "role": "body"}
-                for i in range(1, 8)
+                {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "phone scrolling unfinished task"},
+                {"id": "b2", "section_id": "s1", "role": "body", "stock_query_en": "two progress markers different starts"},
+                {"id": "b3", "section_id": "s1", "role": "body", "stock_query_en": "calendar milestones unequal timelines"},
+                {"id": "b4", "section_id": "s2", "role": "body", "stock_query_en": "single task beside closed phone"},
+                {"id": "b5", "section_id": "s3", "role": "payoff", "stock_query_en": "one completed personal progress marker"},
             ]
         }
-        story["beats"][0]["role"] = "hook"
-        story["beats"][-1]["role"] = "payoff"
         bounded = _bound_short_visual_story(story, max_beats=5)
-        self.assertGreaterEqual(len(bounded["beats"]), 3)
-        self.assertLessEqual(len(bounded["beats"]), 5)
-        self.assertEqual(bounded["beats"][0]["role"], "hook")
-        self.assertEqual(bounded["beats"][-1]["role"], "payoff")
+        self.assertEqual(len(bounded["beats"]), 5)
+        self.assertEqual([beat["role"] for beat in bounded["beats"][:3]], ["hook", "hook", "hook"])
+        self.assertEqual(bounded["beats"][3]["role"], "body")
+        self.assertEqual(bounded["beats"][4]["role"], "payoff")
 
     # 20: free AI is inside the same scene budget; it never creates extra beats.
     def test_20_shared_ai_inside_scene_budget_runtime(self) -> None:
@@ -322,14 +326,14 @@ class RuntimeActivation26Tests(unittest.TestCase):
         generic = media._stock_local_rank_score(**common, metadata="sunset ocean travel landscape")
         self.assertGreater(matching, generic)
 
-    # 22: stock cannot redefine the channel color world through a warm medoid.
+    # 22: stock cannot redefine the channel color world; the target is fixed.
     def test_22_shared_channel_anchored_color_reference_runtime(self) -> None:
-        measured = {
-            "neutral.mp4": media._RgbStats(141.2, 131.7, 119.7, 76.0, 75.0, 80.5),
-            "warm.mp4": media._RgbStats(179.7, 138.6, 108.4, 56.4, 57.5, 54.7),
-            "bright.mp4": media._RgbStats(184.0, 150.8, 120.3, 43.0, 42.7, 40.4),
-        }
-        self.assertEqual(media._representative_reference(measured), "neutral.mp4")
+        target = media._channel_target_stats()
+        self.assertEqual(target.mean_r, media.COLOR_TARGET_MEAN_R)
+        self.assertEqual(target.mean_g, media.COLOR_TARGET_MEAN_G)
+        self.assertEqual(target.mean_b, media.COLOR_TARGET_MEAN_B)
+        self.assertGreater(target.mean_b, target.mean_r)
+        self.assertNotIn("_representative_reference", inspect.getsource(media._build_reference_color_plan))
 
     # 23: every real-stock render path is one-pass; shortage holds last frame.
     def test_23_shared_one_pass_stock_motion_runtime(self) -> None:
