@@ -23,8 +23,8 @@ DEFAULT_MAX_HISTORY = 5
 
 # Film and Short have independent narrative-selection keys; Podcast itself remains a fixed house style.
 TRACKED_FORMATS = ("film", "short")
-PODCAST_PROMO_HISTORY_KEY = "podcast_promo"
-PODCAST_PROMO_MAX_HISTORY = 4
+DERIVED_SHORT_HISTORY_KEYS = {"film": "film_promo", "podcast": "podcast_promo"}
+DERIVED_SHORT_MAX_HISTORY = 4
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -75,39 +75,43 @@ def record_narrative_format(
 
 
 
-def recent_podcast_promo_signatures(
+def recent_derived_short_signatures(
     path: Path | None,
+    fmt: str,
     *,
-    limit: int = PODCAST_PROMO_MAX_HISTORY,
+    limit: int = DERIVED_SHORT_MAX_HISTORY,
 ) -> tuple[str, ...]:
-    """Recent derived-Podcast promo selection signatures, oldest first.
+    """Recent derived-Short selection signatures for Film or Podcast, oldest first.
 
-    This is deliberately separate from the Podcast narrative_format: the episode
-    house style remains dialogue_qa; only the locally selected derived-Short
-    excerpt pattern gets cross-run memory.
+    These keys are deliberately separate from narrative_format/template history:
+    Podcast keeps its fixed dialogue_qa house style and Film keeps its own
+    narrative-format rotation; only the optional extracted Short pattern varies.
     """
-    if path is None:
+    key = DERIVED_SHORT_HISTORY_KEYS.get(str(fmt or "").strip())
+    if path is None or key is None:
         return ()
-    values = _read(path).get(PODCAST_PROMO_HISTORY_KEY)
+    values = _read(path).get(key)
     if not isinstance(values, list):
         return ()
     return tuple(str(value).strip() for value in values[-limit:] if str(value or "").strip())
 
 
-def record_podcast_promo_signature(
+def record_derived_short_signature(
     path: Path | None,
+    fmt: str,
     signature: str,
     *,
-    limit: int = PODCAST_PROMO_MAX_HISTORY,
+    limit: int = DERIVED_SHORT_MAX_HISTORY,
 ) -> None:
-    """Append one selected derived-Podcast promo pattern signature."""
+    """Append one successfully delivered Film/Podcast derived-Short pattern."""
+    key = DERIVED_SHORT_HISTORY_KEYS.get(str(fmt or "").strip())
     signature = str(signature or "").strip()
-    if path is None or not signature:
+    if path is None or key is None or not signature:
         return
     data = _read(path)
     data["schema_version"] = SCHEMA_VERSION
-    history = data.get(PODCAST_PROMO_HISTORY_KEY)
+    history = data.get(key)
     history = [str(v) for v in history if str(v or "").strip()] if isinstance(history, list) else []
     history.append(signature)
-    data[PODCAST_PROMO_HISTORY_KEY] = history[-limit:]
+    data[key] = history[-limit:]
     atomic_write_json(path, data)
