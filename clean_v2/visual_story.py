@@ -156,6 +156,86 @@ def _beat_action_family(beat: Mapping[str, Any]) -> str:
     )
 
 
+def _repair_strict_visual_family_diversity(
+    beats: list[dict[str, Any]],
+    plan: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Repair fresh-plan visual repetition before Script spends another AI call.
+
+    Fresh Planning already owns a fail-closed diversity contract. Enforce that same
+    contract here, while the plan is still inside the Planning validator, by using
+    an already-authored alternate when the next scene would repeat the previous
+    action family or push one family beyond the global two-use ceiling. No provider
+    call, random choice, or weaker quality bar is introduced.
+    """
+    if str(plan.get("_visual_diversity_contract") or "") != "v2_fail_closed":
+        return beats
+
+    sections = [
+        item for item in (plan.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    section_by_id = {
+        str(item.get("id") or "").strip(): item for item in sections
+    }
+    family_uses: dict[str, int] = {}
+    prior_family = ""
+
+    for beat in beats:
+        current_family = _beat_action_family(beat)
+        adjacent_repeat = bool(current_family and current_family == prior_family)
+        global_overuse = bool(
+            current_family
+            and family_uses.get(current_family, 0) >= _ACTION_FAMILY_MAX_USES
+        )
+
+        if adjacent_repeat or global_overuse:
+            section = section_by_id.get(str(beat.get("section_id") or "").strip()) or {}
+            alternates = (
+                _writer_searchable_intent(beat.get("stock_query_alt_en")),
+                _writer_searchable_intent(section.get("visual_query_alt_en")),
+            )
+            replacement = ""
+            replacement_family = ""
+            for alternate in alternates:
+                alternate_family = _visual_action_family(alternate)
+                if not alternate or alternate_family == current_family:
+                    continue
+                if (
+                    alternate_family
+                    and family_uses.get(alternate_family, 0) >= _ACTION_FAMILY_MAX_USES
+                ):
+                    continue
+                replacement = alternate
+                replacement_family = alternate_family
+                break
+
+            if not replacement:
+                if adjacent_repeat:
+                    raise ValueError(
+                        "visual_story would repeat the previous "
+                        f"{current_family} scene family without a distinct alternate"
+                    )
+                raise ValueError(
+                    "visual_story repeats visual family too often before Script: "
+                    f"{current_family}"
+                )
+
+            beat["shot_intent"] = replacement
+            beat["stock_query_en"] = replacement
+            # Keep semantic proof aligned with the scene that will actually be
+            # searched. Leaving stationery must-have cues attached to a replacement
+            # plant/door/workspace shot would create a later Visual-QA contradiction.
+            beat["semantic_must_have"] = [replacement[:120]]
+            current_family = replacement_family
+
+        if current_family:
+            family_uses[current_family] = family_uses.get(current_family, 0) + 1
+        # An intentionally unclassified alternate still breaks the repeat chain.
+        prior_family = current_family
+
+    return beats
+
+
 def _has_semantic_proof(cues: list[str]) -> bool:
     """Reject must-have lists that contain only grade/composition/mood vocabulary."""
     for cue in cues:
@@ -648,9 +728,11 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             "visual_story must cover every planned section: missing=" + ",".join(missing)
         )
 
-    # Visual-family repetition is enforced after Writer binding, immediately
-    # before retrieval, so legacy/compatibility stories can still be normalized
-    # without weakening the production gate.
+    # Fresh plans enforce visual-family diversity now, before Script spends
+    # another provider call. Writer binding keeps the same fail-closed rule as a
+    # downstream backstop for legacy/direct callers and for post-Writer drift.
+    beats = _repair_strict_visual_family_diversity(beats, plan)
+
     ai_still_count = sum(
         beat["source_preference"] == "ai_still" for beat in beats
     )
