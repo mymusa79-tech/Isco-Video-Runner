@@ -1558,7 +1558,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-30T12:00:00Z",
-      "selected_at": "2026-09-30T12:01:01Z"
+      "selected_at": "2026-10-01T12:06:54Z"
     },
     {
       "idea_id": "idea-2803f796c5",
@@ -2539,6 +2539,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-01T09:34:21Z",
       "selected_index": 0
+    },
+    "cb686d5c": {
+      "session_id": "cb686d5c",
+      "scope": "short",
+      "idea_ids": [
+        "idea-346a629bce"
+      ],
+      "created_at": "2026-10-01T12:06:54Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T12:06:54Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2857,9 +2868,30 @@
       "confirmed_at": "2026-10-01T09:34:41Z",
       "dispatched_at": "2026-10-01T09:34:45Z",
       "request_sha256": "1607ff32c0b62621af0bb2f4233bba387046c57651e2987824ab9ac71d330828"
+    },
+    "req-0cdd8410d963": {
+      "schema_version": 1,
+      "request_id": "req-0cdd8410d963",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تبدأ من جديد دون خطة مثالية؟",
+      "research_pack": [
+        {
+          "source_title": "Beginning Again Does Not Require A Perfect Plan",
+          "source_url": "https://youtu.be/4-X1fQg-CVA",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-346a629bce",
+      "selected_at": "2026-10-01T12:06:54Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "786899ed07e527608c97174ab224ea13ada598032e1f5aa2877033cffe2bac3b"
     }
   },
-  "current_request_id": "req-47af23717897",
+  "current_request_id": "req-0cdd8410d963",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3114,5 +3146,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T12:06:35Z"
+  "updated_at": "2026-10-01T12:06:55Z"
 }
