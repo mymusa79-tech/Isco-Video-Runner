@@ -731,7 +731,14 @@ def bind_visual_story_to_script(
             beats_by_section[section_id].append(beat)
 
     prior_action_family = ""
-    family_uses: dict[str, int] = {}
+    strict_diversity = any(
+        str(item.get("visual_query_alt_en") or "").strip()
+        for item in plan_sections
+    ) or any(
+        str(item.get("stock_query_alt_en") or "").strip()
+        for item in (story.get("beats") or [])
+        if isinstance(item, Mapping)
+    )
     for section_id in expected_ids:
         section_beats = beats_by_section[section_id]
         if not section_beats:
@@ -778,19 +785,21 @@ def bind_visual_story_to_script(
                     beat["shot_intent"] = replacement
                     beat["stock_query_en"] = replacement
                     current_family = replacement_family
-                else:
+                elif strict_diversity:
                     raise ValueError(
                         "writer visual binding would repeat the previous "
                         f"{current_family} scene family without a distinct alternate"
                     )
-
-            if current_family:
-                family_uses[current_family] = family_uses.get(current_family, 0) + 1
-                if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
-                    raise ValueError(
-                        "writer visual binding repeats visual family too often: "
-                        f"{current_family}"
-                    )
+                else:
+                    avoids = [
+                        str(item).strip()
+                        for item in (beat.get("semantic_should_avoid") or [])
+                        if str(item).strip()
+                    ]
+                    repeat_avoid = f"repeat of previous {current_family} action/composition"
+                    if repeat_avoid not in avoids:
+                        avoids.insert(0, repeat_avoid)
+                    beat["semantic_should_avoid"] = avoids[:4]
 
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
@@ -832,9 +841,8 @@ def contextual_intent(
 ) -> str:
     """Build a <=300-char Visual QA brief with semantic evidence first.
 
-    Writer-bound narration is primary when present. Compatibility/fallback stories
-    retain compact family and neighbour labels, but those labels never evict the
-    beat's meaning or observable proof.
+    Meaning and visible proof are never displaced by mood metadata, while compact
+    Current/Previous/Next labels remain mandatory for continuity judging.
     """
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
@@ -846,90 +854,84 @@ def contextual_intent(
 
     current_beat = beats[current_index]
     role = str(current_beat.get("role") or "").strip() or "body"
-    current_family = _beat_action_family(current_beat)
-    previous_family = (
-        _beat_action_family(beats[current_index - 1])
-        if current_index > 0
-        else ""
-    )
     meaning = _context_fragment(
         current_beat.get("meaning_target")
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        44,
+        48,
     )
     raw_must = [
         str(item).strip()
         for item in (current_beat.get("semantic_must_have") or [])
         if str(item).strip()
     ]
-    raw_avoid = [
-        str(item).strip()
-        for item in (current_beat.get("semantic_should_avoid") or [])
-        if str(item).strip()
-    ]
     must_have = _context_fragment(
-        ", ".join(raw_must),
-        "",
-        34,
-    ) if raw_must else ""
-    should_avoid = _context_fragment(
-        ", ".join(raw_avoid),
-        "",
-        16,
-    ) if raw_avoid else ""
-    writer_anchor = " ".join(str(current_beat.get("writer_anchor_ar") or "").split()).strip()
+        ", ".join(raw_must) or current_beat.get("shot_intent"),
+        "concrete visible proof",
+        38,
+    )
+    narration = _context_fragment(
+        current_beat.get("writer_anchor_ar"),
+        "spoken beat",
+        28,
+    )
+    current = _context_fragment(
+        current_beat.get("shot_intent") or fallback_intent,
+        "current beat",
+        18,
+    )
+    previous = _context_fragment(
+        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
+        "story opening",
+        14,
+    )
+    following = _context_fragment(
+        beats[current_index + 1].get("shot_intent")
+        if current_index + 1 < len(beats)
+        else "",
+        "story arrival",
+        14,
+    )
 
-    pieces = [f"Role:{role}"]
-    if current_family:
-        pieces.append(f"Fam:{current_family}")
-    if previous_family:
-        pieces.append(f"PrevFam:{previous_family}")
-
+    pieces = [
+        f"Role:{role}",
+        f"Meaning:{meaning}",
+        f"Must show:{must_have}",
+        f"Narration:{narration}",
+        f"Current: {current}",
+        f"Previous: {previous}",
+        f"Next: {following}",
+    ]
     if role == "hook":
-        pieces.append("Hook must show an unresolved observable tension")
-    elif current_family and current_family == previous_family:
-        pieces.append("Repeat: changed state")
+        pieces.append("Hook: unresolved visible tension")
+    tail = " Same hook-to-payoff arc: judge continuity."
+    result = ". ".join(pieces) + "." + tail
+    if len(result) <= 300:
+        return result
 
-    pieces.append(f"Meaning:{meaning}")
-    if must_have:
-        pieces.append(f"Must show:{must_have}")
-    if should_avoid:
-        pieces.append(f"Avoid:{should_avoid}")
-
-    if writer_anchor:
-        # The final Writer is the semantic authority. Keep its exact local anchor
-        # ahead of neighbour metadata; add neighbour labels only if space remains.
-        pieces.append(f"Narration:{_context_fragment(writer_anchor, 'spoken beat', 46)}")
-        optional = [
-            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 18)}",
-            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 14)}",
-            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 14)}",
+    # Last-resort deterministic compaction: semantics stay longer than context.
+    meaning = _context_fragment(
+        current_beat.get("meaning_target")
+        or current_beat.get("viewer_intent")
+        or current_beat.get("shot_intent"),
+        "specific meaning",
+        38,
+    )
+    must_have = _context_fragment(
+        ", ".join(raw_must) or current_beat.get("shot_intent"),
+        "visible proof",
+        28,
+    )
+    result = ". ".join(
+        [
+            f"Role:{role}",
+            f"Meaning:{meaning}",
+            f"Must show:{must_have}",
+            f"Narration:{_context_fragment(current_beat.get('writer_anchor_ar'), 'spoken', 18)}",
+            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 12)}",
+            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 10)}",
+            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 10)}",
         ]
-    else:
-        # Compatibility/fallback stories have no Writer anchor, so preserve the
-        # three neighbour labels that the existing QA continuity contract expects.
-        optional = [
-            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current beat', 22)}",
-            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 20)}",
-            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 18)}",
-        ]
-
-    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
-    head_limit = 300 - len(tail)
-    head = ". ".join(pieces) + "."
-    for fragment in optional:
-        candidate = f"{head} {fragment}."
-        if len(candidate) <= head_limit:
-            head = candidate
-            continue
-        # Preserve the label even when only a tiny fragment fits.
-        label, _, value = fragment.partition(":")
-        minimum = _context_fragment(value, "", 10)
-        candidate = f"{head} {label}: {minimum}."
-        if minimum and len(candidate) <= head_limit:
-            head = candidate
-    # If semantics themselves are unusually verbose, trim only the end of the
-    # head after all semantic fields were independently bounded above.
-    return head[:head_limit].rstrip() + tail
+    ) + "." + tail
+    return result[:300].rstrip()
