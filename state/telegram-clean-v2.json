@@ -619,7 +619,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-27T21:38:18Z",
-      "selected_at": "2026-10-01T09:34:21Z"
+      "selected_at": "2026-10-01T17:23:26Z"
     },
     {
       "idea_id": "idea-3acd0c729b",
@@ -2572,6 +2572,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-01T17:18:18Z",
       "selected_index": 0
+    },
+    "d8d331c7": {
+      "session_id": "d8d331c7",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-01T17:23:26Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T17:23:26Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -2973,9 +2984,40 @@
       "confirmed_at": null,
       "dispatched_at": null,
       "request_sha256": "53b02875577892e7e595fd3dbfc8e336f64779c26893eec896d05cafbcef2659"
+    },
+    "req-806a049b0627": {
+      "schema_version": 1,
+      "request_id": "req-806a049b0627",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+      "research_pack": [
+        {
+          "source_title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+          "source_url": "https://youtu.be/b7X96liZ0g4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
+          "source_url": "https://youtu.be/-Dto_7_d7-c",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
+          "source_url": "https://youtu.be/pC4Hw7lRBmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-1dffada5b5",
+      "selected_at": "2026-10-01T17:23:26Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "22fc57ee0a69151f379e6fc64ba5fe80a2a49d6051944ce78026723d00c936e9"
     }
   },
-  "current_request_id": "req-6ffa8998d96f",
+  "current_request_id": "req-806a049b0627",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3230,5 +3272,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-01T17:18:19Z"
+  "updated_at": "2026-10-01T17:23:26Z"
 }
