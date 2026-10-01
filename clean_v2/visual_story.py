@@ -830,7 +830,12 @@ def contextual_intent(
     beat_id: str,
     fallback_intent: str,
 ) -> str:
-    """Build a <=300-char Visual QA brief with semantics before neighbour context."""
+    """Build a <=300-char Visual QA brief with semantic evidence first.
+
+    Writer-bound narration is primary when present. Compatibility/fallback stories
+    retain compact family and neighbour labels, but those labels never evict the
+    beat's meaning or observable proof.
+    """
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
         (index for index, item in enumerate(beats) if str(item.get("id") or "") == beat_id),
@@ -852,82 +857,79 @@ def contextual_intent(
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        46,
+        44,
     )
-    must_have = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or []))
-        or current_beat.get("shot_intent"),
-        "concrete visible proof",
-        40,
-    )
-    narration = _context_fragment(
-        current_beat.get("writer_anchor_ar"),
-        "spoken beat",
-        38,
-    )
-    current = _context_fragment(
-        current_beat.get("shot_intent") or fallback_intent,
-        "current beat",
-        24,
-    )
-    previous = _context_fragment(
-        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
-        "opening",
-        18,
-    )
-    following = _context_fragment(
-        beats[current_index + 1].get("shot_intent")
-        if current_index + 1 < len(beats)
-        else "",
-        "arrival",
-        18,
-    )
-
-    rule = ""
-    if role == "hook":
-        rule = " Hook: unresolved visible tension."
-    elif current_family and current_family == previous_family:
-        rule = " Repeat only if visible state changed."
-
-    pieces = [
-        f"Role:{role}",
-        f"Meaning:{meaning}",
-        f"Must show:{must_have}",
-        f"Narration:{narration}",
-        f"Current: {current}",
-        f"Previous: {previous}",
-        f"Next: {following}",
+    raw_must = [
+        str(item).strip()
+        for item in (current_beat.get("semantic_must_have") or [])
+        if str(item).strip()
     ]
-    tail = " Same hook-to-payoff arc: judge continuity."
-    result = ". ".join(pieces) + "." + rule + tail
-    if len(result) <= 300:
-        return result
+    raw_avoid = [
+        str(item).strip()
+        for item in (current_beat.get("semantic_should_avoid") or [])
+        if str(item).strip()
+    ]
+    must_have = _context_fragment(
+        ", ".join(raw_must),
+        "",
+        34,
+    ) if raw_must else ""
+    should_avoid = _context_fragment(
+        ", ".join(raw_avoid),
+        "",
+        16,
+    ) if raw_avoid else ""
+    writer_anchor = " ".join(str(current_beat.get("writer_anchor_ar") or "").split()).strip()
 
-    # Preserve semantic evidence and all three neighbour labels. Reduce narration
-    # first, then neighbour detail, never Meaning/Must-show.
-    narration = _context_fragment(current_beat.get("writer_anchor_ar"), "spoken beat", 24)
-    current = _context_fragment(current_beat.get("shot_intent") or fallback_intent, "current", 16)
-    previous = _context_fragment(
-        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
-        "opening",
-        12,
-    )
-    following = _context_fragment(
-        beats[current_index + 1].get("shot_intent")
-        if current_index + 1 < len(beats)
-        else "",
-        "arrival",
-        12,
-    )
-    result = ". ".join(
-        [
-            f"Role:{role}",
-            f"Meaning:{meaning}",
-            f"Must show:{must_have}",
-            f"Narration:{narration}",
-            f"Current: {current}",
-            f"Previous: {previous}",
-            f"Next: {following}",
+    pieces = [f"Role:{role}"]
+    if current_family:
+        pieces.append(f"Fam:{current_family}")
+    if previous_family:
+        pieces.append(f"PrevFam:{previous_family}")
+
+    if role == "hook":
+        pieces.append("Hook must show an unresolved observable tension")
+    elif current_family and current_family == previous_family:
+        pieces.append("Repeat: changed state")
+
+    pieces.append(f"Meaning:{meaning}")
+    if must_have:
+        pieces.append(f"Must show:{must_have}")
+    if should_avoid:
+        pieces.append(f"Avoid:{should_avoid}")
+
+    if writer_anchor:
+        # The final Writer is the semantic authority. Keep its exact local anchor
+        # ahead of neighbour metadata; add neighbour labels only if space remains.
+        pieces.append(f"Narration:{_context_fragment(writer_anchor, 'spoken beat', 46)}")
+        optional = [
+            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current', 18)}",
+            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 14)}",
+            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 14)}",
         ]
-    ) + "." + rule + tail
-    return result[:300].rstrip()
+    else:
+        # Compatibility/fallback stories have no Writer anchor, so preserve the
+        # three neighbour labels that the existing QA continuity contract expects.
+        optional = [
+            f"Current: {_context_fragment(current_beat.get('shot_intent') or fallback_intent, 'current beat', 22)}",
+            f"Previous: {_context_fragment(beats[current_index - 1].get('shot_intent') if current_index > 0 else '', 'story opening', 20)}",
+            f"Next: {_context_fragment(beats[current_index + 1].get('shot_intent') if current_index + 1 < len(beats) else '', 'story arrival', 18)}",
+        ]
+
+    tail = " Judge specific meaning before mood. Same hook-to-payoff arc: judge continuity."
+    head_limit = 300 - len(tail)
+    head = ". ".join(pieces) + "."
+    for fragment in optional:
+        candidate = f"{head} {fragment}."
+        if len(candidate) <= head_limit:
+            head = candidate
+            continue
+        # Preserve the label even when only a tiny fragment fits.
+        label, _, value = fragment.partition(":")
+        minimum = _context_fragment(value, "", 10)
+        candidate = f"{head} {label}: {minimum}."
+        if minimum and len(candidate) <= head_limit:
+            head = candidate
+    # If semantics themselves are unusually verbose, trim only the end of the
+    # head after all semantic fields were independently bounded above.
+    return head[:head_limit].rstrip() + tail
