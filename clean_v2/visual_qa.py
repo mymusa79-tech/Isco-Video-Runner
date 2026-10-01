@@ -118,10 +118,11 @@ Keep the replacement culturally suitable for a broad Arab/Muslim audience: prefe
 credible Arab/Middle-Eastern settings when people or everyday social context matter; avoid alcohol,
 gambling, nightclub/party imagery, sexualized or revealing presentation, and unrelated ritual/religious
 imagery. Do not force religious symbols or stereotyped traditional dress when they are not relevant.
-Use 4 to 14 English words only. Describe ONE stock-realistic observable moment. If the beat's meaning
-IS a comparison, unequal condition, cause/consequence, or before/after relation, preserve that relation
-through one clear visible contrast/context inside the moment instead of deleting the idea and returning
-a generic mood shot. Avoid impossible multi-shot storyboards or several unrelated actions in one query.
+Use 4 to 14 English words only. Describe ONE observable action or ONE simple setting when the beat
+is not relational. If the beat's meaning IS a comparison, unequal condition, cause/consequence, or
+before/after relation, preserve that relation through one clear visible contrast/context inside ONE
+stock-realistic moment instead of deleting the idea and returning a generic mood shot. Avoid impossible
+multi-shot storyboards or several unrelated actions in one query.
 Do not merely rearrange the same object keywords.
 Return ONLY JSON: {{"alternate_query": "..."}}.
 """.strip()
