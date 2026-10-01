@@ -286,9 +286,23 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertLessEqual(len(hook), 300)
         self.assertLessEqual(len(body), 300)
 
-    # 19: Short has exactly five authored semantic beats: three hook shots + body + payoff.
+    # 19: Short accepts the editorial 2-3 hook-shot range, then body + payoff.
     def test_19_short_three_to_five_semantic_beats_runtime(self) -> None:
-        story = {
+        two_hook_story = {
+            "beats": [
+                {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "phone scrolling unfinished task"},
+                {"id": "b2", "section_id": "s1", "role": "body", "stock_query_en": "two progress markers different starts"},
+                {"id": "b3", "section_id": "s2", "role": "body", "stock_query_en": "single task beside closed phone"},
+                {"id": "b4", "section_id": "s3", "role": "payoff", "stock_query_en": "one completed personal progress marker"},
+            ]
+        }
+        bounded = _bound_short_visual_story(two_hook_story, max_beats=5)
+        self.assertEqual(len(bounded["beats"]), 4)
+        self.assertEqual([beat["role"] for beat in bounded["beats"][:2]], ["hook", "hook"])
+        self.assertEqual(bounded["beats"][2]["role"], "body")
+        self.assertEqual(bounded["beats"][3]["role"], "payoff")
+
+        three_hook_story = {
             "beats": [
                 {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "phone scrolling unfinished task"},
                 {"id": "b2", "section_id": "s1", "role": "body", "stock_query_en": "two progress markers different starts"},
@@ -297,11 +311,11 @@ class RuntimeActivation26Tests(unittest.TestCase):
                 {"id": "b5", "section_id": "s3", "role": "payoff", "stock_query_en": "one completed personal progress marker"},
             ]
         }
-        bounded = _bound_short_visual_story(story, max_beats=5)
+        bounded = _bound_short_visual_story(three_hook_story, max_beats=5)
         self.assertEqual(len(bounded["beats"]), 5)
         self.assertEqual([beat["role"] for beat in bounded["beats"][:3]], ["hook", "hook", "hook"])
-        self.assertEqual(bounded["beats"][3]["role"], "body")
-        self.assertEqual(bounded["beats"][4]["role"], "payoff")
+        self.assertEqual(bounded["beats"][-2]["role"], "body")
+        self.assertEqual(bounded["beats"][-1]["role"], "payoff")
 
     # 20: free AI is inside the same scene budget; it never creates extra beats.
     def test_20_shared_ai_inside_scene_budget_runtime(self) -> None:
