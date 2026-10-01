@@ -3105,10 +3105,16 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.76
-COLOR_MATCH_SCALE_MIN = 0.86
-COLOR_MATCH_SCALE_MAX = 1.14
-COLOR_MATCH_OFFSET_MAX = 22.0
+COLOR_MATCH_STRENGTH = 0.70
+COLOR_MATCH_SCALE_MIN = 0.94
+COLOR_MATCH_SCALE_MAX = 1.06
+COLOR_MATCH_OFFSET_MAX = 52.0
+COLOR_TARGET_MEAN_R = 116.0
+COLOR_TARGET_MEAN_G = 116.0
+COLOR_TARGET_MEAN_B = 118.0
+COLOR_TARGET_STD_R = 50.0
+COLOR_TARGET_STD_G = 50.0
+COLOR_TARGET_STD_B = 52.0
 MASTER_LOOK_LUT_SIZE = 17
 MASTER_LOOK_CONTRAST = 1.10
 MASTER_LOOK_SATURATION = 0.86
@@ -3151,6 +3157,18 @@ class _RgbStats:
             "std_g": round(self.std_g, 4),
             "std_b": round(self.std_b, 4),
         }
+
+
+def _channel_target_stats() -> _RgbStats:
+    """Fixed channel palette target; source stock never becomes color authority."""
+    return _RgbStats(
+        mean_r=COLOR_TARGET_MEAN_R,
+        mean_g=COLOR_TARGET_MEAN_G,
+        mean_b=COLOR_TARGET_MEAN_B,
+        std_r=COLOR_TARGET_STD_R,
+        std_g=COLOR_TARGET_STD_G,
+        std_b=COLOR_TARGET_STD_B,
+    )
 
 
 def _clamp_color(value: float, low: float, high: float) -> float:
@@ -3302,7 +3320,12 @@ def _build_reference_color_plan(
     paths: list[Path],
     output_dir: Path,
 ) -> dict[str, str]:
-    """Measure once, choose one real reference, and return a constant filter per clip."""
+    """Match every measurable clip to one fixed channel palette target.
+
+    A clip from the current episode must never become the color authority for the
+    rest of the episode. This keeps pink/beige/green stock from redefining the
+    channel look and also grades single-clip videos consistently.
+    """
     unique: list[Path] = []
     seen: set[str] = set()
     for raw in paths:
@@ -3321,26 +3344,25 @@ def _build_reference_color_plan(
             failures[path.name] = f"{type(exc).__name__}:{str(exc)[:120]}"
 
     filters: dict[str, str] = {}
+    target = _channel_target_stats()
     report: dict[str, Any] = {
-        "schema_version": 1,
-        "source": "clean-v2-reference-color-match-lite",
+        "schema_version": 2,
+        "source": "clean-v2-fixed-channel-palette-match",
         "provider_calls_added": 0,
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
-        "method": "channel_anchored_rgb_mean_std_reference_match_v3",
+        "method": "fixed_channel_rgb_mean_std_target_v1",
         "match_strength": COLOR_MATCH_STRENGTH,
         "master_look": "channel_navy_gold_split_tone_v5",
         "measured_clip_count": len(measured),
+        "reference_file": None,
+        "target_stats": target.as_dict(),
         "failures": failures,
     }
 
-    if len(measured) >= 2:
-        reference_key = _representative_reference(measured)
-        reference = measured[reference_key]
+    rows: list[dict[str, Any]] = []
+    if measured:
         report["status"] = "applied"
-        report["reference_file"] = Path(reference_key).name
-        report["reference_stats"] = reference.as_dict()
-        rows: list[dict[str, Any]] = []
         for path in unique:
             key = str(path)
             stats = measured.get(key)
@@ -3355,31 +3377,29 @@ def _build_reference_color_plan(
                     }
                 )
                 continue
-            fragment = "" if key == reference_key else _reference_match_filter(stats, reference)
+            fragment = _reference_match_filter(stats, target)
             filters[key] = fragment
             rows.append(
                 {
                     "file": path.name,
-                    "mode": "reference" if key == reference_key else "reference_match",
+                    "mode": "fixed_channel_target",
                     "stats": stats.as_dict(),
                     "filter_applied": bool(fragment),
                 }
             )
-        report["clips"] = rows
     else:
         report["status"] = "legacy_fallback"
-        report["reference_file"] = None
-        report["clips"] = []
         for path in unique:
             fragment = _grade_clip_filter(path)
             filters[str(path)] = fragment
-            report["clips"].append(
+            rows.append(
                 {
                     "file": path.name,
                     "mode": "legacy_fallback",
                     "filter_applied": bool(fragment),
                 }
             )
+    report["clips"] = rows
 
     try:
         (Path(output_dir) / "color-match.json").write_text(
