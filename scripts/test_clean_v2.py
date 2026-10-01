@@ -59,7 +59,11 @@ from clean_v2.providers import (
     ProviderRouter,
     ProviderWireFailure,
 )
-from clean_v2.identity_sequence import PRAYER_SENTENCE
+from clean_v2.identity_sequence import (
+    PRAYER_SENTENCE,
+    SHORT_CHANNEL_DEFINITION,
+    SHORT_CHANNEL_DEFINITION_LEGACY,
+)
 from clean_v2.short_format import select_short_template
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2 import visual_story as visual_story_module
@@ -92,30 +96,35 @@ def _plan() -> dict:
                 "heading": "المشكلة",
                 "purpose": "تسمية العائق",
                 "visual_query_en": "quiet desk notebook wide shot",
+                "visual_query_alt_en": "window beside unfinished task objects only",
             },
             {
                 "id": "s2",
                 "heading": "الفكرة",
                 "purpose": "شرح الخطوة الصغيرة",
                 "visual_query_en": "hand writing one task in notebook",
+                "visual_query_alt_en": "phone face down beside unfinished task hands only",
             },
             {
                 "id": "s3",
                 "heading": "التطبيق",
                 "purpose": "دعوة عملية",
                 "visual_query_en": "morning workspace sunlight no face",
+                "visual_query_alt_en": "door opening into quiet workspace back view",
             },
             {
                 "id": "s4",
                 "heading": "المراجعة",
                 "purpose": "مراجعة أثر الخطوة الأولى",
                 "visual_query_en": "checking simple task list on desk",
+                "visual_query_alt_en": "shoes crossing doorway toward morning light no face",
             },
             {
                 "id": "s5",
                 "heading": "الاستمرار",
                 "purpose": "تثبيت خطوة تالية واضحة",
                 "visual_query_en": "calendar and notebook calm workspace",
+                "visual_query_alt_en": "single object isolated on clear shelf no face",
             },
         ],
     }
@@ -1986,7 +1995,69 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                     raise RuntimeError("script stopped deliberately")
                 selected = next(name for name in TEMPLATE_ORDER if f"template={name}" in prompt)
                 owner.assertIn(selected, prompt)
-                return validator(short_plan(_TEMPLATE_FIXTURES[selected]["queries"]))
+                value = short_plan(_TEMPLATE_FIXTURES[selected]["queries"])
+                queries = _TEMPLATE_FIXTURES[selected]["queries"]
+                value["visual_story"] = {
+                    "visual_world": "grounded cinematic realism no identifiable faces",
+                    "story_arc": {
+                        "beginning": "the exact tension is visible",
+                        "transformation": "the mechanism becomes visible",
+                        "arrival": "one earned result becomes visible",
+                    },
+                    "retention_thread": {
+                        "hook_tension": "توتر محدد يفتح السؤال",
+                        "payoff_answer": "النتيجة تجيب السؤال نفسه",
+                        "visual_motif": "علامة تقدم تتغير حالتها",
+                    },
+                    "beats": [
+                        {
+                            "id": "b1", "section_id": "s1",
+                            "viewer_intent": "يرى التوتر الأول",
+                            "meaning_target": "observable opening tension",
+                            "semantic_must_have": [queries[0]],
+                            "shot_intent": queries[0],
+                            "stock_query_en": queries[0],
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b2", "section_id": "s1",
+                            "viewer_intent": "يرى سبب التوتر",
+                            "meaning_target": "triggering phone interruption",
+                            "semantic_must_have": ["phone face down beside unfinished task"],
+                            "shot_intent": "phone face down beside unfinished task hands only",
+                            "stock_query_en": "phone face down beside unfinished task hands only",
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b3", "section_id": "s1",
+                            "viewer_intent": "يرى اختلاف نقطة البداية",
+                            "meaning_target": "different starting positions are visible",
+                            "semantic_must_have": ["two objects at visibly different starting positions"],
+                            "shot_intent": "two objects at visibly different starting positions",
+                            "stock_query_en": "two objects at visibly different starting positions",
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b4", "section_id": "s2",
+                            "viewer_intent": "يرى إعادة التأطير",
+                            "meaning_target": "observable reframe",
+                            "semantic_must_have": [queries[1]],
+                            "shot_intent": queries[1],
+                            "stock_query_en": queries[1],
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b5", "section_id": "s3",
+                            "viewer_intent": "يرى النتيجة",
+                            "meaning_target": "earned visible outcome",
+                            "semantic_must_have": [queries[2]],
+                            "shot_intent": queries[2],
+                            "stock_query_en": queries[2],
+                            "source_preference": "stock_motion",
+                        },
+                    ],
+                }
+                return validator(value)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2000,7 +2071,7 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
                     pipeline.run(brief_path=path, approved_sha256=compute_brief_sha256(brief),
                         output_dir=root/name, engine_sha="a"*40, runner_sha="b"*40,
-                        max_visuals=2, narrative_history_path=history, resume_from=resume)
+                        max_visuals=5, narrative_history_path=history, resume_from=resume)
                 plan = json.loads((root/name/"plan.json").read_text())
                 report = json.loads((root/name/"short-contract.json").read_text())
                 self.assertEqual(plan["short_template"], report["template"])
@@ -6135,7 +6206,11 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
         self.assertTrue(report["trusted_identity_excluded_from_model_judgment"])
         self.assertEqual(
             set(report["trusted_identity"]),
-            {self.PRAYER, self.DEFINITION},
+            {
+                self.PRAYER,
+                SHORT_CHANNEL_DEFINITION,
+                SHORT_CHANNEL_DEFINITION_LEGACY,
+            },
         )
 
 
