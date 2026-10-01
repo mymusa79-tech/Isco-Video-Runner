@@ -6432,7 +6432,7 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
             ],
         }
 
-    def test_visual_story_rejects_adjacent_repeated_action_family(self) -> None:
+    def test_writer_bound_story_rejects_adjacent_repeated_action_family(self) -> None:
         story = self._story()
         story["beats"][0]["shot_intent"] = "hand writing in notebook"
         story["beats"][0]["stock_query_en"] = "hand writing notebook task"
@@ -6440,8 +6440,16 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         story["beats"][1]["shot_intent"] = "pen marking sticky notes on paper"
         story["beats"][1]["stock_query_en"] = "pen marking sticky notes paper"
         story["beats"][1]["semantic_must_have"] = ["pen marking one sticky note on paper"]
-        with self.assertRaisesRegex(ValueError, "adjacent beats repeat visual family: stationery"):
-            visual_story_module.validate_visual_story(story, self._plan())
+        validated = visual_story_module.validate_visual_story(story, self._plan())
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "تبدأ المقارنة من نقطة غير عادلة."},
+                {"id": "s2", "narration": "ثم تتحول عيناك إلى نتيجة شخص آخر."},
+                {"id": "s3", "narration": "العودة إلى تقدمك تجعل الصورة أصدق."},
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "repeat the previous stationery scene family"):
+            visual_story_module.bind_visual_story_to_script(validated, self._plan(), script)
 
     def test_visual_story_rejects_mood_only_semantic_proof(self) -> None:
         story = self._story()
@@ -6465,8 +6473,8 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         self.assertIn("Meaning:two people can be moving", intent)
         self.assertIn("Must show:two progress markers", intent)
         self.assertIn("Narration:", intent)
-        self.assertNotIn(" Previous:", intent)
-        self.assertNotIn(" Next:", intent)
+        self.assertIn("Previous:", intent)
+        self.assertIn("Next:", intent)
 
 
 if __name__ == "__main__":
