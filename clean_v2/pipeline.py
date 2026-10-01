@@ -57,7 +57,9 @@ from .short_format import (
     validate_short_duration,
     validate_short_dimensions,
     validate_short_hook_contract,
+    validate_short_practical_action,
     validate_short_script,
+    validate_short_visual_queries,
 )
 
 
@@ -3901,6 +3903,10 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
         )
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
+        plan["practical_action_ar"] = validate_short_practical_action(
+            plan.get("practical_action_ar")
+        )
+        validate_short_visual_queries(plan, brief)
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
@@ -4079,6 +4085,7 @@ def _validate_script_for_brief(
         normalize_short_script_candidate(
             script,
             locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+            locked_practical_action=plan.get("practical_action_ar") or "",
         )
         validate_short_hook_contract(script)
         validate_short_script(script)
@@ -4618,14 +4625,20 @@ visual motif remains supportive and non-essential to a listener with the screen 
         "visual_query_en and visual_query_alt_en. The alternate must stay on the same "
         "section idea but show a different observable action, detail, consequence, or "
         "result so the next shot adds information instead of duplicate B-roll. Do not "
-        "paraphrase the same search phrase."
+        "paraphrase the same search phrase. Never use face, facial, portrait, selfie, "
+        "expression/expressions, or looking-at-camera language unless the query explicitly "
+        "uses a positive safe composition such as hands only, objects only, back view, or from behind. "
+        "If a primary query repeats the previous section's dominant action family (for example "
+        "stationery/writing), its alternate MUST move to a genuinely different observable family "
+        "so runtime has a real non-repeating fallback."
         if fmt == "short"
         else ""
     )
     short_retention_instruction = (
         "For short only: payoff_answer must be a descriptive resolution or observable "
-        "outcome, never an instruction. The script will add its one permitted direct "
-        "action as a separate sentence; do not encode a second action in payoff_answer."
+        "outcome, never an instruction. Planning must also return top-level practical_action_ar: "
+        "one concise Arabic imperative sentence containing exactly one practical action. "
+        "This sentence becomes host-owned after Planning; Script must not author another action."
         if fmt == "short"
         else ""
     )
@@ -4662,6 +4675,11 @@ visual motif remains supportive and non-essential to a listener with the screen 
     narrative_format_shape = (
         ',\n  "narrative_format": "one allowed longform narrative format"'
         if fmt in {"film", "podcast"}
+        else ""
+    )
+    short_action_shape = (
+        ',\n  "practical_action_ar": "one concise Arabic imperative sentence with exactly one practical action"'
+        if fmt == "short"
         else ""
     )
     format_visual_profile = {
@@ -4904,6 +4922,9 @@ share, or like. Never bundle multiple actions in one CTA. It must feel earned af
 delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
 For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment/share/like language
 in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
+For short only, practical_action_ar is NOT a social CTA. It is the one topic-specific practical action
+the viewer can take after the payoff. Begin it directly with one Arabic imperative verb, keep exactly
+one practical action, and do not join a second action with ثم/و or another clause.
 
 {short_context}
 {podcast_context}
@@ -4914,7 +4935,7 @@ Return one JSON object with exactly this useful shape:
   "title": "Arabic title",
   "promise": "Arabic one-sentence viewer promise",
   "cover_text": "distinctive truthful Arabic cover phrase, 2-5 words",
-  "cta": "one natural Arabic CTA, or empty only for moment"{narrative_format_shape},
+  "cta": "one natural Arabic CTA, or empty only for moment"{narrative_format_shape}{short_action_shape},
   "sections": [
     {{
       "id": "s1",
@@ -5169,10 +5190,11 @@ def _script_prompt(
         )
     )
     short_payoff_guidance = (
-        "For short, express payoff_answer as descriptive resolution, then write the one "
-        "permitted direct-action sentence separately. No other s3 sentence may contain "
-        "direct or indirect advice or a derivative of the action verb family listed in "
-        "SHORT_FORMAT_CONTRACT."
+        "For short, LOCKED_PLAN.practical_action_ar is already final and host-owned. "
+        "Do NOT write, repeat, paraphrase, or replace it. Author s3 as descriptive payoff only; "
+        "runtime appends the locked action sentence afterward. Every authored s3 sentence must "
+        "contain zero direct/indirect advice and zero derivative of the action verb families "
+        "listed in SHORT_FORMAT_CONTRACT."
         if fmt == "short"
         else ""
     )
@@ -5792,12 +5814,6 @@ class CleanV2Pipeline:
                 )
                 plan, visual_story = _persist_planning_artifacts(output_dir, planned)
                 self._write_runtime_events(output_dir)
-                record_narrative_format(
-                    narrative_history_path,
-                    str(brief.get("format") or ""),
-                    str(plan.get("short_template") if str(brief["format"]) == "short"
-                        else plan.get("narrative_format") or ""),
-                )
             _write_resume_checkpoint(
                 output_dir,
                 completed_stage="planning",
@@ -5989,6 +6005,7 @@ class CleanV2Pipeline:
                     normalize_short_script_candidate(
                         script,
                         locked_payoff_answer=_locked_short_payoff_answer(visual_story),
+                        locked_practical_action=plan.get("practical_action_ar") or "",
                     )
                     validate_short_hook_contract(script)
                     validate_short_script(script)
@@ -6539,6 +6556,19 @@ class CleanV2Pipeline:
                     narrative_history_path,
                     "film",
                     str(long_short_report.get("selection_signature") or ""),
+                )
+
+            # Narrative/template history represents delivered videos, not failed
+            # attempts that happened to reach Planning.
+            if str(brief["format"]) in {"film", "short"}:
+                record_narrative_format(
+                    narrative_history_path,
+                    str(brief["format"]),
+                    str(
+                        plan.get("short_template")
+                        if str(brief["format"]) == "short"
+                        else plan.get("narrative_format") or ""
+                    ),
                 )
 
             journal.complete(
