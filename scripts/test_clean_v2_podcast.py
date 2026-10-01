@@ -178,6 +178,41 @@ class PodcastFormatTests(unittest.TestCase):
         short_script = _script_prompt(short_brief, short_plan)
         self.assertNotIn("NARRATIVE FORMAT FIDELITY", short_script)
 
+    def test_planning_prompt_shapes_section_headings_to_the_locked_narrative_format(self) -> None:
+        film_brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+            "format": "film",
+            "language": "ar",
+            "research_pack": [],
+        }
+        planning = _planning_prompt(film_brief)
+        self.assertIn("narrative_format=question_answer", planning)
+        self.assertIn("the locked narrative_format above is question_answer", planning)
+        self.assertIn(
+            "phrase each section after the first as the new sincere question", planning
+        )
+        self.assertIn("الخطوة الأولى", planning)
+
+        podcast_brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نعود إلى عادة نعرف أنها تؤذينا؟",
+            "format": "podcast",
+            "language": "ar",
+            "research_pack": [],
+        }
+        podcast_planning = _planning_prompt(podcast_brief)
+        self.assertIn("narrative_format=dialogue_qa", podcast_planning)
+        self.assertNotIn("narrative_format=question_answer", podcast_planning)
+        self.assertIn(
+            "phrase headings/purposes so they already perform writing_shape's described behavior above",
+            podcast_planning,
+        )
+        self.assertNotIn(
+            "phrase each section after the first as the new sincere question",
+            podcast_planning,
+        )
+
     def test_tone_repair_prompt_restores_locked_narrative_format_writing_shape_on_mismatch(
         self,
     ) -> None:
@@ -736,6 +771,8 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
     def test_pipeline_wires_selected_podcast_promo_into_voice_timeline(self) -> None:
         source = inspect.getsource(CleanV2Pipeline.run)
         self.assertIn("podcast_promo=podcast_promo", source)
+        self.assertIn("recent_signatures=podcast_promo_history", source)
+        self.assertIn("record_derived_short_signature(", source)
 
     def test_local_promo_selection_avoids_opening_and_preserves_text(self) -> None:
         sections = [
@@ -768,6 +805,39 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
         before = " ".join(text for _role, text in original)
         after = " ".join(text for _role, text in isolated)
         self.assertEqual(" ".join(before.split()), " ".join(after.split()))
+
+    def test_promo_selection_avoids_recent_pattern_when_an_alternative_exists(self) -> None:
+        sections = [
+            {"id": "s1", "narration": "A: لماذا نكرر السلوك نفسه؟ B: لأن القرار وحده لا يغير البيئة."},
+            {
+                "id": "s2",
+                "narration": (
+                    "المشكلة أن السلوك القديم يختصر عليك قرارًا يوميًا مرهقًا في اللحظة نفسها. "
+                    "ولهذا يبدو الرجوع إليه أسهل حتى عندما تعرف أن نتيجته لا تناسبك على المدى الطويل. "
+                    "حين تغيّر الإشارة التي تسبق السلوك، يصبح أمامك مسار آخر قبل أن تبدأ العادة تلقائيًا."
+                ),
+            },
+            {
+                "id": "s3",
+                "narration": (
+                    "لكن الإرادة وحدها لا تكفي إذا بقيت كل التفاصيل حولك تدفعك إلى المسار القديم. "
+                    "بل تحتاج أن تجعل البديل الأقرب واضحًا وسهلًا قبل لحظة الاختيار التي تتكرر كل يوم. "
+                    "الحقيقة أن التغيير يصبح أهدأ عندما تقلل عدد القرارات التي تتخذها تحت الضغط."
+                ),
+            },
+        ]
+        first = _select_podcast_promo_excerpt(sections)
+        self.assertIsNotNone(first)
+        assert first is not None
+        second = _select_podcast_promo_excerpt(
+            sections,
+            recent_signatures=(first["selection_signature"],),
+        )
+        self.assertIsNotNone(second)
+        assert second is not None
+        self.assertNotEqual(second["selection_signature"], first["selection_signature"])
+        self.assertNotEqual(second["text"], first["text"])
+        self.assertEqual(second["selection_basis"], "local_quality_score_v2_history_aware")
 
     def test_derived_short_reuses_final_and_passes_existing_qc(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
