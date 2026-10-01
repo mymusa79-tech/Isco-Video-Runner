@@ -132,8 +132,37 @@ def _sentences(text: object) -> list[str]:
     return sentences
 
 
+_CAPTION_SPLIT_CONNECTORS = frozenset({
+    "لكن", "ولكن", "لأن", "لان", "لذلك", "لهذا", "وهذا", "وهذه",
+    "وهو", "وهي", "عندما", "حين", "إذا", "اذا", "حتى", "ثم", "بل",
+})
+
+
+def _split_long_caption_chunk(chunk: str) -> list[str]:
+    """Bound display copy without changing or deleting any authored word."""
+    words = _clean(chunk).split()
+    result: list[str] = []
+    while len(words) > CAPTION_MAX_WORDS:
+        ceiling = min(CAPTION_MAX_WORDS, len(words) - CAPTION_MIN_WORDS)
+        floor = min(5, ceiling)
+        cut = 0
+        for index in range(ceiling, floor - 1, -1):
+            key = re.sub(r"[^\w\u0600-\u06FF]+", "", words[index]).strip()
+            if key in _CAPTION_SPLIT_CONNECTORS:
+                cut = index
+                break
+        if cut <= 0:
+            # Keep the first card balanced and leave at least two words for the next.
+            cut = min(10, ceiling)
+        result.append(" ".join(words[:cut]).strip())
+        words = words[cut:]
+    if words:
+        result.append(" ".join(words).strip())
+    return [item for item in result if item]
+
+
 def _phrase_chunks(text: object) -> list[str]:
-    """Preserve authored Arabic grammar: split only at real punctuation boundaries."""
+    """Preserve authored Arabic order while enforcing readable two-line cards."""
     chunks: list[str] = []
     for sentence in _sentences(text):
         clauses = [
@@ -141,21 +170,25 @@ def _phrase_chunks(text: object) -> list[str]:
             for item in re.split(r"(?<=[،؛:])\s+", sentence)
             if item.strip()
         ] or [sentence.strip()]
-        chunks.extend(clauses)
+        for clause in clauses:
+            chunks.extend(_split_long_caption_chunk(clause))
 
-    # A one-word clause is usually punctuation residue. Merge it with its nearest
-    # neighbor without rewriting or reordering any authored words.
+    # A one-word clause is usually punctuation residue. Merge it only when doing
+    # so stays within the hard display-word ceiling.
     index = 0
     while len(chunks) > 1 and index < len(chunks):
         if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
             index += 1
             continue
-        if index > 0:
+        if index > 0 and len((chunks[index - 1] + " " + chunks[index]).split()) <= CAPTION_MAX_WORDS:
             chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
             chunks.pop(index)
             continue
-        chunks[1] = f"{chunks[0]} {chunks[1]}"
-        chunks.pop(0)
+        if len((chunks[index] + " " + chunks[index + 1]).split()) <= CAPTION_MAX_WORDS:
+            chunks[index + 1] = f"{chunks[index]} {chunks[index + 1]}"
+            chunks.pop(index)
+            continue
+        index += 1
     return chunks
 
 
@@ -218,6 +251,8 @@ def validate_progressive_text(events: Sequence[Mapping[str, object]]) -> tuple[T
             raise ShortTimedTextError("timed_text_empty")
         if role not in ALLOWED_ROLES:
             raise ShortTimedTextError("timed_text_role_invalid")
+        if len(text.split()) > CAPTION_MAX_WORDS:
+            raise ShortTimedTextError("timed_text_caption_word_ceiling_exceeded")
         if end <= start:
             raise ShortTimedTextError("timed_text_duration_invalid")
         if index and start < previous_end - 0.001:
