@@ -766,12 +766,15 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertIn("avoid alcohol, gambling, nightclub/party imagery", recovery)
         self.assertIn("Do not force religious symbols", recovery)
 
-    def test_mistral_planning_schema_uses_existing_local_visual_story_fallback(self) -> None:
+    def test_mistral_planning_schema_requires_visual_story_but_legacy_validator_can_fallback(self) -> None:
         schema = providers_module._mistral_planning_response_schema(
             _planning_prompt(_brief("film"))
         )
-        self.assertNotIn("visual_story", schema["required"])
-        self.assertNotIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        self.assertIn("visual_story", schema["properties"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 15)
 
         compact = _planning_value("film")
         compact.pop("visual_story")

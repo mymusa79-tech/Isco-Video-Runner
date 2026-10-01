@@ -776,8 +776,11 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         self.assertEqual(provider_prompt, prompt)
 
         schema = providers_module._mistral_planning_response_schema(provider_prompt)
-        self.assertNotIn("visual_story", schema["properties"])
-        self.assertNotIn("visual_story", schema["required"])
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        visual_beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(visual_beats["minItems"], 5)
+        self.assertEqual(visual_beats["maxItems"], 15)
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
         self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
         item = schema["properties"]["sections"]["items"]["properties"]
@@ -6570,6 +6573,55 @@ class VisualStorySemanticRegressionTests(unittest.TestCase):
         self.assertIn("Narration:", intent)
         self.assertIn("Previous:", intent)
         self.assertIn("Next:", intent)
+
+
+class PlanningProviderSchemaRegressionTests(unittest.TestCase):
+    def _short_prompt(self) -> str:
+        brief = _brief()
+        brief["format"] = "short"
+        return _planning_prompt(brief)
+
+    def test_mistral_planning_schema_requires_unified_visual_story(self) -> None:
+        schema = providers_module._mistral_planning_response_schema(self._short_prompt())
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+        self.assertIn(
+            "stock_still",
+            beats["items"]["properties"]["source_preference"]["enum"],
+        )
+
+    def test_groq_planning_schema_carries_same_visual_story_contract(self) -> None:
+        schema = providers_module._groq_planning_response_schema(self._short_prompt())
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+
+    def test_gemini_planning_schema_carries_same_visual_story_contract(self) -> None:
+        schema = providers_module._gemini_planning_response_schema(self._short_prompt())
+        self.assertIn("visual_story", schema["properties"])
+        self.assertIn("visual_story", schema["required"])
+        beats = schema["properties"]["visual_story"]["properties"]["beats"]
+        self.assertEqual(beats["minItems"], 5)
+        self.assertEqual(beats["maxItems"], 5)
+
+        serialized = json.dumps(schema, ensure_ascii=True)
+        for unsupported in ('"pattern"', '"minLength"', '"maxLength"', '"const"'):
+            self.assertNotIn(unsupported, serialized)
+
+    def test_gemini_adapters_are_stage_aware_for_planning_schema(self) -> None:
+        adapters = {adapter.name: adapter for adapter in providers_module.default_adapters()}
+        self.assertTrue(adapters["gemini"].accepts_stage)
+        self.assertTrue(adapters["gemini_flash_lite"].accepts_stage)
+        self.assertIs(adapters["gemini"].call, providers_module._gemini_stage_call)
+        self.assertIs(
+            adapters["gemini_flash_lite"].call,
+            providers_module._gemini_flash_lite_stage_call,
+        )
 
 
 if __name__ == "__main__":

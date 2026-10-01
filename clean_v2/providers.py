@@ -628,7 +628,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                         "display_text_ar": dict(non_blank_string),
                         "source_preference": {
                             "type": "string",
-                            "enum": ["stock_motion", "ai_still"],
+                            "enum": ["stock_motion", "stock_still", "ai_still"],
                         },
                     },
                     "required": [
@@ -663,6 +663,15 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         },
     }
     plan_required = ["title", "promise", "cta", "sections"]
+    # Planning owns the unified visual story. The schema used to construct it
+    # above must be part of the provider response contract; otherwise strict
+    # providers are forced to omit visual_story and the local fallback cannot
+    # satisfy the five-beat Short house cut.
+    if fmt == "short":
+        visual_story_schema["properties"]["beats"]["minItems"] = 5
+        visual_story_schema["properties"]["beats"]["maxItems"] = 5
+    plan_properties["visual_story"] = visual_story_schema
+    plan_required.append("visual_story")
     if fmt == "short":
         plan_properties["practical_action_ar"] = {
             "type": "string",
@@ -778,6 +787,9 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
         },
     }
     required = ["title", "promise", "cta", "sections"]
+    if "visual_story" in source["properties"]:
+        properties["visual_story"] = source["properties"]["visual_story"]
+        required.append("visual_story")
     if "practical_action_ar" in source["properties"]:
         properties["practical_action_ar"] = dict(source["properties"]["practical_action_ar"])
         required.append("practical_action_ar")
@@ -822,6 +834,97 @@ def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
         "required": ["title", "sections"],
         "additionalProperties": False,
     }
+
+
+_GEMINI_JSON_SCHEMA_SUPPORTED_KEYS = frozenset({
+    "$id",
+    "$defs",
+    "$ref",
+    "$anchor",
+    "type",
+    "format",
+    "title",
+    "description",
+    "enum",
+    "items",
+    "prefixItems",
+    "minItems",
+    "maxItems",
+    "minimum",
+    "maximum",
+    "anyOf",
+    "oneOf",
+    "properties",
+    "additionalProperties",
+    "required",
+})
+
+
+def _gemini_compatible_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Strip Mistral-only JSON Schema keywords before sending to Gemini."""
+    output: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "const":
+            output["enum"] = [value]
+            continue
+        if key not in _GEMINI_JSON_SCHEMA_SUPPORTED_KEYS:
+            continue
+        if key == "properties" and isinstance(value, dict):
+            output[key] = {
+                str(name): _gemini_compatible_json_schema(child)
+                for name, child in value.items()
+                if isinstance(child, dict)
+            }
+        elif key == "$defs" and isinstance(value, dict):
+            output[key] = {
+                str(name): _gemini_compatible_json_schema(child)
+                for name, child in value.items()
+                if isinstance(child, dict)
+            }
+        elif key == "items" and isinstance(value, dict):
+            output[key] = _gemini_compatible_json_schema(value)
+        elif key == "prefixItems" and isinstance(value, list):
+            output[key] = [
+                _gemini_compatible_json_schema(child)
+                for child in value
+                if isinstance(child, dict)
+            ]
+        elif key in {"anyOf", "oneOf"} and isinstance(value, list):
+            output[key] = [
+                _gemini_compatible_json_schema(child)
+                for child in value
+                if isinstance(child, dict)
+            ]
+        else:
+            output[key] = value
+    return output
+
+
+def _gemini_planning_response_schema(prompt: str) -> dict[str, Any]:
+    """Gemini-compatible copy of the canonical Planning contract."""
+    return _gemini_compatible_json_schema(_mistral_planning_response_schema(prompt))
+
+
+def _gemini_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+    if stage == "planning":
+        return _gemini_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_planning_response_schema(prompt),
+        )
+    return _gemini_call(prompt, max_tokens)
+
+
+def _gemini_flash_lite_stage_call(
+    prompt: str, max_tokens: int, stage: str
+) -> dict[str, Any]:
+    if stage == "planning":
+        return _gemini_flash_lite_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_planning_response_schema(prompt),
+        )
+    return _gemini_flash_lite_call(prompt, max_tokens)
 
 
 def _groq_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
@@ -922,8 +1025,12 @@ class ProviderAdapter:
 
 def default_adapters() -> tuple[ProviderAdapter, ...]:
     return (
-        ProviderAdapter("gemini", _gemini_call),
-        ProviderAdapter("gemini_flash_lite", _gemini_flash_lite_call),
+        ProviderAdapter("gemini", _gemini_stage_call, accepts_stage=True),
+        ProviderAdapter(
+            "gemini_flash_lite",
+            _gemini_flash_lite_stage_call,
+            accepts_stage=True,
+        ),
         ProviderAdapter("groq", _groq_stage_call, accepts_stage=True),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
