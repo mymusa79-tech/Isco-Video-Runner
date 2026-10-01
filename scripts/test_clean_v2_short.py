@@ -2282,8 +2282,33 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
         highlight = media_module._master_look_value(0.88, 0.88, 0.88)
         self.assertGreater(shadow[2], shadow[0])
         self.assertGreater(highlight[0], highlight[2])
-        self.assertGreater(media_module.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.70)
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.90)
+
+    def test_single_clip_uses_fixed_channel_target_not_episode_stock_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clip = root / "clip.mp4"
+            clip.write_bytes(b"fixture")
+            measured = media_module._RgbStats(
+                mean_r=170.0,
+                mean_g=150.0,
+                mean_b=145.0,
+                std_r=35.0,
+                std_g=36.0,
+                std_b=34.0,
+            )
+            with mock.patch(
+                "clean_v2.media._sample_rgb_stats",
+                return_value=measured,
+            ):
+                filters = media_module._build_reference_color_plan([clip], root)
+            self.assertTrue(filters[str(clip)])
+            report = json.loads((root / "color-match.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["source"], "clean-v2-fixed-channel-palette-match")
+            self.assertIsNone(report["reference_file"])
+            self.assertEqual(report["clips"][0]["mode"], "fixed_channel_target")
+            self.assertEqual(report["target_stats"]["mean_b"], 118.0)
 
     def test_shared_finish_is_always_applied_after_master_lut(self) -> None:
         source = inspect.getsource(media_module.render_video)
