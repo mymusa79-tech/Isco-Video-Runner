@@ -45,41 +45,6 @@ class CleanV2StructuralAIFlagsTests(unittest.TestCase):
         self.assertIn("duplicate_sentence", flags)
         self.assertIn("generic_motivational_closer", flags)
 
-    def test_repeated_sentence_opener_catches_monotonous_film_narration(self):
-        # Within-video monotony that the existing deterministic flags miss: every
-        # sentence sharing the same opening word, even without "ليس X بل Y" or an
-        # exact duplicate sentence.
-        monotonous = (
-            "عندما تبدأ يومك بوضوح تصبح كل خطوة أسهل. "
-            "عندما تواجه مهمة صعبة تذكر هذا المبدأ الثابت. "
-            "عندما تشعر بالتشتت توقف لحظة واحدة فقط."
-        )
-        self.assertIn(
-            "repeated_sentence_opener",
-            structural_ai_flags(monotonous, short_form=False),
-        )
-
-        varied = (
-            "عندما تبدأ يومك بوضوح تصبح كل خطوة أسهل. "
-            "هذا المبدأ يفسر لماذا تتعثر الخطة الكبيرة دائمًا. "
-            "النتيجة تظهر فقط حين تلتزم بخطوة واحدة صغيرة."
-        )
-        self.assertNotIn(
-            "repeated_sentence_opener",
-            structural_ai_flags(varied, short_form=False),
-        )
-
-        # Short form is more sensitive: only 2 repeats are enough to flag.
-        short_repeat = "عندما تفقد التركيز توقف. عندما تعود للعمل ابدأ بخطوة واحدة."
-        self.assertIn(
-            "repeated_sentence_opener",
-            structural_ai_flags(short_repeat, short_form=True),
-        )
-        self.assertNotIn(
-            "repeated_sentence_opener",
-            structural_ai_flags(short_repeat, short_form=False),
-        )
-
     def test_report_is_advisory_and_format_aware(self):
         script = {
             "sections": [

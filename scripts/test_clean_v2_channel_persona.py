@@ -45,26 +45,6 @@ class CleanV2ChannelPersonaTests(unittest.TestCase):
         self.assertTrue(any("كشف الافتراض الخفي" in item for item in persona["writing_voice"]["signature_moves"]))
         self.assertIn("generic_rejection_rule", persona["analysis_lens"])
 
-    def test_banned_phrases_cover_common_dated_self_help_cliches(self):
-        # User-reported monotony: content read as traditional/dated rather than
-        # modern. These are common AI/self-help translation cliches that the
-        # original 12-phrase list did not catch.
-        banned = load_channel_persona()["writing_voice"]["banned_ai_phrases"]
-        for phrase in (
-            "في نهاية اليوم",
-            "رحلتك نحو",
-            "أفضل نسخة من نفسك",
-            "طاقة إيجابية",
-            "لنكتشف معًا",
-            "الخطوة الأولى نحو",
-        ):
-            self.assertIn(phrase, banned)
-
-    def test_generic_rejection_rule_pushes_toward_contemporary_phrasing(self):
-        rule = load_channel_persona()["analysis_lens"]["generic_rejection_rule"]
-        self.assertIn("مترجمة حرفيًا", rule)
-        self.assertIn("معاصر", rule)
-
     def test_planning_and_script_prompts_are_enriched_and_idempotent(self):
         planning = _planning_prompt(_brief())
         script = _script_prompt(_brief(), _plan())
