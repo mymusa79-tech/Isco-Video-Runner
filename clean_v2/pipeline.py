@@ -4632,8 +4632,18 @@ VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
   relationship between objects/environment.
 - meaning_target says what must be proven; semantic_must_have names the visible proof; shot_intent and stock queries
   describe that proof directly. Prefer action/state-change wording over atmosphere-only adjectives.
+- At least ONE semantic_must_have item per beat must be semantic evidence of the idea itself. Lighting, framing,
+  darkness, side light, depth, hands-only, or "cinematic" qualities never count as the proof.
 - Do not default an abstract self-development idea to desk/laptop/notebook/writing B-roll unless that exact action
-  is itself evidence for the point. Cinematic light and composition support meaning; they never substitute for it.
+  is itself evidence for the point. The same rule applies to walking/path/sunset imagery: never use "person walking
+  forward" as a generic symbol for progress, recovery, a personal journey, or choosing your own path unless literal
+  walking/location is part of the spoken idea or the mapping is unmistakably established by adjacent beats.
+- For abstract RELATION ideas such as comparison, unequal starting conditions, hidden trade-offs, cause/consequence,
+  or before/after, show the relationship itself through a visible contrast, changed state, consequence, or paired
+  evidence. A phone, paper, keyboard, thoughtful person, or scenic path by itself is not evidence of that relation.
+- Before returning JSON, mentally remove the narration. If a neutral viewer could not state the beat's specific
+  meaning from the planned visible evidence, rewrite the beat rather than decorating it with mood.
+- Cinematic light and composition support meaning; they never substitute for it.
 """.strip()
 
 
