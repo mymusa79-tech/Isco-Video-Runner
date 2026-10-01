@@ -205,7 +205,7 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
             "purpose": purpose[:800],
             "visual_query_en": query,
         }
-        if fmt == "short":
+        if alt_query:
             section_value["visual_query_alt_en"] = alt_query
         if section_cover_text:
             section_value["cover_text"] = section_cover_text
