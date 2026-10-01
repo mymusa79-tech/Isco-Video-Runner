@@ -7,7 +7,9 @@ from pathlib import Path
 
 from clean_v2.narrative_history import (
     record_narrative_format,
+    record_podcast_promo_signature,
     recent_narrative_formats,
+    recent_podcast_promo_signatures,
 )
 
 
@@ -43,6 +45,33 @@ class NarrativeHistoryTests(unittest.TestCase):
             self.assertEqual(recent_narrative_formats(path, "film"), ("question_answer",))
             self.assertEqual(recent_narrative_formats(path, "short"),
                              ("inner_dialogue", "why_reframe"))
+
+    def test_podcast_promo_history_is_separate_from_fixed_podcast_narrative_style(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.json"
+            record_narrative_format(path, "film", "question_answer")
+            record_narrative_format(path, "short", "inner_dialogue")
+            record_podcast_promo_signature(path, "problem:2:early")
+            record_podcast_promo_signature(path, "reason:1:middle")
+            self.assertEqual(
+                recent_podcast_promo_signatures(path),
+                ("problem:2:early", "reason:1:middle"),
+            )
+            self.assertEqual(recent_narrative_formats(path, "film"), ("question_answer",))
+            self.assertEqual(recent_narrative_formats(path, "short"), ("inner_dialogue",))
+            self.assertEqual(recent_narrative_formats(path, "podcast"), ())
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["podcast_promo"], ["problem:2:early", "reason:1:middle"])
+
+    def test_podcast_promo_history_keeps_its_own_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.json"
+            for signature in ("a:1:early", "b:2:middle", "c:3:late"):
+                record_podcast_promo_signature(path, signature, limit=2)
+            self.assertEqual(
+                recent_podcast_promo_signatures(path, limit=2),
+                ("b:2:middle", "c:3:late"),
+            )
 
     def test_only_the_most_recent_limit_entries_are_kept(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
