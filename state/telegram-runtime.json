@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "كيف تبدأ من جديد دون خطة مثالية؟",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/36859672338",
-  "result": "",
-  "updated_at": 1790856863
+  "result": "success",
+  "updated_at": 1790856923
 }
