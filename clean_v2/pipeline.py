@@ -4587,6 +4587,25 @@ visual motif remains supportive and non-essential to a listener with the screen 
             + str(longform_profile.get("visual") or "")
         ),
     }.get(fmt, "")
+    editor_contract_guidance = {
+        "short": (
+            "EDITOR CONTRACT — SHORT: choose shot_role per beat from establish/detail/action/consequence/payoff, "
+            "but do not open with a passive establish shot when action/detail makes the hook instantly readable. "
+            "Keep environment_family as one short English scene-family slug (for example workplace, transit, home, outdoors). "
+            "Change environment only when it adds new information; preserve continuity when the same idea is still unfolding. "
+            "Cuts should feel earned by a visible state/meaning change, not by elapsed seconds."
+        ),
+        "film": (
+            "EDITOR CONTRACT — FILM: use establish/detail/action/consequence/payoff as a deliberate visual grammar. "
+            "Let environment_family persist across connected story beats so scenes feel inhabited, then change it at a real "
+            "location/idea turn. Prefer wider establish shots before meaningful details or consequences; never cut simply to add coverage."
+        ),
+        "podcast": (
+            "EDITOR CONTRACT — PODCAST: hold compositions longer. shot_role may stay establish/detail/action across several spoken turns, "
+            "and an A question never forces a cut by itself. Keep environment_family stable while the same idea is being explored; "
+            "change environment or scale only when B introduces a new mechanism, consequence, context, or earned payoff."
+        ),
+    }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -4705,7 +4724,17 @@ For every beat, also author three tiny semantic editing signals:
 - audio_energy: exactly quiet, low, steady, lift, or resolve. This shapes only the music envelope under
   narration; it never changes the voice level or creates a new music track.
 These signals must follow meaning, never random variation. Hook normally uses hook_progression; a true
-arrival/payoff normally uses payoff_landing. For each beat, viewer_intent states what the viewer should
+arrival/payoff normally uses payoff_landing. Also author:
+- shot_role: exactly establish, detail, action, consequence, or payoff. This is the editorial job of the
+  image, not a synonym for hook/body/payoff.
+- environment_family: one compact English scene-family slug such as workplace, home, transit, public_space,
+  outdoors, or another equally concrete family. Keep it stable for continuity; change it only when a new
+  environment genuinely helps the meaning.
+The existing hold_reason remains the cut/hold decision signal; do NOT invent a second timing system or a
+second cut_reason field. semantic_should_avoid remains the explicit avoid-list, and audio_energy remains the
+music-state signal. This keeps the editor contract inside the existing plan with zero extra provider calls.
+{editor_contract_guidance}
+For each beat, viewer_intent states what the viewer should
 understand or feel. meaning_target states the
 specific visible meaning that must be proven on screen, not merely the general mood. semantic_must_have
 lists 1-4 concrete visible cues that prove that meaning; semantic_should_avoid lists 1-4 generic or
@@ -4822,6 +4851,8 @@ Return one JSON object with exactly this useful shape:
         "stock_query_alt_en": "optional second English query using a different observable situation for the same meaning",
         "display_text_ar": "unique concise Arabic on-screen phrase matching this exact beat, 2-7 words",
         "source_preference": "stock_motion",
+        "shot_role": "action",
+        "environment_family": "workplace",
         "hold_reason": "hook_progression",
         "pause_intent": "micro",
         "audio_energy": "steady"
