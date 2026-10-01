@@ -131,10 +131,6 @@ SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS = 5.0
 SHORT_HOOK_SECOND_SHOT_TRIGGER_SECONDS = 4.0
 SHORT_HOOK_THREE_SHOT_MIN_SECONDS = 0.75
-SHORT_MASTER_LOOK_FILTER = (
-    "eq=contrast=1.04:saturation=0.90,"
-    "colorbalance=rs=0.015:gs=0.003:bs=-0.012"
-)
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 AI_STILL_CLIP_SECONDS = 12.0
@@ -3239,43 +3235,6 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
         std_g=values[1][1],
         std_b=values[2][1],
     )
-
-
-def _representative_reference(
-    measured: Mapping[str, _RgbStats],
-) -> str:
-    """Choose the real clip closest to the channel's restrained neutral/deep world.
-
-    The previous median-medoid rule could make one warm/beige stock clip the visual
-    authority for the whole episode. Keep one real reference, but prefer moderate
-    exposure, restrained channel imbalance and useful tonal spread so source stock
-    cannot redefine the channel palette.
-    """
-    if not measured:
-        raise ValueError("reference selection requires measured clips")
-    rows = list(measured.items())
-
-    def channel_distance(stats: _RgbStats) -> float:
-        luma = (
-            (0.2126 * stats.mean_r)
-            + (0.7152 * stats.mean_g)
-            + (0.0722 * stats.mean_b)
-        )
-        # Target a moderate/deep base rather than bright lifestyle stock.
-        exposure_penalty = abs(luma - 128.0) * 1.20
-        # Penalize strong warm/cool casts aggressively; stock must not redefine
-        # the channel palette just because it is closer to the episode median.
-        cast_penalty = (
-            abs(stats.mean_r - stats.mean_g) * 1.00
-            + abs(stats.mean_g - stats.mean_b) * 0.80
-        )
-        # Prefer enough local contrast/depth to avoid flat washed-out references.
-        spread = (stats.std_r + stats.std_g + stats.std_b) / 3.0
-        flat_penalty = max(0.0, 48.0 - spread) * 0.85
-        bright_penalty = max(0.0, luma - 150.0) * 1.60
-        return exposure_penalty + cast_penalty + flat_penalty + bright_penalty
-
-    return min(rows, key=lambda row: channel_distance(row[1]))[0]
 
 
 def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
