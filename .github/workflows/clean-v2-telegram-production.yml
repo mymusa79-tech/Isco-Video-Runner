@@ -314,7 +314,7 @@ jobs:
           path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
           key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Persist recent film and Short narrative history
+      - name: Persist recent narrative and Podcast promo history
         if: always()
         run: |
           set -euo pipefail
