@@ -84,10 +84,11 @@ jobs:
           node --test cloudflare/telegram-clean-v2-lite/index.test.mjs
           python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
 
-      - name: Generate one deployment webhook secret
+      - name: Derive stable Telegram webhook secret
         run: |
           set -euo pipefail
-          secret="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          secret="$(python -c 'import hashlib,os; token=os.environ["TELEGRAM_BOT_TOKEN"]; print(hashlib.sha256(("clean-v2-webhook-v1:"+token).encode()).hexdigest())')"
+          test -n "$secret"
           echo "::add-mask::$secret"
           echo "TELEGRAM_WEBHOOK_SECRET=$secret" >> "$GITHUB_ENV"
 
@@ -110,7 +111,6 @@ jobs:
           }
           put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
           put_secret TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
-          put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
           put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"
 
       - name: Verify worker health and bind Telegram webhook
@@ -118,13 +118,38 @@ jobs:
           set -euo pipefail
           health="$(curl --fail-with-body --silent --show-error "$WORKER_URL/health")"
           printf '%s' "$health" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("phase") == "C"'
-          webhook_body="$(jq -nc --arg url "${WORKER_URL%/}/telegram" --arg secret "$TELEGRAM_WEBHOOK_SECRET" '{url:$url,secret_token:$secret,allowed_updates:["message","callback_query"],drop_pending_updates:false}')"
-          response="$(curl --fail-with-body --silent --show-error \
-            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-            -H 'content-type: application/json' \
-            --data "$webhook_body")"
-          printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
-          echo "Clean V2 Telegram Lite active at $WORKER_URL/telegram"
+
+          webhook_ok=0
+          last_description="Telegram setWebhook did not return JSON"
+          for attempt in 1 2 3 4 5; do
+            response="$(curl --silent --show-error \
+              -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+              --data-urlencode "url=${WORKER_URL%/}/telegram" \
+              --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
+              --data-urlencode 'allowed_updates=["message","callback_query"]' \
+              --data-urlencode 'drop_pending_updates=false' || true)"
+
+            if printf '%s' "$response" | jq -e '.ok == true and .result == true' >/dev/null 2>&1; then
+              webhook_ok=1
+              break
+            fi
+            last_description="$(printf '%s' "$response" | jq -r '.description // "Telegram setWebhook returned an invalid response"' 2>/dev/null || true)"
+            test -n "$last_description" || last_description="Telegram setWebhook returned an empty response"
+            echo "::warning::setWebhook attempt ${attempt}/5 failed: $last_description"
+            if [ "$attempt" -lt 5 ]; then sleep $((attempt * 2)); fi
+          done
+
+          if [ "$webhook_ok" -ne 1 ]; then
+            echo "::error::Telegram webhook activation failed after 5 attempts: $last_description"
+            exit 22
+          fi
+          echo "Clean V2 Telegram webhook accepted at $WORKER_URL/telegram"
+
+      - name: Install stable webhook secret after Telegram accepts it
+        working-directory: cloudflare/telegram-clean-v2-lite
+        run: |
+          set -euo pipefail
+          printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | npx --yes "wrangler@$WRANGLER_VERSION" secret put TELEGRAM_WEBHOOK_SECRET --config wrangler.toml >/dev/null
 
       - name: Activate visible Telegram bot interface
         run: |
