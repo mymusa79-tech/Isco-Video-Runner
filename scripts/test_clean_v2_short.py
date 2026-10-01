@@ -300,7 +300,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         podcast["format"] = "podcast"
         planning = _planning_prompt(podcast)
         self.assertIn("real question, a plausible doubt, a concrete objection, or a request for clarification", planning)
-        self.assertIn("If B would deliver essentially the same substance without that A turn, omit A", planning)
+        self.assertIn("If B would deliver", planning)
+        self.assertIn("essentially the same substance without that A turn, omit A", planning)
         self.assertIn("do not invent a new schema or metadata field", planning)
 
         script = _script_prompt(
