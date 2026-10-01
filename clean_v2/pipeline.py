@@ -3937,7 +3937,12 @@ def _lock_longform_narrative_format(
     return candidate
 
 
-def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_plan_for_brief(
+    value: Any,
+    brief: Mapping[str, Any],
+    *,
+    enforce_visual_identity: bool = False,
+) -> dict[str, Any]:
     # Planning owns one unified visual story for short, film, and podcast formats.
     # Timeline First owns time; visual beats own scene changes.
     fmt = str(brief.get("format") or "")
@@ -3953,7 +3958,8 @@ def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, 
     # closed on adjacent/repeated visual families before any media retrieval.
     # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
     plan["_visual_diversity_contract"] = "v2_fail_closed"
-    plan["_visual_identity_contract"] = "navy_gold_v1"
+    if enforce_visual_identity:
+        plan["_visual_identity_contract"] = "navy_gold_v1"
     if fmt == "short":
         plan["short_template"] = str(select_short_template(brief)["template"])
         # Strict Planning schemas require this for current providers. The local
@@ -4203,7 +4209,11 @@ def _validate_plan_with_visual_world_recovery(
     state: dict[str, int],
 ) -> dict[str, Any]:
     try:
-        return _validate_plan_for_brief(value, brief)
+        return _validate_plan_for_brief(
+            value,
+            brief,
+            enforce_visual_identity=True,
+        )
     except VisualWorldIdentityError:
         state["identity_rejections"] = int(state.get("identity_rejections", 0)) + 1
         rejection = state["identity_rejections"]
@@ -4233,7 +4243,11 @@ def _validate_plan_with_visual_world_recovery(
                 "wire_attempted": False,
             },
         )
-        return _validate_plan_for_brief(candidate, brief)
+        return _validate_plan_for_brief(
+            candidate,
+            brief,
+            enforce_visual_identity=True,
+        )
 
 
 def _visual_family_recovery_prompt(
