@@ -479,6 +479,8 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             if default_avoid not in semantic_should_avoid and len(semantic_should_avoid) < 4:
                 semantic_should_avoid.append(default_avoid)
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
+        if not semantic_must_have and shot_intent:
+            semantic_must_have = [shot_intent[:120]]
         role = (
             _beat_role(index - 1, len(raw_beats))
             if explicit_retention_contract
@@ -646,26 +648,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             "visual_story must cover every planned section: missing=" + ",".join(missing)
         )
 
-    # Distinct search strings are not enough: notebook -> sticky notes -> paper is
-    # still one visual family to a viewer. Block adjacent family repetition for
-    # every format and cap reuse across the episode, while allowing unclassified
-    # scenes and a non-adjacent motif to return once in a changed state.
-    prior_family = ""
-    family_uses: dict[str, int] = {}
-    for beat in beats:
-        family = _beat_action_family(beat)
-        if family and family == prior_family:
-            raise ValueError(
-                f"visual_story adjacent beats repeat visual family: {family}"
-            )
-        if family:
-            family_uses[family] = family_uses.get(family, 0) + 1
-            if family_uses[family] > _ACTION_FAMILY_MAX_USES:
-                raise ValueError(
-                    f"visual_story visual family repeated too often: {family}"
-                )
-        prior_family = family
-
+    # Visual-family repetition is enforced after Writer binding, immediately
+    # before retrieval, so legacy/compatibility stories can still be normalized
+    # without weakening the production gate.
     ai_still_count = sum(
         beat["source_preference"] == "ai_still" for beat in beats
     )
@@ -746,6 +731,7 @@ def bind_visual_story_to_script(
             beats_by_section[section_id].append(beat)
 
     prior_action_family = ""
+    family_uses: dict[str, int] = {}
     for section_id in expected_ids:
         section_beats = beats_by_section[section_id]
         if not section_beats:
@@ -798,6 +784,14 @@ def bind_visual_story_to_script(
                         f"{current_family} scene family without a distinct alternate"
                     )
 
+            if current_family:
+                family_uses[current_family] = family_uses.get(current_family, 0) + 1
+                if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
+                    raise ValueError(
+                        "writer visual binding repeats visual family too often: "
+                        f"{current_family}"
+                    )
+
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
             # copy only in display_text_ar for the renderer-owned overlay path.
@@ -836,12 +830,7 @@ def contextual_intent(
     beat_id: str,
     fallback_intent: str,
 ) -> str:
-    """Build a <=300-char Visual QA brief that never truncates away the semantics.
-
-    The previous layout could spend the budget on metadata/neighbour context before
-    the concrete proof. Keep only the evidence Visual QA actually needs: final Writer
-    narration, exact beat meaning, and observable must-have proof.
-    """
+    """Build a <=300-char Visual QA brief with semantics before neighbour context."""
     beats = [item for item in (visual_story.get("beats") or []) if isinstance(item, Mapping)]
     current_index = next(
         (index for index, item in enumerate(beats) if str(item.get("id") or "") == beat_id),
@@ -863,43 +852,72 @@ def contextual_intent(
         or current_beat.get("viewer_intent")
         or current_beat.get("shot_intent"),
         "specific visible meaning",
-        58,
+        46,
     )
     must_have = _context_fragment(
-        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or [])),
+        ", ".join(str(item) for item in (current_beat.get("semantic_must_have") or []))
+        or current_beat.get("shot_intent"),
         "concrete visible proof",
-        50,
+        40,
     )
     narration = _context_fragment(
         current_beat.get("writer_anchor_ar"),
         "spoken beat",
-        64,
+        38,
     )
+    current = _context_fragment(
+        current_beat.get("shot_intent") or fallback_intent,
+        "current beat",
+        24,
+    )
+    previous = _context_fragment(
+        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
+        "opening",
+        18,
+    )
+    following = _context_fragment(
+        beats[current_index + 1].get("shot_intent")
+        if current_index + 1 < len(beats)
+        else "",
+        "arrival",
+        18,
+    )
+
+    rule = ""
+    if role == "hook":
+        rule = " Hook: unresolved visible tension."
+    elif current_family and current_family == previous_family:
+        rule = " Repeat only if visible state changed."
 
     pieces = [
         f"Role:{role}",
         f"Meaning:{meaning}",
         f"Must show:{must_have}",
         f"Narration:{narration}",
+        f"Current: {current}",
+        f"Previous: {previous}",
+        f"Next: {following}",
     ]
-    rule = ""
-    if role == "hook":
-        rule = " Hook: unresolved visible tension."
-    elif current_family and current_family == previous_family:
-        rule = " Repeat only if visible state changed."
-    tail = " Judge semantic evidence before mood."
+    tail = " Same hook-to-payoff arc: judge continuity."
     result = ". ".join(pieces) + "." + rule + tail
     if len(result) <= 300:
         return result
 
-    # Preserve Role/Meaning/Must-show first. Only narration yields further when a
-    # pathological upstream string still exceeds the hard provider boundary.
-    excess = len(result) - 300
-    narration_limit = max(24, 64 - excess)
-    narration = _context_fragment(
-        current_beat.get("writer_anchor_ar"),
-        "spoken beat",
-        narration_limit,
+    # Preserve semantic evidence and all three neighbour labels. Reduce narration
+    # first, then neighbour detail, never Meaning/Must-show.
+    narration = _context_fragment(current_beat.get("writer_anchor_ar"), "spoken beat", 24)
+    current = _context_fragment(current_beat.get("shot_intent") or fallback_intent, "current", 16)
+    previous = _context_fragment(
+        beats[current_index - 1].get("shot_intent") if current_index > 0 else "",
+        "opening",
+        12,
+    )
+    following = _context_fragment(
+        beats[current_index + 1].get("shot_intent")
+        if current_index + 1 < len(beats)
+        else "",
+        "arrival",
+        12,
     )
     result = ". ".join(
         [
@@ -907,6 +925,9 @@ def contextual_intent(
             f"Meaning:{meaning}",
             f"Must show:{must_have}",
             f"Narration:{narration}",
+            f"Current: {current}",
+            f"Previous: {previous}",
+            f"Next: {following}",
         ]
     ) + "." + rule + tail
     return result[:300].rstrip()
