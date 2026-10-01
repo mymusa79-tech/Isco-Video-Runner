@@ -4350,16 +4350,21 @@ def _bind_writer_visual_story_with_recovery(
                 raise RuntimeError(
                     "visual family recovery cannot identify successful script provider"
                 )
-            recovered = router.route_exact_provider(
-                provider_name=writer_provider,
-                stage="visual_query_recovery",
-                prompt=_visual_family_recovery_prompt(
-                    error=exc,
-                    visual_story=candidate_story,
-                ),
-                max_tokens=180,
-                validator=validator,
-            )
+            try:
+                recovered = router.route_exact_provider(
+                    provider_name=writer_provider,
+                    stage="visual_query_recovery",
+                    prompt=_visual_family_recovery_prompt(
+                        error=exc,
+                        visual_story=candidate_story,
+                    ),
+                    max_tokens=180,
+                    validator=validator,
+                )
+            except Exception as recovery_exc:
+                if recovery_attempt >= VISUAL_BIND_RECOVERY_MAX_ATTEMPTS:
+                    raise exc from recovery_exc
+                continue
             candidate_story = _replace_visual_beat_query(
                 candidate_story,
                 beat_id=exc.beat_id,
