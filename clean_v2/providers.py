@@ -452,6 +452,40 @@ def _safe_validator_reason(exc: Exception) -> str:
     return base
 
 
+def _mistral_short_hook_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One bounded same-provider correction for Run 60's overlong Short hook.
+
+    Never raises the hook limit or edits narration locally. Retry only when the
+    validator says the Mistral Short hook is 21-32 words, so Mistral gets one
+    chance to rewrite the first sentence to 12-16 words while preserving all
+    section meaning and the locked s3 contract.
+    """
+    if type(exc).__name__ != "ShortFormatError":
+        return None
+    match = re.fullmatch(
+        r"short_hook_too_long\s+words=(\d+)\s+maximum=(\d+)",
+        str(exc).strip(),
+    )
+    if not match:
+        return None
+    words = int(match.group(1))
+    if not 21 <= words <= 32:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_SHORT_HOOK_VALIDATOR_RETRY — previous output was rejected "
+        + f"because its first spoken sentence had {words} words. "
+        + "Return the COMPLETE script JSON again. Rewrite ONLY the first spoken "
+        + "sentence as one natural, self-contained Arabic hook of 12-16 words "
+        + "(hard maximum 18). Move secondary detail into sentence two; preserve "
+        + "the same meaning, all section ids/order, and every other contract. "
+        + "Count the rewritten first sentence by whitespace before returning JSON."
+    )
+
+
 def _safe_mistral_script_patch_raw_diagnostic(
     raw_content: str, exc: Exception
 ) -> dict[str, Any]:
@@ -1289,6 +1323,70 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+                retry_prompt = (
+                    _mistral_short_hook_validator_retry_prompt(provider_prompt, exc)
+                    if adapter.name == "mistral" and stage == "script"
+                    else None
+                )
+                if retry_prompt is not None:
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="retrying",
+                        wire_attempted=True,
+                        reason="mistral_short_hook_validator_retry",
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    retry_attempt = provider_attempt + 1
+                    try:
+                        retry_candidate = adapter.invoke(retry_prompt, max_tokens, stage)
+                    except NoWireFailure as retry_exc:
+                        failures.append(f"{adapter.name}:{retry_exc.reason_code}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="unavailable",
+                            wire_attempted=False,
+                            reason=retry_exc.reason_code,
+                            provider_attempt=None,
+                            stage_wire_attempt=None,
+                        )
+                        continue
+                    except Exception as retry_exc:
+                        wire_count += 1
+                        retry_reason = str(
+                            getattr(retry_exc, "reason_code", "provider_failure")
+                        )
+                        failures.append(f"{adapter.name}:{retry_reason}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="failed",
+                            wire_attempted=True,
+                            reason=retry_reason,
+                            provider_attempt=retry_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        continue
+                    else:
+                        wire_count += 1
+                        provider_attempt = retry_attempt
+                        try:
+                            normalized = validator(retry_candidate)
+                        except Exception as retry_exc:
+                            exc = retry_exc
+                        else:
+                            self._event(
+                                stage=stage,
+                                provider=adapter.name,
+                                result="success",
+                                wire_attempted=True,
+                                reason=None,
+                                provider_attempt=provider_attempt,
+                                stage_wire_attempt=wire_count,
+                            )
+                            return normalized
 
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
