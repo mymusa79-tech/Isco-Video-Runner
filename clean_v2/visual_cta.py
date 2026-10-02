@@ -339,8 +339,8 @@ def _events(
     authored_mode: str,
 ) -> list[VisualCtaEvent]:
     if fmt == "short":
-        # One light in-body CTA only. Subscription belongs to the terminal identity
-        # outro after the full payoff, so it never interrupts the value delivery.
+        # Preserve the existing Short visual-only behavior. The new spoken CTA
+        # contract intentionally does not apply to Short.
         start = max(7.0, duration * 0.56)
         mode = _short_first_mode(script)
         if start >= duration - 3.0:
@@ -360,49 +360,80 @@ def _events(
     if fmt not in {"film", "podcast"}:
         return []
 
-    # Horizontal long-form shares one sparse CTA policy. Podcast stays calmer
-    # than Film because narration and key text carry more of the experience.
-    if fmt == "podcast":
-        points = [0.56, 0.82] if duration >= 120 else [0.68]
-    elif duration < 180:
-        points = [0.48, 0.80]
-    elif duration < 420:
-        points = [0.28, 0.56, 0.82]
-    else:
-        points = [0.22, 0.44, 0.65, 0.84]
-
-    primary = authored_mode if authored_mode in {"like", "comment", "share"} else "comment"
-    palette = ["like", primary, "share", "comment"]
-    if len(points) == 1:
-        palette = [primary]
-    elif len(points) == 2:
-        palette = [primary, "share" if primary != "share" else "like"]
-    elif len(points) == 3:
-        palette = ["like" if primary != "like" else "comment", primary, "share"]
-
-    events: list[VisualCtaEvent] = []
-    last_mode = ""
-    for index, ratio in enumerate(points):
-        mode = palette[min(index, len(palette) - 1)]
-        if mode == last_mode and mode != "subscribe_combo":
-            mode = "like" if mode != "like" else "comment"
-        start = max(12.0, duration * ratio)
-        if start > duration - 15.0:
-            continue
-        x, y = _cta_position(mode=mode, fmt=fmt)
-        events.append(
-            VisualCtaEvent(
-                mode=mode,
-                start_seconds=round(start, 3),
-                end_seconds=round(start + (3.5 if mode == "subscribe_combo" else 1.45), 3),
-                x=x,
-                y=y,
-                asset="arabic_subscribe_combo_renderer" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
-            )
+    # Fallback-only long-form behavior: one authored action, never a rotating
+    # palette of unrelated like/share/comment prompts.
+    mode = str(authored_mode or "none")
+    if mode not in {"like", "comment", "share", "subscribe"}:
+        return []
+    render_mode = "subscribe_combo" if mode == "subscribe" else mode
+    ratio = 0.66 if fmt == "podcast" else 0.60
+    start = max(30.5, duration * ratio)
+    if start >= duration - 12.0:
+        return []
+    x, y = _cta_position(mode=render_mode, fmt=fmt)
+    event_seconds = 3.0 if render_mode == "subscribe_combo" else 1.8
+    return [
+        VisualCtaEvent(
+            mode=render_mode,
+            start_seconds=round(start, 3),
+            end_seconds=round(min(duration - 10.0, start + event_seconds), 3),
+            x=x,
+            y=y,
+            asset=(
+                "arabic_subscribe_combo_renderer"
+                if render_mode == "subscribe_combo"
+                else _ICON_BY_MODE[render_mode].name
+            ),
         )
-        last_mode = mode
-    return events
+    ]
 
+
+def _longform_contextual_event(
+    *,
+    output_dir: Path,
+    fmt: str,
+    duration: float,
+) -> list[VisualCtaEvent]:
+    """Render exactly the same CTA action scheduled for the spoken long-form line."""
+    if fmt not in {"film", "podcast"}:
+        return []
+    raw = _read_json(Path(output_dir) / "cta-plan.json")
+    if raw.get("visual_only") is True or not str(raw.get("spoken_text") or "").strip():
+        return []
+    mode = str(raw.get("mode") or "none").strip().lower()
+    if mode not in {"like", "comment", "share", "subscribe"}:
+        return []
+    schedule = raw.get("schedule")
+    if not isinstance(schedule, Mapping):
+        return []
+    try:
+        start = float(schedule.get("start_seconds"))
+        scheduled_end = float(schedule.get("end_seconds"))
+    except (TypeError, ValueError):
+        return []
+    if start < 0 or scheduled_end <= start or start >= duration:
+        return []
+
+    render_mode = "subscribe_combo" if mode == "subscribe" else mode
+    x, y = _cta_position(mode=render_mode, fmt=fmt)
+    display_seconds = 3.0 if render_mode == "subscribe_combo" else 1.8
+    end = min(duration, scheduled_end, start + display_seconds)
+    if end - start < 0.6:
+        return []
+    return [
+        VisualCtaEvent(
+            mode=render_mode,
+            start_seconds=round(start, 3),
+            end_seconds=round(end, 3),
+            x=x,
+            y=y,
+            asset=(
+                "arabic_subscribe_combo_renderer"
+                if render_mode == "subscribe_combo"
+                else _ICON_BY_MODE[render_mode].name
+            ),
+        )
+    ]
 
 def _render(
     *,
@@ -537,13 +568,35 @@ def apply_visual_cta_assets(
 
     total = float(probe_duration(Path(narration_path)))
     authored = _authored_mode(output_dir)
-    events = _events(fmt=fmt, duration=total, script=script, authored_mode=authored)
-    events, semantic_decisions = _enforce_semantic_separation(
-        events=events,
-        output_dir=output_dir,
-        script=script,
-        fmt=fmt,
-    )
+    if fmt in {"film", "podcast"}:
+        events = _longform_contextual_event(
+            output_dir=output_dir,
+            fmt=fmt,
+            duration=total,
+        )
+        semantic_decisions = [
+            {
+                "start_seconds": event.start_seconds,
+                "preferred_mode": authored,
+                "selected_mode": event.mode,
+                "semantic_conflict_avoided": False,
+                "spoken_cta_aligned": True,
+            }
+            for event in events
+        ]
+    else:
+        events = _events(
+            fmt=fmt,
+            duration=total,
+            script=script,
+            authored_mode=authored,
+        )
+        events, semantic_decisions = _enforce_semantic_separation(
+            events=events,
+            output_dir=output_dir,
+            script=script,
+            fmt=fmt,
+        )
 
     temp = output_dir / ".approved-visual-cta.mp4"
     temp.unlink(missing_ok=True)
@@ -570,9 +623,21 @@ def apply_visual_cta_assets(
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": False,
         "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell",
-        "semantic_separation": True,
-        "subscribe_delivery": "terminal_identity_outro_after_spoken_payoff",
-        "semantic_separation_policy": "CTA action must differ from current narration/scene action family",
+        "semantic_separation": fmt == "short",
+        "spoken_visual_alignment": fmt in {"film", "podcast"},
+        "longform_cta_policy": (
+            "one_spoken_contextual_cta_with_matching_visual"
+            if fmt in {"film", "podcast"}
+            else None
+        ),
+        "subscribe_delivery": (
+            "matching_spoken_contextual_cta"
+            if fmt in {"film", "podcast"}
+            else "existing_short_visual_policy"
+        ),
+        "semantic_separation_policy": (
+            "longform visual CTA must match the spoken CTA exactly; short keeps visual-only separation"
+        ),
         "semantic_decisions": semantic_decisions,
         "safe_zone_policy": "right_midfield_clear_of_caption_and_bottom_ui",
         "click_asset": _CLICK.name,
