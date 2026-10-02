@@ -871,8 +871,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         prompt = _script_prompt(_brief("short"), planned, visual_story=story)
         self.assertIn("hard maximum of 18 Arabic words", prompt)
         self.assertIn("LOCKED_PLAN.practical_action_ar is already final and host-owned", prompt)
-        self.assertIn("Author s3 as descriptive payoff only", prompt)
-        self.assertIn("runtime appends the locked action sentence afterward", prompt)
+        self.assertIn("under s3_payoff instead of narration", prompt)
+        self.assertIn("s3_locked_action, validates both fields separately", prompt)
         self.assertNotIn("express payoff_answer as descriptive resolution", prompt)
         self.assertNotIn("Do not optimize for a fixed word count or duration", prompt)
 
