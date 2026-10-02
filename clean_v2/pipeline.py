@@ -59,6 +59,7 @@ from .short_format import (
     validate_short_duration,
     validate_short_dimensions,
     validate_short_hook_contract,
+    validate_short_hook_visual_story,
     normalize_short_practical_action,
     validate_short_practical_action,
     validate_short_script,
@@ -3983,6 +3984,7 @@ def _validate_plan_for_brief(
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
         visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+        validate_short_hook_visual_story(visual_story)
     visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
     plan["visual_story"] = visual_story
     return plan
@@ -4182,6 +4184,8 @@ def _bind_writer_visual_story(
     )
     writer_script = _script_without_trusted_identity(script, trusted_identity)
     bound = bind_visual_story_to_script(visual_story, plan, writer_script)
+    if str(brief.get("format") or "") == "short":
+        validate_short_hook_visual_story(bound)
     atomic_write_json(output_dir / "visual-story.json", bound)
     return bound
 
