@@ -703,6 +703,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 )
             shot_intent = stronger
             stock_query_en = stronger
+            # The stronger authored alternate now owns the visible proof as well;
+            # do not leave QA anchored to the rejected generic prop scene.
+            semantic_must_have = [stronger[:120]]
             if stock_query_alt_en and _query_key(stock_query_alt_en) == _query_key(stronger):
                 stock_query_alt_en = ""
         if role not in BEAT_ROLES:
