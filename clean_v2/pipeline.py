@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ from typing import Any, Callable, Mapping
 
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
+from .deadline import StageDeadlineError, stage_deadline
 from .identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
@@ -81,6 +83,7 @@ VISUAL_QA_STAGE = "final_cut_visual_qa"
 OPENING_STAGE = "opening_director"
 STRUCTURAL_AI_STAGE = "structural_ai_flags"
 TEXT_AUDIT_STAGE = "text_audit"
+TEXT_AUDIT_DEADLINE_SECONDS = 15 * 60
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
 VISUAL_BIND_STAGE = "visual_binding"
@@ -1781,7 +1784,7 @@ def _run_legacy_tone_naturalness_audit(
 ) -> dict[str, Any]:
     # Reuse the frozen Engine's tone/naturalness prompt, semantic rules,
     # normalization, fail-closed behavior, and Approval Shopping guard.
-    # Clean V2 adds only its strict-schema final Mistral executor leg.
+    # Clean V2 supplies bounded HTTP adapters and the strict-schema Mistral leg.
     from clean_v2.tone_audit import audit_tone_and_naturalness_with_mistral
 
     api_key = _read_secret("GEMINI_API_KEY")
@@ -3226,6 +3229,36 @@ def _run_text_audit_with_one_bounded_tone_repair(
     plan: Mapping[str, Any],
     script: dict[str, Any],
 ) -> dict[str, Any]:
+    # Factuality, tone, and the one possible repair/reaudit share both the 429
+    # circuit and one deadline. Neither fallback nor repair renews the timer.
+    # Injected audit implementations remain Engine-independent, as the standalone
+    # E2E contract requires. The production auditor always owns the Engine scope.
+    circuit_scope = nullcontext()
+    if text_audit is _run_text_audits:
+        from isco_video_agent.text_audit_router import text_audit_circuit_scope
+
+        circuit_scope = text_audit_circuit_scope()
+    with (
+        stage_deadline(TEXT_AUDIT_STAGE, TEXT_AUDIT_DEADLINE_SECONDS),
+        circuit_scope as cooldown,
+    ):
+        if cooldown is not None:
+            cooldown.update(getattr(router, "_rate_limited_for_run", ()))
+        return _run_text_audit_repair_pass(
+            text_audit=text_audit, router=router, output_dir=output_dir,
+            brief=brief, plan=plan, script=script,
+        )
+
+
+def _run_text_audit_repair_pass(
+    *,
+    text_audit: Callable[..., dict[str, Any]],
+    router: Any,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: dict[str, Any],
+) -> dict[str, Any]:
     try:
         return text_audit(
             output_dir=output_dir,
@@ -3403,6 +3436,7 @@ def _run_text_audits(
     # failures still stop immediately; only a validated factuality content BLOCK
     # is held long enough to collect Tone/Naturalness flags from the same draft.
     factuality_block: CleanV2FactualityContentBlock | None = None
+    print("clean-v2 stage=text_audit audit=factuality status=running", flush=True)
     try:
         factuality = _run_legacy_factuality_audit(
             output_dir=output_dir,
@@ -3415,6 +3449,7 @@ def _run_text_audits(
         factuality = blocked.report
 
     tone_block: CleanV2ToneContentBlock | None = None
+    print("clean-v2 stage=text_audit audit=tone_naturalness status=running", flush=True)
     try:
         tone_naturalness = _run_legacy_tone_naturalness_audit(
             output_dir=output_dir,
@@ -5916,8 +5951,11 @@ class _Journal:
             "finished_at": None,
             "duration_seconds": None,
         }
+        if name == TEXT_AUDIT_STAGE:
+            record["deadline_seconds"] = TEXT_AUDIT_DEADLINE_SECONDS
         self.payload["stages"].append(record)
         self._write()
+        print(f"clean-v2 stage={name} status=running", flush=True)
         started = time.monotonic()
         try:
             result = operation()
@@ -5941,7 +5979,8 @@ class _Journal:
             infrastructure = (
                 not content_repair_unavailable
                 and (
-                    "exhausted bounded provider route" in message
+                    isinstance(exc, StageDeadlineError)
+                    or "exhausted bounded provider route" in message
                     or visual_qa_infrastructure
                     or opening_infrastructure
                     or voice_infrastructure
@@ -5977,6 +6016,8 @@ class _Journal:
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
+            if isinstance(exc, StageDeadlineError):
+                self.payload["failure_origin_stage"] = name
             if content_repair_unavailable:
                 repair_failure = {
                     "content_block_confirmed": True,
@@ -6035,11 +6076,13 @@ class _Journal:
                 self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
             self._write()
+            print(f"clean-v2 stage={name} status={record['status']} error={type(exc).__name__}", flush=True)
             raise
         record["status"] = "pass"
         record["finished_at"] = _utc_now()
         record["duration_seconds"] = round(time.monotonic() - started, 3)
         self._write()
+        print(f"clean-v2 stage={name} status=pass", flush=True)
         return result
 
     def complete(self, **summary: Any) -> None:

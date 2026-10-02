@@ -51,6 +51,14 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# Groq's strict decoder requires every declared property on the wire. These
+# advisory fields remain non-blocking in the semantic validator and retain its
+# safe defaults for legacy responses; only the new HTTP schema is tightened.
+TONE_AUDIT_HTTP_SCHEMA = {
+    **TONE_AUDIT_SCHEMA,
+    "required": list(TONE_AUDIT_SCHEMA["properties"]),
+}
+
 _EXPECTED_BASE_ROUTE = ("gemini", "groq", "openrouter")
 _REQUIRED_ARRAYS = (
     "preachiness_flags",
@@ -348,8 +356,10 @@ def audit_tone_and_naturalness_with_mistral(
     plan: object,
     model: str,
 ) -> dict[str, Any]:
-    """Reuse the frozen Engine audit and append one strict-schema Mistral route."""
+    """Keep frozen audit semantics with the bounded Clean V2 HTTP provider route."""
+    del api_key, model
     from isco_video_agent import text_audit_router, tone_quality
+    from clean_v2 import providers as clean_providers
 
     with _AUDIT_ROUTE_LOCK:
         original_route = tone_quality.route_text_audit
@@ -366,17 +376,36 @@ def audit_tone_and_naturalness_with_mistral(
                     "Clean V2 tone audit base provider route drift: " + "->".join(names)
                 )
 
-            def contract_validated(call):
-                def invoke(value: str):
-                    return _validate_tone_result(call(value))
+            def gemini_call(value: str) -> dict[str, Any]:
+                return _validate_tone_result(
+                    clean_providers._gemini_call(
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
+                    )
+                )
 
-                return invoke
+            def groq_call(value: str) -> dict[str, Any]:
+                return _validate_tone_result(
+                    clean_providers._groq_call(
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
+                        schema_name="clean_v2_tone_naturalness_audit_v2",
+                    )
+                )
+
+            def openrouter_call(value: str) -> dict[str, Any]:
+                return _validate_tone_result(
+                    clean_providers._openrouter_call(
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
+                        schema_name="clean_v2_tone_naturalness_audit_v2",
+                    )
+                )
 
             scoped_prompt = _scope_clean_v2_tone_prompt(prompt)
             extended = [
-                (name, contract_validated(call)) for name, call in providers
+                ("gemini", gemini_call),
+                ("groq", groq_call),
+                ("openrouter", openrouter_call),
+                ("mistral", _mistral_tone_call),
             ]
-            extended.append(("mistral", _mistral_tone_call))
             return text_audit_router.route_text_audit(
                 extended,
                 scoped_prompt,
@@ -385,7 +414,7 @@ def audit_tone_and_naturalness_with_mistral(
 
         tone_quality.route_text_audit = route_with_final_mistral
         try:
-            result = tone_quality.audit_tone_and_naturalness(api_key, plan, model)
+            result = tone_quality.audit_tone_and_naturalness("", plan, "")
             raw = result.get("raw_result")
             if isinstance(raw, dict):
                 for field in _HOOK_QUALITY_FIELDS:

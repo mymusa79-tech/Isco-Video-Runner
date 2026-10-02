@@ -137,6 +137,40 @@ class ResumeHistoryTests(unittest.TestCase):
         self.assertEqual(decision["completed_stage"], "text_audit")
         self.assertEqual(decision["stage_label"], "Text Audit")
 
+    def test_interrupted_running_manifest_is_terminalized_without_losing_checkpoint(self):
+        for job_status, expected in (("failure", "failed"), ("cancelled", "cancelled")):
+            with self.subTest(job_status=job_status), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                manifest = root / "run-manifest.json"
+                checkpoint = root / "resume-checkpoint.json"
+                manifest.write_text(json.dumps({
+                    "status": "running", "finished_at": None,
+                    "stages": [{"name": "text_audit", "status": "running", "started_at": "2026-10-02T13:54:41Z", "finished_at": None}],
+                }), encoding="utf-8")
+                checkpoint.write_text('{"completed_stage":"script"}', encoding="utf-8")
+                history.annotate_manifest(manifest, checkpoint, cache_key="cache", save_allowed=True, job_status=job_status)
+                stored = json.loads(manifest.read_text(encoding="utf-8"))
+                self.assertEqual(stored["status"], expected)
+                self.assertIsNotNone(stored["finished_at"])
+                self.assertEqual(stored["failure_classification"], "infrastructure")
+                self.assertEqual(stored["stages"][0]["status"], expected)
+                self.assertGreater(stored["stages"][0]["duration_seconds"], 0)
+                self.assertEqual(stored["durable_resume"]["completed_stage"], "script")
+                self.assertTrue(stored["durable_resume"]["save_allowed"])
+
+    def test_interruption_does_not_replace_existing_quality_verdict(self):
+        with TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "run-manifest.json"
+            original = {"status": "quality_pending", "finished_at": "2026-10-02T14:00:00Z", "quality_pending_stage": "text_audit"}
+            manifest.write_text(json.dumps(original), encoding="utf-8")
+            history.annotate_manifest(manifest, Path(tmp) / "none", cache_key="cache", save_allowed=False, job_status="cancelled")
+            stored = json.loads(manifest.read_text(encoding="utf-8"))
+            for key, value in original.items():
+                self.assertEqual(stored[key], value)
+
+    def test_cancelled_request_status_is_explicit(self):
+        self.assertEqual(history.request_status_label({"production": {"last_job_status": "cancelled", "manifest_status": "cancelled"}}), "ملغى")
+
     def test_runner_sha_change_disables_without_api_calls(self):
         request = make_request()
         request["production"] = {
