@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from clean_v2.identity_sequence import (
@@ -13,7 +16,7 @@ from clean_v2.identity_sequence import (
     inject_spoken_identity,
 )
 from clean_v2 import timeline_render
-from clean_v2.visual_cta import _events
+from clean_v2.visual_cta import _events, _longform_contextual_event
 
 
 class ApprovedIdentityLiteTests(unittest.TestCase):
@@ -125,31 +128,64 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].mode, "like")
 
-    def test_long_cta_count_scales_sparsely_with_runtime(self) -> None:
+    def test_longform_fallback_uses_one_authored_action_only(self) -> None:
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt):
+                events = _events(
+                    fmt=fmt,
+                    duration=240.0,
+                    script={"title": "حلقة"},
+                    authored_mode="comment",
+                )
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].mode, "comment")
+
+    def test_longform_visual_cta_matches_spoken_schedule_and_mode(self) -> None:
+        cases = (
+            ("film", "comment", "comment"),
+            ("podcast", "subscribe", "subscribe_combo"),
+        )
+        for fmt, authored, expected in cases:
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "cta-plan.json").write_text(
+                    json.dumps(
+                        {
+                            "mode": authored,
+                            "spoken_text": "CTA منطوقة",
+                            "visual_only": False,
+                            "schedule": {
+                                "start_seconds": 72.0,
+                                "end_seconds": 75.6,
+                                "anchor_section_id": "s3",
+                            },
+                        },
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                events = _longform_contextual_event(
+                    output_dir=root,
+                    fmt=fmt,
+                    duration=180.0,
+                )
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].mode, expected)
+                self.assertEqual(events[0].start_seconds, 72.0)
+
+    def test_long_cta_count_is_exactly_one_when_authored(self) -> None:
         script = {"title": "حلقة طويلة"}
-        short_long = _events(
-            fmt="film",
-            duration=150.0,
-            script=script,
-            authored_mode="comment",
-        )
-        medium_long = _events(
-            fmt="film",
-            duration=300.0,
-            script=script,
-            authored_mode="comment",
-        )
-        very_long = _events(
-            fmt="film",
-            duration=600.0,
-            script=script,
-            authored_mode="comment",
-        )
-        self.assertLessEqual(len(short_long), 2)
-        self.assertLessEqual(len(medium_long), 3)
-        self.assertLessEqual(len(very_long), 4)
-        for event in very_long:
-            self.assertLessEqual(event.end_seconds, 600.0 - 10.0)
+        for duration in (150.0, 300.0, 600.0):
+            with self.subTest(duration=duration):
+                events = _events(
+                    fmt="film",
+                    duration=duration,
+                    script=script,
+                    authored_mode="comment",
+                )
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].mode, "comment")
+                self.assertLessEqual(events[0].end_seconds, duration - 10.0)
 
 
 if __name__ == "__main__":
