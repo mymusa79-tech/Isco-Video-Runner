@@ -61,32 +61,37 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "contextual cta"):
             validate_plan(plan, _brief())
 
-    def test_comment_cta_is_visual_only_mid_late_with_zero_provider_calls(self) -> None:
+    def test_comment_cta_is_spoken_once_mid_late_with_zero_provider_calls(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             script = _script()
-            before = json.dumps(script, ensure_ascii=False, sort_keys=True)
+            authored = "ما أكثر شيء يكسر خطتك خلال اليوم؟ اكتب تجربتك في التعليقات."
             report = bind_contextual_cta_to_script(
                 output_dir=root,
                 brief=_brief(),
-                plan=_plan("ما أكثر شيء يكسر خطتك خلال اليوم؟ اكتب تجربتك في التعليقات."),
+                plan=_plan(authored),
                 script=script,
             )
             self.assertEqual(report["mode"], "comment")
             self.assertEqual(report["anchor_section_id"], "s3")
             self.assertEqual(report["provider_calls_added"], 0)
             self.assertEqual(report["rules"]["provider_calls"], 0)
-            self.assertTrue(report["visual_only"])
-            self.assertEqual(report["spoken_text"], "")
-            self.assertEqual(json.dumps(script, ensure_ascii=False, sort_keys=True), before)
+            self.assertFalse(report["visual_only"])
+            self.assertEqual(report["spoken_text"], authored)
+            joined = " ".join(item["narration"] for item in script["sections"])
+            self.assertEqual(joined.count(authored), 1)
+            self.assertNotIn(authored, script["sections"][0]["narration"])
+            self.assertNotIn(authored, script["sections"][-1]["narration"])
 
+            # Idempotent if the binding function is called again on the same script.
             bind_contextual_cta_to_script(
                 output_dir=root,
                 brief=_brief(),
-                plan=_plan("ما أكثر شيء يكسر خطتك خلال اليوم؟ اكتب تجربتك في التعليقات."),
+                plan=_plan(authored),
                 script=script,
             )
-            self.assertEqual(json.dumps(script, ensure_ascii=False, sort_keys=True), before)
+            joined_again = " ".join(item["narration"] for item in script["sections"])
+            self.assertEqual(joined_again.count(authored), 1)
 
     def test_bundled_actions_are_rejected_without_script_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,24 +111,90 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 before,
             )
 
-    def test_like_is_visual_only(self) -> None:
+    def test_like_is_spoken_and_not_visual_only_for_film(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             script = _script()
-            before = json.dumps(script, ensure_ascii=False, sort_keys=True)
+            authored = "إذا أضافت لك هذه الفكرة شيئًا، يكفيني إعجابك."
             report = bind_contextual_cta_to_script(
                 output_dir=root,
                 brief=_brief(),
-                plan=_plan("إذا أضافت لك الفكرة شيئًا، يكفيني إعجابك."),
+                plan=_plan(authored),
                 script=script,
             )
             self.assertEqual(report["mode"], "like")
+            self.assertFalse(report["visual_only"])
+            self.assertEqual(report["spoken_text"], authored)
+            self.assertEqual(
+                " ".join(item["narration"] for item in script["sections"]).count(authored),
+                1,
+            )
+
+    def test_short_remains_without_spoken_social_cta(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = {
+                "title": "شورت",
+                "sections": [
+                    {"id": "s1", "narration": "لماذا نتردد حين تكثر الخيارات؟"},
+                    {"id": "s2", "narration": "كل مقارنة جديدة تستهلك جزءًا من انتباهنا."},
+                    {"id": "s3", "narration": "الوضوح يأتي من معيار محدد. اختر معيارًا واحدًا الآن."},
+                ],
+            }
+            before = json.dumps(script, ensure_ascii=False, sort_keys=True)
+            plan = _plan("")
+            plan["sections"] = plan["sections"][:3]
+            report = bind_contextual_cta_to_script(
+                output_dir=root,
+                brief=_brief("short"),
+                plan=plan,
+                script=script,
+            )
+            self.assertEqual(report["mode"], "none")
             self.assertTrue(report["visual_only"])
             self.assertEqual(report["spoken_text"], "")
-            self.assertEqual(
-                json.dumps(script, ensure_ascii=False, sort_keys=True),
-                before,
+            self.assertEqual(json.dumps(script, ensure_ascii=False, sort_keys=True), before)
+
+    def test_podcast_spoken_cta_is_inserted_inside_charon_b_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            authored = "إذا وجدت هذا النوع من الحوار مفيدًا، اشترك لتكمل الرحلة معنا."
+            plan = {
+                "title": "خارج النص",
+                "promise": "فهم أعمق",
+                "cta": authored,
+                "sections": [
+                    {"id": "s1", "heading": "سؤال", "purpose": "فتح التوتر", "visual_query_en": "hands paused over choices"},
+                    {"id": "s2", "heading": "جواب", "purpose": "تعميق الجواب", "visual_query_en": "one option separated from several"},
+                ],
+            }
+            script = {
+                "title": "خارج النص",
+                "sections": [
+                    {"id": "s1", "narration": "A: لماذا نتردد؟ B: لأن كل خيار يضيف مقارنة جديدة."},
+                    {
+                        "id": "s2",
+                        "narration": (
+                            "A: وماذا يتغير حين نحدد معيارًا؟ "
+                            "B: تقل المقارنات التي لا تخدم القرار. ويصبح الحسم أوضح."
+                        ),
+                    },
+                ],
+            }
+            report = bind_contextual_cta_to_script(
+                output_dir=root,
+                brief=_brief("podcast"),
+                plan=plan,
+                script=script,
             )
+            self.assertEqual(report["mode"], "subscribe")
+            self.assertEqual(report["anchor_section_id"], "s2")
+            narration = script["sections"][1]["narration"]
+            self.assertEqual(narration.count(authored), 1)
+            self.assertIn("B: تقل المقارنات", narration)
+            self.assertIn(authored, narration)
+            # CTA stays inside the final B turn; it never becomes an A question.
+            self.assertNotIn(f"A: {authored}", narration)
 
     def test_overlay_respects_first_30_and_final_12_seconds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
