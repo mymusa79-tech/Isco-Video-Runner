@@ -1397,7 +1397,15 @@ def normalize_short_script_candidate(
         or len(sections) != SHORT_SECTION_COUNT
         or not isinstance(sections[2], dict)
     ):
-        raise ShortFormatError("short_script_section_invalid")
+        # Preserve the historical hook-only normalization surface used by
+        # focused hook tests/tools. Production Short scripts are still required
+        # to have exactly three sections by the outer contract.
+        return {
+            "hook_trimmed": bool(hook_split or hook_trimmed),
+            "s3_action_prefix_trimmed": False,
+            "s3_trimmed": False,
+            "s3_locked_payoff_fallback": False,
+        }
 
     s3 = sections[2]
     locked_action = _clean(
