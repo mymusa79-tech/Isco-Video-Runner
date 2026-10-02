@@ -1672,6 +1672,25 @@ def validate_short_hook_visual_query(query: object) -> dict[str, Any]:
     }
 
 
+def validate_short_hook_visual_story(story: Mapping[str, Any]) -> dict[str, Any]:
+    """Re-check the actual first Short retrieval beat after visual-story rewrites."""
+    beats = story.get("beats")
+    if not isinstance(beats, list) or not beats or not isinstance(beats[0], Mapping):
+        raise ShortFormatError("short_visual_story_hook_beat_missing")
+    first = beats[0]
+    if str(first.get("role") or "").strip() != "hook":
+        raise ShortFormatError("short_visual_story_first_beat_must_be_hook")
+    query = _clean(first.get("stock_query_en"))
+    if not query:
+        raise ShortFormatError("short_visual_story_hook_query_missing")
+    report = validate_short_hook_visual_query(query)
+    return {
+        **report,
+        "beat_id": _clean(first.get("id")),
+        "stock_query_en": query,
+    }
+
+
 def normalize_short_visual_queries(plan: dict[str, Any]) -> bool:
     """Apply only deterministic face-safety and adjacent-family swaps."""
     sections = plan.get("sections")
