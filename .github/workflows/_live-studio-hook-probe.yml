@@ -120,7 +120,9 @@ jobs:
           rm -rf "$CLEAN_V2_OUTPUT"
           mkdir -p "$CLEAN_V2_OUTPUT"
           set +e
-          python -m clean_v2             --brief "$CLEAN_V2_SHORT_BRIEF"             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256"             --engine-sha "$ISCO_ENGINE_SHA"             --runner-sha "$TEST_RUNNER_SHA"             --max-visuals 5             --output "$CLEAN_V2_OUTPUT" 2>&1 | tee "$CLEAN_V2_OUTPUT/live-probe.log"
+          probe_log="$RUNNER_TEMP/live-studio-hook-probe.log"
+          python -m clean_v2 --brief "$CLEAN_V2_SHORT_BRIEF" --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" --engine-sha "$ISCO_ENGINE_SHA" --runner-sha "$TEST_RUNNER_SHA" --max-visuals 5 --output "$CLEAN_V2_OUTPUT" 2>&1 | tee "$probe_log"
+          cp "$probe_log" "$CLEAN_V2_OUTPUT/live-probe.log" 2>/dev/null || true
           status=${PIPESTATUS[0]}
           echo "production_status=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
