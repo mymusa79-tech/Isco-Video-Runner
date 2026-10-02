@@ -183,6 +183,8 @@ def request_status_label(request: Mapping[str, Any]) -> str:
         return "Quality Pending"
     if job_status == "failure" or manifest_status == "failed":
         return "فشل"
+    if job_status == "cancelled" or manifest_status == "cancelled":
+        return "ملغى"
     if job_status in {"in_progress", "queued", "rerun_requested"}:
         return "قيد التشغيل"
     if job_status == "success" and not production.get("final_published"):
@@ -196,6 +198,7 @@ def annotate_manifest(
     *,
     cache_key: str,
     save_allowed: bool,
+    job_status: str = "",
 ) -> dict[str, Any] | None:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -203,6 +206,31 @@ def annotate_manifest(
         return None
     if not isinstance(manifest, dict):
         return None
+    # A workflow timeout/cancellation can kill Python before the journal closes.
+    # The always() step owns terminalizing that stale state, without discarding
+    # the last certified resume checkpoint or changing a completed quality block.
+    if manifest.get("status") == "running" and job_status in {"failure", "cancelled"}:
+        finished = datetime.now(timezone.utc)
+        finished_at = finished.isoformat()
+        terminal_status = "cancelled" if job_status == "cancelled" else "failed"
+        for stage in manifest.get("stages", []):
+            if isinstance(stage, dict) and stage.get("status") == "running":
+                stage.update({
+                    "status": terminal_status,
+                    "finished_at": finished_at,
+                    "error_type": "WorkflowInterrupted",
+                    "failure_classification": "infrastructure",
+                })
+                started_at = _parse_time(stage.get("started_at"))
+                if started_at is not None:
+                    stage["duration_seconds"] = round(
+                        max(0.0, (finished - started_at).total_seconds()), 3
+                    )
+                manifest["failure_origin_stage"] = stage.get("name")
+        manifest.update(
+            status=terminal_status, finished_at=finished_at,
+            failure_classification="infrastructure",
+        )
     completed_stage = ""
     checkpoint_valid = False
     if save_allowed:
@@ -446,6 +474,7 @@ def _main() -> int:
     annotate.add_argument("--checkpoint", type=Path, required=True)
     annotate.add_argument("--cache-key", required=True)
     annotate.add_argument("--save-allowed", choices=("true", "false"), required=True)
+    annotate.add_argument("--job-status", choices=("success", "failure", "cancelled", "skipped"), default="success")
 
     args = parser.parse_args()
     if args.command == "annotate-manifest":
@@ -454,6 +483,7 @@ def _main() -> int:
             args.checkpoint,
             cache_key=args.cache_key,
             save_allowed=args.save_allowed == "true",
+            job_status=args.job_status,
         )
         print(json.dumps(result or {}, ensure_ascii=False, sort_keys=True))
         return 0

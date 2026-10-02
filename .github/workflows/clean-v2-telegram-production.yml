@@ -214,6 +214,7 @@ jobs:
 
       - name: Produce exact approved Telegram scope
         env:
+          PYTHONUNBUFFERED: "1"
           REQUEST_ID: ${{ inputs.request_id }}
           REQUEST_SHA256: ${{ inputs.request_sha256 }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -332,7 +333,8 @@ jobs:
             --manifest "$CLEAN_V2_TELEGRAM_OUTPUT/$fmt/run-manifest.json" \
             --checkpoint "$CLEAN_V2_RESUME/$fmt/resume-checkpoint.json" \
             --cache-key "$CLEAN_V2_RESUME_CACHE_KEY" \
-            --save-allowed "$save_allowed"
+            --save-allowed "$save_allowed" \
+            --job-status '${{ job.status }}'
 
       - name: Save exact Telegram request checkpoint
         if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
