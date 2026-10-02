@@ -575,6 +575,39 @@ def bind_contextual_cta_to_script(
     return report
 
 
+def _timeline_section_durations(
+    output_dir: Path,
+    section_ids: list[str],
+    total_seconds: float,
+) -> list[float]:
+    """Prefer measured Timeline First section spans; fall back deterministically."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    durations: dict[str, float] = {}
+    for event in raw.get("section_events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        section_id = str(event.get("section_id") or "").strip()
+        if section_id not in section_ids:
+            continue
+        try:
+            start = float(event.get("start"))
+            end = float(event.get("end"))
+        except (TypeError, ValueError):
+            continue
+        span = end - start
+        if span > 0:
+            durations[section_id] = durations.get(section_id, 0.0) + span
+
+    if all(durations.get(section_id, 0.0) > 0 for section_id in section_ids):
+        return [durations[section_id] for section_id in section_ids]
+    equal = max(0.0, float(total_seconds)) / max(1, len(section_ids))
+    return [equal for _ in section_ids]
+
+
 def apply_contextual_cta_overlay(
     *,
     output_dir: Path,
@@ -610,7 +643,11 @@ def apply_contextual_cta_overlay(
     if not section_ids:
         raise RuntimeError("contextual CTA requires script section ids")
     total = probe_duration(Path(narration_path))
-    section_seconds = total / len(section_ids)
+    section_durations = _timeline_section_durations(
+        output_dir,
+        section_ids,
+        total,
+    )
     spoken_fraction = None
     raw_offset = raw.get("spoken_insertion_word_offset")
     if (
@@ -634,7 +671,7 @@ def apply_contextual_cta_overlay(
     schedule = schedule_cta(
         binding,
         section_ids,
-        [section_seconds for _ in section_ids],
+        section_durations,
         spoken_fraction=spoken_fraction,
     )
     write_cta_report(report_path, binding, schedule)
@@ -646,6 +683,11 @@ def apply_contextual_cta_overlay(
         "one_contextual_longform_cta",
     )
     report["spoken_fraction_estimate"] = spoken_fraction
+    report["section_duration_source"] = (
+        "timeline-first"
+        if (Path(output_dir) / "timeline-first.json").is_file()
+        else "equal-fallback"
+    )
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
