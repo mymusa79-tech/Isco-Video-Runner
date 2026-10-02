@@ -33,6 +33,7 @@ jobs:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+      GEMINI_TTS_VOICE: Charon
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
       MISTRAL_CONTENT_MODEL: ministral-14b-2512

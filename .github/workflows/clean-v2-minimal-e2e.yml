@@ -163,6 +163,7 @@ jobs:
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+      GEMINI_TTS_VOICE: Charon
       # Set only after listening to the generated Fusha acceptance sample.
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
