@@ -5291,10 +5291,18 @@ The visual hook beat should remain cover-aware: one clear focal object/action, o
 and usable negative space for large Arabic type. Do not create a separate thumbnail concept or shot.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
-share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
-delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
-For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment/share/like language
-in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
+share, or like. Never bundle multiple actions in one CTA. For Film and Podcast, write the CTA so it can
+be spoken VERBATIM as one brief continuation of the episode, normally 8-24 Arabic words and never more
+than 32. It must refer to THIS episode's actual tension, insight, question, or journey; never write a
+generic "support the channel" sales line and never use "لا تنسَ". Choose comment when a real reflective
+question naturally extends the idea, like only after a concrete value moment, share only when the idea
+naturally points to another person who may need it, and subscribe only when continuing the channel's
+ongoing journey is genuinely relevant. The CTA must still make sense if heard between two content
+sentences and must not summarize or interrupt the payoff. Runtime will insert it once into a safe
+mid/late content boundary and show the matching visual action at the same moment.
+For moment OR short format, return an empty CTA string. For short, the zero-SPOKEN-social-CTA rule is
+hard: do not put subscribe/comment/share/like language in section purpose text; visual-only CTA overlays
+are renderer-owned and do not belong in narration.
 For short only, practical_action_ar is NOT a social CTA. It is the one topic-specific practical action
 the viewer can take after the payoff. Begin it directly with one Arabic imperative verb, keep exactly
 one practical action, and do not join a second action with ثم/و or another clause.
@@ -5625,10 +5633,13 @@ sections end up interchangeable or one merely paraphrases the other, rewrite onl
 so it adds the missing approved explanatory step before returning JSON.
 {short_payoff_guidance}
 
-CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
-host will place visual CTA overlays only in safe content windows after value has been delivered.
-For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
-in spoken narration.
+CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA yourself.
+For Film and Podcast, runtime will insert the exact LOCKED_PLAN.cta once at a natural mid/late sentence
+boundary after value has been delivered, before Text Audit and TTS. The same CTA mode will drive the
+visual CTA in that same window, so do not create another social request anywhere else in narration.
+Write every section so this one brief contextual aside can return immediately to the episode's thought;
+do not build a promotional setup or a second CTA. For short, social CTA remains visual-only: do not add
+subscribe/comment/share/like language anywhere in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. The first sentence is the hook and must be the strongest
 natural entry into THIS exact episode, not merely an acceptable opening sentence. Write it as one
