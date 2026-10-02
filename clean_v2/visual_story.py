@@ -100,12 +100,12 @@ _WEAK_GENERIC_ACTION_TERMS = frozenset({
     "work", "working", "use", "using", "hold", "holding", "browse", "browsing",
 })
 _STRONG_SEMANTIC_ACTION_RE = re.compile(
-    r"\\b(?:compare|comparing|comparison|choose|choosing|choice|select|selecting|selected|"
+    r"\b(?:compare|comparing|comparison|choose|choosing|choice|select|selecting|selected|"
     r"reject|rejecting|rejected|eliminate|eliminating|remove|removing|close|closing|closed|"
     r"cross|crossing|sort|sorting|separate|separating|switch|switching|rank|ranking|"
     r"narrow|narrowing|discard|discarding|reduce|reducing|arrange|arranging|mark|marking|"
     r"check|checking|complete|completed|finish|finished|pick|picking|conflict|conflicting|"
-    r"unequal|different|contrast|contrasting|unfinished|blocked|interrupted)\\b",
+    r"unequal|different|contrast|contrasting|unfinished|blocked|interrupted)\b",
     re.IGNORECASE,
 )
 
