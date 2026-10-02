@@ -306,6 +306,38 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         send.assert_not_called()
 
 
+    def test_cli_forwards_owner_confirmed_related_video_id_as_metadata_only(self):
+        argv = [
+            "clean_v2_release_delivery.py",
+            "deliver",
+            "--output-root",
+            "/tmp/clean-v2",
+            "--scope",
+            "podcast",
+            "--delivery-key",
+            "telegram",
+            "--published-parent-youtube-video-id",
+            "abc123DEF45",
+        ]
+        with mock.patch("sys.argv", argv), mock.patch.dict(
+            "os.environ",
+            {
+                "GITHUB_REPOSITORY": "example/repo",
+                "GITHUB_SHA": "a" * 40,
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ATTEMPT": "1",
+            },
+            clear=False,
+        ), mock.patch.object(delivery, "deliver", return_value=[]) as deliver:
+            self.assertEqual(delivery.main(), 0)
+
+        self.assertEqual(
+            deliver.call_args.kwargs["published_parent_youtube_video_id"],
+            "abc123DEF45",
+        )
+
+
+
     def test_delivery_is_blocked_before_release_when_final_master_qc_is_not_pass(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             delivery, "send_message"
