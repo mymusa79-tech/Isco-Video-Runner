@@ -5197,7 +5197,7 @@ completed, so every new shot adds information instead of showing another angle o
 
 POST-HOOK VISUAL FLOOR — applies equally to Short, Film, and Podcast:
 - Once section 1 has established the central tension, every later beat must preserve or increase semantic specificity.
-- A later laptop, phone, desk, notebook, screen, typing, scrolling, sitting, or "working" shot is NOT acceptable merely
+- A later laptop, phone, desk, notebook, screen, typing, writing, scrolling, sitting, or "working" shot is NOT acceptable merely
   because it matches the topic's general environment. It must show a decisive visible relation/action that proves the
   current meaning: compare, choose, reject, close, sort, narrow, remove, cross out, complete, contrast, or another equally
   concrete state change. "Person scrolling many tabs on a laptop" is generic coverage, not evidence.
