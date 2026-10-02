@@ -276,6 +276,9 @@ def validate_short_hook_immediate_tension(hook: object) -> str:
     if not raw or not key:
         raise ShortFormatError("short_hook_immediate_tension_missing")
 
+    if _starts_with_semantic_phrase(key, _SHORT_HOOK_GENERIC_OPENERS):
+        raise ShortFormatError("short_hook_generic_calm_opening")
+
     question = (
         ("؟" in raw or "?" in raw)
         and _starts_with_semantic_phrase(key, _SHORT_HOOK_QUESTION_OPENERS)
@@ -306,8 +309,6 @@ def validate_short_hook_immediate_tension(hook: object) -> str:
             else ("explicit_contrast" if contrast else "early_consequence")
         )
 
-    if _starts_with_semantic_phrase(key, _SHORT_HOOK_GENERIC_OPENERS):
-        raise ShortFormatError("short_hook_generic_calm_opening")
     raise ShortFormatError("short_hook_requires_immediate_concrete_tension")
 
 
