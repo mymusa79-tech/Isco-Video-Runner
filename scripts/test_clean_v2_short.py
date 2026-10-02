@@ -719,7 +719,8 @@ class ShortContractTests(unittest.TestCase):
         self.assertIn("practical_action_ar MUST begin with a direct Arabic imperative verb", prompt)
         self.assertIn("Planning self-check", prompt)
         self.assertIn("Script self-check", prompt)
-        self.assertIn("host adds the locked Planning action afterward", prompt)
+        self.assertIn("s3_payoff", prompt)
+        self.assertIn("s3_locked_action", prompt)
 
         no_action = {
             "title": "شورت",
