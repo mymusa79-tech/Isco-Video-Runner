@@ -66,7 +66,7 @@ from clean_v2.identity_sequence import (
     SHORT_CHANNEL_DEFINITION,
     SHORT_CHANNEL_DEFINITION_LEGACY,
 )
-from clean_v2.short_format import select_short_template
+from clean_v2.short_format import ShortFormatError, select_short_template
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2 import visual_story as visual_story_module
 from clean_v2 import providers as providers_module
@@ -983,6 +983,84 @@ class MistralScriptSchemaTests(unittest.TestCase):
                     "script",
                 )
         called.assert_not_called()
+
+
+class MistralShortHookValidatorRetryTests(unittest.TestCase):
+    def test_run60_mistral_gets_one_bounded_retry_for_22_word_hook(self) -> None:
+        calls: list[str] = []
+
+        def mistral_call(prompt, _tokens, stage):
+            self.assertEqual(stage, "script")
+            calls.append(prompt)
+            return {"attempt": len(calls)}
+
+        def validator(value):
+            if value["attempt"] == 1:
+                raise ShortFormatError("short_hook_too_long words=22 maximum=20")
+            return {"ok": True}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    mistral_call,
+                    stages=frozenset({"script"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        result = router.route(
+            stage="script",
+            prompt="SHORT_FORMAT_CONTRACT: test",
+            max_tokens=7500,
+            validator=validator,
+        )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 2)
+        self.assertIn("MISTRAL_SHORT_HOOK_VALIDATOR_RETRY", calls[1])
+        self.assertIn("22 words", calls[1])
+        self.assertEqual(
+            [(event["result"], event["reason"]) for event in router.events],
+            [
+                ("retrying", "mistral_short_hook_validator_retry"),
+                ("success", None),
+            ],
+        )
+        self.assertEqual(router.events[0]["stage_wire_attempt"], 1)
+        self.assertEqual(router.events[1]["stage_wire_attempt"], 2)
+
+    def test_mistral_does_not_retry_unbounded_33_word_hook(self) -> None:
+        calls = {"count": 0}
+
+        def mistral_call(_prompt, _tokens, stage):
+            self.assertEqual(stage, "script")
+            calls["count"] += 1
+            return {"attempt": calls["count"]}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    mistral_call,
+                    stages=frozenset({"script"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "mistral:invalid_output_shortformaterror_short_hook_too_long",
+        ):
+            router.route(
+                stage="script",
+                prompt="SHORT_FORMAT_CONTRACT: test",
+                max_tokens=7500,
+                validator=lambda _value: (_ for _ in ()).throw(
+                    ShortFormatError("short_hook_too_long words=33 maximum=20")
+                ),
+            )
+        self.assertEqual(calls["count"], 1)
+        self.assertEqual(router.events[-1]["result"], "invalid_output")
 
 
 class MistralScriptDiagnosticsTests(unittest.TestCase):
