@@ -29,6 +29,8 @@ from clean_v2.pipeline import (
     OPENING_STAGE,
     STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
+    VISUAL_BIND_STAGE,
+    POST_TEXT_VISUAL_BIND_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
     CleanV2ContentRepairUnavailable,
@@ -2001,7 +2003,7 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                 value = short_plan(_TEMPLATE_FIXTURES[selected]["queries"])
                 queries = _TEMPLATE_FIXTURES[selected]["queries"]
                 value["visual_story"] = {
-                    "visual_world": "grounded cinematic realism no identifiable faces",
+                    "visual_world": "dark navy and charcoal cinematic depth with restrained warm gold accent, no identifiable faces",
                     "story_arc": {
                         "beginning": "the exact tension is visible",
                         "transformation": "the mechanism becomes visible",
@@ -2400,8 +2402,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     "planning",
                     IDENTITY_STAGE,
                     "script",
+                    VISUAL_BIND_STAGE,
                     STRUCTURAL_AI_STAGE,
                     TEXT_AUDIT_STAGE,
+                    POST_TEXT_VISUAL_BIND_STAGE,
                     "voice",
                     "visuals",
                 ],
@@ -2415,8 +2419,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 "planning",
                 IDENTITY_STAGE,
                 "script",
+                VISUAL_BIND_STAGE,
                 STRUCTURAL_AI_STAGE,
                 TEXT_AUDIT_STAGE,
+                POST_TEXT_VISUAL_BIND_STAGE,
                 "voice",
                 "visuals",
             ):
@@ -2507,8 +2513,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     "planning",
                     IDENTITY_STAGE,
                     "script",
+                    VISUAL_BIND_STAGE,
                     STRUCTURAL_AI_STAGE,
                     TEXT_AUDIT_STAGE,
+                    POST_TEXT_VISUAL_BIND_STAGE,
                 ],
             )
 
@@ -2931,8 +2939,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     "planning",
                     IDENTITY_STAGE,
                     "script",
+                    VISUAL_BIND_STAGE,
                     STRUCTURAL_AI_STAGE,
                     TEXT_AUDIT_STAGE,
+                    POST_TEXT_VISUAL_BIND_STAGE,
                     "voice",
                 ],
             )
@@ -3366,8 +3376,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     "planning",
                     IDENTITY_STAGE,
                     "script",
+                    VISUAL_BIND_STAGE,
                     STRUCTURAL_AI_STAGE,
                     TEXT_AUDIT_STAGE,
+                    POST_TEXT_VISUAL_BIND_STAGE,
                     "voice",
                     "visuals",
                 ],

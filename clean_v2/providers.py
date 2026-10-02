@@ -1088,6 +1088,70 @@ class ProviderRouter:
             }
         )
 
+    def route_exact_provider(
+        self,
+        *,
+        provider_name: str,
+        stage: str,
+        prompt: str,
+        max_tokens: int,
+        validator: Callable[[Any], dict[str, Any]],
+    ) -> dict[str, Any]:
+        adapter = next(
+            (
+                item for item in self.adapters
+                if item.name == provider_name
+                and (item.stages is None or stage in item.stages)
+            ),
+            None,
+        )
+        if adapter is None:
+            raise RuntimeError(
+                f"{stage} exact provider unavailable: {provider_name or 'unknown'}"
+            )
+        provider_prompt = _provider_prompt(
+            prompt,
+            provider=adapter.name,
+            stage=stage,
+        )
+        try:
+            candidate = adapter.invoke(provider_prompt, max_tokens, stage)
+        except Exception as exc:
+            reason = str(getattr(exc, "reason_code", "provider_failure"))
+            self._event(
+                stage=stage,
+                provider=adapter.name,
+                result="failed",
+                wire_attempted=True,
+                reason=reason,
+                provider_attempt=1,
+                stage_wire_attempt=1,
+            )
+            raise
+        try:
+            normalized = validator(candidate)
+        except Exception as exc:
+            self._event(
+                stage=stage,
+                provider=adapter.name,
+                result="invalid_output",
+                wire_attempted=True,
+                reason=_safe_validator_reason(exc),
+                provider_attempt=1,
+                stage_wire_attempt=1,
+            )
+            raise
+        self._event(
+            stage=stage,
+            provider=adapter.name,
+            result="success",
+            wire_attempted=True,
+            reason=None,
+            provider_attempt=1,
+            stage_wire_attempt=1,
+        )
+        return normalized
+
     def route(
         self,
         *,

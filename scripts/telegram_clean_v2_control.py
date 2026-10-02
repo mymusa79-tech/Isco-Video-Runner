@@ -16,6 +16,11 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+try:
+    from scripts.research_relevance_filter import market_sample_relevance
+except ModuleNotFoundError:
+    from research_relevance_filter import market_sample_relevance
+
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
 SCOPES = {"long", "bundle", "short", "podcast"}
@@ -526,6 +531,9 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
             continue
         if views <= 0:
             continue
+        relevant, relevance_overlap = market_sample_relevance(query, snippet)
+        if not relevant:
+            continue
         age = max(1.0, (now - dt).total_seconds() / 86400.0)
         velocity = views / age
         velocities.append(velocity)
@@ -540,6 +548,7 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
                 "published_at": published,
                 "views": views,
                 "views_per_day": round(velocity, 1),
+                "relevance_overlap": relevance_overlap,
             }
         )
     rows.sort(key=lambda x: float(x["views_per_day"]), reverse=True)
