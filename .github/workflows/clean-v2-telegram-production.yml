@@ -79,7 +79,8 @@ jobs:
         run: |
           set -euo pipefail
           state_root="$RUNNER_TEMP/clean-v2-telegram-production-state"
-          git clone --quiet --depth 1 --branch "$STATE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$state_root"
+          git fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"
+          git worktree add --detach "$state_root" "origin/$STATE_BRANCH"
           state="$state_root/$STATE_FILE"
           test -s "$state"
 
