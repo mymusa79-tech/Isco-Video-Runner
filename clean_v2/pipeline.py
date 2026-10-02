@@ -636,26 +636,42 @@ def _select_podcast_promo_excerpt(
     return selected
 
 
-def _isolate_podcast_promo_unit(
+def _isolate_topic_phrase_unit(
     voice_units: list[tuple[str, str]],
-    promo_text: str,
+    phrase_text: str,
+    *,
+    role_name: str,
 ) -> list[tuple[str, str]]:
-    promo = " ".join(str(promo_text or "").split()).strip()
-    if not promo:
+    """Isolate one exact host-owned phrase only from topic narration."""
+    phrase = " ".join(str(phrase_text or "").split()).strip()
+    if not phrase:
         return voice_units
     topic_indexes = [index for index, (role, _text) in enumerate(voice_units) if role == "topic"]
     if not topic_indexes:
         return voice_units
     first, last = topic_indexes[0], topic_indexes[-1]
-    topic_text = " ".join(text for role, text in voice_units[first : last + 1] if role == "topic")
-    if topic_text.count(promo) != 1:
+    topic_text = " ".join(
+        text for role, text in voice_units[first : last + 1] if role == "topic"
+    )
+    if topic_text.count(phrase) != 1:
         return voice_units
-    prefix, suffix = topic_text.split(promo, 1)
+    prefix, suffix = topic_text.split(phrase, 1)
     replacement: list[tuple[str, str]] = []
     replacement.extend(("topic", item) for item in _bounded_voice_chunks(prefix))
-    replacement.append(("promo_short", promo))
+    replacement.append((role_name, phrase))
     replacement.extend(("topic", item) for item in _bounded_voice_chunks(suffix))
     return [*voice_units[:first], *replacement, *voice_units[last + 1 :]]
+
+
+def _isolate_podcast_promo_unit(
+    voice_units: list[tuple[str, str]],
+    promo_text: str,
+) -> list[tuple[str, str]]:
+    return _isolate_topic_phrase_unit(
+        voice_units,
+        promo_text,
+        role_name="promo_short",
+    )
 
 
 
@@ -696,6 +712,7 @@ def _synthesize_sectioned_voice_pass(
     identity_closer: str = "",
     require_charon_only: bool = False,
     podcast_promo: Mapping[str, str] | None = None,
+    cta_topic_text: str = "",
     performance_mode: str = "",
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
@@ -725,6 +742,7 @@ def _synthesize_sectioned_voice_pass(
     role_reports: list[dict[str, Any]] = []
     total_cache_hits = 0
     report_path = narration_path.parent / "voice-sections.json"
+    cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
         section_id = str(item.get("id") or f"s{index}")
@@ -799,6 +817,17 @@ def _synthesize_sectioned_voice_pass(
             else:
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
 
+        if cta_topic_text:
+            voice_units = _isolate_topic_phrase_unit(
+                voice_units,
+                cta_topic_text,
+                role_name="cta_topic",
+            )
+            cta_topic_units += sum(
+                1 for role, text in voice_units
+                if role == "cta_topic" and text
+            )
+
         if (
             fmt == "podcast"
             and isinstance(podcast_promo, Mapping)
@@ -848,7 +877,7 @@ def _synthesize_sectioned_voice_pass(
                     # Prayer + channel definition keep the neutral established Charon
                     # identity. Editorial performance begins at the hook and topic,
                     # while a fixed identity closer never inherits a dramatic mode.
-                    if chunk_role in {"hook", "topic", "promo_short", "outro"} and not is_fixed_identity_outro:
+                    if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
                 if require_charon_only:
                     if effective_performance_mode:
@@ -1147,6 +1176,12 @@ def _synthesize_sectioned_voice_pass(
     finally:
         joined_path.unlink(missing_ok=True)
         joined_list_path.unlink(missing_ok=True)
+
+    if cta_topic_text and cta_topic_units != 1:
+        raise RuntimeError(
+            "contextual CTA must map to exactly one topic voice unit "
+            f"count={cta_topic_units}"
+        )
 
     result = {
         "voice_provider": expected_provider,
@@ -6492,6 +6527,9 @@ class CleanV2Pipeline:
                         ),
                         identity_closer=str(identity_runtime.get("closer") or ""),
                         podcast_promo=podcast_promo,
+                        cta_topic_text=str(
+                            _read_json_object(output_dir / "cta-plan.json").get("spoken_text") or ""
+                        ),
                         performance_mode=_voice_performance_mode_for_brief(
                             brief,
                             plan,
