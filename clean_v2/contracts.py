@@ -138,12 +138,16 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if fmt not in {"moment", "short"}:
         if not cta:
             raise ContractError("plan requires one non-empty contextual cta for CTA-enabled formats")
-        from .contextual_cta import CtaMode, infer_cta_mode
+        from .contextual_cta import CtaMode, MAX_SPOKEN_WORDS, infer_cta_mode
 
         cta_mode, cta_reason = infer_cta_mode(cta)
         if cta_mode == CtaMode.NONE:
             raise ContractError(
                 f"plan contextual cta must contain exactly one supported action: {cta_reason}"
+            )
+        if len(cta.split()) > MAX_SPOKEN_WORDS:
+            raise ContractError(
+                f"plan contextual cta exceeds spoken limit: {len(cta.split())}>{MAX_SPOKEN_WORDS}"
             )
     if fmt == "film":
         if len(raw_sections) != 5:
