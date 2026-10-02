@@ -1,0 +1,200 @@
+name: Run55 Live Research One-Shot Launcher
+
+on:
+  push:
+    branches:
+      - probe/run55-live-research-one-shot-93c9cca9
+    paths:
+      - .github/workflows/run55-live-research-one-shot-launcher.yml
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  research-and-dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TARGET_REF: fix/run55-pipeline-integrity
+      TARGET_SHA: 93c9cca9b9673b649e6aa05e8bb8c8a28e025035
+      TARGET_WORKFLOW: clean-v2-telegram-production.yml
+      STATE_BRANCH: clean-v2-telegram-state
+      STATE_FILE: state/telegram-clean-v2.json
+    steps:
+      - name: Checkout exact target source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          path: target
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Verify exact target SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          live_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/$TARGET_REF" --jq '.commit.sha')"
+          test "$live_sha" = "$TARGET_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Build live YouTube research request
+        id: research
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          PYTHONPATH: ${{ github.workspace }}/target
+          DIAGNOSTIC_PATH: ${{ github.workspace }}/run55-live-research.json
+        run: |
+          set -euo pipefail
+          test -n "$YOUTUBE_API_KEY"
+          state_root="$RUNNER_TEMP/run55-live-state"
+          git -C target fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"
+          git -C target worktree add -B "$STATE_BRANCH" "$state_root" "origin/$STATE_BRANCH"
+          echo "STATE_ROOT=$state_root" >> "$GITHUB_ENV"
+          echo "STATE_PATH=$state_root/$STATE_FILE" >> "$GITHUB_ENV"
+
+          python - <<'PY'
+          import json
+          import os
+          import secrets
+          from pathlib import Path
+
+          from scripts import telegram_clean_v2_control as control
+          from scripts.research_relevance_filter import market_sample_relevance
+
+          state_path = Path(os.environ["STATE_PATH"])
+          diagnostic_path = Path(os.environ["DIAGNOSTIC_PATH"])
+          state = control.load_state(state_path)
+
+          approved_topic = "قوة 1%: كيف يغيّر التحسن الصغير حياتك؟"
+          queries = ["قوة 1% تغيير حياتك", "تحسين 1% كل يوم"]
+          attempts = []
+          selected = None
+
+          for query in queries:
+              raw = control.youtube_search(query, max_results=6)
+              evaluated = []
+              for item in raw:
+                  snippet = item.get("snippet") or {}
+                  relevant, overlap = market_sample_relevance(query, snippet)
+                  evaluated.append({
+                      "video_id": str(item.get("id") or ""),
+                      "title": str(snippet.get("title") or "")[:180],
+                      "channel": str(snippet.get("channelTitle") or "")[:100],
+                      "accepted_by_filter": bool(relevant),
+                      "relevance_overlap": list(overlap),
+                  })
+
+              original_search = control.youtube_search
+              try:
+                  control.youtube_search = lambda _query, max_results=6, _raw=raw: list(_raw)
+                  score, evidence = control.market_evidence(query)
+              finally:
+                  control.youtube_search = original_search
+
+              pack = control._research_pack(evidence)
+              attempts.append({
+                  "query": query,
+                  "raw_result_count": len(raw),
+                  "evaluated_results": evaluated,
+                  "market_score": score,
+                  "market_evidence": evidence,
+                  "research_pack": pack,
+              })
+              if pack:
+                  selected = (query, score, evidence, pack)
+                  break
+
+          diagnostic = {
+              "target_ref": os.environ["TARGET_REF"],
+              "target_sha": os.environ["TARGET_SHA"],
+              "approved_topic": approved_topic,
+              "attempts": attempts,
+          }
+
+          if selected is None:
+              diagnostic["status"] = "no_evidence_backed_results"
+              diagnostic_path.write_text(
+                  json.dumps(diagnostic, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit("live YouTube research produced no evidence-backed research_pack")
+
+          query, score, evidence, pack = selected
+          request_id = "req-run55-" + secrets.token_hex(6)
+          now = control.utc_now()
+          request = {
+              "schema_version": 1,
+              "request_id": request_id,
+              "source": "run55_live_research_probe",
+              "scope": "short",
+              "approved_by_user": True,
+              "approved_topic": approved_topic,
+              "research_pack": list(pack),
+              "idea_id": "run55-live-research",
+              "selected_at": now,
+              "status": "dispatched",
+              "confirmed_at": now,
+              "dispatched_at": now,
+          }
+          request["request_sha256"] = control._request_hash(request)
+          state.setdefault("requests", {})[request_id] = request
+          control.save_state(state_path, state)
+
+          diagnostic.update({
+              "status": "ready",
+              "selected_query": query,
+              "market_score": score,
+              "market_evidence": evidence,
+              "research_pack": pack,
+              "request_id": request_id,
+              "request_sha256": request["request_sha256"],
+          })
+          diagnostic_path.write_text(
+              json.dumps(diagnostic, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"request_id={request_id}\n")
+              fh.write(f"request_sha256={request['request_sha256']}\n")
+              fh.write(f"research_pack_count={len(pack)}\n")
+          PY
+
+          git -C "$STATE_ROOT" config user.name "run55-live-probe"
+          git -C "$STATE_ROOT" config user.email "actions@users.noreply.github.com"
+          git -C "$STATE_ROOT" add "$STATE_FILE"
+          git -C "$STATE_ROOT" commit -m "state: stage Run55 live research probe"
+          git -C "$STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
+
+      - name: Upload live research evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: run55-live-research-evidence-${{ github.run_number }}
+          path: run55-live-research.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Dispatch exactly one production run
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_ID: ${{ steps.research.outputs.request_id }}
+          REQUEST_SHA256: ${{ steps.research.outputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$REQUEST_ID"
+          test -n "$REQUEST_SHA256"
+          live_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/$TARGET_REF" --jq '.commit.sha')"
+          test "$live_sha" = "$TARGET_SHA"
+          jq -n             --arg ref "$TARGET_REF"             --arg request_id "$REQUEST_ID"             --arg request_sha256 "$REQUEST_SHA256"             '{ref:$ref,inputs:{request_id:$request_id,request_sha256:$request_sha256}}'             | gh api --method POST                 "repos/$GITHUB_REPOSITORY/actions/workflows/$TARGET_WORKFLOW/dispatches"                 --input -
+          echo "DISPATCHED_REF=$TARGET_REF"
+          echo "DISPATCHED_SHA=$TARGET_SHA"
+          echo "REQUEST_ID=$REQUEST_ID"
+          echo "RESEARCH_PACK_COUNT=${{ steps.research.outputs.research_pack_count }}"
