@@ -113,6 +113,7 @@ from clean_v2.short_format import (
     validate_short_dimensions,
     validate_short_duration,
     validate_short_hook_contract,
+    validate_short_hook_visual_story,
     validate_short_practical_action,
     validate_short_script,
     validate_short_visual_queries,
@@ -485,6 +486,36 @@ class ShortImmediateTensionContractTests(unittest.TestCase):
         self.assertEqual(report["status"], "pass")
         self.assertTrue(report["hook_visual"]["action_hits"])
         self.assertTrue(report["hook_visual"]["tension_hits"])
+
+    def test_actual_visual_story_first_beat_rechecks_tension_after_rewrites(self) -> None:
+        quiet_story = {
+            "beats": [
+                {
+                    "id": "b1",
+                    "role": "hook",
+                    "stock_query_en": "thoughtful person sitting in quiet room by window",
+                }
+            ]
+        }
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_visual_query_hook_calm_or_generic",
+        ):
+            validate_short_hook_visual_story(quiet_story)
+
+        active_story = {
+            "beats": [
+                {
+                    "id": "b1",
+                    "role": "hook",
+                    "stock_query_en": "tense hands stopping over unfinished task under deadline pressure",
+                }
+            ]
+        }
+        report = validate_short_hook_visual_story(active_story)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["beat_id"], "b1")
+
 
 
 class ShortHookBoundedRecoveryTests(unittest.TestCase):
