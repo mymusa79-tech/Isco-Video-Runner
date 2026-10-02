@@ -196,6 +196,49 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
             # CTA stays inside the final B turn; it never becomes an A question.
             self.assertNotIn(f"A: {authored}", narration)
 
+    def test_overlay_uses_measured_timeline_section_spans_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _script()
+            bind_contextual_cta_to_script(
+                output_dir=root,
+                brief=_brief(),
+                plan=_plan("ما أكثر شيء يكسر خطتك خلال اليوم؟ اكتب تجربتك في التعليقات."),
+                script=script,
+            )
+            (root / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "section_events": [
+                            {"section_id": "s1", "start": 0.0, "end": 10.0},
+                            {"section_id": "s2", "start": 10.0, "end": 25.0},
+                            {"section_id": "s3", "start": 25.0, "end": 55.0},
+                            {"section_id": "s4", "start": 55.0, "end": 75.0},
+                            {"section_id": "s5", "start": 75.0, "end": 100.0},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"original-video")
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"audio")
+
+            with mock.patch("clean_v2.media.probe_duration", return_value=100.0):
+                report = apply_contextual_cta_overlay(
+                    output_dir=root,
+                    final_path=final_path,
+                    narration_path=narration,
+                    script=script,
+                )
+
+            self.assertEqual(report["section_duration_source"], "timeline-first")
+            self.assertGreaterEqual(report["schedule"]["start_seconds"], 30.5)
+            self.assertLess(report["schedule"]["start_seconds"], 55.0)
+            self.assertEqual(report["schedule"]["anchor_section_id"], "s3")
+
     def test_overlay_respects_first_30_and_final_12_seconds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
