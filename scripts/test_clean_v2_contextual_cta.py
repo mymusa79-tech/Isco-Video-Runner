@@ -55,6 +55,46 @@ def _script() -> dict:
     }
 
 
+def _write_measured_film_cta_timeline(
+    root: Path,
+    *,
+    start: float = 50.0,
+    end: float = 54.0,
+) -> None:
+    (root / "timeline-first.json").write_text(
+        json.dumps(
+            {
+                "audio_units": [
+                    {"section_id": "s1", "role": "hook", "start": 0.0, "end": 5.0},
+                    {"section_id": "s1", "role": "prayer", "start": 6.0, "end": 9.0},
+                    {"section_id": "s1", "role": "channel_identity", "start": 9.0, "end": 14.0},
+                    {"section_id": "s2", "role": "topic", "start": 20.0, "end": 40.0},
+                    {"section_id": "s3", "role": "cta_topic", "start": start, "end": end},
+                    {"section_id": "s3", "role": "topic", "start": end, "end": 60.0},
+                    {"section_id": "s4", "role": "topic", "start": 60.0, "end": 78.0},
+                    {"section_id": "s5", "role": "outro", "start": 88.0, "end": 92.0},
+                ],
+                "section_events": [
+                    {"section_id": "s1", "start": 0.0, "end": 20.0},
+                    {"section_id": "s2", "start": 20.0, "end": 40.0},
+                    {"section_id": "s3", "start": 40.0, "end": 60.0},
+                    {"section_id": "s4", "start": 60.0, "end": 80.0},
+                    {"section_id": "s5", "start": 80.0, "end": 100.0},
+                ],
+                "identity_events": [
+                    {"kind": "hook", "start": 0.0, "end": 5.0},
+                    {"kind": "intro", "start": 5.0, "end": 6.0},
+                    {"kind": "prayer", "start": 6.0, "end": 9.0},
+                    {"kind": "channel_identity", "start": 9.0, "end": 14.0},
+                    {"kind": "outro", "start": 88.0, "end": 92.0},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 class CleanV2ContextualCtaTests(unittest.TestCase):
     def test_film_plan_requires_contextual_cta(self) -> None:
         plan = _plan("")
@@ -206,21 +246,7 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 plan=_plan("ما أكثر شيء يكسر خطتك خلال اليوم؟ اكتب تجربتك في التعليقات."),
                 script=script,
             )
-            (root / "timeline-first.json").write_text(
-                json.dumps(
-                    {
-                        "section_events": [
-                            {"section_id": "s1", "start": 0.0, "end": 10.0},
-                            {"section_id": "s2", "start": 10.0, "end": 25.0},
-                            {"section_id": "s3", "start": 25.0, "end": 55.0},
-                            {"section_id": "s4", "start": 55.0, "end": 75.0},
-                            {"section_id": "s5", "start": 75.0, "end": 100.0},
-                        ]
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
+            _write_measured_film_cta_timeline(root, start=44.0, end=48.0)
             final_path = root / "final.mp4"
             final_path.write_bytes(b"original-video")
             narration = root / "narration-mastered.wav"
@@ -235,8 +261,9 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["section_duration_source"], "timeline-first")
-            self.assertGreaterEqual(report["schedule"]["start_seconds"], 30.5)
-            self.assertLess(report["schedule"]["start_seconds"], 55.0)
+            self.assertEqual(report["cta_schedule_source"], "measured-cta-topic-unit")
+            self.assertEqual(report["schedule"]["start_seconds"], 44.0)
+            self.assertEqual(report["schedule"]["end_seconds"], 48.0)
             self.assertEqual(report["schedule"]["anchor_section_id"], "s3")
 
     def test_longform_visual_cta_stays_inside_topic_role_not_outro(self) -> None:
@@ -364,6 +391,7 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 plan=_plan("اشترك لتكمل الرحلة معنا."),
                 script=script,
             )
+            _write_measured_film_cta_timeline(root)
             final_path = root / "final.mp4"
             original = b"original-video"
             final_path.write_bytes(original)
@@ -399,6 +427,7 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 plan=_plan("اشترك لتكمل الرحلة معنا."),
                 script=script,
             )
+            _write_measured_film_cta_timeline(root)
             final_path = root / "final.mp4"
             original = b"original-video"
             final_path.write_bytes(original)
