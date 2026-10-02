@@ -55,8 +55,10 @@ jobs:
           state_root="$RUNNER_TEMP/run55-live-state"
           git -C target fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"
           git -C target worktree add -B "$STATE_BRANCH" "$state_root" "origin/$STATE_BRANCH"
-          echo "STATE_ROOT=$state_root" >> "$GITHUB_ENV"
-          echo "STATE_PATH=$state_root/$STATE_FILE" >> "$GITHUB_ENV"
+          export STATE_ROOT="$state_root"
+          export STATE_PATH="$state_root/$STATE_FILE"
+          echo "STATE_ROOT=$STATE_ROOT" >> "$GITHUB_ENV"
+          echo "STATE_PATH=$STATE_PATH" >> "$GITHUB_ENV"
 
           python - <<'PY'
           import json
