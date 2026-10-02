@@ -1,0 +1,32 @@
+name: Run55 One-Shot Launcher
+
+on:
+  push:
+    branches:
+      - probe/run55-one-shot-93c9cca9
+    paths:
+      - .github/workflows/run55-one-shot-launcher.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-exact-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify target SHA and dispatch exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: 93c9cca9b9673b649e6aa05e8bb8c8a28e025035
+          TARGET_REF: fix/run55-pipeline-integrity
+          TARGET_WORKFLOW: clean-v2-short-final-one.yml
+        run: |
+          set -euo pipefail
+          actual_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/$TARGET_REF" --jq '.commit.sha')"
+          test "$actual_sha" = "$EXPECTED_SHA"
+          gh api --method POST             "repos/$GITHUB_REPOSITORY/actions/workflows/$TARGET_WORKFLOW/dispatches"             -f ref="$TARGET_REF"
+          echo "DISPATCHED_WORKFLOW=$TARGET_WORKFLOW"
+          echo "DISPATCHED_REF=$TARGET_REF"
+          echo "DISPATCHED_SHA=$actual_sha"
