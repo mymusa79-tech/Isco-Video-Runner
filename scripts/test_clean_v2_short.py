@@ -1310,6 +1310,7 @@ class ShortContractTests(unittest.TestCase):
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        plan["practical_action_ar"] = "اختر مهمة واحدة الآن."
         locked_action = plan["practical_action_ar"]
         candidate = {
             "title": "شورت",
