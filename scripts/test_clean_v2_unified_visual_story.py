@@ -215,6 +215,44 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 ):
                     _validate_plan_for_brief(value, _brief(fmt))
 
+    def test_run60_notebook_writing_is_not_allowed_as_post_hook_payoff(self) -> None:
+        value = _planning_value("short")
+        beat = next(
+            item
+            for item in value["visual_story"]["beats"]
+            if item["section_id"] == "s3"
+        )
+        beat["shot_intent"] = "person writing in notebook with pen hands only"
+        beat["stock_query_en"] = beat["shot_intent"]
+        beat.pop("stock_query_alt_en", None)
+        planned = _validate_plan_for_brief(value, _brief("short"))
+        resolved = next(
+            item
+            for item in planned["visual_story"]["beats"]
+            if item["section_id"] == "s3"
+        )
+        self.assertNotIn("writing", resolved["shot_intent"])
+        self.assertIn("workspace cleared", resolved["shot_intent"])
+
+    def test_no_identifiable_faces_policy_removes_face_must_have_cues(self) -> None:
+        value = _planning_value("short")
+        beat = value["visual_story"]["beats"][1]
+        beat["semantic_must_have"] = [
+            "وجه يظهر التعب",
+            "hands hesitating over multiple choices",
+        ]
+        planned = _validate_plan_for_brief(value, _brief("short"))
+        resolved = planned["visual_story"]["beats"][1]
+        self.assertFalse(
+            any("وجه" in item for item in resolved["semantic_must_have"])
+        )
+        self.assertTrue(
+            any(
+                "identifiable face" in item
+                for item in resolved["semantic_should_avoid"]
+            )
+        )
+
     def test_fresh_plans_enable_fail_closed_visual_diversity_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
             with self.subTest(fmt=fmt):
