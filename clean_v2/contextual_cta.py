@@ -676,47 +676,51 @@ def _topic_only_schedule_from_timeline(
     spoken_fraction: float | None,
     total_seconds: float,
 ) -> CtaSchedule | None:
-    """Schedule CTA only inside measured topic-role audio units."""
+    """Use the exact measured CTA topic unit, never an identity/outro estimate."""
     path = Path(output_dir) / "timeline-first.json"
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
     units = [
         item for item in (raw.get("audio_units") or [])
         if isinstance(item, Mapping)
         and str(item.get("section_id") or "") == str(binding.anchor_section_id or "")
-        and str(item.get("role") or "") == "topic"
+        and str(item.get("role") or "") == "cta_topic"
     ]
-    spans: list[tuple[float, float]] = []
-    for item in units:
-        try:
-            start = float(item.get("start"))
-            end = float(item.get("end"))
-        except (TypeError, ValueError):
-            continue
-        if end > start:
-            spans.append((start, end))
-    if not spans:
+    if len(units) != 1:
         return None
-    spans.sort()
-    topic_start = spans[0][0]
-    topic_end = spans[-1][1]
-    if topic_end <= topic_start:
+    unit = units[0]
+    try:
+        start = float(unit.get("start"))
+        end = float(unit.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if end <= start:
         return None
 
-    fraction = 0.68 if spoken_fraction is None else max(0.05, min(0.92, float(spoken_fraction)))
-    desired_start = topic_start + (topic_end - topic_start) * fraction
-    latest_end = min(topic_end, max(0.0, float(total_seconds) - FINAL_QUIET_SECONDS))
-    if latest_end <= max(topic_start, MIN_CTA_START_SECONDS):
-        return None
-    start = max(topic_start, MIN_CTA_START_SECONDS, desired_start)
-    if start + 0.8 > latest_end:
-        start = max(topic_start, MIN_CTA_START_SECONDS, latest_end - DEFAULT_VISUAL_SECONDS)
-    end = min(start + DEFAULT_VISUAL_SECONDS, latest_end)
-    if end - start < 0.8:
-        return None
-    return CtaSchedule(round(start, 3), round(end, 3), str(binding.anchor_section_id))
+    forbidden_kinds = {
+        "hook", "intro", "prayer", "channel_identity", "outro", "final_silence"
+    }
+    for event in raw.get("identity_events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        if str(event.get("kind") or "") not in forbidden_kinds:
+            continue
+        try:
+            event_start = float(event.get("start"))
+            event_end = float(event.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start < event_end and end > event_start:
+            return None
+
+    return CtaSchedule(
+        round(start, 3),
+        round(end, 3),
+        str(binding.anchor_section_id),
+    )
 
 
 def apply_contextual_cta_overlay(
@@ -785,7 +789,11 @@ def apply_contextual_cta_overlay(
         spoken_fraction=spoken_fraction,
         total_seconds=total,
     )
-    schedule_source = "timeline-topic-role"
+    schedule_source = "measured-cta-topic-unit"
+    if schedule is None and binding.spoken_text and not binding.visual_only:
+        raise RuntimeError(
+            "spoken contextual CTA must have one measured topic-only voice unit"
+        )
     if schedule is None:
         schedule = schedule_cta(
             binding,
