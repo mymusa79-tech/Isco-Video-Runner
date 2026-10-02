@@ -5299,7 +5299,9 @@ question naturally extends the idea, like only after a concrete value moment, sh
 naturally points to another person who may need it, and subscribe only when continuing the channel's
 ongoing journey is genuinely relevant. The CTA must still make sense if heard between two content
 sentences and must not summarize or interrupt the payoff. Runtime will insert it once into a safe
-mid/late content boundary and show the matching visual action at the same moment.
+mid/late TOPIC boundary and show the matching visual action at the same moment. CTA speech and visuals
+are forbidden in the hook, Intro, prayer, channel definition/identity, and Outro; they belong only to
+the episode's topic content.
 For moment OR short format, return an empty CTA string. For short, the zero-SPOKEN-social-CTA rule is
 hard: do not put subscribe/comment/share/like language in section purpose text; visual-only CTA overlays
 are renderer-owned and do not belong in narration.
@@ -5636,7 +5638,8 @@ so it adds the missing approved explanatory step before returning JSON.
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA yourself.
 For Film and Podcast, runtime will insert the exact LOCKED_PLAN.cta once at a natural mid/late sentence
 boundary after value has been delivered, before Text Audit and TTS. The same CTA mode will drive the
-visual CTA in that same window, so do not create another social request anywhere else in narration.
+visual CTA in that same TOPIC window, so do not create another social request anywhere else in narration.
+The CTA is strictly forbidden in the hook, Intro, prayer, channel definition/identity, and Outro.
 Write every section so this one brief contextual aside can return immediately to the episode's thought;
 do not build a promotional setup or a second CTA. For short, social CTA remains visual-only: do not add
 subscribe/comment/share/like language anywhere in spoken narration.
