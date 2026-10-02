@@ -15,6 +15,7 @@ from clean_v2.pipeline import (
     _Journal,
     _bind_writer_visual_story_with_recovery,
     _validate_plan_with_visual_world_recovery,
+    _validate_resumed_visual_story,
 )
 from clean_v2.visual_story import (
     CHANNEL_VISUAL_IDENTITY,
@@ -200,6 +201,59 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             require_channel_visual_world(
                 "بيئة منزلية هادئة ذات إضاءة طبيعية دافئة وألوان محايدة."
             )
+
+    def test_resumed_visual_world_uses_host_identity_fallback_without_ai(self) -> None:
+        router = type("Router", (), {"events": []})()
+        value = {
+            "visual_world": "warm quiet home with natural light",
+            "story_arc": {
+                "beginning": "friction",
+                "transformation": "turn",
+                "arrival": "progress",
+            },
+            "retention_thread": {
+                "hook_tension": "tension",
+                "payoff_answer": "answer",
+                "visual_motif": "motif",
+            },
+            "beats": [{
+                "id": "b1",
+                "section_id": "s1",
+                "viewer_intent": "يفهم المشاهد الفكرة",
+                "meaning_target": "one visible task state",
+                "semantic_must_have": ["one visible task object"],
+                "semantic_should_avoid": [],
+                "shot_intent": "closed task object beside doorway",
+                "role": "hook",
+                "stock_query_en": "closed task object beside doorway",
+                "display_text_ar": "بداية واضحة",
+                "source_preference": "stock_motion",
+                "shot_role": "action",
+                "environment_family": "home",
+                "hold_reason": "hook_progression",
+                "pause_intent": "micro",
+                "audio_energy": "steady",
+            }],
+        }
+        plan = {
+            "sections": [{
+                "id": "s1",
+                "purpose": "يفهم المشاهد الفكرة",
+                "visual_query_en": "closed task object beside doorway",
+            }],
+        }
+
+        repaired = _validate_resumed_visual_story(
+            value,
+            plan,
+            router=router,
+        )
+
+        self.assertEqual(repaired["visual_world"], CHANNEL_VISUAL_IDENTITY)
+        self.assertEqual(
+            [event.get("reason") for event in router.events],
+            ["visual_world_identity_resume_fallback"],
+        )
 
     def test_visual_world_falls_back_after_two_rejections(self) -> None:
         router = type("Router", (), {"events": []})()
