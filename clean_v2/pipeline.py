@@ -4209,8 +4209,10 @@ def _validate_resumed_visual_story(
     *,
     router: Any,
 ) -> dict[str, Any]:
+    resume_plan = dict(plan)
+    resume_plan["_visual_identity_contract"] = "navy_gold_v1"
     try:
-        return validate_visual_story(value, plan)
+        return validate_visual_story(value, resume_plan)
     except VisualWorldIdentityError:
         if not isinstance(value, Mapping):
             raise
@@ -4229,7 +4231,7 @@ def _validate_resumed_visual_story(
                 "wire_attempted": False,
             },
         )
-        return validate_visual_story(repaired, plan)
+        return validate_visual_story(repaired, resume_plan)
 
 
 def _validate_plan_with_visual_world_recovery(
@@ -6151,6 +6153,8 @@ class CleanV2Pipeline:
             if resume is not None and _resume_includes(resume[1], "planning"):
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
                 plan = validate_plan(saved_plan, brief)
+                plan["_visual_diversity_contract"] = "v2_fail_closed"
+                plan["_visual_identity_contract"] = "navy_gold_v1"
                 if str(brief["format"]) == "short":
                     plan["short_template"] = saved_template
                 resume_story_path = resume[0] / "visual-story.json"
