@@ -1326,6 +1326,15 @@ def _history_view(
 
 
 def _resume_decision_for_request(request: dict[str, Any]) -> dict[str, Any]:
+    stored_sha = str(request.get("request_sha256") or "")
+    if not stored_sha or stored_sha != _request_hash(request):
+        return {
+            "available": False,
+            "reason": "هوية الطلب الأصلية لا تطابق request_sha256 المحفوظ.",
+            "completed_stage": "",
+            "stage_label": "",
+            "run_id": str((request.get("production") or {}).get("run_id") or ""),
+        }
     if _history_topic_published(request, _release_library_records()):
         return {
             "available": False,
@@ -1402,6 +1411,11 @@ def restart_request_from_history(
     old = state.get("requests", {}).get(request_id)
     if not isinstance(old, dict):
         raise RuntimeError("history request is missing")
+    if (
+        not old.get("request_sha256")
+        or old.get("request_sha256") != _request_hash(old)
+    ):
+        raise RuntimeError("history request integrity mismatch")
     production = old.get("production")
     if isinstance(production, dict) and production.get("final_published") is True:
         raise RuntimeError("published request cannot be restarted from incomplete history")
