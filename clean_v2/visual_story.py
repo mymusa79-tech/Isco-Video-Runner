@@ -701,15 +701,10 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                     f"visual_story beat {beat_id} post-hook semantic drop requires "
                     "a stronger observable alternate"
                 )
-            previous_primary = stock_query_en
             shot_intent = stronger
             stock_query_en = stronger
-            if (
-                previous_primary
-                and _query_key(previous_primary) != _query_key(stronger)
-                and not stock_query_alt_en
-            ):
-                stock_query_alt_en = previous_primary
+            if stock_query_alt_en and _query_key(stock_query_alt_en) == _query_key(stronger):
+                stock_query_alt_en = ""
         if role not in BEAT_ROLES:
             raise ValueError(f"visual_story beat {beat_id} has invalid role")
         if source_preference not in SOURCE_PREFERENCES:
