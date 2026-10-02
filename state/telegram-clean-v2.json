@@ -619,7 +619,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-27T21:38:18Z",
-      "selected_at": "2026-10-02T08:09:01Z"
+      "selected_at": "2026-10-02T11:08:36Z"
     },
     {
       "idea_id": "idea-3acd0c729b",
@@ -2633,6 +2633,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-02T08:09:01Z",
       "selected_index": 0
+    },
+    "1416e829": {
+      "session_id": "1416e829",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-02T11:08:36Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T11:08:36Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -3205,9 +3216,40 @@
         "started_at": "2026-10-02T08:09:38Z",
         "finished_at": "2026-10-02T08:18:29Z"
       }
+    },
+    "req-ab5176a9ffc0": {
+      "schema_version": 1,
+      "request_id": "req-ab5176a9ffc0",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+      "research_pack": [
+        {
+          "source_title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+          "source_url": "https://youtu.be/b7X96liZ0g4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
+          "source_url": "https://youtu.be/-Dto_7_d7-c",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
+          "source_url": "https://youtu.be/pC4Hw7lRBmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-1dffada5b5",
+      "selected_at": "2026-10-02T11:08:36Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "61aa8cdc6e2b1b684d3220faaa19b5ee8cf11ecb550614426b8a5af59a8d5b91"
     }
   },
-  "current_request_id": "req-e0959a0f3178",
+  "current_request_id": "req-ab5176a9ffc0",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3462,5 +3504,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T11:07:54Z"
+  "updated_at": "2026-10-02T11:08:37Z"
 }
