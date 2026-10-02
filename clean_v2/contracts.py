@@ -253,17 +253,25 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
         section_id = str(raw.get("id") or "").strip()
         if section_id == short_s3_id:
             # Fresh Short writers return s3_payoff only. Legacy/resumed candidates
-            # may still call it narration; normalize both shapes into one
-            # structured contract without appending the Planning-owned action yet.
-            payoff = str(raw.get("s3_payoff") or raw.get("narration") or "").strip()
-            if not section_id or len(payoff) < 20:
+            # may still carry payoff+action in narration; keep that legacy surface
+            # intact so normalize_short_script_candidate can split it once outside
+            # the canonical validator.
+            explicit_payoff = str(raw.get("s3_payoff") or "").strip()
+            legacy_narration = str(raw.get("narration") or "").strip()
+            if explicit_payoff:
+                narration = explicit_payoff
+                payoff = explicit_payoff
+            else:
+                narration = legacy_narration
+                payoff = ""
+            if not section_id or len(narration) < 20:
                 raise ContractError(
                     "short s3 needs an id and non-empty descriptive s3_payoff"
                 )
             normalized.append(
                 {
                     "id": section_id,
-                    "narration": payoff,
+                    "narration": narration,
                     "s3_payoff": payoff,
                     "s3_locked_action": locked_action,
                 }
