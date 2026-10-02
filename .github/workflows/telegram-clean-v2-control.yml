@@ -28,6 +28,7 @@ jobs:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       GITHUB_RUNTIME_TOKEN: ${{ github.token }}
 
     steps:
@@ -37,6 +38,9 @@ jobs:
           ref: main
           persist-credentials: true
           fetch-depth: 0
+
+      - name: Bind current resume identity
+        run: echo "CURRENT_RUNNER_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Bind runtime paths
         run: echo "DISPATCH_FILE=$RUNNER_TEMP/clean-v2-telegram-dispatch.json" >> "$GITHUB_ENV"
