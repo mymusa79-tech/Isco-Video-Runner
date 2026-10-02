@@ -754,7 +754,7 @@ def _salvage_safe_payoff_clause(sentence: object) -> str:
         # that keeping a dependent tail such as "بل من وضع معايير..." can pass
         # the Short contract yet sound visibly broken after the audited script
         # is normalized for production.
-        and not re.match(r"^(?:بل|لكن|لأن|لان|مما)(?:\\s|$)", _semantic_key(item))
+        and not re.match(r"^(?:بل|لكن|لأن|لان|مما)(?:\s|$)", _semantic_key(item))
     ]
     if not safe:
         return ""
@@ -1502,7 +1502,7 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     # second imperative (for example "توقف ...، وحدد ..."). The ordinary
     # marker count intentionally requires a word boundary and therefore does
     # not count the second verb when Arabic waw/fa is attached to it.
-    if re.search(r"\\s+(?:ثم|و)\\s+", action_sentence) or any(
+    if re.search(r"\s+(?:ثم|و)\s+", action_sentence) or any(
         re.search(_conjoined_practical_action_pattern(marker), action_sentence, flags=re.I)
         for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
     ):
