@@ -5895,7 +5895,7 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
         script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
         with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
             _validate_and_apply_script_patches(
-                self._patch_value("أشعر", "أحس"),
+                self._patch_value("لماذا", "كيف"),
                 plan=self.PLAN,
                 original_script=script,
                 identity=self.IDENTITY,
@@ -6034,7 +6034,7 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
             self.assertEqual(result["post_repair_structural_ai_status"], "pass")
             self.assertEqual(
                 script["sections"][0]["narration"],
-                "أشعر أنني أتجمّد في مكان واحد بينما أريد أن أتحرك.",
+                "لماذا أتجمّد في مكان واحد رغم أنني أريد أن أتحرك؟",
             )
 
 
