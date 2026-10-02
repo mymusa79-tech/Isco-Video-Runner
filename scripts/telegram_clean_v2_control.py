@@ -37,6 +37,8 @@ YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
 CLEAN_V2_SHORT_SAFETY_MAX_SECONDS = 120
+LONGFORM_MIN_PUBLISH_SPACING_DAYS_ENV = "CLEAN_V2_LONGFORM_MIN_PUBLISH_SPACING_DAYS"
+DEFAULT_LONGFORM_MIN_PUBLISH_SPACING_DAYS = 10.0
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 CLEAN_V2_DELIVERY_TAG_PREFIX = "clean-v2-final-"
@@ -206,7 +208,15 @@ def _parse_duration_seconds(value: str) -> int:
     )
 
 
-def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def _is_podcast_upload(item: dict[str, Any]) -> bool:
+    return "خارج النص" in str(item.get("title") or "")
+
+
+def _latest_by_clean_v2_format(
+    videos: list[dict[str, Any]],
+    *,
+    longform_kind: str = "any",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     last_short = next(
         (
             item
@@ -215,14 +225,18 @@ def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, 
         ),
         None,
     )
-    last_long = next(
-        (
-            item
-            for item in videos
-            if int(item.get("duration_seconds") or 0) > CLEAN_V2_SHORT_SAFETY_MAX_SECONDS
-        ),
-        None,
-    )
+    longform = [
+        item
+        for item in videos
+        if int(item.get("duration_seconds") or 0) > CLEAN_V2_SHORT_SAFETY_MAX_SECONDS
+    ]
+    if longform_kind == "podcast":
+        longform = [item for item in longform if _is_podcast_upload(item)]
+    elif longform_kind == "long":
+        longform = [item for item in longform if not _is_podcast_upload(item)]
+    elif longform_kind != "any":
+        raise ValueError("unsupported longform_kind")
+    last_long = longform[0] if longform else None
     return last_short, last_long
 
 
@@ -295,7 +309,8 @@ def fetch_channel_snapshot() -> dict[str, Any]:
                 }
             )
     videos.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-    last_short, last_long = _latest_by_clean_v2_format(videos)
+    last_short, last_long = _latest_by_clean_v2_format(videos, longform_kind="long")
+    _, last_podcast = _latest_by_clean_v2_format(videos, longform_kind="podcast")
     return {
         "captured_at": utc_now(),
         "channel_id": channel_id,
@@ -304,6 +319,7 @@ def fetch_channel_snapshot() -> dict[str, Any]:
         "total_views": int(stats.get("viewCount") or 0),
         "video_count": int(stats.get("videoCount") or 0),
         "last_long": last_long,
+        "last_podcast": last_podcast,
         "last_short": last_short,
     }
 
@@ -975,7 +991,74 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
     return "\n".join(lines), rows
 
 
-def render_selection_confirmation(request: dict[str, Any]) -> str:
+def _longform_min_publish_spacing_days() -> float:
+    raw = str(
+        os.environ.get(
+            LONGFORM_MIN_PUBLISH_SPACING_DAYS_ENV,
+            DEFAULT_LONGFORM_MIN_PUBLISH_SPACING_DAYS,
+        )
+    ).strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_LONGFORM_MIN_PUBLISH_SPACING_DAYS
+    return max(0.0, value)
+
+
+def publication_spacing_warning(
+    request: dict[str, Any],
+    *,
+    snapshot: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Return a non-blocking owner warning before Long/Podcast confirmation."""
+    scope = str(request.get("scope") or "")
+    if scope not in {"long", "bundle", "podcast"}:
+        return ""
+    minimum_days = _longform_min_publish_spacing_days()
+    if minimum_days <= 0:
+        return ""
+
+    channel = snapshot if isinstance(snapshot, dict) else fetch_channel_snapshot()
+    latest_key = "last_podcast" if scope == "podcast" else "last_long"
+    latest = channel.get(latest_key)
+    if not isinstance(latest, dict):
+        return ""
+    published_at = str(latest.get("published_at") or "").strip()
+    if not published_at:
+        return ""
+    try:
+        published = _parse_utc(published_at)
+    except (TypeError, ValueError):
+        return ""
+
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    elapsed_days = max(0.0, (current - published).total_seconds() / 86400.0)
+    if elapsed_days >= minimum_days:
+        return ""
+
+    label = "بودكاست «خارج النص»" if scope == "podcast" else "فيديو طويل"
+    remaining = max(0.0, minimum_days - elapsed_days)
+    return (
+        f"⚠️ تنبيه تباعد النشر: آخر {label} نُشر قبل {elapsed_days:.1f} يوم. "
+        f"الحد الأدنى المضبوط حاليًا {minimum_days:g} أيام "
+        f"(المتبقي نحو {remaining:.1f} يوم). هذا تحذير فقط؛ يمكنك تأكيد الإنتاج إن أردت."
+    )
+
+
+def _safe_publication_spacing_warning(request: dict[str, Any]) -> str:
+    try:
+        return publication_spacing_warning(request)
+    except Exception as exc:
+        print(f"YouTube publication spacing check failed: {type(exc).__name__}")
+        return ""
+
+
+def render_selection_confirmation(
+    request: dict[str, Any],
+    *,
+    spacing_warning: str = "",
+) -> str:
     scope_label = {
         "long": "فيديو طويل — يحاول استخراج شورت تلقائيًا بعد نجاح الطويل",
         "bundle": "فيديو طويل + شورت (خيار قديم)",
@@ -989,6 +1072,8 @@ def render_selection_confirmation(request: dict[str, Any]) -> str:
         f"الموضوع: {request['approved_topic']}",
         f"النطاق: {scope_label}",
     ]
+    if spacing_warning:
+        lines.extend(["", spacing_warning])
     if pack:
         lines.extend(["", "🔎 أهم المصادر قبل التأكيد:"])
         for index, source in enumerate(pack[:2], 1):
@@ -1730,7 +1815,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 )
                 return
             send_telegram(
-                render_selection_confirmation(request),
+                render_selection_confirmation(
+                    request,
+                    spacing_warning=_safe_publication_spacing_warning(request),
+                ),
                 selection_confirmation_keyboard(request),
             )
             return
@@ -1763,7 +1851,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 send_telegram("⚠️ هذه الفكرة المحفوظة لم تعد صالحة للاختيار.")
                 return
             send_telegram(
-                render_selection_confirmation(request),
+                render_selection_confirmation(
+                    request,
+                    spacing_warning=_safe_publication_spacing_warning(request),
+                ),
                 selection_confirmation_keyboard(request),
             )
             return
@@ -1791,7 +1882,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 send_telegram("⚠️ هذا الاختيار لم يعد صالحًا. اطلب /research من جديد.")
                 return
             send_telegram(
-                render_selection_confirmation(request),
+                render_selection_confirmation(
+                    request,
+                    spacing_warning=_safe_publication_spacing_warning(request),
+                ),
                 selection_confirmation_keyboard(request),
             )
             return
