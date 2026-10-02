@@ -278,7 +278,8 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                             {"section_id": "s1", "role": "hook", "start": 0.0, "end": 5.0},
                             {"section_id": "s1", "role": "prayer", "start": 6.0, "end": 9.0},
                             {"section_id": "s1", "role": "topic", "start": 10.0, "end": 28.0},
-                            {"section_id": "s2", "role": "topic", "start": 28.0, "end": 70.0},
+                            {"section_id": "s2", "role": "cta_topic", "start": 46.0, "end": 50.0},
+                            {"section_id": "s2", "role": "topic", "start": 50.0, "end": 70.0},
                             {"section_id": "s2", "role": "outro", "start": 70.0, "end": 78.0},
                         ],
                         "section_events": [
@@ -303,12 +304,55 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                     script=script,
                 )
 
-            self.assertEqual(report["cta_schedule_source"], "timeline-topic-role")
+            self.assertEqual(report["cta_schedule_source"], "measured-cta-topic-unit")
             schedule = report["schedule"]
-            self.assertGreaterEqual(schedule["start_seconds"], 28.0)
-            self.assertLessEqual(schedule["end_seconds"], 70.0)
+            self.assertEqual(schedule["start_seconds"], 46.0)
+            self.assertEqual(schedule["end_seconds"], 50.0)
             self.assertIn("outro", report["forbidden_regions"])
             self.assertIn("prayer", report["forbidden_regions"])
+
+    def test_spoken_longform_cta_fails_closed_without_measured_cta_topic_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = _script()
+            bind_contextual_cta_to_script(
+                output_dir=root,
+                brief=_brief(),
+                plan=_plan("اشترك لتكمل الرحلة معنا."),
+                script=script,
+            )
+            (root / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "audio_units": [
+                            {"section_id": "s1", "role": "hook", "start": 0.0, "end": 5.0},
+                            {"section_id": "s3", "role": "topic", "start": 40.0, "end": 55.0},
+                            {"section_id": "s5", "role": "outro", "start": 80.0, "end": 88.0},
+                        ],
+                        "section_events": [
+                            {"section_id": f"s{index}", "start": (index - 1) * 20.0, "end": index * 20.0}
+                            for index in range(1, 6)
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"original-video")
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"audio")
+            with mock.patch("clean_v2.media.probe_duration", return_value=100.0):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "must have one measured topic-only voice unit",
+                ):
+                    apply_contextual_cta_overlay(
+                        output_dir=root,
+                        final_path=final_path,
+                        narration_path=narration,
+                        script=script,
+                    )
 
     def test_overlay_respects_first_30_and_final_12_seconds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
