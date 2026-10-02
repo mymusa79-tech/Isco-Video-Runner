@@ -3512,9 +3512,40 @@
         "started_at": "2026-10-02T16:58:56Z",
         "finished_at": "2026-10-02T17:03:13Z"
       }
+    },
+    "req-79eeb051dada": {
+      "schema_version": 1,
+      "request_id": "req-79eeb051dada",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
+      "research_pack": [
+        {
+          "source_title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+          "source_url": "https://youtu.be/kF_ROq0LJUQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "SI SIEMPRE DEJAS TODO PARA DESPUÉS, NECESITAS ESCUCHAR ESTO | Brian Tracy español",
+          "source_url": "https://youtu.be/MJpMz63HPp4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "PELIGRO MASONICO PROCRASTINACION",
+          "source_url": "https://youtu.be/RyF8_QkyVaw",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-771285b119",
+      "selected_at": "2026-10-02T22:14:23Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "be237d0a44ce87600d389f773d59f32ac959c1432e09a752fb4ed0e93269f1f7"
     }
   },
-  "current_request_id": "req-05a5b3c9b371",
+  "current_request_id": "req-79eeb051dada",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3769,5 +3800,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T22:14:03Z"
+  "updated_at": "2026-10-02T22:14:23Z"
 }
