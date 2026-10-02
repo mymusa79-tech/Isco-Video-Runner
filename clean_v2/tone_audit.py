@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Clean V2 tone/naturalness audit bridge with strict Mistral fallback."""
 
+import re
 import threading
 from typing import Any
 
@@ -114,6 +115,8 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   such as a section beginning with «مما ...» without a grammatical antecedent in that sentence.
   For every such defect, add one naturalness_flags item that includes the affected section id
   (s1/s2/...) and a short exact excerpt from the draft. Do not flag stylistic preference as grammar.
+  Never emit a correction whose proposed replacement is textually identical to the quoted original
+  (for example: 'نحن نظن' should be 'نحن نظن'); that is not a defect and must not be a flag.
 - Evaluate the actual PLAN hook (the first spoken sentence) with six required booleans in the
   SAME audit response; this adds no provider call:
   * hook_specificity=true only when the hook names a concrete situation, tension, behavior,
@@ -271,11 +274,54 @@ def _normalize_editorial_voice_advisory(result: dict[str, Any]) -> dict[str, Any
     return result
 
 
+_ENGLISH_REPLACEMENT_RE = re.compile(
+    r"""[\'\"“«](?P<before>[^\'\"”»]+)[\'\"”»]\s+should\s+be\s+[\'\"“«](?P<after>[^\'\"”»]+)[\'\"”»]""",
+    re.IGNORECASE,
+)
+
+
+def _normalize_replacement_text(value: object) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _drop_noop_naturalness_replacements(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Discard only self-identical correction flags such as X should be X.
+
+    The Engine intentionally blocks any non-empty naturalness_flags array. Run 59
+    exposed a fallback-provider false positive that proposed the exact same Arabic
+    phrase as its correction. Filtering happens before the frozen Engine sees the
+    validated provider result, so real grammar flags keep the original fail-closed
+    behavior unchanged.
+    """
+    flags = result.get("naturalness_flags")
+    if not isinstance(flags, list) or not flags:
+        return result
+
+    kept: list[Any] = []
+    for raw_flag in flags:
+        flag = str(raw_flag)
+        match = _ENGLISH_REPLACEMENT_RE.search(flag)
+        if match is not None:
+            before = _normalize_replacement_text(match.group("before"))
+            after = _normalize_replacement_text(match.group("after"))
+            if before and before == after:
+                continue
+        kept.append(raw_flag)
+
+    if len(kept) != len(flags):
+        result = dict(result)
+        result["naturalness_flags"] = kept
+    return result
+
+
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
 
     try:
         validate_audit_payload(result, required_arrays=_REQUIRED_ARRAYS)
+        result = _drop_noop_naturalness_replacements(result)
         result = _enforce_hook_quality_contract(result)
         result = _enforce_content_dependency_contract(result)
         return _normalize_editorial_voice_advisory(result)
