@@ -208,8 +208,13 @@ def _spoken_cta(authored: str, mode: CtaMode) -> str:
     return text
 
 
-def _insert_spoken_cta(narration: str, spoken_text: str) -> tuple[str, int]:
-    """Insert at a natural late-body sentence boundary and return its word offset."""
+def _insert_spoken_cta(
+    narration: str,
+    spoken_text: str,
+    *,
+    fmt: str = "",
+) -> tuple[str, int]:
+    """Insert at a natural late-body boundary; Podcast CTA always belongs to B."""
     narration = _compact(narration)
     spoken_text = _compact(spoken_text)
     if not narration or not spoken_text:
@@ -217,6 +222,49 @@ def _insert_spoken_cta(narration: str, spoken_text: str) -> tuple[str, int]:
     if spoken_text in narration:
         prefix = narration.split(spoken_text, 1)[0]
         return narration, len(prefix.split())
+
+    if fmt == "podcast":
+        turn_re = re.compile(r"(?<!\S)([AB]):\s+")
+        matches = list(turn_re.finditer(narration))
+        b_indexes = [
+            index for index, match in enumerate(matches)
+            if match.group(1) == "B"
+        ]
+        if not b_indexes:
+            return narration, -1
+        turn_index = b_indexes[-1]
+        match = matches[turn_index]
+        turn_start = match.end()
+        turn_end = (
+            matches[turn_index + 1].start()
+            if turn_index + 1 < len(matches)
+            else len(narration)
+        )
+        b_spoken = narration[turn_start:turn_end].strip()
+        sentences = [
+            item.strip() for item in _SENTENCE_END.split(b_spoken) if item.strip()
+        ]
+        if len(sentences) <= 1:
+            insertion_at = turn_end
+            updated = (
+                narration[:turn_end].rstrip()
+                + " "
+                + spoken_text
+                + " "
+                + narration[turn_end:].lstrip()
+            ).strip()
+            return updated, len(narration[:insertion_at].split())
+
+        before = " ".join(sentences[:-1]).strip()
+        after = sentences[-1]
+        replacement = f"{before} {spoken_text} {after}".strip()
+        updated = (
+            narration[:turn_start]
+            + replacement
+            + narration[turn_end:]
+        ).strip()
+        insertion_prefix = narration[:turn_start] + before
+        return updated, len(insertion_prefix.split())
 
     sentences = [item.strip() for item in _SENTENCE_END.split(narration) if item.strip()]
     if len(sentences) <= 1:
@@ -505,6 +553,7 @@ def bind_contextual_cta_to_script(
             updated, offset = _insert_spoken_cta(
                 str(item.get("narration") or ""),
                 binding.spoken_text,
+                fmt=str(brief.get("format") or ""),
             )
             item["narration"] = updated
             insertion_word_offset = offset
