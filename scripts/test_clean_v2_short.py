@@ -1179,7 +1179,7 @@ class ShortContractTests(unittest.TestCase):
 
     def test_visual_normalizer_makes_expression_query_face_safe(self) -> None:
         plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
-        plan["sections"][0]["visual_query_en"] = "frustrated expression at messy office desk"
+        plan["sections"][0]["visual_query_en"] = "frustrated expression writing messy notes at office desk"
         changed = normalize_short_visual_queries(plan)
         self.assertTrue(changed)
         self.assertIn("hands only", plan["sections"][0]["visual_query_en"])
