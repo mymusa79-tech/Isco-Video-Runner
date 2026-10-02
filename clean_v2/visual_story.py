@@ -600,7 +600,11 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                 semantic_should_avoid.append(default_avoid)
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
         if not semantic_must_have and shot_intent:
-            semantic_must_have = [shot_intent[:120]]
+            if not (
+                "no identifiable faces" in visual_world.casefold()
+                and _requests_visible_face(shot_intent)
+            ):
+                semantic_must_have = [shot_intent[:120]]
         role = (
             _beat_role(index - 1, len(raw_beats))
             if explicit_retention_contract
