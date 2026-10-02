@@ -35,6 +35,7 @@ from clean_v2.short_format import (
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
+    _drop_noop_naturalness_replacements,
     _normalize_editorial_voice_advisory,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
@@ -172,6 +173,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             self.assertIn(field, scoped)
         self.assertIn("this never changes status and never", scoped)
         self.assertIn("blocks production", scoped)
+        self.assertIn("textually identical", scoped)
+        self.assertIn("'نحن نظن' should be 'نحن نظن'", scoped)
 
     def test_editorial_voice_advisory_fills_safe_defaults_when_missing(self):
         # Advisory only (session decision: observe before ever gating on this) -
@@ -201,6 +204,37 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(result["filler_flags"], [])
         self.assertIs(result["payoff_earned"], True)
         self.assertIs(result["cold_open_story_violation"], False)
+
+    def test_run59_self_identical_naturalness_correction_is_ignored(self):
+        payload = _tone_result()
+        payload["naturalness_flags"] = [
+            "s2: 'نحن نظن' should be 'نحن نظن'"
+        ]
+        filtered = _drop_noop_naturalness_replacements(payload)
+        self.assertEqual(filtered["naturalness_flags"], [])
+        self.assertEqual(filtered["status"], "pass")
+
+    def test_real_naturalness_correction_remains_blocking_evidence(self):
+        payload = _tone_result()
+        payload["naturalness_flags"] = [
+            "s3: 'فإنك تحمي عقلك' should be 'بتقليل الخيارات، أنت تحمي عقلك'"
+        ]
+        filtered = _drop_noop_naturalness_replacements(payload)
+        self.assertEqual(
+            filtered["naturalness_flags"],
+            payload["naturalness_flags"],
+        )
+
+    def test_noop_filter_does_not_touch_non_replacement_grammar_flags(self):
+        payload = _tone_result()
+        payload["naturalness_flags"] = [
+            "s3: dependent fragment begins with فإنك without a preceding condition"
+        ]
+        filtered = _drop_noop_naturalness_replacements(payload)
+        self.assertEqual(
+            filtered["naturalness_flags"],
+            payload["naturalness_flags"],
+        )
 
     def test_editorial_voice_advisory_never_forces_a_block(self):
         # Even a maximally "bad" advisory verdict (filler everywhere, payoff

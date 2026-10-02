@@ -98,6 +98,7 @@ _GENERIC_PRODUCTIVITY_PROP_TERMS = frozenset({
 _WEAK_GENERIC_ACTION_TERMS = frozenset({
     "scroll", "scrolling", "type", "typing", "sit", "sitting", "look", "looking",
     "work", "working", "use", "using", "hold", "holding", "browse", "browsing",
+    "write", "writing",
 })
 _STRONG_SEMANTIC_ACTION_RE = re.compile(
     r"\b(?:compare|comparing|comparison|choose|choosing|choice|select|selecting|selected|"
@@ -236,6 +237,16 @@ def _beat_action_family(beat: Mapping[str, Any]) -> str:
             for key in ("shot_intent", "stock_query_en")
         )
     )
+
+
+_VISIBLE_FACE_CUE_RE = re.compile(
+    r"(?:\b(?:face|facial|expression|smile|smiling)\b|وجه|ملامح|تعبير(?:ات)?\s+الوجه)",
+    re.IGNORECASE,
+)
+
+
+def _requests_visible_face(value: object) -> bool:
+    return bool(_VISIBLE_FACE_CUE_RE.search(" ".join(str(value or "").split())))
 
 
 def _is_weak_generic_productivity_scene(value: object) -> bool:
@@ -574,12 +585,26 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             for item in (raw.get("semantic_should_avoid") or [])
             if " ".join(str(item).split()).strip()
         ][:4]
+        if "no identifiable faces" in visual_world.casefold():
+            semantic_must_have = [
+                item for item in semantic_must_have
+                if not _requests_visible_face(item)
+            ]
+            if len(semantic_should_avoid) < 4 and not any(
+                "identifiable face" in item.casefold()
+                for item in semantic_should_avoid
+            ):
+                semantic_should_avoid.append("identifiable face or readable facial expression")
         for default_avoid in CHANNEL_VISUAL_AVOID:
             if default_avoid not in semantic_should_avoid and len(semantic_should_avoid) < 4:
                 semantic_should_avoid.append(default_avoid)
         shot_intent = " ".join(str(raw.get("shot_intent") or "").split()).strip()
         if not semantic_must_have and shot_intent:
-            semantic_must_have = [shot_intent[:120]]
+            if not (
+                "no identifiable faces" in visual_world.casefold()
+                and _requests_visible_face(shot_intent)
+            ):
+                semantic_must_have = [shot_intent[:120]]
         role = (
             _beat_role(index - 1, len(raw_beats))
             if explicit_retention_contract
