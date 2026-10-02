@@ -146,8 +146,74 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("VISUAL VARIETY is semantic, not cosmetic", prompt)
                 self.assertIn("Do not place the same dominant action family in consecutive beats", prompt)
                 self.assertIn("stuck -> choosing -> moving -> completed", prompt)
+                self.assertIn("POST-HOOK VISUAL FLOOR", prompt)
+                self.assertIn("Person scrolling many tabs on a laptop", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+
+    def test_post_hook_visual_floor_prefers_stronger_alternate_for_every_format(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                value = _planning_value(fmt)
+                beat = next(
+                    item
+                    for item in value["visual_story"]["beats"]
+                    if item["section_id"] == "s2"
+                )
+                beat["shot_intent"] = "person scrolling through many tabs on laptop screen"
+                beat["stock_query_en"] = beat["shot_intent"]
+                beat["stock_query_alt_en"] = (
+                    "hands closing extra browser tabs until one choice remains"
+                )
+                planned = _validate_plan_for_brief(value, _brief(fmt))
+                resolved = next(
+                    item
+                    for item in planned["visual_story"]["beats"]
+                    if item["section_id"] == "s2"
+                )
+                self.assertIn("closing", resolved["shot_intent"])
+                self.assertNotIn("scrolling", resolved["shot_intent"])
+                self.assertEqual(
+                    planned["_visual_semantic_strength_contract"],
+                    "v1_post_hook",
+                )
+
+    def test_short_post_hook_visual_floor_can_use_section_level_alternate_locally(self) -> None:
+        value = _planning_value("short")
+        beat = next(
+            item
+            for item in value["visual_story"]["beats"]
+            if item["section_id"] == "s2"
+        )
+        beat["shot_intent"] = "person scrolling through many tabs on laptop screen"
+        beat["stock_query_en"] = beat["shot_intent"]
+        beat.pop("stock_query_alt_en", None)
+        planned = _validate_plan_for_brief(value, _brief("short"))
+        resolved = next(
+            item
+            for item in planned["visual_story"]["beats"]
+            if item["section_id"] == "s2"
+        )
+        self.assertIn("selected", resolved["shot_intent"])
+        self.assertNotIn("scrolling", resolved["shot_intent"])
+
+    def test_longform_post_hook_visual_floor_fails_closed_without_stronger_alternate(self) -> None:
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt):
+                value = _planning_value(fmt)
+                beat = next(
+                    item
+                    for item in value["visual_story"]["beats"]
+                    if item["section_id"] == "s2"
+                )
+                beat["shot_intent"] = "person scrolling through many tabs on laptop screen"
+                beat["stock_query_en"] = beat["shot_intent"]
+                beat.pop("stock_query_alt_en", None)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "post-hook semantic drop requires a stronger observable alternate",
+                ):
+                    _validate_plan_for_brief(value, _brief(fmt))
 
     def test_fresh_plans_enable_fail_closed_visual_diversity_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
