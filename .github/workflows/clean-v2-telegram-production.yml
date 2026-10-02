@@ -108,10 +108,48 @@ jobs:
             long|bundle|short|podcast) ;;
             *) echo "Unsupported Telegram request scope" >&2; exit 2 ;;
           esac
+          echo "TELEGRAM_REQUEST_STATE_ROOT=$state_root" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
+
+      - name: Record original Telegram production run identity
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          resume_cache_key="clean-v2-resume-v6-$RUNNER_OS-$GITHUB_SHA-$ISCO_ENGINE_SHA-$REQUEST_SHA256-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "CLEAN_V2_RESUME_CACHE_KEY=$resume_cache_key" >> "$GITHUB_ENV"
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.email "actions@users.noreply.github.com"
+          recorded=false
+          for attempt in 1 2 3; do
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" fetch --quiet origin "$STATE_BRANCH"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" reset --quiet --hard "origin/$STATE_BRANCH"
+            python scripts/telegram_clean_v2_control.py record-production-start \
+              --state "$TELEGRAM_REQUEST_STATE" \
+              --request-id "$REQUEST_ID" \
+              --request-sha256 "$REQUEST_SHA256" \
+              --run-id "$GITHUB_RUN_ID" \
+              --run-attempt "$GITHUB_RUN_ATTEMPT" \
+              --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --runner-sha "$GITHUB_SHA" \
+              --engine-sha "$ISCO_ENGINE_SHA" \
+              --resume-cache-key "$resume_cache_key"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" add "$STATE_FILE"
+            if git -C "$TELEGRAM_REQUEST_STATE_ROOT" diff --cached --quiet; then
+              recorded=true
+              break
+            fi
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" commit -m "state: record Telegram production run identity"
+            if git -C "$TELEGRAM_REQUEST_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"; then
+              recorded=true
+              break
+            fi
+          done
+          test "$recorded" = "true"
 
       - name: Restore recent film and Short narrative history
         run: |
@@ -280,13 +318,20 @@ jobs:
             long|bundle) fmt=film ;;
             *) echo "save=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
+          save_allowed=false
           if python scripts/clean_v2_resume_cache.py prepare \
             --output "$CLEAN_V2_TELEGRAM_OUTPUT/$fmt" \
             --target "$CLEAN_V2_RESUME/$fmt" | grep -qx 'save_allowed=true'; then
+            save_allowed=true
             echo "save=true" >> "$GITHUB_OUTPUT"
           else
             echo "save=false" >> "$GITHUB_OUTPUT"
           fi
+          python scripts/telegram_resume_history.py annotate-manifest \
+            --manifest "$CLEAN_V2_TELEGRAM_OUTPUT/$fmt/run-manifest.json" \
+            --checkpoint "$CLEAN_V2_RESUME/$fmt/resume-checkpoint.json" \
+            --cache-key "$CLEAN_V2_RESUME_CACHE_KEY" \
+            --save-allowed "$save_allowed"
 
       - name: Save exact Telegram request checkpoint
         if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
@@ -361,3 +406,56 @@ jobs:
             --job-status "$TELEGRAM_JOB_STATUS" \
             --topic "${TELEGRAM_REQUEST_TOPIC:-}" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+
+      - name: Record Telegram production terminal history
+        if: always()
+        continue-on-error: true
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          TELEGRAM_JOB_STATUS: ${{ job.status }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          test -n "${TELEGRAM_REQUEST_STATE_ROOT:-}" || exit 0
+          case "${TELEGRAM_REQUEST_SCOPE:-}" in
+            short) fmt=short ;;
+            podcast) fmt=podcast ;;
+            long|bundle) fmt=film ;;
+            *) exit 0 ;;
+          esac
+          final_published=false
+          if [ "$TELEGRAM_JOB_STATUS" = "success" ]; then
+            final_published=true
+          fi
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.email "actions@users.noreply.github.com"
+          recorded=false
+          for attempt in 1 2 3; do
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" fetch --quiet origin "$STATE_BRANCH"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" reset --quiet --hard "origin/$STATE_BRANCH"
+            python scripts/telegram_clean_v2_control.py record-production-terminal \
+              --state "$TELEGRAM_REQUEST_STATE" \
+              --request-id "$REQUEST_ID" \
+              --request-sha256 "$REQUEST_SHA256" \
+              --run-id "$GITHUB_RUN_ID" \
+              --run-attempt "$GITHUB_RUN_ATTEMPT" \
+              --job-status "$TELEGRAM_JOB_STATUS" \
+              --manifest "$CLEAN_V2_TELEGRAM_OUTPUT/$fmt/run-manifest.json" \
+              --artifact-id "${ARTIFACT_ID:-}" \
+              --artifact-name "clean-v2-telegram-$GITHUB_RUN_NUMBER" \
+              --artifact-url "${ARTIFACT_URL:-}" \
+              --final-published "$final_published"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" add "$STATE_FILE"
+            if git -C "$TELEGRAM_REQUEST_STATE_ROOT" diff --cached --quiet; then
+              recorded=true
+              break
+            fi
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" commit -m "state: record Telegram production terminal history"
+            if git -C "$TELEGRAM_REQUEST_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"; then
+              recorded=true
+              break
+            fi
+          done
+          test "$recorded" = "true"
