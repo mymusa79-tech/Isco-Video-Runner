@@ -663,8 +663,11 @@ def main() -> int:
     parser.add_argument("--delivery-key", required=True)
     parser.add_argument(
         "--published-parent-youtube-video-id",
-        default=str(os.environ.get("CLEAN_V2_PUBLISHED_PARENT_YOUTUBE_VIDEO_ID") or "").strip(),
-        help="Owner-confirmed YouTube id of an already-published long/podcast parent; metadata only.",
+        default="",
+        help=(
+            "Owner-confirmed YouTube id of an already-published long/podcast parent; "
+            "metadata only, never used to upload or modify YouTube."
+        ),
     )
     args = parser.parse_args()
 
