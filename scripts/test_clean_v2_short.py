@@ -538,8 +538,8 @@ class ShortHookBoundedRecoveryTests(unittest.TestCase):
                 {
                     "id": "s1",
                     "narration": (
-                        "قد تظن أن كثرة المهام تعني أنك تحتاج خطة أقوى كل صباح، لكن المشكلة الحقيقية "
-                        "أن يومك يبدأ أصلًا بأكثر مما تستطيع إنهاءه بهدوء ومن دون استنزاف."
+                        "لماذا تظن أن كثرة المهام تعني أنك تحتاج خطة أقوى كل صباح، لكن المشكلة الحقيقية "
+                        "أن يومك يبدأ أصلًا بأكثر مما تستطيع إنهاءه بهدوء ومن دون استنزاف؟"
                     ),
                 }
             ]
@@ -591,7 +591,7 @@ class ShortContractTests(unittest.TestCase):
         valid = {
             "title": "شورت",
             "sections": [
-                {"id": "s1", "narration": "قد لا تكون المشكلة في الدافع نفسه. حين تتوقف قليلًا ترى ما يحدث بوضوح."},
+                {"id": "s1", "narration": "لماذا أتوقف رغم أنني أريد أن أبدأ؟ حين أهدأ قليلًا أرى ما يحدث بوضوح."},
                 {"id": "s2", "narration": "الفكرة الصغيرة هنا أن تلاحظ اللحظة التي تنسحب فيها من الفعل، دون لوم أو مبالغة."},
                 {"id": "s3", "narration": "اختر حركة بسيطة تستطيع تنفيذها الآن، ثم دع الخطوة التالية تأتي بعد أن تبدأ."},
             ],
@@ -602,7 +602,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
 
         dialogue = json.loads(json.dumps(valid, ensure_ascii=False))
-        dialogue["sections"][0]["narration"] = "A: هل أبدأ الآن؟ B: نعم، بخطوة واحدة واضحة."
+        dialogue["sections"][0]["narration"] = "A: لم أبدأ رغم أن الوقت يمر. B: هل أبدأ الآن؟"
         with self.assertRaisesRegex(ShortFormatError, "single_voice"):
             validate_short_script(dialogue)
 
