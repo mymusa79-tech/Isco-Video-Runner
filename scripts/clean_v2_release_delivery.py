@@ -534,7 +534,6 @@ def publish_one(
         delivery_key=delivery_key,
         run_id=run_id,
         run_attempt=run_attempt,
-        published_parent_youtube_video_id=args.published_parent_youtube_video_id or None,
     )
     title = _release_title(kind, resolved_topic)
     _ensure_release(
@@ -685,6 +684,7 @@ def main() -> int:
         target_sha=target_sha,
         run_id=run_id,
         run_attempt=run_attempt,
+        published_parent_youtube_video_id=args.published_parent_youtube_video_id or None,
     )
     print(json.dumps({"status": "pass", "deliveries": results}, ensure_ascii=False, sort_keys=True))
     return 0
