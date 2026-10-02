@@ -579,7 +579,7 @@ def _timeline_section_durations(
     output_dir: Path,
     section_ids: list[str],
     total_seconds: float,
-) -> list[float]:
+) -> tuple[list[float], str]:
     """Prefer measured Timeline First section spans; fall back deterministically."""
     path = Path(output_dir) / "timeline-first.json"
     try:
@@ -603,9 +603,9 @@ def _timeline_section_durations(
             durations[section_id] = durations.get(section_id, 0.0) + span
 
     if all(durations.get(section_id, 0.0) > 0 for section_id in section_ids):
-        return [durations[section_id] for section_id in section_ids]
+        return [durations[section_id] for section_id in section_ids], "timeline-first"
     equal = max(0.0, float(total_seconds)) / max(1, len(section_ids))
-    return [equal for _ in section_ids]
+    return [equal for _ in section_ids], "equal-fallback"
 
 
 def apply_contextual_cta_overlay(
@@ -643,7 +643,7 @@ def apply_contextual_cta_overlay(
     if not section_ids:
         raise RuntimeError("contextual CTA requires script section ids")
     total = probe_duration(Path(narration_path))
-    section_durations = _timeline_section_durations(
+    section_durations, section_duration_source = _timeline_section_durations(
         output_dir,
         section_ids,
         total,
@@ -683,11 +683,7 @@ def apply_contextual_cta_overlay(
         "one_contextual_longform_cta",
     )
     report["spoken_fraction_estimate"] = spoken_fraction
-    report["section_duration_source"] = (
-        "timeline-first"
-        if (Path(output_dir) / "timeline-first.json").is_file()
-        else "equal-fallback"
-    )
+    report["section_duration_source"] = section_duration_source
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
