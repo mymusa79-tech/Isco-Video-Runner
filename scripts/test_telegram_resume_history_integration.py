@@ -69,9 +69,16 @@ class TelegramResumeHistoryIntegrationTests(unittest.TestCase):
         }
         with mock.patch.object(control, "_resume_decision_for_request", return_value=decision):
             text, keyboard = control._history_request_view(state, request["request_id"])
-        callbacks = [button["callback_data"] for row in keyboard for button in row]
+        callbacks = [
+            button["callback_data"]
+            for row in keyboard
+            for button in row
+            if "callback_data" in button
+        ]
+        disabled = [button for row in keyboard for button in row if "disabled" in button]
         self.assertIn("checkpoint غير موجود", text)
         self.assertFalse(any(value.startswith("resume:") for value in callbacks))
+        self.assertEqual(disabled, [{"text": "⛔ استئناف غير متاح", "disabled": {}}])
         self.assertIn("restart:req-history", callbacks)
 
     def test_restart_creates_new_request_and_requires_normal_confirmation(self):
