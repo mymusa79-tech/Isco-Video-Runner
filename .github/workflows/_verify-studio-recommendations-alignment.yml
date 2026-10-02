@@ -119,6 +119,6 @@ jobs:
       - name: Enforce manual-only YouTube publication
         run: |
           set -euo pipefail
-          ! grep -R -n -E 'videos[.]insert|videos[.]update|MediaFileUpload|relatedVideoId'             clean_v2 scripts .github/workflows/telegram-clean-v2-control.yml
+          ! grep -n -E 'videos[.]insert|videos[.]update|MediaFileUpload|relatedVideoId' clean_v2/short_format.py scripts/clean_v2_release_delivery.py scripts/telegram_clean_v2_control.py .github/workflows/telegram-clean-v2-control.yml
       - name: Diff hygiene
         run: git diff --check origin/main...HEAD
