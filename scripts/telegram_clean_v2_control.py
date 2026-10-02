@@ -1266,10 +1266,32 @@ def _history_scope_label(scope: str) -> str:
     }.get(str(scope or ""), "إنتاج")
 
 
+def _history_topic_published(
+    request: dict[str, Any],
+    used_records: list[dict[str, str]],
+) -> bool:
+    kind = _library_kind_for_scope(str(request.get("scope") or ""))
+    topic = str(request.get("approved_topic") or "").strip()
+    return bool(
+        kind
+        and topic
+        and any(
+            str(item.get("kind") or "") == kind
+            and same_topic(topic, str(item.get("topic") or ""))
+            for item in used_records
+        )
+    )
+
+
 def _history_view(
     state: dict[str, Any],
 ) -> tuple[str, list[list[dict[str, str]]]]:
-    items = resume_history.incomplete_requests(state)
+    used_records = _release_library_records()
+    items = [
+        request
+        for request in resume_history.incomplete_requests(state)
+        if not _history_topic_published(request, used_records)
+    ]
     lines = [
         "📚 المحفوظات",
         "",
@@ -1304,6 +1326,14 @@ def _history_view(
 
 
 def _resume_decision_for_request(request: dict[str, Any]) -> dict[str, Any]:
+    if _history_topic_published(request, _release_library_records()):
+        return {
+            "available": False,
+            "reason": "هذا الموضوع منشور نهائيًا بالفعل.",
+            "completed_stage": "",
+            "stage_label": "",
+            "run_id": str((request.get("production") or {}).get("run_id") or ""),
+        }
     return resume_history.evaluate_resume(
         request,
         current_runner_sha=_history_current_runner_sha(),
