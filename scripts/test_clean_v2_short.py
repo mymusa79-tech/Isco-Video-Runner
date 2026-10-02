@@ -371,7 +371,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         cohort6_shape = _plan(
             [
-                "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
+                "tense hands gripping unfinished notebook under deadline pressure at wooden table",
                 "close-up of hands holding a half-empty glass of water person hesitating before taking a sip quiet indoor setting",
                 "quiet person writing one word in notebook then closing it with a slight smile hands resting on the page",
             ]
@@ -393,7 +393,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ShortFormatError,
-            "inner_dialogue_hook_not_readable",
+            "short_visual_query_hook_requires_immediate_tension",
         ):
             validate_short_visual_queries(generic, fixture["brief"])
 
@@ -1469,7 +1469,7 @@ class ShortContractTests(unittest.TestCase):
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(
             [
-                "thoughtful person alone walking slowly in quiet room",
+                "tense person pacing around unfinished task under deadline pressure",
                 "reflective person alone writing in notebook at desk",
                 "quiet contemplative person writing on paper at desk",
             ]
