@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 
 # Literal Clean V2 port of the tested legacy cinematic_cta.py behavior.
-CTA_CONTRACT_VERSION = "contextual-cta-v1"
+CTA_CONTRACT_VERSION = "contextual-cta-v2"
 MIN_CTA_START_SECONDS = 30.5
 FINAL_QUIET_SECONDS = 12.0
 DEFAULT_VISUAL_SECONDS = 3.6
@@ -166,13 +166,69 @@ def infer_cta_mode(cta_text: str) -> tuple[CtaMode, str]:
     return CtaMode.NONE, "no_supported_action"
 
 
-def _choose_anchor_section(plan: Any) -> Any | None:
+def _choose_anchor_section(plan: Any, mode: CtaMode) -> Any | None:
+    """Choose one earned long-form CTA position without touching the hook/payoff.
+
+    Film normally has five sections. Podcast may legitimately have only two, so
+    a two-section episode uses the second section but the insertion helper keeps
+    the CTA before that section's closing sentence.
+    """
     sections = list(getattr(plan, "sections", []) or [])
-    if len(sections) < 3:
+    if len(sections) < 2:
         return None
-    index = round((len(sections) - 1) * 0.58)
-    index = max(1, min(len(sections) - 2, index))
+    fmt = str(getattr(plan, "format", "") or "")
+    ratios = {
+        CtaMode.COMMENT: 0.56,
+        CtaMode.LIKE: 0.54,
+        CtaMode.SHARE: 0.68,
+        CtaMode.SUBSCRIBE: 0.72,
+    }
+    ratio = ratios.get(mode, 0.58)
+    if fmt == "podcast":
+        ratio = max(ratio, 0.62)
+    index = round((len(sections) - 1) * ratio)
+    index = max(1, min(len(sections) - 1, index))
+    if len(sections) >= 3:
+        index = min(index, len(sections) - 2)
     return sections[index]
+
+
+def _spoken_cta(authored: str, mode: CtaMode) -> str:
+    """Keep the Planning-authored CTA intact only when it is concise and complete."""
+    text = _compact(authored)
+    if not text:
+        return ""
+    if len(text.split()) > MAX_SPOKEN_WORDS:
+        return ""
+    inferred, _ = infer_cta_mode(text)
+    if inferred != mode:
+        return ""
+    if text[-1] not in ".!؟":
+        text += "."
+    return text
+
+
+def _insert_spoken_cta(narration: str, spoken_text: str) -> tuple[str, int]:
+    """Insert at a natural late-body sentence boundary and return its word offset."""
+    narration = _compact(narration)
+    spoken_text = _compact(spoken_text)
+    if not narration or not spoken_text:
+        return narration, -1
+    if spoken_text in narration:
+        prefix = narration.split(spoken_text, 1)[0]
+        return narration, len(prefix.split())
+
+    sentences = [item.strip() for item in _SENTENCE_END.split(narration) if item.strip()]
+    if len(sentences) <= 1:
+        return f"{narration} {spoken_text}".strip(), len(narration.split())
+
+    # Preserve the final sentence as the section's narrative landing. This makes
+    # the CTA feel like a brief aside after value, then immediately returns to
+    # the episode instead of ending the section on promotion.
+    before = " ".join(sentences[:-1]).strip()
+    after = sentences[-1]
+    insertion_words = len(before.split())
+    return f"{before} {spoken_text} {after}".strip(), insertion_words
 
 
 def _screen_copy(mode: CtaMode, authored: str) -> tuple[str, str]:
@@ -208,7 +264,7 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
             CTA_CONTRACT_VERSION, mode, None, "", "", "", True, reason
         )
 
-    anchor = _choose_anchor_section(plan)
+    anchor = _choose_anchor_section(plan, mode)
     if anchor is None:
         return CtaBinding(
             CTA_CONTRACT_VERSION,
@@ -221,19 +277,30 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
             "no_safe_anchor_section",
         )
 
+    spoken = _spoken_cta(authored, mode)
+    if not spoken:
+        return CtaBinding(
+            CTA_CONTRACT_VERSION,
+            CtaMode.NONE,
+            None,
+            "",
+            "",
+            "",
+            True,
+            "spoken_cta_not_concise_or_invalid",
+        )
     primary, secondary = _screen_copy(mode, authored)
 
-    # Approved CTA contract: every CTA is visual-only. The plan's authored
-    # action selects which approved asset is shown, but narration is never
-    # mutated and no social request is spoken aloud.
+    # Film/Podcast own exactly one contextual spoken CTA. Short remains excluded
+    # above. The visual asset is scheduled against this same spoken request.
     return CtaBinding(
         CTA_CONTRACT_VERSION,
         mode,
         str(getattr(anchor, "id", "")) or None,
-        "",
+        spoken,
         primary,
         secondary,
-        True,
+        False,
         reason,
     )
 
@@ -264,7 +331,7 @@ def schedule_cta(
     if section_end <= MIN_CTA_START_SECONDS or latest_end <= MIN_CTA_START_SECONDS:
         return None
 
-    desired_start = section_start + max(0.8, (section_end - section_start) * 0.68)
+    desired_start = section_start + max(0.8, (section_end - section_start) * 0.72)
     start = max(MIN_CTA_START_SECONDS, desired_start)
     end = min(start + DEFAULT_VISUAL_SECONDS, section_end - 0.35, latest_end)
     if end - start < 2.2:
@@ -413,12 +480,25 @@ def bind_contextual_cta_to_script(
     )
     binding = bind_contextual_cta(runtime_plan)
 
-    by_id = {str(section.id): str(section.narration) for section in sections}
-    for item in script.get("sections") or []:
-        if isinstance(item, dict):
-            section_id = str(item.get("id") or "")
-            if section_id in by_id:
-                item["narration"] = by_id[section_id]
+    insertion_word_offset = None
+    if (
+        binding.mode != CtaMode.NONE
+        and binding.anchor_section_id
+        and binding.spoken_text
+        and not binding.visual_only
+    ):
+        for item in script.get("sections") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "") != binding.anchor_section_id:
+                continue
+            updated, offset = _insert_spoken_cta(
+                str(item.get("narration") or ""),
+                binding.spoken_text,
+            )
+            item["narration"] = updated
+            insertion_word_offset = offset
+            break
 
     report_path = Path(output_dir) / "cta-plan.json"
     write_cta_report(report_path, binding, None)
@@ -426,6 +506,8 @@ def bind_contextual_cta_to_script(
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
+    report["spoken_insertion_word_offset"] = insertion_word_offset
+    report["spoken_alignment_policy"] = "one_contextual_longform_cta"
     report["render_status"] = "pending"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
