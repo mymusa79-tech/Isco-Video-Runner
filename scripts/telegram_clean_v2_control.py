@@ -18,8 +18,10 @@ from typing import Any
 
 try:
     from scripts.research_relevance_filter import market_sample_relevance
+    from scripts import telegram_resume_history as resume_history
 except ModuleNotFoundError:
     from research_relevance_filter import market_sample_relevance
+    import telegram_resume_history as resume_history
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -1243,6 +1245,182 @@ def _used_library_view(kind: str) -> tuple[str, list[list[dict[str, str]]]]:
     return "\n".join(lines), [[{"text": "↩️ المستعملة", "callback_data": "library:used"}]]
 
 
+def _history_current_runner_sha() -> str:
+    return str(
+        os.environ.get("CURRENT_RUNNER_SHA")
+        or os.environ.get("GITHUB_SHA")
+        or ""
+    ).strip()
+
+
+def _history_current_engine_sha() -> str:
+    return str(os.environ.get("ISCO_ENGINE_SHA") or "").strip()
+
+
+def _history_scope_label(scope: str) -> str:
+    return {
+        "long": "🎬 فيديو طويل",
+        "bundle": "🎬 فيديو طويل",
+        "short": "⚡ شورت",
+        "podcast": "🎙️ خارج النص",
+    }.get(str(scope or ""), "إنتاج")
+
+
+def _history_view(
+    state: dict[str, Any],
+) -> tuple[str, list[list[dict[str, str]]]]:
+    items = resume_history.incomplete_requests(state)
+    lines = [
+        "📚 المحفوظات",
+        "",
+        "طلبات الإنتاج غير المكتملة أو غير المنشورة نهائيًا؛ الأحدث أولًا.",
+    ]
+    keyboard: list[list[dict[str, str]]] = []
+    if not items:
+        lines.extend(["", "لا توجد طلبات غير مكتملة حاليًا."])
+    else:
+        lines.append("")
+        for request in items[:30]:
+            title = str(request.get("approved_topic") or "").strip()
+            request_id = str(request.get("request_id") or "").strip()
+            if not request_id:
+                continue
+            status = resume_history.request_status_label(request)
+            lines.append(f"• {title} — {status}")
+            short_title = title if len(title) <= 38 else title[:35].rstrip() + "…"
+            keyboard.append(
+                [{
+                    "text": f"📌 {short_title}",
+                    "callback_data": f"history:{request_id}",
+                }]
+            )
+        if len(items) > 30:
+            lines.append(f"\n+ {len(items) - 30} طلبًا أقدم غير معروض.")
+    keyboard.append(
+        [{"text": "💡 أفكار البحث المحفوظة", "callback_data": "library:saved"}]
+    )
+    keyboard.append([{"text": "↩️ الرئيسية", "callback_data": "main:home"}])
+    return "\n".join(lines), keyboard
+
+
+def _resume_decision_for_request(request: dict[str, Any]) -> dict[str, Any]:
+    return resume_history.evaluate_resume(
+        request,
+        current_runner_sha=_history_current_runner_sha(),
+        current_engine_sha=_history_current_engine_sha(),
+        github_json=resume_history.github_json,
+        github_bytes=resume_history.github_bytes,
+    )
+
+
+def _history_request_view(
+    state: dict[str, Any],
+    request_id: str,
+) -> tuple[str, list[list[dict[str, str]]]]:
+    request = state.get("requests", {}).get(request_id)
+    if not isinstance(request, dict):
+        raise RuntimeError("history request is missing")
+    topic = str(request.get("approved_topic") or "").strip()
+    lines = [
+        "📌 طلب غير مكتمل",
+        "",
+        f"الموضوع: {topic}",
+        f"النوع: {_history_scope_label(str(request.get('scope') or ''))}",
+        f"الحالة: {resume_history.request_status_label(request)}",
+    ]
+    decision = _resume_decision_for_request(request)
+    keyboard: list[list[dict[str, str]]] = []
+    if decision.get("available") is True:
+        stage_label = str(decision.get("stage_label") or decision.get("completed_stage") or "")
+        lines.extend(
+            [
+                "",
+                "✅ الاستئناف متاح",
+                f"سيستكمل من: {stage_label}",
+                f"GitHub Run الأصلي: #{decision.get('run_id')}",
+            ]
+        )
+        keyboard.append(
+            [{
+                "text": f"▶️ استئناف من {stage_label}",
+                "callback_data": f"resume:{request_id}",
+            }]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "⛔ الاستئناف غير متاح",
+                f"السبب: {str(decision.get('reason') or 'تعذر إثبات checkpoint صالح.')}",
+                "الخيار المتاح: بدء طلب جديد من الصفر.",
+            ]
+        )
+    keyboard.append(
+        [{"text": "🆕 بدء من جديد", "callback_data": f"restart:{request_id}"}]
+    )
+    keyboard.append([{"text": "↩️ المحفوظات", "callback_data": "main:saved"}])
+    return "\n".join(lines), keyboard
+
+
+def restart_request_from_history(
+    state: dict[str, Any],
+    request_id: str,
+) -> dict[str, Any]:
+    old = state.get("requests", {}).get(request_id)
+    if not isinstance(old, dict):
+        raise RuntimeError("history request is missing")
+    production = old.get("production")
+    if isinstance(production, dict) and production.get("final_published") is True:
+        raise RuntimeError("published request cannot be restarted from incomplete history")
+    pack = [dict(item) for item in old.get("research_pack", []) if isinstance(item, dict)]
+    if not pack:
+        raise RuntimeError("history request has no research pack")
+    new_id = "req-" + secrets.token_hex(6)
+    request: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": new_id,
+        "source": str(old.get("source") or "clean_v2_telegram_editorial_lite"),
+        "scope": str(old.get("scope") or ""),
+        "approved_by_user": True,
+        "approved_topic": str(old.get("approved_topic") or ""),
+        "research_pack": pack,
+        "idea_id": str(old.get("idea_id") or ""),
+        "selected_at": utc_now(),
+        "status": "awaiting_confirmation",
+        "confirmed_at": None,
+        "dispatched_at": None,
+    }
+    if request["scope"] not in SCOPES or not request["approved_topic"]:
+        raise RuntimeError("history request cannot be restarted safely")
+    request["request_sha256"] = _request_hash(request)
+    state["requests"][new_id] = request
+    state["current_request_id"] = new_id
+    return request
+
+
+def request_resume_rerun(
+    state: dict[str, Any],
+    request_id: str,
+) -> dict[str, Any]:
+    request = state.get("requests", {}).get(request_id)
+    if not isinstance(request, dict):
+        raise RuntimeError("history request is missing")
+    decision = _resume_decision_for_request(request)
+    if decision.get("available") is not True:
+        return decision
+    run_id = str(decision.get("run_id") or "").strip()
+    if not run_id:
+        raise RuntimeError("resume decision is missing original run id")
+    resume_history.rerun_workflow(run_id)
+    production = request.get("production")
+    if not isinstance(production, dict):
+        raise RuntimeError("resume request production metadata is missing")
+    production["last_job_status"] = "rerun_requested"
+    production["resume_requested_at"] = utc_now()
+    production["resume_requested_from_stage"] = str(decision.get("completed_stage") or "")
+    return decision
+
+
 def select_saved_candidate(state: dict[str, Any], scope: str, idea_id: str) -> dict[str, Any]:
     if scope not in SCOPES:
         raise RuntimeError("unsupported saved selection scope")
@@ -1408,7 +1586,11 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                     scope_keyboard(),
                 )
                 return
-            if action in {"saved", "used"}:
+            if action == "saved":
+                history_text, history_keyboard = _history_view(state)
+                send_telegram(history_text, history_keyboard)
+                return
+            if action == "used":
                 library_text, library_keyboard = _library_menu(state, action)
                 send_telegram(library_text, library_keyboard)
                 return
@@ -1454,6 +1636,57 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 )
                 return
             raise RuntimeError("unsupported main-menu callback")
+        if data.startswith("history:"):
+            request_id = data.split(":", 1)[1].strip()
+            try:
+                history_text, history_keyboard = _history_request_view(state, request_id)
+            except Exception:
+                send_telegram(
+                    "⚠️ تعذر فتح سجل هذا الطلب الآن.",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            send_telegram(history_text, history_keyboard)
+            return
+        if data.startswith("resume:"):
+            request_id = data.split(":", 1)[1].strip()
+            try:
+                decision = request_resume_rerun(state, request_id)
+            except Exception as exc:
+                print(f"Telegram resume rerun failed: {type(exc).__name__}")
+                send_telegram(
+                    "⚠️ لم يقبل GitHub طلب الاستئناف. لم يبدأ أي تشغيل جديد.",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            if decision.get("available") is not True:
+                send_telegram(
+                    "⛔ الاستئناف لم يعد متاحًا.\n"
+                    f"السبب: {str(decision.get('reason') or 'checkpoint لم يعد صالحًا.')}",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            send_telegram(
+                "▶️ تم طلب الاستئناف اليدوي لنفس GitHub Run الأصلي.\n"
+                f"سيستكمل من: {str(decision.get('stage_label') or decision.get('completed_stage') or '')}\n"
+                f"Run: #{str(decision.get('run_id') or '')}"
+            )
+            return
+        if data.startswith("restart:"):
+            request_id = data.split(":", 1)[1].strip()
+            try:
+                request = restart_request_from_history(state, request_id)
+            except Exception:
+                send_telegram(
+                    "⚠️ تعذر إنشاء طلب جديد من هذا السجل.",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            send_telegram(
+                render_selection_confirmation(request),
+                selection_confirmation_keyboard(request),
+            )
+            return
         if data in {"library:saved", "library:used"}:
             bucket = data.split(":", 1)[1]
             library_text, library_keyboard = _library_menu(state, bucket)
@@ -1529,8 +1762,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         )
         return
     if text in {"/saved", "saved", "محفوظات", "المحفوظات"}:
-        library_text, library_keyboard = _library_menu(state, "saved")
-        send_telegram(library_text, library_keyboard)
+        history_text, history_keyboard = _history_view(state)
+        send_telegram(history_text, history_keyboard)
         return
     if text in {"/used", "used", "مستعملة", "المستعملة"}:
         library_text, library_keyboard = _library_menu(state, "used")
@@ -1652,6 +1885,30 @@ def main() -> int:
     brief.add_argument("--format", choices=("film", "short", "podcast"), required=True)
     brief.add_argument("--output", type=Path, required=True)
 
+    record_start = sub.add_parser("record-production-start")
+    record_start.add_argument("--state", type=Path, required=True)
+    record_start.add_argument("--request-id", required=True)
+    record_start.add_argument("--request-sha256", required=True)
+    record_start.add_argument("--run-id", required=True)
+    record_start.add_argument("--run-attempt", required=True)
+    record_start.add_argument("--run-url", required=True)
+    record_start.add_argument("--runner-sha", required=True)
+    record_start.add_argument("--engine-sha", required=True)
+    record_start.add_argument("--resume-cache-key", required=True)
+
+    record_terminal = sub.add_parser("record-production-terminal")
+    record_terminal.add_argument("--state", type=Path, required=True)
+    record_terminal.add_argument("--request-id", required=True)
+    record_terminal.add_argument("--request-sha256", required=True)
+    record_terminal.add_argument("--run-id", required=True)
+    record_terminal.add_argument("--run-attempt", required=True)
+    record_terminal.add_argument("--job-status", required=True)
+    record_terminal.add_argument("--manifest", type=Path, required=True)
+    record_terminal.add_argument("--artifact-id", default="")
+    record_terminal.add_argument("--artifact-name", default="")
+    record_terminal.add_argument("--artifact-url", default="")
+    record_terminal.add_argument("--final-published", choices=("true", "false"), required=True)
+
     args = parser.parse_args()
     state = load_state(args.state)
 
@@ -1670,6 +1927,59 @@ def main() -> int:
         append_youtube_snapshot(state, snapshot_value)
         save_state(args.state, state)
         print(json.dumps(snapshot_value, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.command == "record-production-start":
+        request = state.get("requests", {}).get(args.request_id)
+        if (
+            not isinstance(request, dict)
+            or request.get("request_sha256") != args.request_sha256
+            or args.request_sha256 != _request_hash(request)
+        ):
+            raise RuntimeError("production history request integrity mismatch")
+        updated = resume_history.record_production_start(
+            state,
+            request_id=args.request_id,
+            request_sha256=args.request_sha256,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
+            run_url=args.run_url,
+            runner_sha=args.runner_sha,
+            engine_sha=args.engine_sha,
+            resume_cache_key=args.resume_cache_key,
+        )
+        save_state(args.state, state)
+        print(json.dumps({"request_id": updated["request_id"], "production": updated["production"]}, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.command == "record-production-terminal":
+        request = state.get("requests", {}).get(args.request_id)
+        if (
+            not isinstance(request, dict)
+            or request.get("request_sha256") != args.request_sha256
+            or args.request_sha256 != _request_hash(request)
+        ):
+            raise RuntimeError("production history request integrity mismatch")
+        manifest_status = "missing"
+        try:
+            manifest_value = json.loads(args.manifest.read_text(encoding="utf-8"))
+            if isinstance(manifest_value, dict):
+                manifest_status = str(manifest_value.get("status") or "unknown")
+        except (OSError, ValueError, TypeError):
+            pass
+        updated = resume_history.record_production_terminal(
+            state,
+            request_id=args.request_id,
+            request_sha256=args.request_sha256,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
+            job_status=args.job_status,
+            manifest_status=manifest_status,
+            artifact_id=args.artifact_id,
+            artifact_name=args.artifact_name,
+            artifact_url=args.artifact_url,
+            final_published=args.final_published == "true",
+        )
+        save_state(args.state, state)
+        print(json.dumps({"request_id": updated["request_id"], "production": updated["production"]}, ensure_ascii=False, sort_keys=True))
         return 0
     materialize_brief(state, args.request_id, args.request_sha256, args.format, args.output)
     print(json.dumps({"request_id": args.request_id, "format": args.format, "output": str(args.output)}))
