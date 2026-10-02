@@ -105,7 +105,7 @@ _STRONG_SEMANTIC_ACTION_RE = re.compile(
     r"cross|crossing|sort|sorting|separate|separating|switch|switching|rank|ranking|"
     r"narrow|narrowing|discard|discarding|reduce|reducing|arrange|arranging|mark|marking|"
     r"check|checking|complete|completed|finish|finished|pick|picking|conflict|conflicting|"
-    r"unequal|different|contrast|contrasting)\\b",
+    r"unequal|different|contrast|contrasting|unfinished|blocked|interrupted)\\b",
     re.IGNORECASE,
 )
 
