@@ -40,6 +40,7 @@ MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
 MISTRAL_SHORT_S3_COMPLIANCE — mandatory preflight before returning JSON:
 - LOCKED_PLAN.practical_action_ar is host-owned and will be appended by runtime after validation. Do NOT write, repeat, paraphrase, or replace it.
 - Isolate s3 and write at least one complete descriptive payoff/explanation sentence that resolves the same hook tension.
+- Return that authored Short closing text in the s3_payoff field. Do not return a narration field for s3 and never return s3_locked_action; runtime injects the Planning-owned action.
 - Every authored s3 sentence must contain ZERO practical-action/imperative markers and ZERO occurrences or derivatives of the forbidden action families already listed in SHORT_FORMAT_CONTRACT.
 - If any s3 sentence contains advice or an action-family term, rewrite that sentence as a purely descriptive state/result and rescan s3 from the beginning.
 - Do not rely on downstream repair or trimming to fix Hook or s3.
@@ -861,18 +862,37 @@ def _mistral_script_response_schema(prompt: str) -> dict[str, Any]:
     if not 1 <= len(section_ids) <= 5 or len(section_ids) != len(set(section_ids)):
         raise NoWireFailure("mistral_script_locked_plan_invalid_ids")
 
-    section_schemas = [
-        {
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "const": section_id},
-                "narration": {"type": "string", "minLength": 20},
-            },
-            "required": ["id", "narration"],
-            "additionalProperties": False,
-        }
-        for section_id in section_ids
-    ]
+    short_s3_id = (
+        section_ids[-1]
+        if len(section_ids) == 3 and str(plan.get("practical_action_ar") or "").strip()
+        else ""
+    )
+    section_schemas = []
+    for section_id in section_ids:
+        if section_id == short_s3_id:
+            section_schemas.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "const": section_id},
+                        "s3_payoff": {"type": "string", "minLength": 20},
+                    },
+                    "required": ["id", "s3_payoff"],
+                    "additionalProperties": False,
+                }
+            )
+        else:
+            section_schemas.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "const": section_id},
+                        "narration": {"type": "string", "minLength": 20},
+                    },
+                    "required": ["id", "narration"],
+                    "additionalProperties": False,
+                }
+            )
     return {
         "type": "object",
         "properties": {
@@ -939,13 +959,21 @@ def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
         str(item["properties"]["id"]["const"])
         for item in source["properties"]["sections"]["prefixItems"]
     ]
+    source_items = source["properties"]["sections"]["prefixItems"]
+    has_short_payoff = any("s3_payoff" in item["properties"] for item in source_items)
+    section_properties = {
+        "id": {"type": "string", "enum": section_ids},
+        "narration": {"type": "string"},
+    }
+    if has_short_payoff:
+        # Groq's response schema uses one reusable item shape rather than
+        # prefixItems. Permit the one Short-only payoff key here; validate_script
+        # still enforces narration for s1/s2 and s3_payoff for s3 locally.
+        section_properties["s3_payoff"] = {"type": "string"}
     section_schema = {
         "type": "object",
-        "properties": {
-            "id": {"type": "string", "enum": section_ids},
-            "narration": {"type": "string"},
-        },
-        "required": ["id", "narration"],
+        "properties": section_properties,
+        "required": ["id"],
         "additionalProperties": False,
     }
     return {
