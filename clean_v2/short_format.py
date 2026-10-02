@@ -1428,14 +1428,14 @@ def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
             f"short_hook_too_long words={hook_words} maximum={SHORT_HOOK_RESCUE_MAX_WORDS}"
         )
 
-    tension_shape = validate_short_hook_immediate_tension(hook)
-
     hook_key = _semantic_key(hook)
     if any(
         hook_key == prefix or hook_key.startswith(prefix + " ")
         for prefix in _GREETING_PREFIXES
     ):
         raise ShortFormatError("short_hook_must_not_start_with_greeting")
+
+    tension_shape = validate_short_hook_immediate_tension(hook)
 
     return {
         "hook": hook,
