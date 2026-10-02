@@ -309,6 +309,8 @@ def schedule_cta(
     binding: CtaBinding,
     section_ids: list[str],
     section_durations: list[float],
+    *,
+    spoken_fraction: float | None = None,
 ) -> CtaSchedule | None:
     if binding.mode == CtaMode.NONE or not binding.anchor_section_id:
         return None
@@ -331,7 +333,14 @@ def schedule_cta(
     if section_end <= MIN_CTA_START_SECONDS or latest_end <= MIN_CTA_START_SECONDS:
         return None
 
-    desired_start = section_start + max(0.8, (section_end - section_start) * 0.72)
+    if spoken_fraction is None:
+        anchor_fraction = 0.72
+    else:
+        anchor_fraction = max(0.40, min(0.90, float(spoken_fraction)))
+    desired_start = section_start + max(
+        0.8,
+        (section_end - section_start) * anchor_fraction,
+    )
     start = max(MIN_CTA_START_SECONDS, desired_start)
     end = min(start + DEFAULT_VISUAL_SECONDS, section_end - 0.35, latest_end)
     if end - start < 2.2:
@@ -448,7 +457,8 @@ def write_cta_report(
             "opening_cta_forbidden_before_seconds": MIN_CTA_START_SECONDS,
             "final_quiet_seconds": FINAL_QUIET_SECONDS,
             "one_primary_action": True,
-            "like_visual_only": True,
+            "short_spoken_social_cta_forbidden": True,
+            "longform_spoken_cta_count": 1 if binding.spoken_text else 0,
             "provider_calls": 0,
             "action_accent_rgb": "#D7A85B",
         },
@@ -552,14 +562,41 @@ def apply_contextual_cta_overlay(
         raise RuntimeError("contextual CTA requires script section ids")
     total = probe_duration(Path(narration_path))
     section_seconds = total / len(section_ids)
+    spoken_fraction = None
+    raw_offset = raw.get("spoken_insertion_word_offset")
+    if (
+        binding.anchor_section_id
+        and isinstance(raw_offset, int)
+        and raw_offset >= 0
+        and binding.spoken_text
+    ):
+        anchor_narration = next(
+            (
+                str(item.get("narration") or "")
+                for item in (script.get("sections") or [])
+                if isinstance(item, Mapping)
+                and str(item.get("id") or "") == binding.anchor_section_id
+            ),
+            "",
+        )
+        total_words = max(1, len(_compact(anchor_narration).split()))
+        spoken_fraction = min(0.95, raw_offset / total_words)
+
     schedule = schedule_cta(
         binding,
         section_ids,
         [section_seconds for _ in section_ids],
+        spoken_fraction=spoken_fraction,
     )
     write_cta_report(report_path, binding, schedule)
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["spoken_insertion_word_offset"] = raw.get("spoken_insertion_word_offset")
+    report["spoken_alignment_policy"] = raw.get(
+        "spoken_alignment_policy",
+        "one_contextual_longform_cta",
+    )
+    report["spoken_fraction_estimate"] = spoken_fraction
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
