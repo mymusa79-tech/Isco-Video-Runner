@@ -5619,6 +5619,17 @@ def _script_prompt(
         if fmt == "short"
         else ""
     )
+    podcast_hook_guidance = (
+        "For podcast / خارج النص, audit the FIRST spoken sentence against the same hook-quality "
+        "logic used for Short before returning JSON: hook_specificity must be true because the hook "
+        "names the concrete tension, behavior, consequence, distinction, or mechanism unique to THIS "
+        "episode; hook_honesty must be true because the body and payoff genuinely resolve what the hook "
+        "opens; hook_genericness must be false. If the hook could be reused unchanged for many unrelated "
+        "self-development episodes, or is only a broad rhetorical question, rewrite it around the exact "
+        "approved tension. Keep it truthful and natural; specificity must never become exaggeration or clickbait."
+        if fmt == "podcast"
+        else ""
+    )
     identity_handoff = (
         SHORT_CHANNEL_DEFINITION
         if fmt == "short"
@@ -5688,6 +5699,7 @@ hook is fully acceptable when the tension is specific. Avoid reusable motivation
 fit dozens of unrelated videos. The hook must open the SAME core tension the script will develop, and
 the later payoff must meaningfully resolve that tension; do not write a strong hook that the body
 abandons. {hook_length_guidance}
+{podcast_hook_guidance}
 
 Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
 runtime inserts exactly one approved prayer sentence and one channel-definition sentence immediately
