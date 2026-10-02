@@ -272,6 +272,31 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
             )
 
 
+    def test_related_video_id_is_null_unless_owner_explicitly_supplies_published_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._output(Path(tmp))
+            (root / "long-short.json").write_text(
+                json.dumps({"status": "pass", "section_id": "s2"}),
+                encoding="utf-8",
+            )
+            parent = delivery._main_publish_metadata(
+                root,
+                kind="long",
+                topic="فيديو طويل",
+            )
+            metadata = delivery._derived_short_publish_metadata(
+                root,
+                parent_kind="long",
+                parent=parent,
+                short_prefix="long-short",
+            )
+        self.assertIsNone(metadata["suggested_related_video_id"])
+        self.assertEqual(
+            metadata["related_video_assignment"],
+            "manual_youtube_studio",
+        )
+
+
     def test_invalid_published_parent_youtube_id_is_rejected_before_release(self):
         direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
         runner = FakeRunner(direct)
