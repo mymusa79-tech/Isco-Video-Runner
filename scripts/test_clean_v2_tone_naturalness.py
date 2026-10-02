@@ -37,6 +37,7 @@ from clean_v2.tone_audit import (
     _mistral_tone_call,
     _drop_noop_naturalness_replacements,
     _normalize_editorial_voice_advisory,
+    _drop_noop_naturalness_flags,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
     _enforce_hook_quality_contract,
@@ -235,6 +236,44 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             filtered["naturalness_flags"],
             payload["naturalness_flags"],
         )
+
+    def test_run59_literal_noop_naturalness_correction_restores_pass(self):
+        payload = _tone_result(status="block")
+        payload.update(
+            {
+                "provider": "groq",
+                "raw_result": {"status": "pass"},
+                "naturalness_flags": ["s2: 'نحن نظن' should be 'نحن نظن'"],
+                "section_dependency": True,
+                "topic_fidelity": True,
+            }
+        )
+        result = _drop_noop_naturalness_flags(payload)
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["naturalness_flags"], [])
+        self.assertEqual(
+            result["ignored_noop_naturalness_flags"],
+            ["s2: 'نحن نظن' should be 'نحن نظن'"],
+        )
+
+    def test_real_naturalness_correction_still_blocks(self):
+        payload = _tone_result(status="block")
+        payload.update(
+            {
+                "provider": "groq",
+                "raw_result": {"status": "pass"},
+                "naturalness_flags": ["s2: 'هذا التوقعات' should be 'هذه التوقعات'"],
+                "section_dependency": True,
+                "topic_fidelity": True,
+            }
+        )
+        result = _drop_noop_naturalness_flags(payload)
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(
+            result["naturalness_flags"],
+            ["s2: 'هذا التوقعات' should be 'هذه التوقعات'"],
+        )
+        self.assertNotIn("ignored_noop_naturalness_flags", result)
 
     def test_editorial_voice_advisory_never_forces_a_block(self):
         # Even a maximally "bad" advisory verdict (filler everywhere, payoff
