@@ -203,7 +203,7 @@ class ShortMistralS3PromptClarityTests(unittest.TestCase):
                 "sections": [
                     {
                         "id": "s1",
-                        "narration": "أحيانًا تعرف ما تريد فعله، لكنك تبقى مكانك لأن البداية تبدو أثقل من المهمة.",
+                        "narration": "تعرف ما تريد فعله، لكنك تبقى مكانك لأن البداية تبدو أثقل من المهمة.",
                     },
                     {
                         "id": "s2",
