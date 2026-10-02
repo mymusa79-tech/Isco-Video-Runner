@@ -449,7 +449,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "or an early concrete consequence/result. A generic descriptive setup by itself is rejected even when fluent. "
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
-        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
+        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST return only the descriptive closing text in s3_payoff and MUST NOT invent, repeat, paraphrase, or replace the action. Runtime injects that exact Planning value as s3_locked_action and materializes narration only after both fields pass local validation. "
         "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. It must not append a second action with ثم/و, an attached conjunction such as والتزم/واكتب, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. "
@@ -731,6 +731,127 @@ def validate_short_practical_action(value: object) -> str:
     if _word_count(sentence) > 18:
         raise ShortFormatError("short_practical_action_too_long")
     return sentence
+
+
+def validate_short_s3_contract(
+    s3_payoff: object,
+    s3_locked_action: object,
+) -> dict[str, Any]:
+    """Validate the existing Short s3 rules against two canonical fields.
+
+    This is the single local s3 validator. It never receives or reparses a
+    payoff+action narration string: payoff and Planning-owned action stay
+    structurally separate until this function succeeds.
+    """
+    payoff = _clean(s3_payoff)
+    action = _clean(s3_locked_action)
+
+    try:
+        validated_action = validate_short_practical_action(action)
+    except ShortFormatError as exc:
+        reason = str(exc)
+        if reason == "short_practical_action_must_begin_with_direct_imperative":
+            raise ShortFormatError(
+                "short_s3_action_must_begin_with_direct_imperative"
+            ) from exc
+        if reason == "short_practical_action_requires_one_action_only":
+            raise ShortFormatError(
+                "short_s3_requires_one_action_only imperative_markers="
+                f"{_practical_action_marker_count(action)}"
+            ) from exc
+        if reason == "short_practical_action_forbids_joined_second_action":
+            raise ShortFormatError("short_s3_forbids_joined_second_action") from exc
+        if reason in {
+            "short_practical_action_missing",
+            "short_practical_action_requires_one_sentence",
+        }:
+            raise ShortFormatError(
+                "short_s3_requires_exactly_one_practical_action action_sentences=0"
+            ) from exc
+        raise
+
+    payoff_sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!؟!])\s+", payoff)
+        if sentence.strip()
+    ]
+    if any(_contains_forbidden_action_family(sentence) for sentence in payoff_sentences):
+        raise ShortFormatError("short_s3_payoff_contains_forbidden_action_family")
+
+    return {
+        "s3_payoff": payoff,
+        "s3_locked_action": validated_action,
+        "practical_action_sentences": 1,
+        "practical_action_markers": _practical_action_marker_count(validated_action),
+    }
+
+
+def _legacy_short_s3_components(
+    narration: object,
+    *,
+    locked_action: object = "",
+) -> tuple[str, str]:
+    """Compatibility adapter for stored pre-refactor Short artifacts/tests only.
+
+    Fresh production candidates already carry s3_payoff and s3_locked_action.
+    This adapter is intentionally outside validate_short_s3_contract so the
+    canonical validator never has to split a merged sentence.
+    """
+    text = _clean(narration)
+    action = _clean(locked_action)
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", text)
+        if item.strip()
+    ]
+    if action:
+        payoff = " ".join(
+            item
+            for item in sentences
+            if _semantic_key(item) != _semantic_key(action)
+        ).strip()
+        if payoff == text:
+            payoff = " ".join(
+                item
+                for item in sentences
+                if _practical_action_marker_count(item) == 0
+            ).strip()
+        return payoff, action
+
+    action_indexes = [
+        index
+        for index, sentence in enumerate(sentences)
+        if _practical_action_marker_count(sentence) > 0
+    ]
+    if len(action_indexes) != 1:
+        return text, ""
+    action_index = action_indexes[0]
+    payoff = " ".join(
+        sentence for index, sentence in enumerate(sentences) if index != action_index
+    ).strip()
+    return payoff, sentences[action_index]
+
+
+def materialize_short_s3(script: dict[str, Any]) -> dict[str, Any]:
+    """Build final spoken s3 only after separate payoff/action validation succeeds."""
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        raise ShortFormatError("short_script_section_invalid")
+    s3 = sections[2]
+    report = validate_short_s3_contract(
+        s3.get("s3_payoff"),
+        s3.get("s3_locked_action"),
+    )
+    s3["s3_payoff"] = report["s3_payoff"]
+    s3["s3_locked_action"] = report["s3_locked_action"]
+    s3["narration"] = (
+        f"{report['s3_payoff']} {report['s3_locked_action']}".strip()
+    )
+    return report
 
 
 def _salvage_safe_payoff_clause(sentence: object) -> str:
@@ -1260,30 +1381,80 @@ def normalize_short_script_candidate(
     locked_payoff_answer: object = "",
     locked_practical_action: object = "",
 ) -> dict[str, bool]:
-    """Canonical deterministic Short normalization used at every script boundary."""
+    """Canonical deterministic Short normalization used at every script boundary.
+
+    s3 normalization is structural now: preserve the writer's descriptive payoff,
+    inject Planning's immutable action as a separate field, validate once, then
+    materialize narration. The old sentence-level s3 rescue helpers remain only
+    for backwards-compatible direct callers; production no longer chains them.
+    """
     hook_trimmed = apply_safe_short_hook_trim(script)
     hook_split = False if hook_trimmed else apply_safe_short_hook_split(script)
-    locked_action_applied = False
-    if _clean(locked_practical_action):
-        locked_action_applied = apply_locked_short_practical_action(
-            script,
-            locked_practical_action,
-            locked_payoff_answer=locked_payoff_answer,
-        )
-    action_prefix_trimmed = apply_safe_short_s3_action_prefix_trim(script)
-    s3_trimmed = apply_safe_short_s3_single_action_trim(script)
-    locked_payoff_fallback = apply_safe_short_s3_locked_payoff_fallback(
-        script,
-        locked_payoff_answer,
+
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        # Preserve the historical hook-only normalization surface used by
+        # focused hook tests/tools. Production Short scripts are still required
+        # to have exactly three sections by the outer contract.
+        return {
+            "hook_trimmed": bool(hook_split or hook_trimmed),
+            "s3_action_prefix_trimmed": False,
+            "s3_trimmed": False,
+            "s3_locked_payoff_fallback": False,
+        }
+
+    s3 = sections[2]
+    locked_action = _clean(
+        locked_practical_action or s3.get("s3_locked_action")
     )
-    action_prefix_trimmed_after_s3 = apply_safe_short_s3_action_prefix_trim(script)
+    action_normalized = False
+    if locked_action:
+        original_locked_action = locked_action
+        locked_action = validate_short_practical_action(
+            normalize_short_practical_action(locked_action)
+        )
+        action_normalized = locked_action != original_locked_action
+
+    payoff = _clean(s3.get("s3_payoff"))
+    if not payoff:
+        payoff, legacy_action = _legacy_short_s3_components(
+            s3.get("narration"),
+            locked_action=locked_action,
+        )
+        if not locked_action and legacy_action:
+            normalized_legacy_action = normalize_short_practical_action(legacy_action)
+            locked_action = validate_short_practical_action(normalized_legacy_action)
+            action_normalized = locked_action != _clean(legacy_action)
+
+    local_payoff_repair = False
+    if payoff and any(
+        _contains_forbidden_action_family(sentence)
+        for sentence in re.split(r"(?<=[.!؟!])\s+", payoff)
+        if sentence.strip()
+    ):
+        # Deterministic structure-only repair: salvage an already-present safe
+        # descriptive clause or the Planning/visual locked payoff. Never invent
+        # or paraphrase content and never spend another provider call.
+        salvaged = _salvage_safe_payoff_clause(payoff)
+        fallback = _safe_locked_payoff_text(locked_payoff_answer)
+        candidate = salvaged or fallback
+        if candidate:
+            payoff = candidate
+            local_payoff_repair = True
+
+    s3["s3_payoff"] = payoff
+    s3["s3_locked_action"] = locked_action
+    materialize_short_s3(script)
+
     return {
         "hook_trimmed": bool(hook_split or hook_trimmed),
-        "s3_action_prefix_trimmed": bool(
-            action_prefix_trimmed or action_prefix_trimmed_after_s3
-        ),
-        "s3_trimmed": bool(locked_action_applied or s3_trimmed),
-        "s3_locked_payoff_fallback": bool(locked_payoff_fallback),
+        "s3_action_prefix_trimmed": bool(action_normalized),
+        "s3_trimmed": False,
+        "s3_locked_payoff_fallback": bool(local_payoff_repair),
     }
 
 
@@ -1472,53 +1643,26 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     if _SOCIAL_CTA_RE.search(transcript):
         raise ShortFormatError("short_zero_social_cta_contract_violated")
 
-    s3 = _clean(sections[2].get("narration"))
-    s3_sentences = [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
-        if sentence.strip()
-    ]
-    action_sentences = [
-        sentence
-        for sentence in s3_sentences
-        if _practical_action_marker_count(sentence) > 0
-    ]
-    if len(action_sentences) != 1:
-        raise ShortFormatError(
-            "short_s3_requires_exactly_one_practical_action "
-            f"action_sentences={len(action_sentences)}"
+    s3_section = sections[2]
+    payoff = _clean(s3_section.get("s3_payoff"))
+    action = _clean(s3_section.get("s3_locked_action"))
+    if not payoff or not action:
+        # Backward compatibility only for saved pre-refactor artifacts and old
+        # direct unit fixtures. Fresh production enters with both fields already
+        # structured by validate_script/normalize_short_script_candidate.
+        payoff, action = _legacy_short_s3_components(
+            s3_section.get("narration"),
+            locked_action=action,
         )
-    action_sentence = action_sentences[0]
-    if not _sentence_begins_with_direct_action(action_sentence):
-        raise ShortFormatError("short_s3_action_must_begin_with_direct_imperative")
 
-    action_marker_count = _practical_action_marker_count(action_sentence)
-    if action_marker_count != 1:
-        raise ShortFormatError(
-            "short_s3_requires_one_action_only "
-            f"imperative_markers={action_marker_count}"
-        )
-    # Match validate_short_practical_action's protection against an attached
-    # second imperative (for example "توقف ...، وحدد ..."). The ordinary
-    # marker count intentionally requires a word boundary and therefore does
-    # not count the second verb when Arabic waw/fa is attached to it.
-    if re.search(r"\s+(?:ثم|و)\s+", action_sentence) or any(
-        re.search(_conjoined_practical_action_pattern(marker), action_sentence, flags=re.I)
-        for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
-    ):
-        raise ShortFormatError("short_s3_forbids_joined_second_action")
-
-    payoff_sentences = [sentence for sentence in s3_sentences if sentence != action_sentence]
-    if any(_contains_forbidden_action_family(sentence) for sentence in payoff_sentences):
-        raise ShortFormatError("short_s3_payoff_contains_forbidden_action_family")
-
+    s3_report = validate_short_s3_contract(payoff, action)
     return {
         "hook": hook,
         "hook_words": hook_words,
         "single_voice": True,
         "social_cta": False,
-        "practical_action_sentences": 1,
-        "practical_action_markers": action_marker_count,
+        "practical_action_sentences": s3_report["practical_action_sentences"],
+        "practical_action_markers": s3_report["practical_action_markers"],
     }
 
 

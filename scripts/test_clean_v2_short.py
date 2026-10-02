@@ -104,6 +104,7 @@ from clean_v2.short_format import (
     apply_safe_short_s3_action_prefix_trim,
     apply_safe_short_s3_locked_payoff_fallback,
     apply_safe_short_s3_single_action_trim,
+    materialize_short_s3,
     normalize_short_practical_action,
     normalize_short_script_candidate,
     normalize_short_visual_queries,
@@ -114,6 +115,7 @@ from clean_v2.short_format import (
     validate_short_duration,
     validate_short_hook_contract,
     validate_short_practical_action,
+    validate_short_s3_contract,
     validate_short_script,
     validate_short_visual_queries,
     validate_short_visual_safety,
@@ -570,6 +572,38 @@ class ShortProviderDiagnosticsTests(unittest.TestCase):
         )
 
 
+    def test_terminal_local_patch_rejection_does_not_try_next_provider(self) -> None:
+        calls: list[str] = []
+
+        def first(_prompt: str, _max_tokens: int) -> dict:
+            calls.append("first")
+            return {"patches": [{"section_id": "s3", "find": "x", "replace": "y"}]}
+
+        def second(_prompt: str, _max_tokens: int) -> dict:
+            calls.append("second")
+            return {"patches": [{"section_id": "s3", "find": "x", "replace": "y"}]}
+
+        class TerminalLocalRejection(ValueError):
+            terminal_provider_fallback = True
+
+        router = ProviderRouter(
+            [
+                ProviderAdapter("first", first),
+                ProviderAdapter("second", second),
+            ]
+        )
+        with self.assertRaises(TerminalLocalRejection):
+            router.route(
+                stage="script_patch",
+                prompt="bounded patch",
+                max_tokens=32,
+                validator=lambda _value: (_ for _ in ()).throw(
+                    TerminalLocalRejection("locked_action")
+                ),
+            )
+        self.assertEqual(calls, ["first"])
+
+
 class ShortContractTests(unittest.TestCase):
     def test_plan_requires_exactly_three_sections_and_empty_social_cta(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -611,12 +645,82 @@ class ShortContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ShortFormatError, "zero_social_cta"):
             validate_short_script(cta)
 
+    def test_run63_structured_s3_separates_payoff_from_locked_action(self) -> None:
+        payoff = (
+            "مسارك الزمني خاص بك، وقيمتك لا تُقاس بسرعة شخص آخر أو ترتيب ظهوره أمامك."
+        )
+        action = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        script = {
+            "title": "لماذا تفشل المقارنة في قياس سعادتك؟",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن إنجازاتك اليومية بمسارات الآخرين وتفترض أنك متأخر عنهم في سباق غير موجود؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "المقارنة تنقل معيارك من تقدمك الفعلي إلى صورة شخص آخر، فيضيع قياسك الحقيقي.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+
+        # The final spoken narration contains the action-family verb «اكتب», but
+        # payoff validation receives only s3_payoff and action validation receives
+        # only s3_locked_action. The old circular merged-string failure is gone.
+        report = validate_short_script(script)
+        self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
+        s3 = validate_short_s3_contract(payoff, action)
+        self.assertEqual(s3["s3_payoff"], payoff)
+        self.assertEqual(s3["s3_locked_action"], action)
+
+    def test_run63_writer_contract_materializes_action_only_after_validation(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        plan["practical_action_ar"] = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن يومك بمسار شخص آخر ثم تعتبر نفسك متأخرًا رغم اختلاف الطريق؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "حين يتغير معيار القياس كل مرة، يبدو تقدمك أصغر حتى لو كان حقيقيًا وواضحًا.",
+                },
+                {
+                    "id": "s3",
+                    "s3_payoff": "المعيار الأصدق هو تقدمك أنت مقارنة بنقطة بدايتك وهدفك الحالي.",
+                },
+            ],
+        }
+
+        normalized = _validate_script_for_brief(candidate, plan, brief)
+        closing = normalized["sections"][2]
+        self.assertEqual(
+            closing["s3_locked_action"],
+            plan["practical_action_ar"],
+        )
+        self.assertEqual(
+            closing["narration"],
+            f"{closing['s3_payoff']} {closing['s3_locked_action']}",
+        )
+        validate_short_script(normalized)
+
     def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
         prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
         self.assertIn("practical_action_ar MUST begin with a direct Arabic imperative verb", prompt)
         self.assertIn("Planning self-check", prompt)
         self.assertIn("Script self-check", prompt)
-        self.assertIn("host adds the locked Planning action afterward", prompt)
+        self.assertIn("s3_payoff", prompt)
+        self.assertIn("s3_locked_action", prompt)
 
         no_action = {
             "title": "شورت",
@@ -1206,6 +1310,8 @@ class ShortContractTests(unittest.TestCase):
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        plan["practical_action_ar"] = "اختر مهمة واحدة الآن."
+        locked_action = plan["practical_action_ar"]
         candidate = {
             "title": "شورت",
             "sections": [
@@ -1213,7 +1319,7 @@ class ShortContractTests(unittest.TestCase):
                 {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
                 {
                     "id": "s3",
-                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+                    "s3_payoff": "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا.",
                 },
             ],
         }
@@ -1229,9 +1335,15 @@ class ShortContractTests(unittest.TestCase):
             validator=lambda value: _validate_script_for_brief(value, plan, brief),
         )
 
+        closing = accepted["sections"][2]
         self.assertEqual(
-            accepted["sections"][2]["narration"],
-            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+            closing["s3_payoff"],
+            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا.",
+        )
+        self.assertEqual(closing["s3_locked_action"], locked_action)
+        self.assertEqual(
+            closing["narration"],
+            f"{closing['s3_payoff']} {locked_action}",
         )
         validate_short_script(accepted)
         self.assertEqual(

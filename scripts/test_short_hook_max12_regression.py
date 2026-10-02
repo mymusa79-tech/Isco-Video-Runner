@@ -70,7 +70,10 @@ class ShortHookRichCeilingRegressionTests(unittest.TestCase):
             validator=lambda value: _validate_script_for_brief(value, plan, brief),
         )
         self.assertEqual(accepted["title"], overlong["title"])
-        self.assertEqual(accepted["sections"], overlong["sections"])
+        self.assertEqual(
+            [section["narration"] for section in accepted["sections"]],
+            [section["narration"] for section in overlong["sections"]],
+        )
         self.assertEqual(accepted["schema_version"], 1)
         self.assertEqual(
             [(event["provider"], event["result"]) for event in router.events],

@@ -226,7 +226,12 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if cover_text:
         result["cover_text"] = cover_text
     if fmt == "short" and practical_action_ar:
-        result["practical_action_ar"] = practical_action_ar[:240]
+        locked_action = practical_action_ar[:240]
+        result["practical_action_ar"] = locked_action
+        # Canonical Short s3 contract: Planning owns the action. Script never
+        # authors it; validate_script injects this exact host-owned value beside
+        # the descriptive payoff before any s3 validation or materialization.
+        result["s3_locked_action"] = locked_action
     return result
 
 
@@ -237,11 +242,42 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(raw_sections, list):
         raise ContractError("script requires a sections array")
     expected = [str(item["id"]) for item in plan["sections"]]
+    locked_action = " ".join(
+        str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").split()
+    ).strip()
+    short_s3_id = expected[-1] if locked_action and len(expected) == 3 else ""
     normalized: list[dict[str, str]] = []
     for raw in raw_sections:
         if not isinstance(raw, dict):
             raise ContractError("every script section must be an object")
         section_id = str(raw.get("id") or "").strip()
+        if section_id == short_s3_id:
+            # Fresh Short writers return s3_payoff only. Legacy/resumed candidates
+            # may still carry payoff+action in narration; keep that legacy surface
+            # intact so normalize_short_script_candidate can split it once outside
+            # the canonical validator.
+            explicit_payoff = str(raw.get("s3_payoff") or "").strip()
+            legacy_narration = str(raw.get("narration") or "").strip()
+            if explicit_payoff:
+                narration = explicit_payoff
+                payoff = explicit_payoff
+            else:
+                narration = legacy_narration
+                payoff = ""
+            if not section_id or len(narration) < 20:
+                raise ContractError(
+                    "short s3 needs an id and non-empty descriptive s3_payoff"
+                )
+            normalized.append(
+                {
+                    "id": section_id,
+                    "narration": narration,
+                    "s3_payoff": payoff,
+                    "s3_locked_action": locked_action,
+                }
+            )
+            continue
+
         narration = str(raw.get("narration") or "").strip()
         if not section_id or len(narration) < 20:
             raise ContractError("every script section needs an id and non-empty narration")

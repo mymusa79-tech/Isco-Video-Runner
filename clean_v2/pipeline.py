@@ -53,6 +53,7 @@ from .short_format import (
     HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
     normalize_short_script_candidate,
+    materialize_short_s3,
     normalize_short_visual_queries,
     safe_word_boundary_trim,
     select_short_template,
@@ -2328,6 +2329,12 @@ def _normalize_tanween_fath_orthography(text: str) -> str:
     return _TANWEEN_FATH_ON_ALEF_RE.sub(r"\1ًا", text)
 
 
+class _ShortLockedActionPatchRejected(ValueError):
+    """Terminal local rejection: a provider patch tried to touch Planning-owned action."""
+
+    terminal_provider_fallback = True
+
+
 def _validate_and_apply_script_patches(
     value: Any,
     *,
@@ -2423,7 +2430,31 @@ def _validate_and_apply_script_patches(
 
             item = by_id[section_id]
             narration = str(item.get("narration") or "")
-            if narration.count(find) != 1:
+            patch_surface = narration
+            if is_short_format and section_id == str(sections[-1].get("id") or ""):
+                locked_action = str(
+                    plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
+                ).strip()
+                if locked_action:
+                    payoff_surface = str(item.get("s3_payoff") or "").strip()
+                    if not payoff_surface and narration.endswith(locked_action):
+                        payoff_surface = narration[: -len(locked_action)].strip()
+                    if not payoff_surface:
+                        raise ValueError("short s3 patch requires structured s3_payoff")
+                    # Planning owns this exact action. A patch that quotes or replaces it
+                    # is not a quality-repair candidate, so stop locally instead of
+                    # spending another provider attempt.
+                    if (
+                        locked_action in find
+                        or locked_action in replace
+                        or (find in narration and find not in payoff_surface)
+                    ):
+                        raise _ShortLockedActionPatchRejected(
+                            "script patch cannot change Planning-owned practical_action_ar"
+                        )
+                    patch_surface = payoff_surface
+
+            if patch_surface.count(find) != 1:
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
@@ -2535,6 +2566,8 @@ def _validate_and_apply_script_patches(
             ):
                 if locked_text and locked_text in find and replace.count(locked_text) != 1:
                     raise ValueError(f"script patch changed locked {locked_name}")
+        except _ShortLockedActionPatchRejected:
+            raise
         except ValueError as exc:
             failure_reasons.append(str(exc))
             continue
@@ -2545,7 +2578,14 @@ def _validate_and_apply_script_patches(
             hook_quality_fix_used = True
         elif hook_fix_this_patch:
             hook_word_fix_used = True
-        item["narration"] = narration.replace(find, replace, 1)
+        if is_short_format and section_id == str(sections[-1].get("id") or ""):
+            updated_payoff = patch_surface.replace(find, replace, 1)
+            item["s3_payoff"] = updated_payoff
+            # Keep narration unmaterialized during patch application. The canonical
+            # validator/materializer below rebuilds it from the two separate fields.
+            item["narration"] = updated_payoff
+        else:
+            item["narration"] = narration.replace(find, replace, 1)
         applied_count += 1
 
     if applied_count == 0:
@@ -2603,6 +2643,10 @@ def _validate_and_apply_script_patches(
         # _safe_validator_reason convention, which already special-cases
         # ShortFormatError to log its specific contract code.
         validate_short_script(normalized)
+        if str(
+            plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
+        ).strip():
+            materialize_short_s3(normalized)
     return normalized
 
 
@@ -2737,6 +2781,27 @@ def _validate_tone_repair_script(
     return repaired
 
 
+def _script_for_patch_prompt(
+    script: Mapping[str, Any],
+    brief: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Expose Short s3 payoff as the only writable closing surface to patch AI."""
+    view = copy.deepcopy(dict(script))
+    if str(brief.get("format") or "") != "short":
+        return view
+    sections = view.get("sections")
+    if not isinstance(sections, list) or len(sections) != 3:
+        return view
+    s3 = sections[-1]
+    if not isinstance(s3, dict):
+        return view
+    payoff = str(s3.get("s3_payoff") or "").strip()
+    if payoff:
+        s3["narration"] = payoff
+    s3.pop("s3_locked_action", None)
+    return view
+
+
 def _tone_repair_prompt(
     *,
     brief: Mapping[str, Any],
@@ -2754,10 +2819,11 @@ def _tone_repair_prompt(
         script,
         revision_note,
     )
+    patch_script = _script_for_patch_prompt(script, brief)
     payload = json.dumps(
         {
             "brief": dict(brief),
-            "current_script": dict(script),
+            "current_script": patch_script,
             "narrative_identity": dict(identity),
             "cta_plan": dict(cta_plan),
         },
@@ -2865,6 +2931,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 {longform_progression_repair_guidance}
 {gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
+- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
@@ -3032,10 +3099,11 @@ def _factuality_repair_prompt(
         script,
         revision_note,
     )
+    patch_script = _script_for_patch_prompt(script, brief)
     payload = json.dumps(
         {
             "brief": dict(brief),
-            "current_script": dict(script),
+            "current_script": patch_script,
             "narrative_identity": dict(identity),
             "cta_plan": dict(cta_plan),
         },
@@ -3093,6 +3161,7 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
+- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
@@ -4049,6 +4118,7 @@ def _validate_plan_for_brief(
         plan["practical_action_ar"] = validate_short_practical_action(
             normalized_practical_action
         )
+        plan["s3_locked_action"] = plan["practical_action_ar"]
         normalize_short_visual_queries(plan)
         validate_short_visual_safety(
             plan,
@@ -5647,8 +5717,10 @@ def _script_prompt(
     )
     short_payoff_guidance = (
         "For short, LOCKED_PLAN.practical_action_ar is already final and host-owned. "
-        "Do NOT write, repeat, paraphrase, or replace it. Author s3 as descriptive payoff only; "
-        "runtime appends the locked action sentence afterward. Every authored s3 sentence must "
+        "Do NOT write, repeat, paraphrase, or replace it. Return s3's descriptive closing text "
+        "under s3_payoff instead of narration; runtime injects the exact Planning value as "
+        "s3_locked_action, validates both fields separately, then materializes spoken narration. "
+        "Every authored s3 payoff sentence must "
         "contain zero direct/indirect advice and zero derivative of the action verb families "
         "listed in SHORT_FORMAT_CONTRACT."
         if fmt == "short"
