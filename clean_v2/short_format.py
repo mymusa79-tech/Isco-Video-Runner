@@ -21,6 +21,40 @@ SHORT_HOOK_SAFE_SPLIT_MAX_WORDS = 32
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
 SHORT_HOOK_PREFERRED_MAX_WORDS = 16
 
+# Deterministic local hook-shape gate. This detects structure, not emotional
+# intensity: calm curiosity is valid, clickbait is not. A Short must enter
+# through one of three explicit shapes instead of spending s1 on generic setup.
+_SHORT_HOOK_GENERIC_OPENERS = (
+    "احيانا",
+    "في حياتنا",
+    "في الحياه",
+    "في بعض الاحيان",
+    "كلنا",
+    "من الطبيعي",
+    "من المهم",
+    "هناك اوقات",
+    "مع مرور الوقت",
+    "اليوم سنتحدث",
+    "في هذا الفيديو",
+)
+_SHORT_HOOK_QUESTION_OPENERS = (
+    "هل",
+    "لماذا",
+    "كيف",
+    "ماذا",
+    "متي",
+    "اين",
+    "من",
+    "ما الذي",
+    "ماذا لو",
+)
+_SHORT_HOOK_CONSEQUENCE_TERMS = frozenset({
+    "تفقد", "تخسر", "ينهار", "تنهار", "يفشل", "تفشل", "يتحول", "تتحول",
+    "يتراكم", "تتراكم", "يزداد", "تزداد", "يتضاعف", "تتضاعف", "يستنزف",
+    "تستنزف", "ينتهي", "تنتهي", "يختفي", "تختفي", "يتوقف", "تتوقف", "يمنعك", "تمنعك",
+    "يجعلك", "تجعلك", "يسرق", "تسرق", "يكلف", "تكلف", "تتعطل", "تعلق",
+})
+
 TEMPLATE_ORDER = (
     "why_reframe",
     "inner_dialogue",
@@ -223,6 +257,61 @@ def _semantic_key(value: object) -> str:
     return " ".join(re.sub(r"[^\w\u0600-\u06ff]+", " ", text).split())
 
 
+def _starts_with_semantic_phrase(value: str, phrases: tuple[str, ...]) -> bool:
+    return any(value == phrase or value.startswith(phrase + " ") for phrase in phrases)
+
+
+def validate_short_hook_immediate_tension(hook: object) -> str:
+    """Require an immediate concrete tension shape without rewarding clickbait.
+
+    Accepted deterministic shapes:
+    - direct question: explicit Arabic question opener + question mark;
+    - contrast/paradox: an explicit turn such as لكن/رغم/مع أن/ليس...بل;
+    - result/consequence-first: a concrete failure/loss/escalation verb appears early.
+
+    Generic/calm setup is rejected only when none of those concrete shapes exists.
+    """
+    raw = _clean(hook)
+    key = _semantic_key(raw)
+    if not raw or not key:
+        raise ShortFormatError("short_hook_immediate_tension_missing")
+
+    if _starts_with_semantic_phrase(key, _SHORT_HOOK_GENERIC_OPENERS):
+        raise ShortFormatError("short_hook_generic_calm_opening")
+
+    question = (
+        ("؟" in raw or "?" in raw)
+        and _starts_with_semantic_phrase(key, _SHORT_HOOK_QUESTION_OPENERS)
+    )
+
+    tokens = key.split()
+    contrast = (
+        ("ليس" in tokens and "بل" in tokens)
+        or any(token.startswith("لكن") for token in tokens[1:])
+        or "رغم" in tokens
+        or ("مع" in tokens and "ان" in tokens)
+        or ("علي" in tokens and "الرغم" in tokens)
+        or "المفارقه" in tokens
+        or "الغريب" in tokens
+        or bool(re.search(r"\bلم\s+\S+", key))
+        or bool(re.search(r"\bلا\s+تكون\s+المشكله\b", key))
+    )
+
+    # Keep result-first evidence near the start so a generic setup cannot hide the
+    # actual tension only in the final words.
+    early_tokens = set(tokens[: max(6, min(10, len(tokens)))])
+    consequence = bool(early_tokens & _SHORT_HOOK_CONSEQUENCE_TERMS)
+
+    if question or contrast or consequence:
+        return (
+            "direct_question"
+            if question
+            else ("explicit_contrast" if contrast else "early_consequence")
+        )
+
+    raise ShortFormatError("short_hook_requires_immediate_concrete_tension")
+
+
 def _signal_score(text: object, signals: tuple[tuple[str, int], ...]) -> int:
     normalized = f" {_semantic_key(text)} "
     return sum(
@@ -356,6 +445,8 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words and never more than {SHORT_HOOK_MAX_WORDS}; no greeting. "
         "Choose the hook family that best fits the topic (paradox, direct scene, real question, result-first, unexpected observation, "
         "common-belief break, hidden cost, or cold open). It must create a real information gap without becoming clickbait. "
+        "LOCAL HOOK SHAPE GATE: s1 must be either a direct question, an explicit contrast/paradox (for example لكن/رغم/ليس...بل), "
+        "or an early concrete consequence/result. A generic descriptive setup by itself is rejected even when fluent. "
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST NOT invent, repeat, paraphrase, or replace that action because runtime appends the locked sentence after the descriptive payoff. "
@@ -377,6 +468,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
         "For s1 create the template-specific scroll-stop visual beat described above; it must read instantly and must not feel visually flat. "
+        "LOCAL FIRST-SHOT GATE: visual_query_en for s1 must name an observable action/event AND a readable tension/consequence "
+        "(for example stopping mid-action + unfinished task, rushing + deadline, ringing alarm + missed work). "
+        "Quiet thinking, a generic desk, a static person, or a landscape establishing shot alone is rejected. "
         "For s3 depict the single payoff action itself or its immediate visible result with a clear sense of release/completion; never repeat the same writing/desk action used earlier."
     )
 
@@ -1342,12 +1436,15 @@ def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise ShortFormatError("short_hook_must_not_start_with_greeting")
 
+    tension_shape = validate_short_hook_immediate_tension(hook)
+
     return {
         "hook": hook,
         "hook_words": hook_words,
         "editorial_maximum_words": SHORT_HOOK_MAX_WORDS,
         "rescue_maximum_words": SHORT_HOOK_RESCUE_MAX_WORDS,
         "rescue_headroom_used": hook_words > SHORT_HOOK_MAX_WORDS,
+        "immediate_tension_shape": tension_shape,
     }
 
 
@@ -1409,6 +1506,38 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
         "practical_action_sentences": 1,
         "practical_action_markers": action_marker_count,
     }
+
+
+# First-shot contract is intentionally separate from per-template visual grammar.
+# The opening query must name BOTH an observable action/event and a readable tension
+# or consequence. Later Short beats are unchanged.
+_SHORT_HOOK_VISUAL_ACTION_TERMS = frozenset({
+    "stopping", "interrupted", "interrupting", "rushing", "rushed", "running",
+    "reaching", "pulling", "pushing", "dropping", "spilling", "tearing", "ripping",
+    "opening", "closing", "turning", "leaving", "entering", "checking", "sorting",
+    "gripping", "holding", "packing", "unpacking", "typing", "writing", "erasing",
+    "crossing", "ringing", "pacing", "hesitating",
+})
+_SHORT_HOOK_VISUAL_TENSION_TERMS = frozenset({
+    "tense", "hesitating", "hesitation", "urgent", "frustrated", "overwhelmed",
+    "deadline", "alarm", "pressure", "unfinished", "missed", "late", "blocked",
+    "stuck", "broken", "torn", "cracked", "overflowing", "cluttered", "chaotic",
+    "interrupted", "conflict", "failure", "failed", "loss", "slipping",
+})
+_SHORT_HOOK_VISUAL_CALM_GENERIC_PHRASES = (
+    "quiet room",
+    "calm room",
+    "peaceful scene",
+    "thoughtful person",
+    "person thinking",
+    "person sitting",
+    "person standing",
+    "generic desk",
+    "wide landscape",
+    "nature landscape",
+    "sunset",
+    "sunrise",
+)
 
 
 _INNER_DIALOGUE_HOOK_VISUAL_TERMS = frozenset({
@@ -1518,6 +1647,31 @@ def _face_safe_query(query: object) -> str:
     return (safe + " hands only").strip()
 
 
+def validate_short_hook_visual_query(query: object) -> dict[str, Any]:
+    """Fail closed on a calm/generic first shot; later Short beats are untouched."""
+    compact = _clean(query)
+    words = _query_words(compact)
+    action_hits = sorted(words & _SHORT_HOOK_VISUAL_ACTION_TERMS)
+    tension_hits = sorted(words & _SHORT_HOOK_VISUAL_TENSION_TERMS)
+    lowered = compact.casefold()
+    generic_hits = [
+        phrase
+        for phrase in _SHORT_HOOK_VISUAL_CALM_GENERIC_PHRASES
+        if phrase in lowered
+    ]
+
+    if not action_hits or not tension_hits:
+        if generic_hits:
+            raise ShortFormatError("short_visual_query_hook_calm_or_generic")
+        raise ShortFormatError("short_visual_query_hook_requires_immediate_tension")
+    return {
+        "status": "pass",
+        "action_hits": action_hits,
+        "tension_hits": tension_hits,
+        "generic_hits": generic_hits,
+    }
+
+
 def normalize_short_visual_queries(plan: dict[str, Any]) -> bool:
     """Apply only deterministic face-safety and adjacent-family swaps."""
     sections = plan.get("sections")
@@ -1623,6 +1777,7 @@ def validate_short_visual_queries(
         raise ShortFormatError("short_visual_query_alt_must_add_new_visual_information")
     for query in (*queries, *alternate_queries):
         _assert_no_explicit_face_query(query)
+    hook_visual_report = validate_short_hook_visual_query(queries[0])
     words = [_query_words(query) for query in queries]
 
     if template == "inner_dialogue":
@@ -1668,6 +1823,7 @@ def validate_short_visual_queries(
         "queries": queries,
         "alternate_queries": alternate_queries,
         "action_families": [sorted(_query_action_families(item)) for item in words],
+        "hook_visual": hook_visual_report,
         "status": "pass",
     }
 

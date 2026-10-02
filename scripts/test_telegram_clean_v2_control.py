@@ -462,6 +462,119 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertEqual(short["title"], "شورت 59 ثانية")
         self.assertEqual(long["title"], "فيديو 2:50")
 
+    def test_longform_spacing_warning_is_same_format_configurable_and_non_blocking(self):
+        now = control._parse_utc("2026-10-02T00:00:00Z")
+        snapshot = {
+            "last_long": {
+                "video_id": "long1234567",
+                "title": "فيديو طويل",
+                "published_at": "2026-09-27T00:00:00Z",
+                "duration_seconds": 240,
+            },
+            "last_podcast": {
+                "video_id": "pod12345678",
+                "title": "حلقة | خارج النص",
+                "published_at": "2026-09-15T00:00:00Z",
+                "duration_seconds": 900,
+            },
+        }
+        long_request = {"scope": "long"}
+        podcast_request = {"scope": "podcast"}
+        short_request = {"scope": "short"}
+
+        with mock.patch.dict(
+            "os.environ",
+            {control.LONGFORM_MIN_PUBLISH_SPACING_DAYS_ENV: "10"},
+            clear=False,
+        ):
+            warning = control.publication_spacing_warning(
+                long_request,
+                snapshot=snapshot,
+                now=now,
+            )
+            self.assertIn("تنبيه تباعد النشر", warning)
+            self.assertIn("5.0 يوم", warning)
+            self.assertIn("تحذير فقط", warning)
+            self.assertEqual(
+                control.publication_spacing_warning(
+                    podcast_request,
+                    snapshot=snapshot,
+                    now=now,
+                ),
+                "",
+            )
+            self.assertEqual(
+                control.publication_spacing_warning(
+                    short_request,
+                    snapshot=snapshot,
+                    now=now,
+                ),
+                "",
+            )
+
+        with mock.patch.dict(
+            "os.environ",
+            {control.LONGFORM_MIN_PUBLISH_SPACING_DAYS_ENV: "4"},
+            clear=False,
+        ):
+            self.assertEqual(
+                control.publication_spacing_warning(
+                    long_request,
+                    snapshot=snapshot,
+                    now=now,
+                ),
+                "",
+            )
+
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-spacing",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "long",
+            "approved_by_user": True,
+            "approved_topic": "موضوع",
+            "research_pack": [],
+            "idea_id": "idea-1",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"][request["request_id"]] = request
+        state["current_request_id"] = request["request_id"]
+        with tempfile.TemporaryDirectory() as tmp:
+            dispatch = Path(tmp) / "dispatch.json"
+            result = control._stage_confirmation_dispatch(state, dispatch)
+            self.assertTrue(dispatch.exists())
+            self.assertEqual(result["request"]["status"], "confirmed_pending_dispatch")
+
+    def test_latest_longform_split_distinguishes_podcast_by_outside_text_identity(self):
+        videos = [
+            {
+                "title": "حلقة جديدة | خارج النص",
+                "duration_seconds": 900,
+                "published_at": "2026-10-01T12:00:00Z",
+            },
+            {
+                "title": "فيديو طويل عادي",
+                "duration_seconds": 300,
+                "published_at": "2026-09-30T12:00:00Z",
+            },
+        ]
+        _, podcast = control._latest_by_clean_v2_format(
+            videos,
+            longform_kind="podcast",
+        )
+        _, long_video = control._latest_by_clean_v2_format(
+            videos,
+            longform_kind="long",
+        )
+        self.assertEqual(podcast["title"], "حلقة جديدة | خارج النص")
+        self.assertEqual(long_video["title"], "فيديو طويل عادي")
+
+
     def test_research_session_closes_after_first_selection(self):
         state = control.default_state()
         state["ideas"] = [{

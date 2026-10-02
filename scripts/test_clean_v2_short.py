@@ -155,7 +155,7 @@ _TEMPLATE_FIXTURES = {
     "why_reframe": {
         "brief": _brief("لماذا نخطئ عندما نظن أن الخطة المثالية تكفي؟"),
         "queries": [
-            "confused worker staring at cluttered daily schedule",
+            "rushed worker tearing cluttered schedule beside missed deadline",
             "person pause reconsidering written plan at desk",
             "calm focused worker using simple practical schedule",
         ],
@@ -163,7 +163,7 @@ _TEMPLATE_FIXTURES = {
     "inner_dialogue": {
         "brief": _brief("كيف تنهض عندما تفقد الدافع وتقول لنفسك لا أستطيع؟"),
         "queries": [
-            "person alone thoughtful quiet moment by window",
+            "hesitating hands stopping over unfinished task under deadline pressure",
             "solitary person thinking in calm quiet room",
             "reflective person walking alone peaceful morning",
         ],
@@ -171,7 +171,7 @@ _TEMPLATE_FIXTURES = {
     "micro_story": {
         "brief": _brief("قصة قصيرة: ذات يوم بدأت تجربة صغيرة ثم تغيرت النتيجة"),
         "queries": [
-            "woman opening notebook at quiet desk",
+            "rushed woman opening notebook beside ringing deadline alarm",
             "woman writing notebook task list at desk",
             "woman closing notebook after finishing work",
         ],
@@ -179,7 +179,7 @@ _TEMPLATE_FIXTURES = {
     "quote_reflection": {
         "brief": _brief("اقتباس للتأمل: «ابدأ بما تستطيع اليوم»"),
         "queries": [
-            "quiet reflective room with soft morning light",
+            "reflective hand tearing failed note under stark quiet light",
             "calm person reading slowly in minimal room",
             "peaceful contemplative window scene with still light",
         ],
@@ -203,7 +203,7 @@ class ShortMistralS3PromptClarityTests(unittest.TestCase):
                 "sections": [
                     {
                         "id": "s1",
-                        "narration": "أحيانًا تعرف ما تريد فعله، لكنك تبقى مكانك لأن البداية تبدو أثقل من المهمة.",
+                        "narration": "تعرف ما تريد فعله، لكنك تبقى مكانك لأن البداية تبدو أثقل من المهمة.",
                     },
                     {
                         "id": "s2",
@@ -371,7 +371,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         cohort6_shape = _plan(
             [
-                "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
+                "tense hands gripping unfinished notebook under deadline pressure at wooden table",
                 "close-up of hands holding a half-empty glass of water person hesitating before taking a sip quiet indoor setting",
                 "quiet person writing one word in notebook then closing it with a slight smile hands resting on the page",
             ]
@@ -393,7 +393,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ShortFormatError,
-            "inner_dialogue_hook_not_readable",
+            "short_visual_query_hook_requires_immediate_tension",
         ):
             validate_short_visual_queries(generic, fixture["brief"])
 
@@ -425,6 +425,66 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
 
+
+
+class ShortImmediateTensionContractTests(unittest.TestCase):
+    def test_generic_calm_hook_is_rejected_locally(self) -> None:
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_hook_generic_calm_opening",
+        ):
+            validate_short_hook_contract({
+                "sections": [
+                    {
+                        "id": "s1",
+                        "narration": "في حياتنا نمر أحيانًا بأيام نشعر فيها أن الأمور ليست واضحة.",
+                    }
+                ]
+            })
+
+    def test_direct_question_and_explicit_contrast_hooks_pass(self) -> None:
+        question = validate_short_hook_contract({
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "لماذا تفقد طاقتك قبل أن ينتهي يوم العمل؟",
+                }
+            ]
+        })
+        self.assertEqual(question["immediate_tension_shape"], "direct_question")
+
+        contrast = validate_short_hook_contract({
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "تعرف المهمة جيدًا، لكنك تبقى مكانك عندما يحين وقت البدء.",
+                }
+            ]
+        })
+        self.assertEqual(contrast["immediate_tension_shape"], "explicit_contrast")
+
+    def test_quiet_generic_first_visual_is_rejected_and_tense_action_passes(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        quiet = _plan([
+            "thoughtful person sitting in quiet room by window",
+            "solitary person thinking in calm quiet room",
+            "reflective person walking alone peaceful morning",
+        ])
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_visual_query_hook_calm_or_generic",
+        ):
+            validate_short_visual_queries(quiet, brief)
+
+        active = _plan([
+            "tense hands stopping mid action over unfinished task under deadline pressure",
+            "solitary person thinking in calm quiet room",
+            "reflective person walking alone peaceful morning",
+        ])
+        report = validate_short_visual_queries(active, brief)
+        self.assertEqual(report["status"], "pass")
+        self.assertTrue(report["hook_visual"]["action_hits"])
+        self.assertTrue(report["hook_visual"]["tension_hits"])
 
 
 class ShortHookBoundedRecoveryTests(unittest.TestCase):
@@ -478,8 +538,8 @@ class ShortHookBoundedRecoveryTests(unittest.TestCase):
                 {
                     "id": "s1",
                     "narration": (
-                        "قد تظن أن كثرة المهام تعني أنك تحتاج خطة أقوى كل صباح، لكن المشكلة الحقيقية "
-                        "أن يومك يبدأ أصلًا بأكثر مما تستطيع إنهاءه بهدوء ومن دون استنزاف."
+                        "لماذا تظن أن كثرة المهام تعني أنك تحتاج خطة أقوى كل صباح، لكن المشكلة الحقيقية "
+                        "أن يومك يبدأ أصلًا بأكثر مما تستطيع إنهاءه بهدوء ومن دون استنزاف؟"
                     ),
                 }
             ]
@@ -531,7 +591,7 @@ class ShortContractTests(unittest.TestCase):
         valid = {
             "title": "شورت",
             "sections": [
-                {"id": "s1", "narration": "قد لا تكون المشكلة في الدافع نفسه. حين تتوقف قليلًا ترى ما يحدث بوضوح."},
+                {"id": "s1", "narration": "لماذا أتوقف رغم أنني أريد أن أبدأ؟ حين أهدأ قليلًا أرى ما يحدث بوضوح."},
                 {"id": "s2", "narration": "الفكرة الصغيرة هنا أن تلاحظ اللحظة التي تنسحب فيها من الفعل، دون لوم أو مبالغة."},
                 {"id": "s3", "narration": "اختر حركة بسيطة تستطيع تنفيذها الآن، ثم دع الخطوة التالية تأتي بعد أن تبدأ."},
             ],
@@ -542,7 +602,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
 
         dialogue = json.loads(json.dumps(valid, ensure_ascii=False))
-        dialogue["sections"][0]["narration"] = "A: هل أبدأ الآن؟ B: نعم، بخطوة واحدة واضحة."
+        dialogue["sections"][0]["narration"] = "A: لم أبدأ رغم أن الوقت يمر. B: هل أبدأ الآن؟"
         with self.assertRaisesRegex(ShortFormatError, "single_voice"):
             validate_short_script(dialogue)
 
@@ -1119,7 +1179,7 @@ class ShortContractTests(unittest.TestCase):
 
     def test_visual_normalizer_makes_expression_query_face_safe(self) -> None:
         plan = _plan(_TEMPLATE_FIXTURES["why_reframe"]["queries"])
-        plan["sections"][0]["visual_query_en"] = "frustrated expression at messy office desk"
+        plan["sections"][0]["visual_query_en"] = "frustrated expression writing messy notes at office desk"
         changed = normalize_short_visual_queries(plan)
         self.assertTrue(changed)
         self.assertIn("hands only", plan["sections"][0]["visual_query_en"])
@@ -1409,7 +1469,7 @@ class ShortContractTests(unittest.TestCase):
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(
             [
-                "thoughtful person alone walking slowly in quiet room",
+                "tense person pacing around unfinished task under deadline pressure",
                 "reflective person alone writing in notebook at desk",
                 "quiet contemplative person writing on paper at desk",
             ]

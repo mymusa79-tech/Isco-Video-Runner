@@ -15,6 +15,7 @@ from scripts.telegram_clean_v2_notify import send_message
 TAG_PREFIX = "clean-v2-final-"
 PUBLISH_PACKAGE_NAME = "publish-package.zip"
 Run = Callable[..., subprocess.CompletedProcess[str]]
+_YOUTUBE_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -279,12 +280,23 @@ def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, An
     }
 
 
+def _published_parent_youtube_video_id(value: object) -> str | None:
+    """Validate an owner-confirmed YouTube id for an already-published parent."""
+    video_id = _compact(value)
+    if not video_id:
+        return None
+    if not _YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
+        raise RuntimeError("published parent YouTube video id is invalid")
+    return video_id
+
+
 def _derived_short_publish_metadata(
     root: Path,
     *,
     parent_kind: str,
     parent: dict[str, Any],
     short_prefix: str,
+    published_parent_youtube_video_id: str | None = None,
 ) -> dict[str, Any]:
     plan = _read_json(Path(root) / "plan.json")
     report = _read_json(Path(root) / f"{short_prefix}.json")
@@ -320,6 +332,10 @@ def _derived_short_publish_metadata(
         "video_file": "derived-short.mp4",
         "cover_file": "derived-short-cover.jpg",
         "source_section_id": section_id or None,
+        "suggested_related_video_id": _published_parent_youtube_video_id(
+            published_parent_youtube_video_id
+        ),
+        "related_video_assignment": "manual_youtube_studio",
         "publication_mode": "manual",
     }
 
@@ -373,7 +389,13 @@ def _ensure_cover(*, video: Path, cover: Path, portrait: bool) -> Path:
     return _extract_cover_from_video(video, cover, portrait=portrait)
 
 
-def _build_publish_package(root: Path, *, kind: str, topic: str) -> tuple[Path, dict[str, Any]]:
+def _build_publish_package(
+    root: Path,
+    *,
+    kind: str,
+    topic: str,
+    published_parent_youtube_video_id: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
     root = Path(root)
     video = root / "final.mp4"
     cover = _ensure_cover(
@@ -417,6 +439,7 @@ def _build_publish_package(root: Path, *, kind: str, topic: str) -> tuple[Path, 
                 parent_kind=kind,
                 parent=main_meta,
                 short_prefix=short_prefix,
+                published_parent_youtube_video_id=published_parent_youtube_video_id,
             )
             shutil.copy2(short_video, stage / "derived-short.mp4")
             shutil.copy2(short_cover, stage / "derived-short-cover.jpg")
@@ -446,6 +469,7 @@ def _build_publish_package(root: Path, *, kind: str, topic: str) -> tuple[Path, 
                 "derived-short-cover.jpg — كفر الشورت المشتق",
                 "derived-short-publish.txt — عنوان ووصف وهاشتاقات الشورت",
                 "derived-short-publish.json — بيانات نشر الشورت المنظمة",
+                "إذا كان suggested_related_video_id موجودًا في الملف، أدخله يدويًا كـ Related Video في YouTube Studio.",
             ]
         )
     readme_lines.extend(["", "النشر إلى YouTube يبقى يدويًا."])
@@ -489,6 +513,7 @@ def publish_one(
     target_sha: str,
     run_id: str,
     run_attempt: str,
+    published_parent_youtube_video_id: str | None = None,
     run: Run = subprocess.run,
 ) -> dict[str, str]:
     video, _ = _validate_final(root)
@@ -501,6 +526,7 @@ def publish_one(
         root,
         kind=kind,
         topic=resolved_topic,
+        published_parent_youtube_video_id=published_parent_youtube_video_id,
     )
 
     tag = _release_tag(
@@ -606,6 +632,7 @@ def deliver(
     target_sha: str,
     run_id: str,
     run_attempt: str,
+    published_parent_youtube_video_id: str | None = None,
     run: Run = subprocess.run,
 ) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
@@ -620,6 +647,7 @@ def deliver(
                 target_sha=target_sha,
                 run_id=run_id,
                 run_attempt=run_attempt,
+                published_parent_youtube_video_id=published_parent_youtube_video_id,
                 run=run,
             )
         )
@@ -633,6 +661,11 @@ def main() -> int:
     parser.add_argument("--scope", choices=("long", "short", "bundle", "podcast"), required=True)
     parser.add_argument("--topic", default="")
     parser.add_argument("--delivery-key", required=True)
+    parser.add_argument(
+        "--published-parent-youtube-video-id",
+        default=str(os.environ.get("CLEAN_V2_PUBLISHED_PARENT_YOUTUBE_VIDEO_ID") or "").strip(),
+        help="Owner-confirmed YouTube id of an already-published long/podcast parent; metadata only.",
+    )
     args = parser.parse_args()
 
     repository = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
@@ -651,6 +684,7 @@ def main() -> int:
         target_sha=target_sha,
         run_id=run_id,
         run_attempt=run_attempt,
+        published_parent_youtube_video_id=args.published_parent_youtube_video_id or None,
     )
     print(json.dumps({"status": "pass", "deliveries": results}, ensure_ascii=False, sort_keys=True))
     return 0
