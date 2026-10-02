@@ -2233,9 +2233,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-10-01T06:37:37Z"
+      "research_pack": [
+        {
+          "source_title": "Master the Art of Choosing Yourself Without Guilt, Fear, or Explanation | Machiavelli",
+          "source_url": "https://youtu.be/f9XXjzawCTM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "EVITA estos ERRORES al HABLAR: Cómo Ganar AUTORIDAD y RESPETO | Audiolibro Completo",
+          "source_url": "https://youtu.be/L4bukTObiDs",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "El LENGUAJE del PODER: Cómo HABLAR con ELEGANCIA | Audiolibro Completo",
+          "source_url": "https://youtu.be/u0qIhqeXV9E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-10-01T06:37:37Z",
+      "selected_at": "2026-10-02T11:36:24Z"
     },
     {
       "idea_id": "idea-7e847dd029",
@@ -2643,6 +2660,17 @@
       "created_at": "2026-10-02T11:08:36Z",
       "source": "saved_library",
       "closed_at": "2026-10-02T11:08:36Z",
+      "selected_index": 0
+    },
+    "ff6b3f5b": {
+      "session_id": "ff6b3f5b",
+      "scope": "short",
+      "idea_ids": [
+        "idea-91ca350ff2"
+      ],
+      "created_at": "2026-10-02T11:36:24Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T11:36:24Z",
       "selected_index": 0
     }
   },
@@ -3263,9 +3291,40 @@
         "started_at": "2026-10-02T11:09:09Z",
         "finished_at": "2026-10-02T11:18:35Z"
       }
+    },
+    "req-8a5c50047ccc": {
+      "schema_version": 1,
+      "request_id": "req-8a5c50047ccc",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فن قول «لا» بذكاء ودون شعور بالذنب",
+      "research_pack": [
+        {
+          "source_title": "Master the Art of Choosing Yourself Without Guilt, Fear, or Explanation | Machiavelli",
+          "source_url": "https://youtu.be/f9XXjzawCTM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "EVITA estos ERRORES al HABLAR: Cómo Ganar AUTORIDAD y RESPETO | Audiolibro Completo",
+          "source_url": "https://youtu.be/L4bukTObiDs",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "El LENGUAJE del PODER: Cómo HABLAR con ELEGANCIA | Audiolibro Completo",
+          "source_url": "https://youtu.be/u0qIhqeXV9E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-91ca350ff2",
+      "selected_at": "2026-10-02T11:36:24Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "4b4e1d46c7a8ca489ca3cc7b65119f037e73edf04910d89ea397654e281e21f6"
     }
   },
-  "current_request_id": "req-ab5176a9ffc0",
+  "current_request_id": "req-8a5c50047ccc",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3520,5 +3579,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T11:34:29Z"
+  "updated_at": "2026-10-02T11:36:25Z"
 }
