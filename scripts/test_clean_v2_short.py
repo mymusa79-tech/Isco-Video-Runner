@@ -1310,6 +1310,7 @@ class ShortContractTests(unittest.TestCase):
     def test_mistral_short_safe_s3_normalization_runs_before_provider_validator(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        locked_action = plan["practical_action_ar"]
         candidate = {
             "title": "شورت",
             "sections": [
@@ -1317,7 +1318,7 @@ class ShortContractTests(unittest.TestCase):
                 {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
                 {
                     "id": "s3",
-                    "narration": "عندما تكتب هدفًا كبيرًا يزيد الاحتكاك. الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+                    "s3_payoff": "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا.",
                 },
             ],
         }
@@ -1333,9 +1334,15 @@ class ShortContractTests(unittest.TestCase):
             validator=lambda value: _validate_script_for_brief(value, plan, brief),
         )
 
+        closing = accepted["sections"][2]
         self.assertEqual(
-            accepted["sections"][2]["narration"],
-            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا. اختر مهمة واحدة الآن.",
+            closing["s3_payoff"],
+            "الخطوة الصغيرة أخف على ذهنك وأكثر وضوحًا.",
+        )
+        self.assertEqual(closing["s3_locked_action"], locked_action)
+        self.assertEqual(
+            closing["narration"],
+            f"{closing['s3_payoff']} {locked_action}",
         )
         validate_short_script(accepted)
         self.assertEqual(
