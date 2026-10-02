@@ -5852,7 +5852,7 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
             {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word"},
         ],
     }
-    ORIGINAL_HOOK = "أشعر أنني أستكين في مكان واحد بينما أريد أن أتحرك."
+    ORIGINAL_HOOK = "لماذا أستكين في مكان واحد رغم أنني أريد أن أتحرك؟"
     ORIGINAL = {
         "title": PLAN["title"],
         "sections": [
@@ -5888,7 +5888,7 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
         )
         self.assertEqual(
             repaired["sections"][0]["narration"],
-            "أشعر أنني أتجمّد في مكان واحد بينما أريد أن أتحرك.",
+            "لماذا أتجمّد في مكان واحد رغم أنني أريد أن أتحرك؟",
         )
 
     def test_unquoted_word_inside_hook_is_still_rejected(self) -> None:
