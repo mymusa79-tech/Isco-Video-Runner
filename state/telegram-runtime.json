@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "فخ المقارنة: مسارك الزمني خاص بك وحدك",
-  "stage": "⚡ الشورت · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37015888392",
-  "result": "",
-  "updated_at": 1790949282
+  "result": "cancelled",
+  "updated_at": 1790954553
 }
