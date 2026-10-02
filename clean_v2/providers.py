@@ -441,6 +441,100 @@ def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dic
     return diagnostic
 
 
+def _safe_mistral_planning_raw_diagnostic(
+    raw_content: str, exc: Exception
+) -> dict[str, Any]:
+    """Describe rejected Mistral Planning output without logging authored text."""
+    raw = str(raw_content or "")
+    raw_bytes = raw.encode("utf-8")
+    diagnostic: dict[str, Any] = {
+        "validator_error_type": type(exc).__name__,
+        "validator_error": " ".join(str(exc).split())[:500],
+        "raw_content": {
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "utf8_bytes": len(raw_bytes),
+        },
+    }
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        diagnostic["raw_content"]["shape"] = {"json_type": "invalid_json"}
+        return diagnostic
+
+    if not isinstance(value, dict):
+        diagnostic["raw_content"]["shape"] = {"json_type": type(value).__name__}
+        return diagnostic
+
+    shape: dict[str, Any] = {
+        "json_type": "object",
+        "top_level_keys": sorted(str(key)[:80] for key in value.keys())[:40],
+    }
+    sections = value.get("sections")
+    shape["sections_type"] = type(sections).__name__
+    if isinstance(sections, list):
+        shape["sections_count"] = len(sections)
+        shape["section_shapes"] = [
+            {
+                "index": index,
+                "json_type": type(item).__name__,
+                **(
+                    {"keys": sorted(str(key)[:80] for key in item.keys())[:20]}
+                    if isinstance(item, dict)
+                    else {}
+                ),
+            }
+            for index, item in enumerate(sections[:10])
+        ]
+
+    story = value.get("visual_story")
+    shape["visual_story_type"] = type(story).__name__
+    if isinstance(story, dict):
+        shape["visual_story_keys"] = sorted(
+            str(key)[:80] for key in story.keys()
+        )[:30]
+        beats = story.get("beats")
+        shape["beats_type"] = type(beats).__name__
+        if isinstance(beats, list):
+            shape["beats_count"] = len(beats)
+            shape["beat_shapes"] = [
+                {
+                    "index": index,
+                    "json_type": type(item).__name__,
+                    **(
+                        {"keys": sorted(str(key)[:80] for key in item.keys())[:24]}
+                        if isinstance(item, dict)
+                        else {}
+                    ),
+                }
+                for index, item in enumerate(beats[:15])
+            ]
+    diagnostic["raw_content"]["shape"] = shape
+    return diagnostic
+
+
+def _mistral_planning_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """Give Mistral one bounded correction for a local Planning-contract rejection."""
+    if type(exc).__name__ not in {"ValueError", "ContractError", "ShortFormatError"}:
+        return None
+    detail = " ".join(str(exc).split()).strip()[:500]
+    if not detail:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_PLANNING_VALIDATOR_RETRY — the previous complete Planning JSON "
+        + "was rejected by the local production validator. "
+        + f"Exact rejection: {detail}. "
+        + "Return the COMPLETE Planning JSON again, correcting that exact rule only where needed. "
+        + "Preserve the APPROVED_BRIEF, format, section ids/order/count, all quality and safety "
+        + "contracts, and all required visual-story semantics. For Short, preserve the EXACTLY "
+        + "5-beat house cut (three distinct s1 hook beats, then one s2 body beat, then one s3 "
+        + "payoff beat) and keep the social CTA empty. Do not explain the correction. Return JSON only."
+    )
+
+
 def _safe_validator_reason(exc: Exception) -> str:
     """Persist only a deterministic validator code, never rejected content."""
     base = f"invalid_output_{type(exc).__name__.lower()}"
@@ -1079,13 +1173,13 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
 class ProviderRouter:
     """One pass over a bounded provider list.
 
-    Two narrow same-provider exceptions exist, both capped at one extra attempt:
-    a Mistral Planning re-issue when the provider returns syntactically invalid
-    JSON despite strict json_schema mode, and a short delayed retry for a
-    classic transient 502/503/504 or transport failure (see
-    _is_transient_wire_failure). Neither is a second provider sweep - a
-    provider that still fails its retry is marked failed and the router moves
-    on to the next adapter exactly as before.
+    Narrow same-provider exceptions are capped and never create a second provider
+    sweep: Mistral may re-issue malformed Planning JSON, Mistral may make one
+    validator-guided Planning correction after a structurally valid response is
+    rejected locally, and classic transient 502/503/504 or transport failures may
+    receive one short delayed retry (see _is_transient_wire_failure). A provider
+    that still fails its bounded retry is marked failed and routing ends or moves
+    to the next eligible adapter exactly as before.
     """
 
     def __init__(self, adapters: Iterable[ProviderAdapter] | None = None) -> None:
@@ -1323,18 +1417,28 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
-                retry_prompt = (
-                    _mistral_short_hook_validator_retry_prompt(provider_prompt, exc)
-                    if adapter.name == "mistral" and stage == "script"
-                    else None
-                )
+                retry_prompt = None
+                retry_event_reason = None
+                if adapter.name == "mistral" and stage == "planning":
+                    retry_prompt = _mistral_planning_validator_retry_prompt(
+                        provider_prompt, exc
+                    )
+                    if retry_prompt is not None:
+                        retry_event_reason = "mistral_planning_validator_retry"
+                elif adapter.name == "mistral" and stage == "script":
+                    retry_prompt = _mistral_short_hook_validator_retry_prompt(
+                        provider_prompt, exc
+                    )
+                    if retry_prompt is not None:
+                        retry_event_reason = "mistral_short_hook_validator_retry"
+
                 if retry_prompt is not None:
                     self._event(
                         stage=stage,
                         provider=adapter.name,
                         result="retrying",
                         wire_attempted=True,
-                        reason="mistral_short_hook_validator_retry",
+                        reason=retry_event_reason,
                         provider_attempt=provider_attempt,
                         stage_wire_attempt=wire_count,
                     )
@@ -1388,7 +1492,18 @@ class ProviderRouter:
                             )
                             return normalized
 
-                if adapter.name == "mistral" and stage == "visual_query_recovery":
+                if adapter.name == "mistral" and stage == "planning":
+                    raw_content = mistral_executor.get_last_mistral_executor_raw_content()
+                    print(
+                        "Mistral planning validator rejected raw content: "
+                        + json.dumps(
+                            _safe_mistral_planning_raw_diagnostic(raw_content, exc),
+                            ensure_ascii=True,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    )
+                elif adapter.name == "mistral" and stage == "visual_query_recovery":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
                     print(
                         "Mistral visual_query_recovery validator rejected raw content: "
