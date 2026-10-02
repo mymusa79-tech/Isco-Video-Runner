@@ -88,6 +88,27 @@ _ACTION_FAMILY_TERMS = {
 }
 _ACTION_FAMILY_MAX_USES = 2
 
+# A strong opening should not collapse into generic productivity B-roll once the
+# episode moves into explanation. These props are allowed when the visible action
+# itself proves the idea, but not when they merely host weak scrolling/typing/using.
+_GENERIC_PRODUCTIVITY_PROP_TERMS = frozenset({
+    "laptop", "computer", "keyboard", "desk", "phone", "smartphone", "screen",
+    "tabs", "notebook", "journal", "planner", "sticky", "notes", "paper",
+})
+_WEAK_GENERIC_ACTION_TERMS = frozenset({
+    "scroll", "scrolling", "type", "typing", "sit", "sitting", "look", "looking",
+    "work", "working", "use", "using", "hold", "holding", "browse", "browsing",
+})
+_STRONG_SEMANTIC_ACTION_RE = re.compile(
+    r"\b(?:compare|comparing|comparison|choose|choosing|choice|select|selecting|selected|"
+    r"reject|rejecting|rejected|eliminate|eliminating|remove|removing|close|closing|closed|"
+    r"cross|crossing|sort|sorting|separate|separating|switch|switching|rank|ranking|"
+    r"narrow|narrowing|discard|discarding|reduce|reducing|arrange|arranging|mark|marking|"
+    r"check|checking|complete|completed|finish|finished|pick|picking|conflict|conflicting|"
+    r"unequal|different|contrast|contrasting|unfinished|blocked|interrupted)\b",
+    re.IGNORECASE,
+)
+
 VISUAL_WORLD_DARK_MARKERS = (
     "navy", "dark blue", "deep blue", "charcoal", "slate",
     "dark shadow", "deep shadow", "كحلي", "أزرق داكن", "ازرق داكن", "فحمي", "فحمية",
@@ -215,6 +236,21 @@ def _beat_action_family(beat: Mapping[str, Any]) -> str:
             for key in ("shot_intent", "stock_query_en")
         )
     )
+
+
+def _is_weak_generic_productivity_scene(value: object) -> bool:
+    """Flag prop-led B-roll that does not visibly carry the episode's meaning."""
+    compact = " ".join(str(value or "").split()).strip()
+    if not compact or not compact.isascii():
+        return False
+    tokens = set(re.findall(r"[a-z0-9]+", compact.casefold()))
+    if not (tokens & _GENERIC_PRODUCTIVITY_PROP_TERMS):
+        return False
+    if _STRONG_SEMANTIC_ACTION_RE.search(compact):
+        return False
+    # A generic prop with either a weak stock action or no meaningful action at
+    # all is exactly the post-hook drop seen in Run 58 ("scrolling many tabs").
+    return bool(tokens & _WEAK_GENERIC_ACTION_TERMS) or len(tokens) <= 10
 
 
 def _has_semantic_proof(cues: list[str]) -> bool:
@@ -631,6 +667,47 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             )
         if stock_query_alt_en and _query_key(stock_query_alt_en) == _query_key(stock_query_en):
             stock_query_alt_en = ""
+
+        # Shared post-hook visual floor for Short, Film, and Podcast. A strong
+        # opener must not be followed by generic laptop/phone/desk coverage that
+        # merely scrolls, types, works, or looks. Prefer an already-authored
+        # semantically stronger alternate locally; otherwise reject the fresh plan
+        # before any media retrieval so quality cannot silently drop downstream.
+        if (
+            str(plan.get("_visual_semantic_strength_contract") or "") == "v1_post_hook"
+            and section_order.get(section_id, 0) > 0
+            and _is_weak_generic_productivity_scene(shot_intent or stock_query_en)
+        ):
+            section_alt = " ".join(
+                str((section_by_id.get(section_id) or {}).get("visual_query_alt_en") or "").split()
+            ).strip()
+            candidates = (
+                stock_query_en if not _is_weak_generic_productivity_scene(stock_query_en) else "",
+                stock_query_alt_en,
+                section_alt,
+            )
+            stronger = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate
+                    and candidate.isascii()
+                    and not _is_weak_generic_productivity_scene(candidate)
+                ),
+                "",
+            )
+            if not stronger:
+                raise ValueError(
+                    f"visual_story beat {beat_id} post-hook semantic drop requires "
+                    "a stronger observable alternate"
+                )
+            shot_intent = stronger
+            stock_query_en = stronger
+            # The stronger authored alternate now owns the visible proof as well;
+            # do not leave QA anchored to the rejected generic prop scene.
+            semantic_must_have = [stronger[:120]]
+            if stock_query_alt_en and _query_key(stock_query_alt_en) == _query_key(stronger):
+                stock_query_alt_en = ""
         if role not in BEAT_ROLES:
             raise ValueError(f"visual_story beat {beat_id} has invalid role")
         if source_preference not in SOURCE_PREFERENCES:

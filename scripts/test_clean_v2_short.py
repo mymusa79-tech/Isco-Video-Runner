@@ -593,7 +593,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {"id": "s1", "narration": "لماذا أتوقف رغم أنني أريد أن أبدأ؟ حين أهدأ قليلًا أرى ما يحدث بوضوح."},
                 {"id": "s2", "narration": "الفكرة الصغيرة هنا أن تلاحظ اللحظة التي تنسحب فيها من الفعل، دون لوم أو مبالغة."},
-                {"id": "s3", "narration": "اختر حركة بسيطة تستطيع تنفيذها الآن، ثم دع الخطوة التالية تأتي بعد أن تبدأ."},
+                {"id": "s3", "narration": "اختر حركة بسيطة تستطيع تنفيذها الآن؛ فالخطوة التالية تتضح بعد البداية."},
             ],
         }
         report = validate_short_script(valid)
@@ -2387,6 +2387,55 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
             media_module.CINEMATIC_FINISH_VERSION,
             "clean-v2-navy-gold-depth-finish-v5",
         )
+
+
+class Run58ShortRegressionTests(unittest.TestCase):
+    def _base_script(self) -> dict:
+        return {
+            "title": "لماذا تشلّنا كثرة الخيارات؟",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "لماذا يزداد ترددنا في اتخاذ القرار كلما اتسعت أمامنا قائمة البدائل؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "كل بديل إضافي يفرض مقارنة جديدة حتى تنفد طاقتنا قبل الوصول إلى نتيجة ملموسة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "الحسم يصبح أسهل حين تضيق مساحة المقارنة. حدد معيارًا واحدًا فقط لاختيارك القادم.",
+                },
+            ],
+        }
+
+    def test_run58_rejects_attached_second_imperative_inside_s3_action_sentence(self) -> None:
+        script = self._base_script()
+        script["sections"][2]["narration"] = (
+            "توقف عن البحث المستمر عن الكمال المفقود، "
+            "وحدد معيارًا واحدًا فقط لاختيارك القادم."
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_s3_forbids_joined_second_action",
+        ):
+            validate_short_script(script)
+
+    def test_run58_locked_payoff_never_salvages_dependent_bel_fragment(self) -> None:
+        script = self._base_script()
+        script["sections"][2]["narration"] = (
+            "البداية الصغيرة تكسر الجمود. "
+            "حدد معيارًا واحدًا فقط لاختيارك القادم."
+        )
+        original = script["sections"][2]["narration"]
+        self.assertFalse(
+            apply_safe_short_s3_locked_payoff_fallback(
+                script,
+                "الحسم لا يأتي من اختيار الأفضل، بل من وضع معايير كافية والالتزام بها.",
+            )
+        )
+        self.assertEqual(script["sections"][2]["narration"], original)
+        self.assertNotIn("بل من وضع معايير كافية", script["sections"][2]["narration"])
 
 
 if __name__ == "__main__":

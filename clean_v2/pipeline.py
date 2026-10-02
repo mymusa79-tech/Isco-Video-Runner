@@ -636,26 +636,42 @@ def _select_podcast_promo_excerpt(
     return selected
 
 
-def _isolate_podcast_promo_unit(
+def _isolate_topic_phrase_unit(
     voice_units: list[tuple[str, str]],
-    promo_text: str,
+    phrase_text: str,
+    *,
+    role_name: str,
 ) -> list[tuple[str, str]]:
-    promo = " ".join(str(promo_text or "").split()).strip()
-    if not promo:
+    """Isolate one exact host-owned phrase only from topic narration."""
+    phrase = " ".join(str(phrase_text or "").split()).strip()
+    if not phrase:
         return voice_units
     topic_indexes = [index for index, (role, _text) in enumerate(voice_units) if role == "topic"]
     if not topic_indexes:
         return voice_units
     first, last = topic_indexes[0], topic_indexes[-1]
-    topic_text = " ".join(text for role, text in voice_units[first : last + 1] if role == "topic")
-    if topic_text.count(promo) != 1:
+    topic_text = " ".join(
+        text for role, text in voice_units[first : last + 1] if role == "topic"
+    )
+    if topic_text.count(phrase) != 1:
         return voice_units
-    prefix, suffix = topic_text.split(promo, 1)
+    prefix, suffix = topic_text.split(phrase, 1)
     replacement: list[tuple[str, str]] = []
     replacement.extend(("topic", item) for item in _bounded_voice_chunks(prefix))
-    replacement.append(("promo_short", promo))
+    replacement.append((role_name, phrase))
     replacement.extend(("topic", item) for item in _bounded_voice_chunks(suffix))
     return [*voice_units[:first], *replacement, *voice_units[last + 1 :]]
+
+
+def _isolate_podcast_promo_unit(
+    voice_units: list[tuple[str, str]],
+    promo_text: str,
+) -> list[tuple[str, str]]:
+    return _isolate_topic_phrase_unit(
+        voice_units,
+        promo_text,
+        role_name="promo_short",
+    )
 
 
 
@@ -696,6 +712,7 @@ def _synthesize_sectioned_voice_pass(
     identity_closer: str = "",
     require_charon_only: bool = False,
     podcast_promo: Mapping[str, str] | None = None,
+    cta_topic_text: str = "",
     performance_mode: str = "",
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
@@ -725,6 +742,7 @@ def _synthesize_sectioned_voice_pass(
     role_reports: list[dict[str, Any]] = []
     total_cache_hits = 0
     report_path = narration_path.parent / "voice-sections.json"
+    cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
         section_id = str(item.get("id") or f"s{index}")
@@ -799,6 +817,17 @@ def _synthesize_sectioned_voice_pass(
             else:
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
 
+        if cta_topic_text:
+            voice_units = _isolate_topic_phrase_unit(
+                voice_units,
+                cta_topic_text,
+                role_name="cta_topic",
+            )
+            cta_topic_units += sum(
+                1 for role, text in voice_units
+                if role == "cta_topic" and text
+            )
+
         if (
             fmt == "podcast"
             and isinstance(podcast_promo, Mapping)
@@ -848,7 +877,7 @@ def _synthesize_sectioned_voice_pass(
                     # Prayer + channel definition keep the neutral established Charon
                     # identity. Editorial performance begins at the hook and topic,
                     # while a fixed identity closer never inherits a dramatic mode.
-                    if chunk_role in {"hook", "topic", "promo_short", "outro"} and not is_fixed_identity_outro:
+                    if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
                 if require_charon_only:
                     if effective_performance_mode:
@@ -1147,6 +1176,12 @@ def _synthesize_sectioned_voice_pass(
     finally:
         joined_path.unlink(missing_ok=True)
         joined_list_path.unlink(missing_ok=True)
+
+    if cta_topic_text and cta_topic_units != 1:
+        raise RuntimeError(
+            "contextual CTA must map to exactly one topic voice unit "
+            f"count={cta_topic_units}"
+        )
 
     result = {
         "voice_provider": expected_provider,
@@ -3960,6 +3995,11 @@ def _validate_plan_for_brief(
     # closed on adjacent/repeated visual families before any media retrieval.
     # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
     plan["_visual_diversity_contract"] = "v2_fail_closed"
+    # Shared quality floor: after the opening section, generic productivity
+    # props cannot become the visual default unless their visible action itself
+    # proves the idea. Persist the contract so resume uses the same rule.
+    if fmt in {"short", "film", "podcast"}:
+        plan["_visual_semantic_strength_contract"] = "v1_post_hook"
     if enforce_visual_identity:
         plan["_visual_identity_contract"] = "navy_gold_v1"
     if fmt == "short":
@@ -5154,6 +5194,17 @@ walking/movement to another. Do not place the same dominant action family in con
 normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
 when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
 completed, so every new shot adds information instead of showing another angle of the same productivity prop.
+
+POST-HOOK VISUAL FLOOR — applies equally to Short, Film, and Podcast:
+- Once section 1 has established the central tension, every later beat must preserve or increase semantic specificity.
+- A later laptop, phone, desk, notebook, screen, typing, scrolling, sitting, or "working" shot is NOT acceptable merely
+  because it matches the topic's general environment. It must show a decisive visible relation/action that proves the
+  current meaning: compare, choose, reject, close, sort, narrow, remove, cross out, complete, contrast, or another equally
+  concrete state change. "Person scrolling many tabs on a laptop" is generic coverage, not evidence.
+- Whenever a generic productivity prop is useful context but not the proof itself, provide stock_query_alt_en with a
+  different observable situation that carries the meaning directly. Runtime will prefer that stronger alternate locally.
+- This is a quality floor, not a ban on devices or desks. Use them when the device/desk action itself is the episode's
+  concrete evidence; otherwise do not let the visual story become weaker than its hook.
 For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
 - beat 4 belongs to s2;
@@ -5275,10 +5326,20 @@ The visual hook beat should remain cover-aware: one clear focal object/action, o
 and usable negative space for large Arabic type. Do not create a separate thumbnail concept or shot.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
-share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
-delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
-For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment/share/like language
-in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
+share, or like. Never bundle multiple actions in one CTA. For Film and Podcast, write the CTA so it can
+be spoken VERBATIM as one brief continuation of the episode, normally 8-24 Arabic words and never more
+than 32. It must refer to THIS episode's actual tension, insight, question, or journey; never write a
+generic "support the channel" sales line and never use "لا تنسَ". Choose comment when a real reflective
+question naturally extends the idea, like only after a concrete value moment, share only when the idea
+naturally points to another person who may need it, and subscribe only when continuing the channel's
+ongoing journey is genuinely relevant. The CTA must still make sense if heard between two content
+sentences and must not summarize or interrupt the payoff. Runtime will insert it once into a safe
+mid/late TOPIC boundary and show the matching visual action at the same moment. CTA speech and visuals
+are forbidden in the hook, Intro, prayer, channel definition/identity, and Outro; they belong only to
+the episode's topic content.
+For moment OR short format, return an empty CTA string. For short, the zero-SPOKEN-social-CTA rule is
+hard: do not put subscribe/comment/share/like language in section purpose text; visual-only CTA overlays
+are renderer-owned and do not belong in narration.
 For short only, practical_action_ar is NOT a social CTA. It is the one topic-specific practical action
 the viewer can take after the payoff. Begin it directly with one Arabic imperative verb, keep exactly
 one practical action, and do not join a second action with ثم/و or another clause.
@@ -5609,10 +5670,14 @@ sections end up interchangeable or one merely paraphrases the other, rewrite onl
 so it adds the missing approved explanatory step before returning JSON.
 {short_payoff_guidance}
 
-CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
-host will place visual CTA overlays only in safe content windows after value has been delivered.
-For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
-in spoken narration.
+CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA yourself.
+For Film and Podcast, runtime will insert the exact LOCKED_PLAN.cta once at a natural mid/late sentence
+boundary after value has been delivered, before Text Audit and TTS. The same CTA mode will drive the
+visual CTA in that same TOPIC window, so do not create another social request anywhere else in narration.
+The CTA is strictly forbidden in the hook, Intro, prayer, channel definition/identity, and Outro.
+Write every section so this one brief contextual aside can return immediately to the episode's thought;
+do not build a promotional setup or a second CTA. For short, social CTA remains visual-only: do not add
+subscribe/comment/share/like language anywhere in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. The first sentence is the hook and must be the strongest
 natural entry into THIS exact episode, not merely an acceptable opening sentence. Write it as one
@@ -6289,6 +6354,9 @@ class CleanV2Pipeline:
                 _assert_brand_signature_invariant(
                     script["sections"], fmt, identity["opener"], identity["closer"]
                 )
+                if fmt == "podcast":
+                    normalize_podcast_listener_proxy_script(script)
+                    _validate_podcast_listener_proxy_script(script)
                 if fmt == "short":
                     short_script_report = validate_short_script(script)
                     atomic_write_json(
@@ -6459,6 +6527,9 @@ class CleanV2Pipeline:
                         ),
                         identity_closer=str(identity_runtime.get("closer") or ""),
                         podcast_promo=podcast_promo,
+                        cta_topic_text=str(
+                            _read_json_object(output_dir / "cta-plan.json").get("spoken_text") or ""
+                        ),
                         performance_mode=_voice_performance_mode_for_brief(
                             brief,
                             plan,

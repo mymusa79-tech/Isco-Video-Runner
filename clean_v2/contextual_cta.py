@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 
 # Literal Clean V2 port of the tested legacy cinematic_cta.py behavior.
-CTA_CONTRACT_VERSION = "contextual-cta-v1"
+CTA_CONTRACT_VERSION = "contextual-cta-v2"
 MIN_CTA_START_SECONDS = 30.5
 FINAL_QUIET_SECONDS = 12.0
 DEFAULT_VISUAL_SECONDS = 3.6
@@ -166,13 +166,170 @@ def infer_cta_mode(cta_text: str) -> tuple[CtaMode, str]:
     return CtaMode.NONE, "no_supported_action"
 
 
-def _choose_anchor_section(plan: Any) -> Any | None:
+def _choose_anchor_section(plan: Any, mode: CtaMode) -> Any | None:
+    """Choose one earned long-form CTA position without touching the hook/payoff.
+
+    Film normally has five sections. Podcast may legitimately have only two, so
+    a two-section episode uses the second section but the insertion helper keeps
+    the CTA before that section's closing sentence.
+    """
     sections = list(getattr(plan, "sections", []) or [])
-    if len(sections) < 3:
+    if len(sections) < 2:
         return None
-    index = round((len(sections) - 1) * 0.58)
-    index = max(1, min(len(sections) - 2, index))
+    fmt = str(getattr(plan, "format", "") or "")
+    ratios = {
+        CtaMode.COMMENT: 0.56,
+        CtaMode.LIKE: 0.54,
+        CtaMode.SHARE: 0.68,
+        CtaMode.SUBSCRIBE: 0.72,
+    }
+    ratio = ratios.get(mode, 0.58)
+    if fmt == "podcast":
+        ratio = max(ratio, 0.62)
+    index = round((len(sections) - 1) * ratio)
+    index = max(1, min(len(sections) - 1, index))
+    if len(sections) >= 3:
+        index = min(index, len(sections) - 2)
     return sections[index]
+
+
+def _spoken_cta(authored: str, mode: CtaMode) -> str:
+    """Keep the Planning-authored CTA intact only when it is concise and complete."""
+    text = _compact(authored)
+    if not text:
+        return ""
+    if len(text.split()) > MAX_SPOKEN_WORDS:
+        return ""
+    inferred, _ = infer_cta_mode(text)
+    if inferred != mode:
+        return ""
+    if text[-1] not in ".!؟":
+        text += "."
+    return text
+
+
+def _insert_spoken_cta(
+    narration: str,
+    spoken_text: str,
+    *,
+    fmt: str = "",
+) -> tuple[str, int]:
+    """Insert at a natural late-body boundary; Podcast CTA always belongs to B."""
+    narration = _compact(narration)
+    spoken_text = _compact(spoken_text)
+    if not narration or not spoken_text:
+        return narration, -1
+    if spoken_text in narration:
+        prefix = narration.split(spoken_text, 1)[0]
+        return narration, len(prefix.split())
+
+    if fmt == "podcast":
+        turn_re = re.compile(r"(?<!\S)([AB]):\s+")
+        matches = list(turn_re.finditer(narration))
+        b_indexes = [
+            index for index, match in enumerate(matches)
+            if match.group(1) == "B"
+        ]
+        if not b_indexes:
+            return narration, -1
+        turn_index = b_indexes[-1]
+        match = matches[turn_index]
+        turn_start = match.end()
+        turn_end = (
+            matches[turn_index + 1].start()
+            if turn_index + 1 < len(matches)
+            else len(narration)
+        )
+        b_spoken = narration[turn_start:turn_end].strip()
+        sentences = [
+            item.strip() for item in _SENTENCE_END.split(b_spoken) if item.strip()
+        ]
+        if len(sentences) <= 1:
+            insertion_at = turn_end
+            updated = (
+                narration[:turn_end].rstrip()
+                + " "
+                + spoken_text
+                + " "
+                + narration[turn_end:].lstrip()
+            ).strip()
+            return updated, len(narration[:insertion_at].split())
+
+        before = " ".join(sentences[:-1]).strip()
+        after = sentences[-1]
+        replacement = f"{before} {spoken_text} {after}".strip()
+        updated = (
+            narration[:turn_start]
+            + replacement
+            + narration[turn_end:]
+        ).strip()
+        insertion_prefix = narration[:turn_start] + before
+        return updated, len(insertion_prefix.split())
+
+    sentences = [item.strip() for item in _SENTENCE_END.split(narration) if item.strip()]
+    if len(sentences) <= 1:
+        return f"{narration} {spoken_text}".strip(), len(narration.split())
+
+    # Preserve the final sentence as the section's narrative landing. This makes
+    # the CTA feel like a brief aside after value, then immediately returns to
+    # the episode instead of ending the section on promotion.
+    before = " ".join(sentences[:-1]).strip()
+    after = sentences[-1]
+    insertion_words = len(before.split())
+    return f"{before} {spoken_text} {after}".strip(), insertion_words
+
+
+def _assert_spoken_cta_topic_only(
+    script: Mapping[str, Any],
+    binding: CtaBinding,
+    *,
+    fmt: str,
+) -> None:
+    """Fail closed unless the one spoken CTA lives in topic narration only."""
+    spoken = _compact(binding.spoken_text)
+    sections = [
+        item for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    ]
+    if fmt == "short":
+        if spoken:
+            raise RuntimeError("short_spoken_social_cta_forbidden")
+        return
+    if not spoken or binding.mode == CtaMode.NONE:
+        return
+    if not sections or not binding.anchor_section_id:
+        raise RuntimeError("longform_cta_topic_anchor_missing")
+
+    joined = " ".join(_compact(item.get("narration")) for item in sections)
+    if joined.count(spoken) != 1:
+        raise RuntimeError("longform_cta_must_appear_exactly_once")
+
+    first_id = str(sections[0].get("id") or "")
+    if binding.anchor_section_id == first_id:
+        raise RuntimeError("longform_cta_forbidden_in_hook_identity_opening")
+
+    anchor = next(
+        (
+            item for item in sections
+            if str(item.get("id") or "") == binding.anchor_section_id
+        ),
+        None,
+    )
+    if anchor is None or spoken not in _compact(anchor.get("narration")):
+        raise RuntimeError("longform_cta_moved_outside_anchor_topic")
+
+    last = sections[-1]
+    if str(last.get("id") or "") == binding.anchor_section_id:
+        narration = _compact(last.get("narration"))
+        sentences = [
+            item.strip()
+            for item in _SENTENCE_END.split(narration)
+            if item.strip()
+        ]
+        # Timeline First owns the final sentence as Outro when there is no fixed
+        # closer. The CTA must land before that final sentence.
+        if sentences and spoken in sentences[-1]:
+            raise RuntimeError("longform_cta_forbidden_in_outro")
 
 
 def _screen_copy(mode: CtaMode, authored: str) -> tuple[str, str]:
@@ -208,7 +365,7 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
             CTA_CONTRACT_VERSION, mode, None, "", "", "", True, reason
         )
 
-    anchor = _choose_anchor_section(plan)
+    anchor = _choose_anchor_section(plan, mode)
     if anchor is None:
         return CtaBinding(
             CTA_CONTRACT_VERSION,
@@ -221,19 +378,30 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
             "no_safe_anchor_section",
         )
 
+    spoken = _spoken_cta(authored, mode)
+    if not spoken:
+        return CtaBinding(
+            CTA_CONTRACT_VERSION,
+            CtaMode.NONE,
+            None,
+            "",
+            "",
+            "",
+            True,
+            "spoken_cta_not_concise_or_invalid",
+        )
     primary, secondary = _screen_copy(mode, authored)
 
-    # Approved CTA contract: every CTA is visual-only. The plan's authored
-    # action selects which approved asset is shown, but narration is never
-    # mutated and no social request is spoken aloud.
+    # Film/Podcast own exactly one contextual spoken CTA. Short remains excluded
+    # above. The visual asset is scheduled against this same spoken request.
     return CtaBinding(
         CTA_CONTRACT_VERSION,
         mode,
         str(getattr(anchor, "id", "")) or None,
-        "",
+        spoken,
         primary,
         secondary,
-        True,
+        False,
         reason,
     )
 
@@ -242,6 +410,8 @@ def schedule_cta(
     binding: CtaBinding,
     section_ids: list[str],
     section_durations: list[float],
+    *,
+    spoken_fraction: float | None = None,
 ) -> CtaSchedule | None:
     if binding.mode == CtaMode.NONE or not binding.anchor_section_id:
         return None
@@ -264,7 +434,14 @@ def schedule_cta(
     if section_end <= MIN_CTA_START_SECONDS or latest_end <= MIN_CTA_START_SECONDS:
         return None
 
-    desired_start = section_start + max(0.8, (section_end - section_start) * 0.68)
+    if spoken_fraction is None:
+        anchor_fraction = 0.72
+    else:
+        anchor_fraction = max(0.40, min(0.90, float(spoken_fraction)))
+    desired_start = section_start + max(
+        0.8,
+        (section_end - section_start) * anchor_fraction,
+    )
     start = max(MIN_CTA_START_SECONDS, desired_start)
     end = min(start + DEFAULT_VISUAL_SECONDS, section_end - 0.35, latest_end)
     if end - start < 2.2:
@@ -381,7 +558,10 @@ def write_cta_report(
             "opening_cta_forbidden_before_seconds": MIN_CTA_START_SECONDS,
             "final_quiet_seconds": FINAL_QUIET_SECONDS,
             "one_primary_action": True,
-            "like_visual_only": True,
+            "short_spoken_social_cta_forbidden": True,
+            "longform_spoken_cta_count": 1 if binding.spoken_text else 0,
+            "longform_cta_topic_only": True,
+            "forbidden_identity_roles": ["hook", "intro", "prayer", "channel_identity", "outro"],
             "provider_calls": 0,
             "action_accent_rgb": "#D7A85B",
         },
@@ -413,12 +593,32 @@ def bind_contextual_cta_to_script(
     )
     binding = bind_contextual_cta(runtime_plan)
 
-    by_id = {str(section.id): str(section.narration) for section in sections}
-    for item in script.get("sections") or []:
-        if isinstance(item, dict):
-            section_id = str(item.get("id") or "")
-            if section_id in by_id:
-                item["narration"] = by_id[section_id]
+    insertion_word_offset = None
+    if (
+        binding.mode != CtaMode.NONE
+        and binding.anchor_section_id
+        and binding.spoken_text
+        and not binding.visual_only
+    ):
+        for item in script.get("sections") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "") != binding.anchor_section_id:
+                continue
+            updated, offset = _insert_spoken_cta(
+                str(item.get("narration") or ""),
+                binding.spoken_text,
+                fmt=str(brief.get("format") or ""),
+            )
+            item["narration"] = updated
+            insertion_word_offset = offset
+            break
+
+    _assert_spoken_cta_topic_only(
+        script,
+        binding,
+        fmt=str(brief.get("format") or ""),
+    )
 
     report_path = Path(output_dir) / "cta-plan.json"
     write_cta_report(report_path, binding, None)
@@ -426,12 +626,101 @@ def bind_contextual_cta_to_script(
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
+    report["spoken_insertion_word_offset"] = insertion_word_offset
+    report["spoken_alignment_policy"] = "one_contextual_longform_cta"
     report["render_status"] = "pending"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     return report
+
+
+def _timeline_section_durations(
+    output_dir: Path,
+    section_ids: list[str],
+    total_seconds: float,
+) -> tuple[list[float], str]:
+    """Prefer measured Timeline First section spans; fall back deterministically."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    durations: dict[str, float] = {}
+    for event in raw.get("section_events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        section_id = str(event.get("section_id") or "").strip()
+        if section_id not in section_ids:
+            continue
+        try:
+            start = float(event.get("start"))
+            end = float(event.get("end"))
+        except (TypeError, ValueError):
+            continue
+        span = end - start
+        if span > 0:
+            durations[section_id] = durations.get(section_id, 0.0) + span
+
+    if all(durations.get(section_id, 0.0) > 0 for section_id in section_ids):
+        return [durations[section_id] for section_id in section_ids], "timeline-first"
+    equal = max(0.0, float(total_seconds)) / max(1, len(section_ids))
+    return [equal for _ in section_ids], "equal-fallback"
+
+
+def _topic_only_schedule_from_timeline(
+    *,
+    output_dir: Path,
+    binding: CtaBinding,
+    spoken_fraction: float | None,
+    total_seconds: float,
+) -> CtaSchedule | None:
+    """Use the exact measured CTA topic unit, never an identity/outro estimate."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    units = [
+        item for item in (raw.get("audio_units") or [])
+        if isinstance(item, Mapping)
+        and str(item.get("section_id") or "") == str(binding.anchor_section_id or "")
+        and str(item.get("role") or "") == "cta_topic"
+    ]
+    if len(units) != 1:
+        return None
+    unit = units[0]
+    try:
+        start = float(unit.get("start"))
+        end = float(unit.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if end <= start:
+        return None
+
+    forbidden_kinds = {
+        "hook", "intro", "prayer", "channel_identity", "outro", "final_silence"
+    }
+    for event in raw.get("identity_events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        if str(event.get("kind") or "") not in forbidden_kinds:
+            continue
+        try:
+            event_start = float(event.get("start"))
+            event_end = float(event.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start < event_end and end > event_start:
+            return None
+
+    return CtaSchedule(
+        round(start, 3),
+        round(end, 3),
+        str(binding.anchor_section_id),
+    )
 
 
 def apply_contextual_cta_overlay(
@@ -469,15 +758,68 @@ def apply_contextual_cta_overlay(
     if not section_ids:
         raise RuntimeError("contextual CTA requires script section ids")
     total = probe_duration(Path(narration_path))
-    section_seconds = total / len(section_ids)
-    schedule = schedule_cta(
-        binding,
+    section_durations, section_duration_source = _timeline_section_durations(
+        output_dir,
         section_ids,
-        [section_seconds for _ in section_ids],
+        total,
     )
+    spoken_fraction = None
+    raw_offset = raw.get("spoken_insertion_word_offset")
+    if (
+        binding.anchor_section_id
+        and isinstance(raw_offset, int)
+        and raw_offset >= 0
+        and binding.spoken_text
+    ):
+        anchor_narration = next(
+            (
+                str(item.get("narration") or "")
+                for item in (script.get("sections") or [])
+                if isinstance(item, Mapping)
+                and str(item.get("id") or "") == binding.anchor_section_id
+            ),
+            "",
+        )
+        total_words = max(1, len(_compact(anchor_narration).split()))
+        spoken_fraction = min(0.95, raw_offset / total_words)
+
+    schedule = _topic_only_schedule_from_timeline(
+        output_dir=output_dir,
+        binding=binding,
+        spoken_fraction=spoken_fraction,
+        total_seconds=total,
+    )
+    schedule_source = "measured-cta-topic-unit"
+    if schedule is None and binding.spoken_text and not binding.visual_only:
+        raise RuntimeError(
+            "spoken contextual CTA must have one measured topic-only voice unit"
+        )
+    if schedule is None:
+        schedule = schedule_cta(
+            binding,
+            section_ids,
+            section_durations,
+            spoken_fraction=spoken_fraction,
+        )
+        schedule_source = "section-fallback"
     write_cta_report(report_path, binding, schedule)
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["spoken_insertion_word_offset"] = raw.get("spoken_insertion_word_offset")
+    report["spoken_alignment_policy"] = raw.get(
+        "spoken_alignment_policy",
+        "one_contextual_longform_cta",
+    )
+    report["spoken_fraction_estimate"] = spoken_fraction
+    report["section_duration_source"] = section_duration_source
+    report["cta_schedule_source"] = schedule_source
+    report["forbidden_regions"] = [
+        "hook",
+        "intro",
+        "prayer",
+        "channel_identity",
+        "outro",
+    ]
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0

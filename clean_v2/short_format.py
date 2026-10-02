@@ -750,6 +750,11 @@ def _salvage_safe_payoff_clause(sentence: object) -> str:
         if _word_count(item) >= 3
         and _practical_action_marker_count(item) == 0
         and not _contains_forbidden_action_family(item)
+        # A clause rescued after a comma must stand on its own. Run 58 exposed
+        # that keeping a dependent tail such as "بل من وضع معايير..." can pass
+        # the Short contract yet sound visibly broken after the audited script
+        # is normalized for production.
+        and not re.match(r"^(?:بل|لكن|لأن|لان|مما)(?:\s|$)", _semantic_key(item))
     ]
     if not safe:
         return ""
@@ -1493,6 +1498,15 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
             "short_s3_requires_one_action_only "
             f"imperative_markers={action_marker_count}"
         )
+    # Match validate_short_practical_action's protection against an attached
+    # second imperative (for example "توقف ...، وحدد ..."). The ordinary
+    # marker count intentionally requires a word boundary and therefore does
+    # not count the second verb when Arabic waw/fa is attached to it.
+    if re.search(r"\s+(?:ثم|و)\s+", action_sentence) or any(
+        re.search(_conjoined_practical_action_pattern(marker), action_sentence, flags=re.I)
+        for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
+    ):
+        raise ShortFormatError("short_s3_forbids_joined_second_action")
 
     payoff_sentences = [sentence for sentence in s3_sentences if sentence != action_sentence]
     if any(_contains_forbidden_action_family(sentence) for sentence in payoff_sentences):
