@@ -1352,8 +1352,11 @@ def _history_request_view(
                 "",
                 "⛔ الاستئناف غير متاح",
                 f"السبب: {str(decision.get('reason') or 'تعذر إثبات checkpoint صالح.')}",
-                "الخيار المتاح: بدء طلب جديد من الصفر.",
+                "الخيار الفعّال الوحيد: بدء طلب جديد من الصفر.",
             ]
+        )
+        keyboard.append(
+            [{"text": "⛔ استئناف غير متاح", "disabled": {}}]
         )
     keyboard.append(
         [{"text": "🆕 بدء من جديد", "callback_data": f"restart:{request_id}"}]
