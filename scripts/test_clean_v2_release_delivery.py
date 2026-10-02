@@ -231,6 +231,7 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
                 target_sha="f" * 40,
                 run_id="999",
                 run_attempt="1",
+                published_parent_youtube_video_id="abc123DEF45",
                 run=runner,
             )
             package = root / "publish-package.zip"
@@ -251,13 +252,58 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
                 }
                 self.assertTrue(expected.issubset(names))
                 publish = json.loads(archive.read("publish.json").decode("utf-8"))
+                derived_publish = json.loads(
+                    archive.read("derived-short-publish.json").decode("utf-8")
+                )
             self.assertIn("خارج النص", publish["title"])
+            self.assertEqual(
+                derived_publish["suggested_related_video_id"],
+                "abc123DEF45",
+            )
+            self.assertEqual(
+                derived_publish["related_video_assignment"],
+                "manual_youtube_studio",
+            )
             self.assertIn("#خارج_النص", publish["hashtags"])
             self.assertIn("package_browser_download_url", result)
             self.assertEqual(
                 send.call_args_list[0].kwargs["button_text"],
                 "📦 تحميل حزمة النشر كاملة",
             )
+
+
+    def test_invalid_published_parent_youtube_id_is_rejected_before_release(self):
+        direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
+        runner = FakeRunner(direct)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            delivery, "send_message"
+        ) as send:
+            root = self._output(Path(tmp))
+            (root / "long-short.mp4").write_bytes(b"short-video")
+            (root / "long-short-qc.json").write_text(
+                json.dumps({"status": "pass"}),
+                encoding="utf-8",
+            )
+            (root / "long-short-cover.jpg").write_bytes(b"short-cover")
+            (root / "long-short.json").write_text(
+                json.dumps({"status": "pass", "section_id": "s2"}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "YouTube video id is invalid"):
+                delivery.publish_one(
+                    root=root,
+                    kind="long",
+                    topic="فيديو طويل",
+                    delivery_key="telegram",
+                    repository="example/repo",
+                    target_sha="1" * 40,
+                    run_id="1001",
+                    run_attempt="1",
+                    published_parent_youtube_video_id="not-a-youtube-id",
+                    run=runner,
+                )
+        self.assertEqual(runner.calls, [])
+        send.assert_not_called()
 
 
     def test_delivery_is_blocked_before_release_when_final_master_qc_is_not_pass(self):
