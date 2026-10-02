@@ -29,6 +29,7 @@ from clean_v2.pipeline import (
     STAGES,
     _Journal,
     _bounded_voice_chunks,
+    _isolate_topic_phrase_unit,
     _reattach_dialogue_speaker_label,
     _synthesize_sectioned_voice,
 )
@@ -356,6 +357,38 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                     primary_voice="Charon",
                     questioner_voice="Orus",
                 )
+
+    def test_cta_phrase_isolated_only_from_topic_voice_units(self) -> None:
+        cta = "إذا أضافت لك الفكرة شيئًا، يكفيني إعجابك."
+        units = [
+            ("hook", "لماذا نتردد؟"),
+            ("prayer", "اللهم صلِّ وسلِّم على نبينا محمد."),
+            ("channel_identity", "هنا نداء اليقظة."),
+            (
+                "topic",
+                "كل مقارنة إضافية تستهلك انتباهك. "
+                + cta
+                + " ثم نعود إلى الفكرة الأساسية."
+            ),
+            ("outro", "نلتقي في نداء جديد."),
+        ]
+        isolated = _isolate_topic_phrase_unit(
+            units,
+            cta,
+            role_name="cta_topic",
+        )
+        self.assertEqual(
+            [role for role, _text in isolated].count("cta_topic"),
+            1,
+        )
+        self.assertEqual(
+            next(text for role, text in isolated if role == "cta_topic"),
+            cta,
+        )
+        self.assertEqual(isolated[0][0], "hook")
+        self.assertEqual(isolated[1][0], "prayer")
+        self.assertEqual(isolated[2][0], "channel_identity")
+        self.assertEqual(isolated[-1][0], "outro")
 
     def test_sectioned_voice_retries_only_failed_section_and_stays_gemini38(self) -> None:
         calls: list[str] = []
