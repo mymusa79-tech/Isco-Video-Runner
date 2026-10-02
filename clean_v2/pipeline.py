@@ -2435,24 +2435,24 @@ def _validate_and_apply_script_patches(
                 locked_action = str(
                     plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
                 ).strip()
-                payoff_surface = str(item.get("s3_payoff") or "").strip()
-                if not payoff_surface:
-                    raise ValueError("short s3 patch requires structured s3_payoff")
-                # Planning owns this exact action. A patch that quotes or replaces it
-                # is not a quality-repair candidate, so stop locally instead of
-                # spending another provider attempt.
-                if (
-                    locked_action
-                    and (
+                if locked_action:
+                    payoff_surface = str(item.get("s3_payoff") or "").strip()
+                    if not payoff_surface and narration.endswith(locked_action):
+                        payoff_surface = narration[: -len(locked_action)].strip()
+                    if not payoff_surface:
+                        raise ValueError("short s3 patch requires structured s3_payoff")
+                    # Planning owns this exact action. A patch that quotes or replaces it
+                    # is not a quality-repair candidate, so stop locally instead of
+                    # spending another provider attempt.
+                    if (
                         locked_action in find
                         or locked_action in replace
                         or (find in narration and find not in payoff_surface)
-                    )
-                ):
-                    raise _ShortLockedActionPatchRejected(
-                        "script patch cannot change Planning-owned practical_action_ar"
-                    )
-                patch_surface = payoff_surface
+                    ):
+                        raise _ShortLockedActionPatchRejected(
+                            "script patch cannot change Planning-owned practical_action_ar"
+                        )
+                    patch_surface = payoff_surface
 
             if patch_surface.count(find) != 1:
                 raise ValueError("script patch find text must match exactly once")
@@ -2643,7 +2643,10 @@ def _validate_and_apply_script_patches(
         # _safe_validator_reason convention, which already special-cases
         # ShortFormatError to log its specific contract code.
         validate_short_script(normalized)
-        materialize_short_s3(normalized)
+        if str(
+            plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
+        ).strip():
+            materialize_short_s3(normalized)
     return normalized
 
 
