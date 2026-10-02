@@ -1445,6 +1445,22 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+                if getattr(exc, "terminal_provider_fallback", False):
+                    reason = _safe_validator_reason(exc)
+                    failures.append(f"{adapter.name}:{reason}")
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="invalid_output",
+                        wire_attempted=True,
+                        reason=reason,
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    # Host-owned Short action mutations are deterministic local
+                    # contract violations, not a reason to spend another free-tier
+                    # provider call trying the same forbidden edit again.
+                    raise
                 retry_prompt = None
                 retry_event_reason = None
                 if adapter.name == "mistral" and stage == "planning":
