@@ -2192,7 +2192,7 @@
       ],
       "selected": true,
       "created_at": "2026-10-01T06:37:36Z",
-      "selected_at": "2026-10-02T13:51:43Z"
+      "selected_at": "2026-10-02T15:57:24Z"
     },
     {
       "idea_id": "idea-91ca350ff2",
@@ -2693,6 +2693,17 @@
       "created_at": "2026-10-02T13:51:43Z",
       "source": "saved_library",
       "closed_at": "2026-10-02T13:51:43Z",
+      "selected_index": 0
+    },
+    "a62e094b": {
+      "session_id": "a62e094b",
+      "scope": "short",
+      "idea_ids": [
+        "idea-8fa6f8fb18"
+      ],
+      "created_at": "2026-10-02T15:57:24Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T15:57:24Z",
       "selected_index": 0
     }
   },
@@ -3454,9 +3465,40 @@
         "started_at": "2026-10-02T13:52:20Z",
         "finished_at": "2026-10-02T15:22:36Z"
       }
+    },
+    "req-05a5b3c9b371": {
+      "schema_version": 1,
+      "request_id": "req-05a5b3c9b371",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فخ المقارنة: مسارك الزمني خاص بك وحدك",
+      "research_pack": [
+        {
+          "source_title": "let me help you stop comparing yourself | psychology & affirmations (asmr)",
+          "source_url": "https://youtu.be/cY_InAo5P7w",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Smetto di Paragonarmi agli Altri | Affermazioni del Mattino per l'Autostima",
+          "source_url": "https://youtu.be/ICCDbyv-qmo",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كيف تدمر المقارنة سعادتك ونجاحك دون أن تشعر؟ 🧠🚫 #تطوير_الذات #المقارنة #سيكولوجيا_النجاح #الراحة",
+          "source_url": "https://youtu.be/qkBPLHdfe4o",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-8fa6f8fb18",
+      "selected_at": "2026-10-02T15:57:24Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "e22d311876e9e3cf1e780bc612b5f9b5cb6a0f72b42ea4400b2c93bcf5d65d3c"
     }
   },
-  "current_request_id": "req-1c567a73ee36",
+  "current_request_id": "req-05a5b3c9b371",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3711,5 +3753,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T15:22:36Z"
+  "updated_at": "2026-10-02T15:57:24Z"
 }
