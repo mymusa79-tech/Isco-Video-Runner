@@ -754,7 +754,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-28T22:18:43Z",
-      "selected_at": "2026-09-28T22:19:47Z"
+      "selected_at": "2026-10-02T13:01:50Z"
     },
     {
       "idea_id": "idea-b946be3ff6",
@@ -2672,6 +2672,17 @@
       "source": "saved_library",
       "closed_at": "2026-10-02T11:36:24Z",
       "selected_index": 0
+    },
+    "eb49dd06": {
+      "session_id": "eb49dd06",
+      "scope": "short",
+      "idea_ids": [
+        "idea-38555beb28"
+      ],
+      "created_at": "2026-10-02T13:01:50Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T13:01:50Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -3338,9 +3349,40 @@
         "started_at": "2026-10-02T11:37:01Z",
         "finished_at": "2026-10-02T11:42:19Z"
       }
+    },
+    "req-6a7fda4b50d5": {
+      "schema_version": 1,
+      "request_id": "req-6a7fda4b50d5",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تبني عادة تستمر عندما يختفي الدافع؟",
+      "research_pack": [
+        {
+          "source_title": "success is A habit  Improve your english fluency ✅️   motivational video 🔥",
+          "source_url": "https://youtu.be/ymLGIiFwozY",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Stop Waiting for Motivation to Draw | Build a Better Drawing Habit",
+          "source_url": "https://youtu.be/aIgoGl811hI",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Become Mentally Stronger With These 20 Daily Habits 🧠| Build Discipline, Focus & Unstoppable Mindse✅",
+          "source_url": "https://youtu.be/skj-9qNtZRA",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-38555beb28",
+      "selected_at": "2026-10-02T13:01:50Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "e8344c5acba03ab0d37bd96eef90aa6ad6574ac6fab89e319e576291cdab692a"
     }
   },
-  "current_request_id": "req-8a5c50047ccc",
+  "current_request_id": "req-6a7fda4b50d5",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -3595,5 +3637,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T11:42:19Z"
+  "updated_at": "2026-10-02T13:01:50Z"
 }
