@@ -3143,8 +3143,8 @@
       ],
       "idea_id": "idea-771285b119",
       "selected_at": "2026-10-02T04:40:17Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-02T04:40:41Z",
       "dispatched_at": null,
       "request_sha256": "de5f3cff4bb8dbbe92bd6e705224f2823419c535a9633c0203737b06c75e9d58"
     }
@@ -3404,5 +3404,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-02T04:40:18Z"
+  "updated_at": "2026-10-02T04:40:42Z"
 }
