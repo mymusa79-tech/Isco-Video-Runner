@@ -973,7 +973,7 @@ def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
     section_schema = {
         "type": "object",
         "properties": section_properties,
-        "required": ["id"],
+        "required": ["id"] if has_short_payoff else ["id", "narration"],
         "additionalProperties": False,
     }
     return {
