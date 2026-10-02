@@ -104,6 +104,7 @@ from clean_v2.short_format import (
     apply_safe_short_s3_action_prefix_trim,
     apply_safe_short_s3_locked_payoff_fallback,
     apply_safe_short_s3_single_action_trim,
+    materialize_short_s3,
     normalize_short_practical_action,
     normalize_short_script_candidate,
     normalize_short_visual_queries,
@@ -114,6 +115,7 @@ from clean_v2.short_format import (
     validate_short_duration,
     validate_short_hook_contract,
     validate_short_practical_action,
+    validate_short_s3_contract,
     validate_short_script,
     validate_short_visual_queries,
     validate_short_visual_safety,
@@ -610,6 +612,75 @@ class ShortContractTests(unittest.TestCase):
         cta["sections"][2]["narration"] += " اشترك في القناة."
         with self.assertRaisesRegex(ShortFormatError, "zero_social_cta"):
             validate_short_script(cta)
+
+    def test_run63_structured_s3_separates_payoff_from_locked_action(self) -> None:
+        payoff = (
+            "مسارك الزمني خاص بك، وقيمتك لا تُقاس بسرعة شخص آخر أو ترتيب ظهوره أمامك."
+        )
+        action = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        script = {
+            "title": "لماذا تفشل المقارنة في قياس سعادتك؟",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن إنجازاتك اليومية بمسارات الآخرين وتفترض أنك متأخر عنهم في سباق غير موجود؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "المقارنة تنقل معيارك من تقدمك الفعلي إلى صورة شخص آخر، فيضيع قياسك الحقيقي.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+
+        # The final spoken narration contains the action-family verb «اكتب», but
+        # payoff validation receives only s3_payoff and action validation receives
+        # only s3_locked_action. The old circular merged-string failure is gone.
+        report = validate_short_script(script)
+        self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
+        s3 = validate_short_s3_contract(payoff, action)
+        self.assertEqual(s3["s3_payoff"], payoff)
+        self.assertEqual(s3["s3_locked_action"], action)
+
+    def test_run63_writer_contract_materializes_action_only_after_validation(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        plan["practical_action_ar"] = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        candidate = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن يومك بمسار شخص آخر ثم تعتبر نفسك متأخرًا رغم اختلاف الطريق؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "حين يتغير معيار القياس كل مرة، يبدو تقدمك أصغر حتى لو كان حقيقيًا وواضحًا.",
+                },
+                {
+                    "id": "s3",
+                    "s3_payoff": "المعيار الأصدق هو تقدمك أنت مقارنة بنقطة بدايتك وهدفك الحالي.",
+                },
+            ],
+        }
+
+        normalized = _validate_script_for_brief(candidate, plan, brief)
+        closing = normalized["sections"][2]
+        self.assertEqual(
+            closing["s3_locked_action"],
+            plan["practical_action_ar"],
+        )
+        self.assertEqual(
+            closing["narration"],
+            f"{closing['s3_payoff']} {closing['s3_locked_action']}",
+        )
+        validate_short_script(normalized)
 
     def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
         prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
