@@ -491,6 +491,118 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             "شعرت أن اليوم انتهى دون أن تحقق شيئًا يُذكر.",
         )
 
+    def test_run63_structured_short_patch_changes_payoff_not_locked_action(self):
+        action = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        plan = {
+            "title": "اختبار",
+            "practical_action_ar": action,
+            "s3_locked_action": action,
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "sunrise"},
+            ],
+        }
+        payoff = "مسارك الزمني خاص بك، وقيمتك لا تُقاس بسرعة شخص آخر."
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن يومك بمسار شخص آخر ثم تعتبر نفسك متأخرًا رغم اختلاف الطريق؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "حين يتغير معيار القياس كل مرة، يبدو تقدمك أصغر حتى لو كان حقيقيًا.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s3",
+                        "find": "وقيمتك لا تُقاس بسرعة شخص آخر",
+                        "replace": "وقيمتك تُقاس بتقدمك أنت لا بسرعة شخص آخر",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note="- [tone] content_depth:s3",
+            allowed_section_ids=("s3",),
+            is_short_format=True,
+        )
+        closing = repaired["sections"][2]
+        self.assertEqual(closing["s3_locked_action"], action)
+        self.assertTrue(closing["narration"].endswith(action))
+        self.assertIn("بتقدمك أنت", closing["s3_payoff"])
+
+    def test_run63_patch_touching_locked_action_is_terminal_local_rejection(self):
+        action = "اكتب هدفًا شخصيًا واحدًا اليوم."
+        plan = {
+            "title": "اختبار",
+            "practical_action_ar": action,
+            "s3_locked_action": action,
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "desk"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "window"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "sunrise"},
+            ],
+        }
+        payoff = "مسارك الزمني خاص بك، وقيمتك لا تُقاس بسرعة شخص آخر."
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل تقارن يومك بمسار شخص آخر ثم تعتبر نفسك متأخرًا رغم اختلاف الطريق؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "حين يتغير معيار القياس كل مرة، يبدو تقدمك أصغر حتى لو كان حقيقيًا.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+
+        with self.assertRaises(ValueError) as caught:
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s3",
+                            "find": action,
+                            "replace": "اختر معيارًا جديدًا للمقارنة.",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note="- [tone] content_depth:s3",
+                allowed_section_ids=("s3",),
+                is_short_format=True,
+            )
+        self.assertTrue(
+            getattr(caught.exception, "terminal_provider_fallback", False)
+        )
+
     def test_run37_harmless_short_s3_payoff_patch_still_passes(self):
         # No false positive: a repair that leaves the action sentence intact
         # and only rewords the payoff clause must still be accepted.
