@@ -104,7 +104,7 @@ def certify_provider_retry_ownership() -> dict[str, object]:
         )
 
     # Engine's production TTS owner passes synthesize_wav as a callback into its direct
-    # provider ledger and must force attempts=1 when Runner's Piper fallback is installed.
+    # provider ledger and must force attempts=1 at the Runner Gemini-only boundary.
     # TtsBudget/TtsCircuit then owns the one optional bonus cloud attempt and failover.
     if _literal_attempts_one_calls(orchestrator._synthesize_tts_section, "synthesize_wav") < 1:
         raise ProviderRetryOwnershipError(

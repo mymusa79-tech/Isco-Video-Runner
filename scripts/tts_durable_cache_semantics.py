@@ -58,14 +58,6 @@ def _cache_root() -> Path | None:
     return Path(raw) if raw else None
 
 
-def _piper_hashes() -> tuple[str | None, str | None]:
-    raw = (os.environ.get("PIPER_MODEL_PATH") or "").strip()
-    if not raw:
-        return None, None
-    model = Path(raw)
-    return _regular_file_hash(model), _regular_file_hash(Path(str(model) + ".json"))
-
-
 def _module_hash(module) -> str:
     path = Path(module.__file__).resolve()
     return _sha256_file(path)
@@ -79,7 +71,6 @@ def _binding(
     voice: str,
     style: str,
 ) -> dict[str, Any]:
-    piper_model_sha256, piper_config_sha256 = _piper_hashes()
     return {
         "cache_namespace": CACHE_NAMESPACE,
         "cache_schema_version": CACHE_SCHEMA_VERSION,
@@ -93,8 +84,6 @@ def _binding(
         "dialogue_mode": os.environ.get("ISCO_DIALOGUE_QA") == "1",
         "voice_mesh_sha256": _module_hash(voice_mesh),
         "cache_contract_sha256": _module_hash(__import__(__name__, fromlist=["*"])),
-        "piper_model_sha256": piper_model_sha256,
-        "piper_config_sha256": piper_config_sha256,
     }
 
 

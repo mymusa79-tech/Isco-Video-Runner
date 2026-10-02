@@ -133,7 +133,7 @@ class EnvironmentPreflightTests(unittest.TestCase):
     def test_required_package_missing_is_blocking(self) -> None:
         with patch.object(envp.md, "version", side_effect=envp.md.PackageNotFoundError):
             with self.assertRaisesRegex(RuntimeError, "required runtime package missing"):
-                envp._version("piper-tts")
+                envp._version("google-genai")
 
     def test_local_probe_environment_strips_credentials(self) -> None:
         with patch.dict(os.environ, {"SAFE": "yes", "GITHUB_TOKEN": "secret", "PEXELS_API_KEY": "secret2"}, clear=True):
