@@ -3,9 +3,7 @@ from __future__ import annotations
 """Clean V2 tone/naturalness audit bridge with strict Mistral fallback."""
 
 import re
-import re
 import threading
-import unicodedata
 from typing import Any
 
 from .mistral_executor import MistralExecutorWireFailure, mistral_executor_json
@@ -253,75 +251,6 @@ def _enforce_content_dependency_contract(result: dict[str, Any]) -> dict[str, An
     return result
 
 
-def _normalized_naturalness_excerpt(value: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", str(value or "")).split()).strip()
-
-
-def _drop_noop_naturalness_flags(result: dict[str, Any]) -> dict[str, Any]:
-    """Ignore only literal no-op correction flags from a provider.
-
-    Run 59 returned: s2: 'نحن نظن' should be 'نحن نظن'. The frozen Engine then
-    converted the otherwise-passing audit to block solely because the array was
-    non-empty. Preserve every real correction; only discard a flag when the
-    provider's quoted before/after strings are textually identical after NFKC
-    and whitespace normalization, and only restore pass when the provider's raw
-    verdict itself was pass and every other hard flag array is empty.
-    """
-    flags = result.get("naturalness_flags")
-    if not isinstance(flags, list) or not flags:
-        return result
-
-    kept: list[str] = []
-    ignored: list[str] = []
-    quote_re = re.compile(r"[\"'“”‘’«»]([^\"'“”‘’«»]+)[\"'“”‘’«»]")
-    for raw_flag in flags:
-        flag = str(raw_flag)
-        quoted = quote_re.findall(flag)
-        is_noop = (
-            "should be" in flag.casefold()
-            and len(quoted) >= 2
-            and _normalized_naturalness_excerpt(quoted[0])
-            == _normalized_naturalness_excerpt(quoted[1])
-        )
-        (ignored if is_noop else kept).append(flag)
-
-    if not ignored:
-        return result
-
-    result["naturalness_flags"] = kept
-    result["ignored_noop_naturalness_flags"] = ignored
-
-    raw = result.get("raw_result")
-    raw_status = str(raw.get("status") or "") if isinstance(raw, dict) else ""
-    other_hard_arrays = (
-        "preachiness_flags",
-        "cultural_dignity_flags",
-        "narrative_format_flags",
-        "unverified_religious_quote_flags",
-    )
-    hook_ok = (
-        result.get("hook_specificity") is True
-        and result.get("hook_honesty") is True
-        and result.get("hook_curiosity") is True
-        and result.get("hook_genericness") is False
-        and result.get("hook_body_continuity") is True
-        and result.get("payoff_resolves_hook") is True
-    )
-    dependency_ok = (
-        result.get("section_dependency") is True
-        and result.get("topic_fidelity") is True
-    )
-    if (
-        raw_status == "pass"
-        and not kept
-        and all(not list(result.get(field) or []) for field in other_hard_arrays)
-        and hook_ok
-        and dependency_ok
-    ):
-        result["status"] = "pass"
-    return result
-
-
 def _normalize_editorial_voice_advisory(result: dict[str, Any]) -> dict[str, Any]:
     """Coerce the observation-only editorial-voice fields to safe defaults.
 
@@ -471,7 +400,6 @@ def audit_tone_and_naturalness_with_mistral(
                         result[field] = raw[field]
                 if type(raw.get("cold_open_story_violation")) is bool:
                     result["cold_open_story_violation"] = raw["cold_open_story_violation"]
-            result = _drop_noop_naturalness_flags(result)
             return _normalize_editorial_voice_advisory(result)
         finally:
             tone_quality.route_text_audit = original_route
