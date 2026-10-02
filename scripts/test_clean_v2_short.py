@@ -572,6 +572,38 @@ class ShortProviderDiagnosticsTests(unittest.TestCase):
         )
 
 
+    def test_terminal_local_patch_rejection_does_not_try_next_provider(self) -> None:
+        calls: list[str] = []
+
+        def first(_prompt: str, _max_tokens: int) -> dict:
+            calls.append("first")
+            return {"patches": [{"section_id": "s3", "find": "x", "replace": "y"}]}
+
+        def second(_prompt: str, _max_tokens: int) -> dict:
+            calls.append("second")
+            return {"patches": [{"section_id": "s3", "find": "x", "replace": "y"}]}
+
+        class TerminalLocalRejection(ValueError):
+            terminal_provider_fallback = True
+
+        router = ProviderRouter(
+            [
+                ProviderAdapter("first", first),
+                ProviderAdapter("second", second),
+            ]
+        )
+        with self.assertRaises(TerminalLocalRejection):
+            router.route(
+                stage="script_patch",
+                prompt="bounded patch",
+                max_tokens=32,
+                validator=lambda _value: (_ for _ in ()).throw(
+                    TerminalLocalRejection("locked_action")
+                ),
+            )
+        self.assertEqual(calls, ["first"])
+
+
 class ShortContractTests(unittest.TestCase):
     def test_plan_requires_exactly_three_sections_and_empty_social_cta(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
