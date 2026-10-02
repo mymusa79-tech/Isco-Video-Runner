@@ -3240,8 +3240,10 @@ def _run_text_audit_with_one_bounded_tone_repair(
         circuit_scope = text_audit_circuit_scope()
     with (
         stage_deadline(TEXT_AUDIT_STAGE, TEXT_AUDIT_DEADLINE_SECONDS),
-        circuit_scope,
+        circuit_scope as cooldown,
     ):
+        if cooldown is not None:
+            cooldown.update(getattr(router, "_rate_limited_for_run", ()))
         return _run_text_audit_repair_pass(
             text_audit=text_audit, router=router, output_dir=output_dir,
             brief=brief, plan=plan, script=script,

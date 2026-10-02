@@ -51,6 +51,14 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# Groq's strict decoder requires every declared property on the wire. These
+# advisory fields remain non-blocking in the semantic validator and retain its
+# safe defaults for legacy responses; only the new HTTP schema is tightened.
+TONE_AUDIT_HTTP_SCHEMA = {
+    **TONE_AUDIT_SCHEMA,
+    "required": list(TONE_AUDIT_SCHEMA["properties"]),
+}
+
 _EXPECTED_BASE_ROUTE = ("gemini", "groq", "openrouter")
 _REQUIRED_ARRAYS = (
     "preachiness_flags",
@@ -371,14 +379,14 @@ def audit_tone_and_naturalness_with_mistral(
             def gemini_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
                     clean_providers._gemini_call(
-                        value, 2600, response_schema=TONE_AUDIT_SCHEMA,
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
                     )
                 )
 
             def groq_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
                     clean_providers._groq_call(
-                        value, 2600, response_schema=TONE_AUDIT_SCHEMA,
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
                         schema_name="clean_v2_tone_naturalness_audit_v2",
                     )
                 )
@@ -386,7 +394,7 @@ def audit_tone_and_naturalness_with_mistral(
             def openrouter_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
                     clean_providers._openrouter_call(
-                        value, 2600, response_schema=TONE_AUDIT_SCHEMA,
+                        value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
                         schema_name="clean_v2_tone_naturalness_audit_v2",
                     )
                 )

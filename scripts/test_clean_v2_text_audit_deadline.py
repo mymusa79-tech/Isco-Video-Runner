@@ -171,6 +171,33 @@ class TextAuditPipelineDeadlineTests(unittest.TestCase):
         self.assertEqual([p for name, p in calls if name == "gemini"], ["factuality", "factuality"])
         self.assertEqual(len([c for c in calls if c[0] == "groq"]), 6)
 
+    def test_planning_429_is_skipped_during_audits_without_leaking_to_next_run(self):
+        calls = []
+
+        def available(provider, prompt):
+            calls.append((provider, prompt))
+            return {"status": "pass"}
+
+        def audits(**kw):
+            for prompt in ("factuality", "tone"):
+                text_audit_router.route_text_audit([
+                    ("gemini", lambda p: available("gemini", p)),
+                    ("groq", lambda p: available("groq", p)),
+                ], prompt)
+            return {"status": "pass"}
+
+        with patch.object(pipeline, "_run_text_audits", side_effect=audits):
+            for providers_in_cooldown in ({"gemini"}, set()):
+                pipeline._run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=pipeline._run_text_audits,
+                    router=SimpleNamespace(_rate_limited_for_run=providers_in_cooldown),
+                    output_dir=Path("unused"), brief={"format": "short"}, plan={}, script={},
+                )
+        self.assertEqual(calls, [
+            ("groq", "factuality"), ("groq", "tone"),
+            ("gemini", "factuality"), ("gemini", "tone"),
+        ])
+
 
 class ToneBoundedTransportTests(unittest.TestCase):
     def setUp(self):
@@ -195,11 +222,12 @@ class ToneBoundedTransportTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["provider"], "openrouter")
         self.assertEqual([kw["timeout"] for _, kw in requests], [90, 90, 120])
-        self.assertIs(requests[0][1]["payload"]["generationConfig"]["responseJsonSchema"], tone_audit.TONE_AUDIT_SCHEMA)
+        self.assertIs(requests[0][1]["payload"]["generationConfig"]["responseJsonSchema"], tone_audit.TONE_AUDIT_HTTP_SCHEMA)
         for _, kw in requests[1:]:
             contract = kw["payload"]["response_format"]["json_schema"]
             self.assertTrue(contract["strict"])
-            self.assertIs(contract["schema"], tone_audit.TONE_AUDIT_SCHEMA)
+            self.assertIs(contract["schema"], tone_audit.TONE_AUDIT_HTTP_SCHEMA)
+            self.assertEqual(set(contract["schema"]["required"]), set(contract["schema"]["properties"]))
         self.assertIs(tone_quality.route_text_audit, original_route)
 
     def test_valid_content_block_stops_without_approval_shopping(self):
