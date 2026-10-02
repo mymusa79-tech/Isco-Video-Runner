@@ -4203,6 +4203,35 @@ def _last_successful_provider(router: Any, stage: str) -> str:
     return ""
 
 
+def _validate_resumed_visual_story(
+    value: Any,
+    plan: Mapping[str, Any],
+    *,
+    router: Any,
+) -> dict[str, Any]:
+    try:
+        return validate_visual_story(value, plan)
+    except VisualWorldIdentityError:
+        if not isinstance(value, Mapping):
+            raise
+        repaired = copy.deepcopy(dict(value))
+        rejected_value = " ".join(str(repaired.get("visual_world") or "").split()).strip()
+        repaired["visual_world"] = CHANNEL_VISUAL_IDENTITY
+        _append_runtime_event(
+            router,
+            {
+                "stage": "planning",
+                "provider": "host",
+                "result": "warning_fallback",
+                "reason": "visual_world_identity_resume_fallback",
+                "rejected_visual_world": rejected_value[:240],
+                "fallback": "CHANNEL_VISUAL_IDENTITY",
+                "wire_attempted": False,
+            },
+        )
+        return validate_visual_story(repaired, plan)
+
+
 def _validate_plan_with_visual_world_recovery(
     value: Any,
     brief: Mapping[str, Any],
@@ -6127,9 +6156,10 @@ class CleanV2Pipeline:
                 resume_story_path = resume[0] / "visual-story.json"
                 if resume_story_path.is_file():
                     _copy_resume_artifact(resume[0], output_dir, "visual-story.json")
-                    visual_story = validate_visual_story(
+                    visual_story = _validate_resumed_visual_story(
                         _read_json_object(output_dir / "visual-story.json"),
                         plan,
+                        router=self.router,
                     )
                 else:
                     visual_story = fallback_visual_story(plan)
