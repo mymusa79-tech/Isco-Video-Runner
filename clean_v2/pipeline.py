@@ -6316,6 +6316,9 @@ class CleanV2Pipeline:
                 _assert_brand_signature_invariant(
                     script["sections"], fmt, identity["opener"], identity["closer"]
                 )
+                if fmt == "podcast":
+                    normalize_podcast_listener_proxy_script(script)
+                    _validate_podcast_listener_proxy_script(script)
                 if fmt == "short":
                     short_script_report = validate_short_script(script)
                     atomic_write_json(
