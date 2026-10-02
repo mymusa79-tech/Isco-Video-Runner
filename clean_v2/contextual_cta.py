@@ -279,6 +279,59 @@ def _insert_spoken_cta(
     return f"{before} {spoken_text} {after}".strip(), insertion_words
 
 
+def _assert_spoken_cta_topic_only(
+    script: Mapping[str, Any],
+    binding: CtaBinding,
+    *,
+    fmt: str,
+) -> None:
+    """Fail closed unless the one spoken CTA lives in topic narration only."""
+    spoken = _compact(binding.spoken_text)
+    sections = [
+        item for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    ]
+    if fmt == "short":
+        if spoken:
+            raise RuntimeError("short_spoken_social_cta_forbidden")
+        return
+    if not spoken or binding.mode == CtaMode.NONE:
+        return
+    if not sections or not binding.anchor_section_id:
+        raise RuntimeError("longform_cta_topic_anchor_missing")
+
+    joined = " ".join(_compact(item.get("narration")) for item in sections)
+    if joined.count(spoken) != 1:
+        raise RuntimeError("longform_cta_must_appear_exactly_once")
+
+    first_id = str(sections[0].get("id") or "")
+    if binding.anchor_section_id == first_id:
+        raise RuntimeError("longform_cta_forbidden_in_hook_identity_opening")
+
+    anchor = next(
+        (
+            item for item in sections
+            if str(item.get("id") or "") == binding.anchor_section_id
+        ),
+        None,
+    )
+    if anchor is None or spoken not in _compact(anchor.get("narration")):
+        raise RuntimeError("longform_cta_moved_outside_anchor_topic")
+
+    last = sections[-1]
+    if str(last.get("id") or "") == binding.anchor_section_id:
+        narration = _compact(last.get("narration"))
+        sentences = [
+            item.strip()
+            for item in _SENTENCE_END.split(narration)
+            if item.strip()
+        ]
+        # Timeline First owns the final sentence as Outro when there is no fixed
+        # closer. The CTA must land before that final sentence.
+        if sentences and spoken in sentences[-1]:
+            raise RuntimeError("longform_cta_forbidden_in_outro")
+
+
 def _screen_copy(mode: CtaMode, authored: str) -> tuple[str, str]:
     if mode == CtaMode.COMMENT:
         question = _clip_words(_first_sentence(authored), MAX_SCREEN_WORDS)
@@ -507,6 +560,8 @@ def write_cta_report(
             "one_primary_action": True,
             "short_spoken_social_cta_forbidden": True,
             "longform_spoken_cta_count": 1 if binding.spoken_text else 0,
+            "longform_cta_topic_only": True,
+            "forbidden_identity_roles": ["hook", "intro", "prayer", "channel_identity", "outro"],
             "provider_calls": 0,
             "action_accent_rgb": "#D7A85B",
         },
@@ -559,6 +614,12 @@ def bind_contextual_cta_to_script(
             insertion_word_offset = offset
             break
 
+    _assert_spoken_cta_topic_only(
+        script,
+        binding,
+        fmt=str(brief.get("format") or ""),
+    )
+
     report_path = Path(output_dir) / "cta-plan.json"
     write_cta_report(report_path, binding, None)
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -606,6 +667,56 @@ def _timeline_section_durations(
         return [durations[section_id] for section_id in section_ids], "timeline-first"
     equal = max(0.0, float(total_seconds)) / max(1, len(section_ids))
     return [equal for _ in section_ids], "equal-fallback"
+
+
+def _topic_only_schedule_from_timeline(
+    *,
+    output_dir: Path,
+    binding: CtaBinding,
+    spoken_fraction: float | None,
+    total_seconds: float,
+) -> CtaSchedule | None:
+    """Schedule CTA only inside measured topic-role audio units."""
+    path = Path(output_dir) / "timeline-first.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    units = [
+        item for item in (raw.get("audio_units") or [])
+        if isinstance(item, Mapping)
+        and str(item.get("section_id") or "") == str(binding.anchor_section_id or "")
+        and str(item.get("role") or "") == "topic"
+    ]
+    spans: list[tuple[float, float]] = []
+    for item in units:
+        try:
+            start = float(item.get("start"))
+            end = float(item.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if end > start:
+            spans.append((start, end))
+    if not spans:
+        return None
+    spans.sort()
+    topic_start = spans[0][0]
+    topic_end = spans[-1][1]
+    if topic_end <= topic_start:
+        return None
+
+    fraction = 0.68 if spoken_fraction is None else max(0.05, min(0.92, float(spoken_fraction)))
+    desired_start = topic_start + (topic_end - topic_start) * fraction
+    latest_end = min(topic_end, max(0.0, float(total_seconds) - FINAL_QUIET_SECONDS))
+    if latest_end <= max(topic_start, MIN_CTA_START_SECONDS):
+        return None
+    start = max(topic_start, MIN_CTA_START_SECONDS, desired_start)
+    if start + 0.8 > latest_end:
+        start = max(topic_start, MIN_CTA_START_SECONDS, latest_end - DEFAULT_VISUAL_SECONDS)
+    end = min(start + DEFAULT_VISUAL_SECONDS, latest_end)
+    if end - start < 0.8:
+        return None
+    return CtaSchedule(round(start, 3), round(end, 3), str(binding.anchor_section_id))
 
 
 def apply_contextual_cta_overlay(
@@ -668,12 +779,21 @@ def apply_contextual_cta_overlay(
         total_words = max(1, len(_compact(anchor_narration).split()))
         spoken_fraction = min(0.95, raw_offset / total_words)
 
-    schedule = schedule_cta(
-        binding,
-        section_ids,
-        section_durations,
+    schedule = _topic_only_schedule_from_timeline(
+        output_dir=output_dir,
+        binding=binding,
         spoken_fraction=spoken_fraction,
+        total_seconds=total,
     )
+    schedule_source = "timeline-topic-role"
+    if schedule is None:
+        schedule = schedule_cta(
+            binding,
+            section_ids,
+            section_durations,
+            spoken_fraction=spoken_fraction,
+        )
+        schedule_source = "section-fallback"
     write_cta_report(report_path, binding, schedule)
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -684,6 +804,14 @@ def apply_contextual_cta_overlay(
     )
     report["spoken_fraction_estimate"] = spoken_fraction
     report["section_duration_source"] = section_duration_source
+    report["cta_schedule_source"] = schedule_source
+    report["forbidden_regions"] = [
+        "hook",
+        "intro",
+        "prayer",
+        "channel_identity",
+        "outro",
+    ]
     report["source"] = "legacy-cinematic-cta-port"
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
