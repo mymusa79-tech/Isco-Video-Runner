@@ -1342,12 +1342,33 @@ class ProviderRouter:
                     try:
                         retry_candidate = adapter.invoke(retry_prompt, max_tokens, stage)
                     except NoWireFailure as retry_exc:
-                        exc = retry_exc
-                        provider_attempt = retry_attempt
+                        failures.append(f"{adapter.name}:{retry_exc.reason_code}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="unavailable",
+                            wire_attempted=False,
+                            reason=retry_exc.reason_code,
+                            provider_attempt=None,
+                            stage_wire_attempt=None,
+                        )
+                        continue
                     except Exception as retry_exc:
                         wire_count += 1
-                        exc = retry_exc
-                        provider_attempt = retry_attempt
+                        retry_reason = str(
+                            getattr(retry_exc, "reason_code", "provider_failure")
+                        )
+                        failures.append(f"{adapter.name}:{retry_reason}")
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="failed",
+                            wire_attempted=True,
+                            reason=retry_reason,
+                            provider_attempt=retry_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        continue
                     else:
                         wire_count += 1
                         provider_attempt = retry_attempt
