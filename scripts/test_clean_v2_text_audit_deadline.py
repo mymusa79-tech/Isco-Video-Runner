@@ -162,11 +162,12 @@ class TextAuditPipelineDeadlineTests(unittest.TestCase):
                 self.assertEqual(result.provider, "groq")
             return {"status": "pass"}
 
-        for _ in range(2):
-            pipeline._run_text_audit_with_one_bounded_tone_repair(
-                text_audit=audits, router=None, output_dir=Path("unused"),
-                brief={"format": "short"}, plan={}, script={},
-            )
+        with patch.object(pipeline, "_run_text_audits", side_effect=audits):
+            for _ in range(2):
+                pipeline._run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=pipeline._run_text_audits, router=None,
+                    output_dir=Path("unused"), brief={"format": "short"}, plan={}, script={},
+                )
         self.assertEqual([p for name, p in calls if name == "gemini"], ["factuality", "factuality"])
         self.assertEqual(len([c for c in calls if c[0] == "groq"]), 6)
 

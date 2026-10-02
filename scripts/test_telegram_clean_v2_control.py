@@ -225,6 +225,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         state["current_request_id"] = request["request_id"]
         keyboard = control.selection_confirmation_keyboard(request)
         self.assertEqual(keyboard[0][0]["callback_data"], "confirm:req-current")
+        self.assertTrue(any(button.get("callback_data") == "main:saved" for row in keyboard for button in row))
 
         update = {
             "callback_query": {

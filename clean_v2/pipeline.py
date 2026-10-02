@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -3228,13 +3229,18 @@ def _run_text_audit_with_one_bounded_tone_repair(
     plan: Mapping[str, Any],
     script: dict[str, Any],
 ) -> dict[str, Any]:
-    from isco_video_agent.text_audit_router import text_audit_circuit_scope
-
     # Factuality, tone, and the one possible repair/reaudit share both the 429
     # circuit and one deadline. Neither fallback nor repair renews the timer.
+    # Injected audit implementations remain Engine-independent, as the standalone
+    # E2E contract requires. The production auditor always owns the Engine scope.
+    circuit_scope = nullcontext()
+    if text_audit is _run_text_audits:
+        from isco_video_agent.text_audit_router import text_audit_circuit_scope
+
+        circuit_scope = text_audit_circuit_scope()
     with (
         stage_deadline(TEXT_AUDIT_STAGE, TEXT_AUDIT_DEADLINE_SECONDS),
-        text_audit_circuit_scope(),
+        circuit_scope,
     ):
         return _run_text_audit_repair_pass(
             text_audit=text_audit, router=router, output_dir=output_dir,

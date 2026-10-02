@@ -105,14 +105,15 @@ test("library helpers preserve type split, research order, and used filtering", 
 });
 
 test("only read-only library callbacks are classified for local handling", () => {
-  assert.deepEqual(localLibraryRoute("main:saved"), { bucket: "saved", kind: "" });
+  assert.equal(localLibraryRoute("main:saved"), null);
+  assert.deepEqual(localLibraryRoute("library:saved"), { bucket: "saved", kind: "" });
   assert.deepEqual(localLibraryRoute("library:saved:podcast"), { bucket: "saved", kind: "podcast" });
   assert.deepEqual(localLibraryRoute("library:used:short"), { bucket: "used", kind: "short" });
   assert.equal(localLibraryRoute("savedpick:podcast:podcast-1"), null);
   assert.equal(localLibraryRoute("confirm:req-1"), null);
 });
 
-test("live routing keeps browsing local and dispatches only selection and confirmation", async () => {
+test("live routing keeps research browsing local and dispatches selection and confirmation", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const state = sampleState();
@@ -157,7 +158,7 @@ test("live routing keeps browsing local and dispatches only selection and confir
   };
 
   try {
-    await invoke(callbackUpdate(1, "main:saved"), env);
+    await invoke(callbackUpdate(1, "library:saved"), env);
     await invoke(callbackUpdate(2, "library:saved:podcast"), env);
 
     let workflowCalls = calls.filter((call) => call.url.includes("/actions/workflows/"));
@@ -179,6 +180,42 @@ test("live routing keeps browsing local and dispatches only selection and confir
     await invoke(callbackUpdate(4, "confirm:req-current"), env);
     workflowCalls = calls.filter((call) => call.url.includes("/actions/workflows/"));
     assert.equal(workflowCalls.length, 2, "confirmation remains a separate authoritative transition");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("production history and resume callbacks reach the durable control owner", async () => {
+  const originalFetch = globalThis.fetch;
+  const dispatches = [];
+  const env = {
+    TELEGRAM_BOT_TOKEN: "test-token", TELEGRAM_CHAT_ID: "123",
+    TELEGRAM_WEBHOOK_SECRET: "test-secret", GITHUB_CONTROL_TOKEN: "test-token",
+    GITHUB_REPO: "owner/resume-route-contract",
+  };
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url.includes("api.telegram.org")) {
+      return Response.json({ ok: true, result: true });
+    }
+    assert.match(url, /actions\/workflows\/telegram-clean-v2-control.yml\/dispatches$/);
+    dispatches.push(JSON.parse(String(init.body)));
+    return new Response(null, { status: 204 });
+  };
+  try {
+    for (const [i, data] of ["main:saved", "history:req-62", "resume:req-62", "restart:req-62"].entries()) {
+      const update = callbackUpdate(100 + i, data);
+      const response = await invoke(update, env);
+      assert.equal(response.status, 200);
+      const body = dispatches.at(-1);
+      assert.equal(body.ref, "main");
+      const forwarded = JSON.parse(Buffer.from(body.inputs.webhook_update_b64, "base64").toString("utf8"));
+      assert.equal(forwarded.callback_query.data, data);
+    }
+    await invoke({ update_id: 104, message: { from: { id: 123 }, chat: { id: 123 }, text: "/saved" } }, env);
+    assert.equal(dispatches.length, 5);
+    const message = JSON.parse(Buffer.from(dispatches.at(-1).inputs.webhook_update_b64, "base64").toString("utf8"));
+    assert.equal(message.message.text, "/saved");
   } finally {
     globalThis.fetch = originalFetch;
   }

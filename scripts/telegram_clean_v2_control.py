@@ -1098,6 +1098,7 @@ def selection_confirmation_keyboard(request: dict[str, Any]) -> list[list[dict[s
         raise RuntimeError("confirmation request id missing")
     return [
         [{"text": "✅ تأكيد الإنتاج", "callback_data": f"confirm:{request_id}"}],
+        [{"text": "📚 المحاولات السابقة / الاستئناف", "callback_data": "main:saved"}],
         [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
     ]
 

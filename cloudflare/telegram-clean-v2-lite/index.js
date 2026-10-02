@@ -315,7 +315,8 @@ async function loadLibrarySnapshot(env) {
 }
 
 function localLibraryRoute(data) {
-  if (data === "main:saved") return { bucket: "saved", kind: "" };
+  // main:saved belongs to durable production history. library:saved remains
+  // the local, read-only research browser linked from that history screen.
   if (data === "main:used") return { bucket: "used", kind: "" };
   const match = /^library:(saved|used)(?::(long|short|podcast))?$/.exec(String(data || ""));
   return match ? { bucket: match[1], kind: match[2] || "" } : null;
@@ -520,6 +521,10 @@ export default {
         ));
       } else if (current.data.startsWith("confirm:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من التأكيد…"));
+      } else if (/^(history|resume|restart):/.test(current.data)) {
+        ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من المحاولة المحفوظة…"));
+      } else if (current.data === "main:saved") {
+        ctx.waitUntil(answerCallback(env, current.callbackId, "📚 أفتح سجل المحاولات…"));
       } else if (current.data.startsWith("main:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId));
       } else {
@@ -546,8 +551,19 @@ export default {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
       return new Response("OK");
     }
-    if (isSavedText(text) || isUsedText(text)) {
-      const route = { bucket: isSavedText(text) ? "saved" : "used", kind: "" };
+    if (isSavedText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر فتح سجل المحاولات الآن. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isUsedText(text)) {
+      const route = { bucket: "used", kind: "" };
       ctx.waitUntil(
         sendLocalLibrary(env, current.chat, route).catch(() =>
           telegram(env, "sendMessage", {
