@@ -1411,10 +1411,13 @@ def normalize_short_script_candidate(
     locked_action = _clean(
         locked_practical_action or s3.get("s3_locked_action")
     )
+    action_normalized = False
     if locked_action:
+        original_locked_action = locked_action
         locked_action = validate_short_practical_action(
             normalize_short_practical_action(locked_action)
         )
+        action_normalized = locked_action != original_locked_action
 
     payoff = _clean(s3.get("s3_payoff"))
     if not payoff:
@@ -1423,9 +1426,9 @@ def normalize_short_script_candidate(
             locked_action=locked_action,
         )
         if not locked_action and legacy_action:
-            locked_action = validate_short_practical_action(
-                normalize_short_practical_action(legacy_action)
-            )
+            normalized_legacy_action = normalize_short_practical_action(legacy_action)
+            locked_action = validate_short_practical_action(normalized_legacy_action)
+            action_normalized = locked_action != _clean(legacy_action)
 
     local_payoff_repair = False
     if payoff and any(
@@ -1449,7 +1452,7 @@ def normalize_short_script_candidate(
 
     return {
         "hook_trimmed": bool(hook_split or hook_trimmed),
-        "s3_action_prefix_trimmed": False,
+        "s3_action_prefix_trimmed": bool(action_normalized),
         "s3_trimmed": False,
         "s3_locked_payoff_fallback": bool(local_payoff_repair),
     }
