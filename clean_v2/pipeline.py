@@ -3960,6 +3960,11 @@ def _validate_plan_for_brief(
     # closed on adjacent/repeated visual families before any media retrieval.
     # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
     plan["_visual_diversity_contract"] = "v2_fail_closed"
+    # Shared quality floor: after the opening section, generic productivity
+    # props cannot become the visual default unless their visible action itself
+    # proves the idea. Persist the contract so resume uses the same rule.
+    if fmt in {"short", "film", "podcast"}:
+        plan["_visual_semantic_strength_contract"] = "v1_post_hook"
     if enforce_visual_identity:
         plan["_visual_identity_contract"] = "navy_gold_v1"
     if fmt == "short":
@@ -5154,6 +5159,17 @@ walking/movement to another. Do not place the same dominant action family in con
 normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
 when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
 completed, so every new shot adds information instead of showing another angle of the same productivity prop.
+
+POST-HOOK VISUAL FLOOR — applies equally to Short, Film, and Podcast:
+- Once section 1 has established the central tension, every later beat must preserve or increase semantic specificity.
+- A later laptop, phone, desk, notebook, screen, typing, scrolling, sitting, or "working" shot is NOT acceptable merely
+  because it matches the topic's general environment. It must show a decisive visible relation/action that proves the
+  current meaning: compare, choose, reject, close, sort, narrow, remove, cross out, complete, contrast, or another equally
+  concrete state change. "Person scrolling many tabs on a laptop" is generic coverage, not evidence.
+- Whenever a generic productivity prop is useful context but not the proof itself, provide stock_query_alt_en with a
+  different observable situation that carries the meaning directly. Runtime will prefer that stronger alternate locally.
+- This is a quality floor, not a ban on devices or desks. Use them when the device/desk action itself is the episode's
+  concrete evidence; otherwise do not let the visual story become weaker than its hook.
 For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
 - beat 4 belongs to s2;
