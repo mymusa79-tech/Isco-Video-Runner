@@ -60,6 +60,7 @@ def _write_measured_film_cta_timeline(
     *,
     start: float = 50.0,
     end: float = 54.0,
+    section_id: str = "s3",
 ) -> None:
     (root / "timeline-first.json").write_text(
         json.dumps(
@@ -69,7 +70,7 @@ def _write_measured_film_cta_timeline(
                     {"section_id": "s1", "role": "prayer", "start": 6.0, "end": 9.0},
                     {"section_id": "s1", "role": "channel_identity", "start": 9.0, "end": 14.0},
                     {"section_id": "s2", "role": "topic", "start": 20.0, "end": 40.0},
-                    {"section_id": "s3", "role": "cta_topic", "start": start, "end": end},
+                    {"section_id": section_id, "role": "cta_topic", "start": start, "end": end},
                     {"section_id": "s3", "role": "topic", "start": end, "end": 60.0},
                     {"section_id": "s4", "role": "topic", "start": 60.0, "end": 78.0},
                     {"section_id": "s5", "role": "outro", "start": 88.0, "end": 92.0},
@@ -391,7 +392,12 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 plan=_plan("اشترك لتكمل الرحلة معنا."),
                 script=script,
             )
-            _write_measured_film_cta_timeline(root)
+            _write_measured_film_cta_timeline(
+                root,
+                start=70.0,
+                end=74.0,
+                section_id="s4",
+            )
             final_path = root / "final.mp4"
             original = b"original-video"
             final_path.write_bytes(original)
@@ -427,7 +433,12 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 plan=_plan("اشترك لتكمل الرحلة معنا."),
                 script=script,
             )
-            _write_measured_film_cta_timeline(root)
+            _write_measured_film_cta_timeline(
+                root,
+                start=70.0,
+                end=74.0,
+                section_id="s4",
+            )
             final_path = root / "final.mp4"
             original = b"original-video"
             final_path.write_bytes(original)
