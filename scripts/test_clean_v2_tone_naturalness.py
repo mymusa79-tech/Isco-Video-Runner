@@ -319,9 +319,16 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             ],
         }
         revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        # Run #68: scoping a hook rewrite to s1 alone left s2-s5 anchored to the
+        # OLD hook's specific tension, and the re-audit then failed
+        # hook_specificity/section_dependency/payoff_resolves_hook on the body
+        # even though the hook fix itself was correct. The allowed scope now
+        # includes every section so the repair CAN realign them if needed -
+        # this test's own patch set below still only touches s1, proving the
+        # widened scope does not force unrelated sections to be touched.
         self.assertEqual(
             _repair_target_section_ids(script, revision, {}),
-            ("s1",),
+            ("s1", "s2", "s3", "s4", "s5"),
         )
         repaired = _validate_and_apply_script_patches(
             {
