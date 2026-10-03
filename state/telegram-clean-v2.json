@@ -3597,6 +3597,86 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T21:49:35Z"
+    },
+    {
+      "idea_id": "idea-668ef55280",
+      "title": "لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟",
+      "normalized_title": "لماذا نعود الي عادة نعرف انها توذينا رغم وضوح قرارنا بالتوقف؟",
+      "market_query": "العودة للعادات بعد قرار التوقف",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:52:10Z"
+    },
+    {
+      "idea_id": "idea-0903bc4dd2",
+      "title": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "normalized_title": "لماذا يتحول السعي الي تحسين حياتنا احيانًا الي شعور دايم باننا غير كافين؟",
+      "market_query": "تطوير الذات والشعور بعدم الكفاية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:52:10Z"
+    },
+    {
+      "idea_id": "idea-09f845d1bc",
+      "title": "ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟",
+      "normalized_title": "ماذا يحدث عندما نبني يومنا كله علي انتظار الدافع؟",
+      "market_query": "انتظار الدافع وتأثيره على السلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:52:11Z"
+    },
+    {
+      "idea_id": "idea-770dea0e96",
+      "title": "لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟",
+      "normalized_title": "لماذا يبدو البدء من جديد مريحًا اكثر من اكمال ما بداناه؟",
+      "market_query": "إدمان البدايات وترك المشاريع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:52:11Z"
+    },
+    {
+      "idea_id": "idea-e6bbf4f119",
+      "title": "متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟",
+      "normalized_title": "متي تكون الراحة استعادة للطاقة، ومتي تصبح طريقة موجلة لتجنب ما نخافه؟",
+      "market_query": "الراحة وتجنب المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:52:11Z"
     }
   ],
   "sessions": {
@@ -3606,7 +3686,8 @@
       "idea_ids": [
         "idea-eb456e04ec"
       ],
-      "created_at": "2026-10-03T21:49:35Z"
+      "created_at": "2026-10-03T21:49:35Z",
+      "obsolete_at": "2026-10-03T21:52:09Z"
     },
     "48e18e2b": {
       "session_id": "48e18e2b",
@@ -5334,5 +5415,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T21:49:35Z"
+  "updated_at": "2026-10-03T21:52:12Z"
 }
