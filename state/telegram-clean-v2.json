@@ -3501,9 +3501,113 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T21:48:35Z"
+    },
+    {
+      "idea_id": "idea-eb456e04ec",
+      "title": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "normalized_title": "لماذا يتحول السعي الي تحسين حياتنا احيانًا الي شعور دايم باننا غير كافين؟",
+      "market_query": "تطوير الذات والشعور بعدم الكفاية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.335,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 59.5,
+        "median_views_per_day": 59.5,
+        "top_samples": [
+          {
+            "video_id": "Ju_b_k7-bEM",
+            "title": "لماذا تشعر أنك لست جيدًا بما يكفي؟",
+            "channel": "ما وراء عقلك",
+            "published_at": "2026-09-14T17:00:35Z",
+            "views": 1142,
+            "views_per_day": 59.5,
+            "relevance_overlap": [
+              "بعدم",
+              "تطوير",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:49:33Z"
+    },
+    {
+      "idea_id": "idea-e842af74f8",
+      "title": "لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟",
+      "normalized_title": "لماذا نعود الي عادة نعرف انها توذينا رغم وضوح قرارنا بالتوقف؟",
+      "market_query": "العودة للعادات بعد قرار التوقف",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:49:32Z"
+    },
+    {
+      "idea_id": "idea-28a9a66903",
+      "title": "ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟",
+      "normalized_title": "ماذا يحدث عندما نبني يومنا كله علي انتظار الدافع؟",
+      "market_query": "انتظار الدافع وتأثيره على السلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:49:34Z"
+    },
+    {
+      "idea_id": "idea-d267539eba",
+      "title": "لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟",
+      "normalized_title": "لماذا يبدو البدء من جديد مريحًا اكثر من اكمال ما بداناه؟",
+      "market_query": "إدمان البدايات وترك المشاريع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:49:34Z"
+    },
+    {
+      "idea_id": "idea-2b42817b86",
+      "title": "متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟",
+      "normalized_title": "متي تكون الراحة استعادة للطاقة، ومتي تصبح طريقة موجلة لتجنب ما نخافه؟",
+      "market_query": "الراحة وتجنب المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T21:49:35Z"
     }
   ],
   "sessions": {
+    "c63b2370": {
+      "session_id": "c63b2370",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-eb456e04ec"
+      ],
+      "created_at": "2026-10-03T21:49:35Z"
+    },
     "48e18e2b": {
       "session_id": "48e18e2b",
       "scope": "podcast",
@@ -5230,5 +5334,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T21:49:12Z"
+  "updated_at": "2026-10-03T21:49:35Z"
 }
