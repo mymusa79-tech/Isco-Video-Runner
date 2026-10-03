@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+  EXPECTED_ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9
 
 jobs:
   resume:
@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          ref: 595f69a28ff6ddc5532291c9f113f334562292f9
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -263,7 +263,7 @@ jobs:
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/pixabay
-          ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          ISCO_ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}

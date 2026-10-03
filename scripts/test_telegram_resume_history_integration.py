@@ -155,7 +155,7 @@ class TelegramResumeHistoryWorkflowContractTests(unittest.TestCase):
     def test_control_and_production_use_same_engine_pin(self):
         control_workflow = Path(".github/workflows/telegram-clean-v2-control.yml").read_text(encoding="utf-8")
         production_workflow = Path(".github/workflows/clean-v2-telegram-production.yml").read_text(encoding="utf-8")
-        marker = "ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293"
+        marker = "ISCO_ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9"
         self.assertIn(marker, control_workflow)
         self.assertIn(marker, production_workflow)
         self.assertIn("CURRENT_RUNNER_SHA=$(git rev-parse HEAD)", control_workflow)
