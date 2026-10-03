@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37151405980",
-  "result": "failure",
-  "updated_at": 1791059188
+  "topic": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37159762511",
+  "result": "",
+  "updated_at": 1791067818
 }
