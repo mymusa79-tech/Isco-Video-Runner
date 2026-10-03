@@ -2925,6 +2925,15 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   of them. This is your only repair attempt: the full audit runs again on whatever you return, and
   any flag you leave unaddressed will still block the result exactly as if you had changed nothing.
   Use as many of your patches as the listed flags require, up to the maximum below.
+- NO-REGRESSION SELF-CHECK: the current script already PASSED hook_specificity, section_dependency,
+  topic_fidelity, and payoff_earned before this repair was triggered — REVISION_NOTE lists only the
+  narrow defect(s) you must fix, not a license to touch anything else. Before returning your patch,
+  re-read the full sentence your replace text produces in place: it must still name the same concrete
+  object, number, or behavior the original sentence used to satisfy those checks, and it must not
+  become a generic restatement of the hook or of an adjacent section (if the new sentence would read as
+  filler that could be deleted without losing information, or could just as well close a different
+  video on this topic, your wording fix went too far - tighten it back to the smallest change that
+  still fixes only the listed flag).
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
