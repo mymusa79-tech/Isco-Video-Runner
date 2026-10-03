@@ -2467,9 +2467,311 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T02:26:48Z"
+    },
+    {
+      "idea_id": "idea-f257a71a68",
+      "title": "كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟",
+      "normalized_title": "كيف تتحول المقارنة من ملاحظة عابرة الي مقياس نحاكم به حياتنا؟",
+      "market_query": "المقارنة الاجتماعية وتقييم الذات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.427,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 225.4,
+        "median_views_per_day": 225.4,
+        "top_samples": [
+          {
+            "video_id": "fT6LOGnqUGg",
+            "title": "توقف عن مقارنة نفسك بالآخرين : أول خطوة لبناء الثقة بالنفس",
+            "channel": "كاريزما الشباب",
+            "published_at": "2026-09-27T09:31:14Z",
+            "views": 1286,
+            "views_per_day": 225.4,
+            "relevance_overlap": [
+              "اجتماعية",
+              "ذات",
+              "مقارنة"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:11Z"
+    },
+    {
+      "idea_id": "idea-487881e1e2",
+      "title": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "normalized_title": "لماذا يتحول السعي الي تحسين حياتنا احيانًا الي شعور دايم باننا غير كافين؟",
+      "market_query": "تطوير الذات والشعور بعدم الكفاية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.338,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 62.1,
+        "median_views_per_day": 62.1,
+        "top_samples": [
+          {
+            "video_id": "Ju_b_k7-bEM",
+            "title": "لماذا تشعر أنك لست جيدًا بما يكفي؟",
+            "channel": "ما وراء عقلك",
+            "published_at": "2026-09-14T17:00:35Z",
+            "views": 1142,
+            "views_per_day": 62.1,
+            "relevance_overlap": [
+              "بعدم",
+              "تطوير",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:10Z"
+    },
+    {
+      "idea_id": "idea-5247040cf0",
+      "title": "لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟",
+      "normalized_title": "لماذا نعود الي عادة نعرف انها توذينا رغم وضوح قرارنا بالتوقف؟",
+      "market_query": "العودة للعادات بعد قرار التوقف",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:09Z"
+    },
+    {
+      "idea_id": "idea-b3324f49bf",
+      "title": "ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟",
+      "normalized_title": "ماذا يحدث عندما نبني يومنا كله علي انتظار الدافع؟",
+      "market_query": "انتظار الدافع وتأثيره على السلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:10Z"
+    },
+    {
+      "idea_id": "idea-de810b8774",
+      "title": "لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟",
+      "normalized_title": "لماذا يبدو البدء من جديد مريحًا اكثر من اكمال ما بداناه؟",
+      "market_query": "إدمان البدايات وترك المشاريع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:10Z"
+    },
+    {
+      "idea_id": "idea-c3a4f5939f",
+      "title": "متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟",
+      "normalized_title": "متي تكون الراحة استعادة للطاقة، ومتي تصبح طريقة موجلة لتجنب ما نخافه؟",
+      "market_query": "الراحة وتجنب المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:11Z"
     }
   ],
   "sessions": {
+    "be092338": {
+      "session_id": "be092338",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-f257a71a68",
+        "idea-487881e1e2"
+      ],
+      "created_at": "2026-10-03T02:27:11Z"
+    },
+    "a62e094b": {
+      "session_id": "a62e094b",
+      "scope": "short",
+      "idea_ids": [
+        "idea-8fa6f8fb18"
+      ],
+      "created_at": "2026-10-02T15:57:24Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T15:57:24Z",
+      "selected_index": 0
+    },
+    "c253c490": {
+      "session_id": "c253c490",
+      "scope": "short",
+      "idea_ids": [
+        "idea-8fa6f8fb18"
+      ],
+      "created_at": "2026-10-02T13:51:43Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T13:51:43Z",
+      "selected_index": 0
+    },
+    "eb49dd06": {
+      "session_id": "eb49dd06",
+      "scope": "short",
+      "idea_ids": [
+        "idea-38555beb28"
+      ],
+      "created_at": "2026-10-02T13:01:50Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T13:01:50Z",
+      "selected_index": 0
+    },
+    "ff6b3f5b": {
+      "session_id": "ff6b3f5b",
+      "scope": "short",
+      "idea_ids": [
+        "idea-91ca350ff2"
+      ],
+      "created_at": "2026-10-02T11:36:24Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T11:36:24Z",
+      "selected_index": 0
+    },
+    "1416e829": {
+      "session_id": "1416e829",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-02T11:08:36Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T11:08:36Z",
+      "selected_index": 0
+    },
+    "563dc169": {
+      "session_id": "563dc169",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-02T08:09:01Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T08:09:01Z",
+      "selected_index": 0
+    },
+    "278a8a22": {
+      "session_id": "278a8a22",
+      "scope": "short",
+      "idea_ids": [
+        "idea-771285b119"
+      ],
+      "created_at": "2026-10-02T04:40:17Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-02T04:40:17Z",
+      "selected_index": 0
+    },
+    "fd2f6ac3": {
+      "session_id": "fd2f6ac3",
+      "scope": "short",
+      "idea_ids": [
+        "idea-e196198c65"
+      ],
+      "created_at": "2026-10-01T20:15:34Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T20:15:34Z",
+      "selected_index": 0
+    },
+    "d8d331c7": {
+      "session_id": "d8d331c7",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-01T17:23:26Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T17:23:26Z",
+      "selected_index": 0
+    },
+    "c329ffe6": {
+      "session_id": "c329ffe6",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b6fd6e4fe9"
+      ],
+      "created_at": "2026-10-01T17:18:18Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T17:18:18Z",
+      "selected_index": 0
+    },
+    "0b14a62a": {
+      "session_id": "0b14a62a",
+      "scope": "short",
+      "idea_ids": [
+        "idea-8fa6f8fb18"
+      ],
+      "created_at": "2026-10-01T12:16:05Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T12:16:05Z",
+      "selected_index": 0
+    },
+    "cb686d5c": {
+      "session_id": "cb686d5c",
+      "scope": "short",
+      "idea_ids": [
+        "idea-346a629bce"
+      ],
+      "created_at": "2026-10-01T12:06:54Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T12:06:54Z",
+      "selected_index": 0
+    },
+    "01958bb1": {
+      "session_id": "01958bb1",
+      "scope": "short",
+      "idea_ids": [
+        "idea-1dffada5b5"
+      ],
+      "created_at": "2026-10-01T09:34:21Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T09:34:21Z",
+      "selected_index": 0
+    },
+    "cbb2067f": {
+      "session_id": "cbb2067f",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b946be3ff6"
+      ],
+      "created_at": "2026-10-01T09:06:20Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T09:06:20Z",
+      "selected_index": 0
+    },
+    "6e669df0": {
+      "session_id": "6e669df0",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7457800a57"
+      ],
+      "created_at": "2026-10-01T08:23:15Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-01T08:23:15Z",
+      "selected_index": 0
+    },
     "57596d82": {
       "session_id": "57596d82",
       "scope": "short",
@@ -2636,171 +2938,6 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
-    },
-    "6e669df0": {
-      "session_id": "6e669df0",
-      "scope": "short",
-      "idea_ids": [
-        "idea-7457800a57"
-      ],
-      "created_at": "2026-10-01T08:23:15Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T08:23:15Z",
-      "selected_index": 0
-    },
-    "cbb2067f": {
-      "session_id": "cbb2067f",
-      "scope": "short",
-      "idea_ids": [
-        "idea-b946be3ff6"
-      ],
-      "created_at": "2026-10-01T09:06:20Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T09:06:20Z",
-      "selected_index": 0
-    },
-    "01958bb1": {
-      "session_id": "01958bb1",
-      "scope": "short",
-      "idea_ids": [
-        "idea-1dffada5b5"
-      ],
-      "created_at": "2026-10-01T09:34:21Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T09:34:21Z",
-      "selected_index": 0
-    },
-    "cb686d5c": {
-      "session_id": "cb686d5c",
-      "scope": "short",
-      "idea_ids": [
-        "idea-346a629bce"
-      ],
-      "created_at": "2026-10-01T12:06:54Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T12:06:54Z",
-      "selected_index": 0
-    },
-    "0b14a62a": {
-      "session_id": "0b14a62a",
-      "scope": "short",
-      "idea_ids": [
-        "idea-8fa6f8fb18"
-      ],
-      "created_at": "2026-10-01T12:16:05Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T12:16:05Z",
-      "selected_index": 0
-    },
-    "c329ffe6": {
-      "session_id": "c329ffe6",
-      "scope": "short",
-      "idea_ids": [
-        "idea-b6fd6e4fe9"
-      ],
-      "created_at": "2026-10-01T17:18:18Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T17:18:18Z",
-      "selected_index": 0
-    },
-    "d8d331c7": {
-      "session_id": "d8d331c7",
-      "scope": "short",
-      "idea_ids": [
-        "idea-1dffada5b5"
-      ],
-      "created_at": "2026-10-01T17:23:26Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T17:23:26Z",
-      "selected_index": 0
-    },
-    "fd2f6ac3": {
-      "session_id": "fd2f6ac3",
-      "scope": "short",
-      "idea_ids": [
-        "idea-e196198c65"
-      ],
-      "created_at": "2026-10-01T20:15:34Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-01T20:15:34Z",
-      "selected_index": 0
-    },
-    "278a8a22": {
-      "session_id": "278a8a22",
-      "scope": "short",
-      "idea_ids": [
-        "idea-771285b119"
-      ],
-      "created_at": "2026-10-02T04:40:17Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T04:40:17Z",
-      "selected_index": 0
-    },
-    "563dc169": {
-      "session_id": "563dc169",
-      "scope": "short",
-      "idea_ids": [
-        "idea-1dffada5b5"
-      ],
-      "created_at": "2026-10-02T08:09:01Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T08:09:01Z",
-      "selected_index": 0
-    },
-    "1416e829": {
-      "session_id": "1416e829",
-      "scope": "short",
-      "idea_ids": [
-        "idea-1dffada5b5"
-      ],
-      "created_at": "2026-10-02T11:08:36Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T11:08:36Z",
-      "selected_index": 0
-    },
-    "ff6b3f5b": {
-      "session_id": "ff6b3f5b",
-      "scope": "short",
-      "idea_ids": [
-        "idea-91ca350ff2"
-      ],
-      "created_at": "2026-10-02T11:36:24Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T11:36:24Z",
-      "selected_index": 0
-    },
-    "eb49dd06": {
-      "session_id": "eb49dd06",
-      "scope": "short",
-      "idea_ids": [
-        "idea-38555beb28"
-      ],
-      "created_at": "2026-10-02T13:01:50Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T13:01:50Z",
-      "selected_index": 0
-    },
-    "c253c490": {
-      "session_id": "c253c490",
-      "scope": "short",
-      "idea_ids": [
-        "idea-8fa6f8fb18"
-      ],
-      "created_at": "2026-10-02T13:51:43Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T13:51:43Z",
-      "selected_index": 0
-    },
-    "a62e094b": {
-      "session_id": "a62e094b",
-      "scope": "short",
-      "idea_ids": [
-        "idea-8fa6f8fb18"
-      ],
-      "created_at": "2026-10-02T15:57:24Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-02T15:57:24Z",
-      "selected_index": 0
     }
   },
   "requests": {
@@ -3959,5 +4096,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T02:26:48Z"
+  "updated_at": "2026-10-03T02:27:11Z"
 }
