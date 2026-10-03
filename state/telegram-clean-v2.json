@@ -2595,6 +2595,54 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T02:27:11Z"
+    },
+    {
+      "idea_id": "idea-07f394da13",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:29Z"
+    },
+    {
+      "idea_id": "idea-7b4791963c",
+      "title": "كيف تنهي ما بدأت بدل مطاردة بداية جديدة؟",
+      "normalized_title": "كيف تنهي ما بدات بدل مطاردة بداية جديدة؟",
+      "market_query": "إنهاء المشاريع وعدم التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:29Z"
+    },
+    {
+      "idea_id": "idea-7ba8ef4ad0",
+      "title": "كيف تعرف أنك تتقدم حتى لو كان التغيير بطيئًا؟",
+      "normalized_title": "كيف تعرف انك تتقدم حتي لو كان التغيير بطييًا؟",
+      "market_query": "علامات التقدم الشخصي البطيء",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:27:30Z"
     }
   ],
   "sessions": {
@@ -2605,7 +2653,8 @@
         "idea-f257a71a68",
         "idea-487881e1e2"
       ],
-      "created_at": "2026-10-03T02:27:11Z"
+      "created_at": "2026-10-03T02:27:11Z",
+      "obsolete_at": "2026-10-03T02:27:28Z"
     },
     "a62e094b": {
       "session_id": "a62e094b",
@@ -4096,5 +4145,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T02:27:11Z"
+  "updated_at": "2026-10-03T02:27:30Z"
 }
