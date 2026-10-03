@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
   "topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37117317570",
-  "result": "failure",
-  "updated_at": 1791024301
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37119905530",
+  "result": "",
+  "updated_at": 1791027072
 }
