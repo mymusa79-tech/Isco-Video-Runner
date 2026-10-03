@@ -1715,7 +1715,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_workflow_uses_frozen_engine_and_approved_brief(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8")
-        engine_sha = "3cbd689819e6b0e0b2ea9904d1998e24a5e2a293"
+        engine_sha = "595f69a28ff6ddc5532291c9f113f334562292f9"
         brief_sha = "bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129"
         self.assertGreaterEqual(text.count(engine_sha), 2)
         self.assertEqual(text.count(brief_sha), 1)
