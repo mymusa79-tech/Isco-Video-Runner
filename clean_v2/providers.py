@@ -1026,10 +1026,18 @@ def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
         # prefixItems. Permit the one Short-only payoff key here; validate_script
         # still enforces narration for s1/s2 and s3_payoff for s3 locally.
         section_properties["s3_payoff"] = {"type": "string"}
+    # Groq's strict json_schema mode requires every key declared in `properties`
+    # to also appear in `required` (Run #72, Telegram: Groq rejected this schema
+    # with HTTP 400 "the following properties must be listed in required:
+    # narration, s3_payoff" because the Short-payoff branch only listed "id").
+    # The actual semantic rule -- s1/s2 need narration, only s3 needs
+    # s3_payoff, never both -- is enforced locally by validate_script, same as
+    # the comment above already states; `required` here only has to satisfy
+    # Groq's schema-shape constraint, not express that per-section semantics.
     section_schema = {
         "type": "object",
         "properties": section_properties,
-        "required": ["id"] if has_short_payoff else ["id", "narration"],
+        "required": list(section_properties),
         "additionalProperties": False,
     }
     return {
