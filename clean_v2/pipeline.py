@@ -81,6 +81,24 @@ from .visual_story import (
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
+# Telegram Runs #70 and #74 (2026-10-03): final_cut_visual_qa hung silently for
+# 32-56 minutes with zero further log output, well past any individual
+# provider's own request timeout (Gemini's SDK-level 90s included), then had
+# to be cancelled by hand. Every per-call timeout in the vision cascade was
+# confirmed present and correctly configured; the hang sat somewhere the
+# per-call timeout did not actually bound (network/DNS/transport-level, not
+# application logic -- the bounded-candidate-selection logic in Engine's
+# visual_selection.py is itself provably finite). TEXT_AUDIT_STAGE already
+# has exactly this kind of hard wall-clock backstop (stage_deadline, a
+# SIGALRM-based cap that fires even when an inner call's own timeout does
+# not); VISUAL_QA_STAGE never got the same protection. Generous relative to
+# TEXT_AUDIT_DEADLINE_SECONDS because this stage legitimately does more
+# network-bound work (multiple candidates x up to 5 providers each), but
+# still far under the job's 90-minute ceiling and nowhere near the 32-56
+# minute hangs actually observed -- the goal is turning a silent indefinite
+# hang into a bounded, classified "infrastructure" failure the existing
+# retry path already knows how to handle, not tuning for normal-case speed.
+VISUAL_QA_DEADLINE_SECONDS = 20 * 60
 OPENING_STAGE = "opening_director"
 STRUCTURAL_AI_STAGE = "structural_ai_flags"
 TEXT_AUDIT_STAGE = "text_audit"
@@ -1307,6 +1325,38 @@ def _run_final_cut_visual_qa(
         router=router,
         visual_source=visual_source,
     )
+
+
+def _run_visual_qa_with_deadline(
+    *,
+    visual_qa: Callable[..., dict[str, Any]],
+    output_dir: Path,
+    plan: dict[str, Any],
+    script: dict[str, Any],
+    rights: list[dict[str, Any]],
+    fmt: str,
+    router: Any,
+    visual_source: Any,
+) -> dict[str, Any]:
+    """Hard wall-clock backstop for final_cut_visual_qa.
+
+    Telegram Runs #70 and #74 (2026-10-03) hung silently inside this stage for
+    32-56 minutes with zero further log output -- well past every individual
+    vision provider's own configured request timeout -- and had to be
+    cancelled by hand. TEXT_AUDIT_STAGE already has this exact protection
+    (see _run_text_audit_with_one_bounded_tone_repair's stage_deadline); this
+    stage never got it. See VISUAL_QA_DEADLINE_SECONDS for why that duration.
+    """
+    with stage_deadline(VISUAL_QA_STAGE, VISUAL_QA_DEADLINE_SECONDS):
+        return visual_qa(
+            output_dir=output_dir,
+            plan=plan,
+            script=script,
+            rights=rights,
+            fmt=fmt,
+            router=router,
+            visual_source=visual_source,
+        )
 
 
 def _run_opening_director(
@@ -6058,6 +6108,8 @@ class _Journal:
         }
         if name == TEXT_AUDIT_STAGE:
             record["deadline_seconds"] = TEXT_AUDIT_DEADLINE_SECONDS
+        elif name == VISUAL_QA_STAGE:
+            record["deadline_seconds"] = VISUAL_QA_DEADLINE_SECONDS
         self.payload["stages"].append(record)
         self._write()
         print(f"clean-v2 stage={name} status=running", flush=True)
@@ -6881,7 +6933,8 @@ class CleanV2Pipeline:
             try:
                 visual_qa_report = journal.run(
                     VISUAL_QA_STAGE,
-                    lambda: self.visual_qa(
+                    lambda: _run_visual_qa_with_deadline(
+                        visual_qa=self.visual_qa,
                         output_dir=output_dir,
                         plan=plan,
                         script=script,

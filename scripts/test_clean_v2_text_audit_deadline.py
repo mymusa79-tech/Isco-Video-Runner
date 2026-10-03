@@ -199,6 +199,49 @@ class TextAuditPipelineDeadlineTests(unittest.TestCase):
         ])
 
 
+class VisualQaPipelineDeadlineTests(unittest.TestCase):
+    """Run #70/#74 (Telegram, 2026-10-03): final_cut_visual_qa hung silently
+    for 32-56 minutes with no stage_deadline backstop and had to be cancelled
+    by hand. Mirrors TextAuditPipelineDeadlineTests above."""
+
+    def test_all_formats_record_timeout_as_infrastructure_and_keep_script_checkpoint(self):
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(format=fmt), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                checkpoint = root / "resume-checkpoint.json"
+                checkpoint.write_text('{"completed_stage":"visuals"}', encoding="utf-8")
+                journal = pipeline._Journal(root / "run-manifest.json", runner_sha="runner", engine_sha="engine")
+                for name in pipeline.STAGES[:pipeline.STAGES.index("final_cut_visual_qa")]:
+                    journal.reuse(name)
+                with patch.object(pipeline, "VISUAL_QA_DEADLINE_SECONDS", 0.03):
+                    with self.assertRaises(StageDeadlineExceeded):
+                        journal.run("final_cut_visual_qa", lambda: pipeline._run_visual_qa_with_deadline(
+                            visual_qa=lambda **kw: hanging_call(),
+                            output_dir=root, plan={}, script={}, rights=[],
+                            fmt=fmt, router=None, visual_source=None,
+                        ))
+                manifest = json.loads(journal.path.read_text(encoding="utf-8"))
+                self.assertEqual(manifest["status"], "failed")
+                self.assertEqual(manifest["failure_classification"], "infrastructure")
+                self.assertEqual(manifest["failure_origin_stage"], "final_cut_visual_qa")
+                self.assertIsNotNone(manifest["finished_at"])
+                failed = manifest["stages"][-1]
+                self.assertEqual(failed["status"], "failed")
+                self.assertEqual(failed["error_type"], "StageDeadlineExceeded")
+                self.assertEqual(failed["deadline_seconds"], 0.03)
+                self.assertNotIn("quality_pending_stage", manifest)
+                self.assertEqual(json.loads(checkpoint.read_text())["completed_stage"], "visuals")
+
+    def test_successful_call_passes_through_unaffected(self):
+        expected = {"status": "pass", "final_media_mutated": False}
+        result = pipeline._run_visual_qa_with_deadline(
+            visual_qa=lambda **kw: expected,
+            output_dir=Path("unused"), plan={}, script={}, rights=[],
+            fmt="short", router=None, visual_source=None,
+        )
+        self.assertIs(result, expected)
+
+
 class ToneBoundedTransportTests(unittest.TestCase):
     def setUp(self):
         self.plan = SimpleNamespace(format="short", to_dict=lambda: {"format": "short"})
