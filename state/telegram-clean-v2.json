@@ -2691,9 +2691,146 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T02:29:51Z"
+    },
+    {
+      "idea_id": "idea-391adba3fe",
+      "title": "كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟",
+      "normalized_title": "كيف تتحول المقارنة من ملاحظة عابرة الي مقياس نحاكم به حياتنا؟",
+      "market_query": "المقارنة الاجتماعية وتقييم الذات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.427,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 225.3,
+        "median_views_per_day": 225.3,
+        "top_samples": [
+          {
+            "video_id": "fT6LOGnqUGg",
+            "title": "توقف عن مقارنة نفسك بالآخرين : أول خطوة لبناء الثقة بالنفس",
+            "channel": "كاريزما الشباب",
+            "published_at": "2026-09-27T09:31:14Z",
+            "views": 1286,
+            "views_per_day": 225.3,
+            "relevance_overlap": [
+              "اجتماعية",
+              "ذات",
+              "مقارنة"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:21Z"
+    },
+    {
+      "idea_id": "idea-a22d011a93",
+      "title": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "normalized_title": "لماذا يتحول السعي الي تحسين حياتنا احيانًا الي شعور دايم باننا غير كافين؟",
+      "market_query": "تطوير الذات والشعور بعدم الكفاية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.338,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 62.1,
+        "median_views_per_day": 62.1,
+        "top_samples": [
+          {
+            "video_id": "Ju_b_k7-bEM",
+            "title": "لماذا تشعر أنك لست جيدًا بما يكفي؟",
+            "channel": "ما وراء عقلك",
+            "published_at": "2026-09-14T17:00:35Z",
+            "views": 1142,
+            "views_per_day": 62.1,
+            "relevance_overlap": [
+              "بعدم",
+              "تطوير",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:20Z"
+    },
+    {
+      "idea_id": "idea-5663f3bee5",
+      "title": "لماذا نعود إلى عادة نعرف أنها تؤذينا رغم وضوح قرارنا بالتوقف؟",
+      "normalized_title": "لماذا نعود الي عادة نعرف انها توذينا رغم وضوح قرارنا بالتوقف؟",
+      "market_query": "العودة للعادات بعد قرار التوقف",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:20Z"
+    },
+    {
+      "idea_id": "idea-bcf1ef95ee",
+      "title": "ماذا يحدث عندما نبني يومنا كله على انتظار الدافع؟",
+      "normalized_title": "ماذا يحدث عندما نبني يومنا كله علي انتظار الدافع؟",
+      "market_query": "انتظار الدافع وتأثيره على السلوك",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:20Z"
+    },
+    {
+      "idea_id": "idea-5e98441449",
+      "title": "لماذا يبدو البدء من جديد مريحًا أكثر من إكمال ما بدأناه؟",
+      "normalized_title": "لماذا يبدو البدء من جديد مريحًا اكثر من اكمال ما بداناه؟",
+      "market_query": "إدمان البدايات وترك المشاريع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:21Z"
+    },
+    {
+      "idea_id": "idea-dee2b4971d",
+      "title": "متى تكون الراحة استعادة للطاقة، ومتى تصبح طريقة مؤجلة لتجنب ما نخافه؟",
+      "normalized_title": "متي تكون الراحة استعادة للطاقة، ومتي تصبح طريقة موجلة لتجنب ما نخافه؟",
+      "market_query": "الراحة وتجنب المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T02:30:21Z"
     }
   ],
   "sessions": {
+    "7e026990": {
+      "session_id": "7e026990",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-391adba3fe",
+        "idea-a22d011a93"
+      ],
+      "created_at": "2026-10-03T02:30:21Z"
+    },
     "be092338": {
       "session_id": "be092338",
       "scope": "podcast",
@@ -4193,5 +4330,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T02:29:51Z"
+  "updated_at": "2026-10-03T02:30:22Z"
 }
