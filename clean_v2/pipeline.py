@@ -6048,11 +6048,23 @@ class _Journal:
                 name == "voice"
                 and "CLEAN_V2_VOICE_INFRASTRUCTURE" in message
             )
+            # "exhausted bounded provider route" fires whenever every adapter in
+            # the cascade failed, but that is not always a pure infrastructure
+            # story: Run 66 exhausted Planning with http_400/http_413/http_429
+            # from four providers plus a genuine local validator rejection
+            # (invalid_output_visualworldidentityerror) from the fifth, and the
+            # whole stage was still filed as "infrastructure" - masking the one
+            # failure that was actually fixable in our own prompt/schema/retry
+            # logic. Only call it pure infrastructure when every provider in the
+            # summary failed at the wire/transport level, never when at least one
+            # reached a provider and had its own output rejected by validation.
+            exhausted_route = "exhausted bounded provider route" in message
+            exhausted_route_pure_infra = exhausted_route and "invalid_output" not in message
             infrastructure = (
                 not content_repair_unavailable
                 and (
                     isinstance(exc, StageDeadlineError)
-                    or "exhausted bounded provider route" in message
+                    or exhausted_route_pure_infra
                     or visual_qa_infrastructure
                     or opening_infrastructure
                     or voice_infrastructure
