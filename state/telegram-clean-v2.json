@@ -2922,9 +2922,255 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-03T02:36:38Z"
+    },
+    {
+      "idea_id": "idea-7cb08ad575",
+      "title": "عندما يبدو أن لا شيء يتغير: قوة الأثر التراكمي للخطوات الصغيرة",
+      "normalized_title": "عندما يبدو ان لا شيء يتغير قوة الاثر التراكمي للخطوات الصغيرة",
+      "market_query": "بناء العادات الإيجابية وتطوير الذات",
+      "reason": "تحفيز المشاهدين الذين يمرون بفترات ركود عبر شرح مبدأ التراكم التدريجي في النمو النفسي والمهني.",
+      "market_score": 0.746,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 3,
+        "max_views_per_day": 18700.4,
+        "median_views_per_day": 1044.1,
+        "top_samples": [
+          {
+            "video_id": "2Ow7GgRljDs",
+            "title": "كيف تدمر مخاوفك.... || #ثقة #تحفيز #تطوير_الذات #تفاؤل #علم_النفس",
+            "channel": "تفاؤل",
+            "published_at": "2026-09-28T12:00:22Z",
+            "views": 87010,
+            "views_per_day": 18700.4,
+            "relevance_overlap": [
+              "ايجابية",
+              "بناء",
+              "ذات",
+              "عادات",
+              "وتطوير"
+            ]
+          },
+          {
+            "video_id": "7EZe44SpYLk",
+            "title": "تعلم فن الهيبة وقوة الشخصية حتي لا يستضعفك الاخرين .. لا تكن سهلا لا تخبرهم بالتفاصيل . ناصر الجميعة",
+            "channel": "قـوة العـقل",
+            "published_at": "2026-09-25T11:31:18Z",
+            "views": 16770,
+            "views_per_day": 2185.6,
+            "relevance_overlap": [
+              "ايجابية",
+              "بناء",
+              "ذات",
+              "عادات",
+              "وتطوير"
+            ]
+          },
+          {
+            "video_id": "1pwazP4mxy8",
+            "title": "افعل ما لا تريد فعله كل يوم… وستندهش مما سيحدث لعقلك وثقتك بنفسك وحياتك بالكامل — كتاب صوتي",
+            "channel": "جوهر الكتب",
+            "published_at": "2026-09-03T12:45:05Z",
+            "views": 47189,
+            "views_per_day": 1593.1,
+            "relevance_overlap": [
+              "ايجابية",
+              "بناء",
+              "ذات",
+              "عادات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:26Z"
+    },
+    {
+      "idea_id": "idea-c4797d6eda",
+      "title": "كيف تحافظ على هدوئك تحت الضغط الشديد؟ قاعدة الـ 10 ثوانٍ",
+      "normalized_title": "كيف تحافظ علي هدويك تحت الضغط الشديد؟ قاعدة الـ 10 ثوانٍ",
+      "market_query": "كيفية التعامل مع التوتر والضغط النفسي",
+      "reason": "تقديم تكنيك سريع وقابل للتطبيق الفوري لإدارة الاستجابة التلقائية للتوتر دون وعود سحرية.",
+      "market_score": 0.549,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 800.4,
+        "median_views_per_day": 477.9,
+        "top_samples": [
+          {
+            "video_id": "Y6Ar5a-ZYQw",
+            "title": "بتضحك قدام الناس وانت من جواك تعبان!😓 خطورة الضغط النفسي | ابونا بولس جورج",
+            "channel": "الراعي الصالح - The Good Shepherd",
+            "published_at": "2026-09-19T15:00:28Z",
+            "views": 10827,
+            "views_per_day": 800.4,
+            "relevance_overlap": [
+              "تعامل",
+              "توتر",
+              "نفسي",
+              "والضغط"
+            ]
+          },
+          {
+            "video_id": "CVTwkXGn0a8",
+            "title": "استرخِ وستحقق كل ما تحلم به — اكتشف كيف تحقق أهدافك دون أن تدمر نفسك [ كتاب مسموع ]",
+            "channel": "صفوة الكتب",
+            "published_at": "2026-09-03T13:15:07Z",
+            "views": 4599,
+            "views_per_day": 155.4,
+            "relevance_overlap": [
+              "توتر",
+              "نفسي",
+              "والضغط"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:26Z"
+    },
+    {
+      "idea_id": "idea-b8afcc1868",
+      "title": "شلل الاختيار: لماذا يتردد عقلك في اتخاذ القرارات البسيطة؟",
+      "normalized_title": "شلل الاختيار لماذا يتردد عقلك في اتخاذ القرارات البسيطة؟",
+      "market_query": "التغلب على التردد في اتخاذ القرار",
+      "reason": "تفكيك ظاهرة إرهاق القرارات اليومية وتقديم استراتيجية لتبسيط البدائل واستعادة صفاء الذهن.",
+      "market_score": 0.353,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 77.0,
+        "median_views_per_day": 77.0,
+        "top_samples": [
+          {
+            "video_id": "yCb9QEADf6Q",
+            "title": "لا تدع التردد يوقف حياتك #نمو_مستمر #الثقة_بالنفس #علم_النفس #كتب #تحفيز #تطوير_الذات #viral #النجاح",
+            "channel": "نمو مستمر",
+            "published_at": "2026-09-13T21:05:57Z",
+            "views": 1484,
+            "views_per_day": 77.0,
+            "relevance_overlap": [
+              "اتخاذ",
+              "تردد",
+              "قرار"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:27Z"
+    },
+    {
+      "idea_id": "idea-4a3afe5da6",
+      "title": "التفاؤل الواقعي: الفرق بين قبول المشاعر وتزييف الإيجابية",
+      "normalized_title": "التفاول الواقعي الفرق بين قبول المشاعر وتزييف الايجابية",
+      "market_query": "التعامل مع المشاعر السلبية بوعي",
+      "reason": "توضيح الفرق بين الإيجابية السامة والوعي المتزن لتعزيز مناعة المشاهد النفسية في مواجهة الأوقات الصعبة.",
+      "market_score": 0.21,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 8.9,
+        "median_views_per_day": 8.9,
+        "top_samples": [
+          {
+            "video_id": "uv5EoHYaWJY",
+            "title": "السر الحقيقي وراء المشاعر السلبية وكيف تتعامل معها بدون هروب | شاهر شريف لايف كوتش",
+            "channel": "لايف كوتش شاهار شريف",
+            "published_at": "2026-09-09T00:16:15Z",
+            "views": 216,
+            "views_per_day": 8.9,
+            "relevance_overlap": [
+              "سلبية",
+              "مشاعر"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:28Z"
+    },
+    {
+      "idea_id": "idea-ad09bff14c",
+      "title": "لماذا تشعر بالإرهاق وأنت لم تتحرك؟ سر استنزاف الطاقة الذهنية",
+      "normalized_title": "لماذا تشعر بالارهاق وانت لم تتحرك؟ سر استنزاف الطاقة الذهنية",
+      "market_query": "علاج التعب الذهني والتفكير الزائد",
+      "reason": "تسليط الضوء على آلية استهلاك الطاقة عبر التفكير المفرط وتقديم خطوة عملية واحدة لتفريغ الذهن بواقعية.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:25Z"
+    },
+    {
+      "idea_id": "idea-89ea25427e",
+      "title": "مقارنة بدايتك بمواسم الآخرين: الفخ الصامت الذي يسرق شغفك",
+      "normalized_title": "مقارنة بدايتك بمواسم الاخرين الفخ الصامت الذي يسرق شغفك",
+      "market_query": "التوقف عن مقارنة النفس بالآخرين",
+      "reason": "معالجة مشكلة المقارنة الاجتماعية بأسلوب متفائل يعيد توجيه تركيز المشاهد إلى مساره وتطوره الذاتي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:26Z"
+    },
+    {
+      "idea_id": "idea-2f1e68a0e4",
+      "title": "قول «لا» ليس قسوة: كيف تضع حدوداً دون إحساس بالذنب",
+      "normalized_title": "قول لا ليس قسوة كيف تضع حدوداً دون احساس بالذنب",
+      "market_query": "كيفية وضع حدود صحية في العلاقات",
+      "reason": "إعادة تعريف الحدود الشخصية كأداة لحماية الطاقة النفسية واحترام العلاقات بدلاً من اعتبارها أنانية.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:27Z"
+    },
+    {
+      "idea_id": "idea-02ea548127",
+      "title": "ماذا تفعل عندما تتعطل خططك؟ فن التعامل مع فترات الانتظار",
+      "normalized_title": "ماذا تفعل عندما تتعطل خططك؟ فن التعامل مع فترات الانتظار",
+      "market_query": "التكيف مع التغيير وإدارة عدم اليقين",
+      "reason": "تحويل لحظات التوقف والتعثر الخارجي إلى مساحة لإعادة التقييم وضبط البوصلة الشخصية.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-03T03:40:28Z"
     }
   ],
   "sessions": {
+    "0cefbd34": {
+      "session_id": "0cefbd34",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7cb08ad575",
+        "idea-c4797d6eda",
+        "idea-b8afcc1868"
+      ],
+      "created_at": "2026-10-03T03:40:28Z"
+    },
     "7e026990": {
       "session_id": "7e026990",
       "scope": "podcast",
@@ -4472,5 +4718,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T02:36:38Z"
+  "updated_at": "2026-10-03T03:40:28Z"
 }
