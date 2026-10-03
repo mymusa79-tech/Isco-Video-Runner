@@ -19,6 +19,21 @@ from . import mistral_executor
 
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+# Bounded snippet kept from a provider's HTTP error body for diagnostics only
+# (provider-events.json / error_detail) - never the full body, and never logged
+# anywhere that would echo the outbound prompt or an API key back.
+MAX_ERROR_DETAIL_BYTES = 2 * 1024
+# Groq's free-tier chat/completions endpoint rejects large single-shot JSON
+# prompts with HTTP 413 well below the Runner's own MAX_PROMPT_BYTES ceiling
+# (observed around ~41 KB on Run 66). Even a minimal Planning/Script prompt
+# with an empty brief already carries ~26-33 KB of fixed instruction text
+# before any real topic/research content is added, so the local pre-check
+# must sit close to (but still safely under) the observed 413 threshold
+# rather than near the fixed-overhead floor - too tight and Groq is skipped
+# on every ordinary prompt, defeating the whole point of keeping it in the
+# cascade. 38 KiB leaves ~3 KB of headroom below the known-bad size while
+# still passing typical Planning/Script prompts through unaffected.
+GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 # Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
@@ -134,10 +149,16 @@ class ProviderWireFailure(RuntimeError):
         *,
         http_status: int | None = None,
         retry_after_seconds: float | None = None,
+        error_detail: str | None = None,
     ) -> None:
         self.reason_code = str(reason_code or "provider_failure")
         self.http_status = http_status
         self.retry_after_seconds = retry_after_seconds
+        # Bounded, best-effort snippet of the provider's own error body (never the
+        # request payload, prompt, or API key) so a genuine client error (400/413)
+        # can be diagnosed from provider-events.json instead of guessed at from the
+        # status code alone.
+        self.error_detail = error_detail
         super().__init__(self.reason_code)
 
 
@@ -187,6 +208,25 @@ def _is_transient_wire_failure(exc: BaseException) -> bool:
     return reason_code.startswith("transport_")
 
 
+def _safe_error_detail(raw: bytes) -> str | None:
+    """Decode a provider's HTTP error body into a short, loggable diagnostic.
+
+    Bounded to MAX_ERROR_DETAIL_BYTES and never includes the request we sent
+    (prompt, schema, or API key) - only what the provider sent back, which is
+    what tells us whether a 400/413 is a schema problem, a size problem, or
+    something else entirely.
+    """
+    body = bytes(raw or b"")[:MAX_ERROR_DETAIL_BYTES]
+    if not body:
+        return None
+    try:
+        text_value = body.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    text_value = " ".join(text_value.split()).strip()
+    return text_value[:MAX_ERROR_DETAIL_BYTES] or None
+
+
 def _post_json(
     url: str,
     *,
@@ -210,12 +250,18 @@ def _post_json(
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         http_status = int(exc.code)
+        try:
+            error_body = exc.read(MAX_ERROR_DETAIL_BYTES + 1)
+        except Exception:
+            error_body = b""
+        error_detail = _safe_error_detail(error_body)
         raise ProviderWireFailure(
             f"http_{http_status}",
             http_status=http_status,
             retry_after_seconds=(
                 _retry_after_seconds(exc.headers) if http_status == 429 else None
             ),
+            error_detail=error_detail,
         ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise ProviderWireFailure(f"transport_{type(exc).__name__.lower()}") from None
@@ -518,7 +564,17 @@ def _mistral_planning_validator_retry_prompt(
     exc: Exception,
 ) -> str | None:
     """Give Mistral one bounded correction for a local Planning-contract rejection."""
-    if type(exc).__name__ not in {"ValueError", "ContractError", "ShortFormatError"}:
+    # VisualWorldIdentityError (missing the channel's required navy/gold visual
+    # identity markers) is a deterministic, mechanically correctable rejection
+    # just like the other three - Run 66 showed Mistral's only Planning attempt
+    # being discarded outright on this error with zero correction chance, burning
+    # the last adapter in the cascade for a fixable one-field omission.
+    if type(exc).__name__ not in {
+        "ValueError",
+        "ContractError",
+        "ShortFormatError",
+        "VisualWorldIdentityError",
+    }:
         return None
     detail = " ".join(str(exc).split()).strip()[:500]
     if not detail:
@@ -1172,6 +1228,9 @@ class ProviderAdapter:
     call: Callable[..., dict[str, Any]]
     stages: frozenset[str] | None = None
     accepts_stage: bool = False
+    # Per-provider admission ceiling, tighter than the Runner-wide MAX_PROMPT_BYTES.
+    # None means "no provider-specific ceiling beyond the global one".
+    max_prompt_utf8_bytes: int | None = None
 
     def invoke(self, prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
         if self.accepts_stage:
@@ -1187,7 +1246,12 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
             _gemini_flash_lite_stage_call,
             accepts_stage=True,
         ),
-        ProviderAdapter("groq", _groq_stage_call, accepts_stage=True),
+        ProviderAdapter(
+            "groq",
+            _groq_stage_call,
+            accepts_stage=True,
+            max_prompt_utf8_bytes=GROQ_MAX_PROMPT_UTF8_BYTES,
+        ),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
             "mistral",
@@ -1230,6 +1294,7 @@ class ProviderRouter:
         reason: str | None,
         provider_attempt: int | None,
         stage_wire_attempt: int | None,
+        detail: str | None = None,
     ) -> None:
         self.events.append(
             {
@@ -1241,6 +1306,10 @@ class ProviderRouter:
                 "provider_attempt": provider_attempt,
                 "stage_wire_attempt": stage_wire_attempt,
                 "reason": reason,
+                # Bounded provider-sent error text (never the outbound prompt or an
+                # API key) - None when the provider gave nothing to show, including
+                # for every non-failure or local/validator event.
+                "detail": detail,
             }
         )
 
@@ -1282,6 +1351,7 @@ class ProviderRouter:
                 reason=reason,
                 provider_attempt=1,
                 stage_wire_attempt=1,
+                detail=getattr(exc, "error_detail", None),
             )
             raise
         try:
@@ -1349,6 +1419,29 @@ class ProviderRouter:
                     stage_wire_attempt=None,
                 )
                 continue
+
+            if adapter.max_prompt_utf8_bytes is not None:
+                admission_prompt_bytes = len(
+                    _provider_prompt(prompt, provider=adapter.name, stage=stage).encode(
+                        "utf-8"
+                    )
+                )
+                if admission_prompt_bytes > adapter.max_prompt_utf8_bytes:
+                    failures.append(f"{adapter.name}:prompt_too_large_for_provider")
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="unavailable",
+                        wire_attempted=False,
+                        reason="prompt_too_large_for_provider",
+                        provider_attempt=None,
+                        stage_wire_attempt=None,
+                        detail=(
+                            f"prompt_bytes={admission_prompt_bytes} "
+                            f"limit={adapter.max_prompt_utf8_bytes}"
+                        ),
+                    )
+                    continue
 
             candidate: dict[str, Any] | None = None
             provider_attempt = 0
@@ -1421,6 +1514,7 @@ class ProviderRouter:
                         reason=reason,
                         provider_attempt=provider_attempt,
                         stage_wire_attempt=wire_count,
+                        detail=getattr(exc, "error_detail", None),
                     )
                     retry_after = getattr(exc, "retry_after_seconds", None)
                     if getattr(exc, "http_status", None) == 429:
