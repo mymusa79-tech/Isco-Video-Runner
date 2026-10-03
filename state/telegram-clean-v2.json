@@ -2720,9 +2720,16 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-10-03T02:30:21Z"
+      "research_pack": [
+        {
+          "source_title": "توقف عن مقارنة نفسك بالآخرين : أول خطوة لبناء الثقة بالنفس",
+          "source_url": "https://youtu.be/fT6LOGnqUGg",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-10-03T02:30:21Z",
+      "selected_at": "2026-10-03T02:30:42Z"
     },
     {
       "idea_id": "idea-a22d011a93",
@@ -2829,7 +2836,9 @@
         "idea-391adba3fe",
         "idea-a22d011a93"
       ],
-      "created_at": "2026-10-03T02:30:21Z"
+      "created_at": "2026-10-03T02:30:21Z",
+      "closed_at": "2026-10-03T02:30:42Z",
+      "selected_index": 0
     },
     "be092338": {
       "session_id": "be092338",
@@ -4073,9 +4082,30 @@
         "started_at": "2026-10-03T02:20:55Z",
         "finished_at": "2026-10-03T02:24:31Z"
       }
+    },
+    "req-cb8e53d24450": {
+      "schema_version": 1,
+      "request_id": "req-cb8e53d24450",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "podcast",
+      "approved_by_user": true,
+      "approved_topic": "كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟",
+      "research_pack": [
+        {
+          "source_title": "توقف عن مقارنة نفسك بالآخرين : أول خطوة لبناء الثقة بالنفس",
+          "source_url": "https://youtu.be/fT6LOGnqUGg",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-391adba3fe",
+      "selected_at": "2026-10-03T02:30:42Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6ff9219befb44438bb7e129e2b9f90d6721fd305c992934dfc7be83271bb8904"
     }
   },
-  "current_request_id": "req-6ab0bad26274",
+  "current_request_id": "req-cb8e53d24450",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -4330,5 +4360,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T02:30:22Z"
+  "updated_at": "2026-10-03T02:30:43Z"
 }
