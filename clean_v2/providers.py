@@ -25,10 +25,15 @@ MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_ERROR_DETAIL_BYTES = 2 * 1024
 # Groq's free-tier chat/completions endpoint rejects large single-shot JSON
 # prompts with HTTP 413 well below the Runner's own MAX_PROMPT_BYTES ceiling
-# (observed around ~41 KB). Keep comfortable headroom below the known-good
-# admission limit so Groq is skipped locally - no wire attempt wasted - instead
-# of attempting and burning a provider slot on a guaranteed 413.
-GROQ_MAX_PROMPT_UTF8_BYTES = 28 * 1024
+# (observed around ~41 KB on Run 66). Even a minimal Planning/Script prompt
+# with an empty brief already carries ~26-33 KB of fixed instruction text
+# before any real topic/research content is added, so the local pre-check
+# must sit close to (but still safely under) the observed 413 threshold
+# rather than near the fixed-overhead floor - too tight and Groq is skipped
+# on every ordinary prompt, defeating the whole point of keeping it in the
+# cascade. 38 KiB leaves ~3 KB of headroom below the known-bad size while
+# still passing typical Planning/Script prompts through unaffected.
+GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 # Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
