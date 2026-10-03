@@ -985,6 +985,67 @@ class MistralScriptSchemaTests(unittest.TestCase):
         called.assert_not_called()
 
 
+class GroqScriptSchemaTests(unittest.TestCase):
+    def _short_plan(self) -> dict:
+        return {
+            "title": "خطوة واحدة",
+            "promise": "فهم طريقة عملية للبدء",
+            "cta": "إذا كانت هذه الفكرة قريبة منك، اكتب تجربتك في التعليقات.",
+            "practical_action_ar": "اكتب خطوتك التالية الآن على ورقة صغيرة.",
+            "sections": [
+                {
+                    "id": "s1",
+                    "heading": "المشكلة",
+                    "purpose": "تسمية العائق",
+                    "visual_query_en": "quiet desk notebook wide shot",
+                    "visual_query_alt_en": "window beside unfinished task objects only",
+                },
+                {
+                    "id": "s2",
+                    "heading": "الفكرة",
+                    "purpose": "شرح الخطوة الصغيرة",
+                    "visual_query_en": "hand writing one task in notebook",
+                    "visual_query_alt_en": "phone face down beside unfinished task hands only",
+                },
+                {
+                    "id": "s3",
+                    "heading": "التطبيق",
+                    "purpose": "دعوة عملية",
+                    "visual_query_en": "morning workspace sunlight no face",
+                    "visual_query_alt_en": "door opening into quiet workspace back view",
+                },
+            ],
+        }
+
+    def test_long_format_schema_requires_id_and_narration_only(self) -> None:
+        prompt = _script_prompt(_brief(), _plan())
+        schema = providers_module._groq_script_response_schema(prompt)
+        section_schema = schema["properties"]["sections"]["items"]
+
+        self.assertEqual(set(section_schema["properties"]), {"id", "narration"})
+        self.assertEqual(sorted(section_schema["required"]), ["id", "narration"])
+
+    def test_short_format_schema_lists_every_property_in_required(self) -> None:
+        """Run #72 (Telegram): Groq's strict json_schema mode rejected the Short
+        script schema with HTTP 400 because `required` only listed "id" while
+        `properties` also declared "narration" and "s3_payoff" -- Groq (like
+        OpenAI's structured outputs) requires every declared property to also
+        appear in `required`, regardless of which ones are semantically
+        optional. That per-section semantic rule (s1/s2 need narration, only
+        s3 needs s3_payoff, never both) is enforced locally by validate_script,
+        not by this schema's `required` keyword."""
+        short_brief = dict(_brief(), format="short")
+        prompt = _script_prompt(short_brief, self._short_plan())
+        schema = providers_module._groq_script_response_schema(prompt)
+        section_schema = schema["properties"]["sections"]["items"]
+
+        self.assertEqual(set(section_schema["properties"]), {"id", "narration", "s3_payoff"})
+        self.assertEqual(
+            sorted(section_schema["required"]), ["id", "narration", "s3_payoff"]
+        )
+        self.assertFalse(section_schema["additionalProperties"])
+
+
 class MistralShortHookValidatorRetryTests(unittest.TestCase):
     def test_run60_mistral_gets_one_bounded_retry_for_22_word_hook(self) -> None:
         calls: list[str] = []
