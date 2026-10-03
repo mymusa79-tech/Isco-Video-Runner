@@ -4725,9 +4725,40 @@
         "started_at": "2026-10-03T07:04:47Z",
         "finished_at": null
       }
+    },
+    "req-b44d71a6e7e0": {
+      "schema_version": 1,
+      "request_id": "req-b44d71a6e7e0",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+      "research_pack": [
+        {
+          "source_title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+          "source_url": "https://youtu.be/b7X96liZ0g4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كثرة الخيارات دمّرت قدرتنا على الاختيار؟ لماذا لم نعد نعرف ماذا نريد؟",
+          "source_url": "https://youtu.be/-Dto_7_d7-c",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كلما زادت خياراتك… زاد تَعبك | لماذا لا تعرف ماذا تريد؟",
+          "source_url": "https://youtu.be/pC4Hw7lRBmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-1dffada5b5",
+      "selected_at": "2026-10-03T07:05:51Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "f44cf3e1e5c039bf475ca46d294a6bbe76bfdc19eeca54e3e1f1b50182f22936"
     }
   },
-  "current_request_id": "req-e878adca8b8a",
+  "current_request_id": "req-b44d71a6e7e0",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -4982,5 +5013,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-03T07:05:31Z"
+  "updated_at": "2026-10-03T07:05:52Z"
 }
