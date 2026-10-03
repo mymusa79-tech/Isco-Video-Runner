@@ -1045,6 +1045,32 @@ class GroqScriptSchemaTests(unittest.TestCase):
         )
         self.assertFalse(section_schema["additionalProperties"])
 
+    def test_short_format_narration_and_payoff_are_nullable_per_section(self) -> None:
+        """Run #75 (Telegram): fixing Run #72's bug by listing every property in
+        `required` created a NEW bug -- Groq applies one shared item schema to
+        the whole `sections` array, so `required` is not per-index. Groq then
+        enforced "s3_payoff" present on every section, including s1/s2, and
+        rejected the model's (correct) output with HTTP 400 "'/sections/0' ...
+        missing properties: 's3_payoff'". s1/s2 never carry s3_payoff and s3
+        never carries narration (see the script prompt's own instruction:
+        "Do not return a narration field for s3"), so there is no single
+        per-section `required` shape that is both Groq-legal and semantically
+        correct. The fix: both keys stay in `required` (satisfies Groq's
+        structural constraint) but their type allows null, so a section where
+        the key does not apply can satisfy `required` with a null value
+        instead of a real string. validate_script's `raw.get(...) or ""`
+        already treats null the same as absent, so this is a no-op there."""
+        short_brief = dict(_brief(), format="short")
+        prompt = _script_prompt(short_brief, self._short_plan())
+        schema = providers_module._groq_script_response_schema(prompt)
+        section_schema = schema["properties"]["sections"]["items"]
+
+        self.assertEqual(section_schema["properties"]["narration"]["type"], ["string", "null"])
+        self.assertEqual(section_schema["properties"]["s3_payoff"]["type"], ["string", "null"])
+        # Still required (the key must be present), just nullable in value.
+        self.assertIn("narration", section_schema["required"])
+        self.assertIn("s3_payoff", section_schema["required"])
+
 
 class MistralShortHookValidatorRetryTests(unittest.TestCase):
     def test_run60_mistral_gets_one_bounded_retry_for_22_word_hook(self) -> None:

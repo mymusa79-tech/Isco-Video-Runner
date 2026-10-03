@@ -1026,6 +1026,20 @@ def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
         # prefixItems. Permit the one Short-only payoff key here; validate_script
         # still enforces narration for s1/s2 and s3_payoff for s3 locally.
         section_properties["s3_payoff"] = {"type": "string"}
+        # Run #75, Telegram: once "required" (below) was fixed to list every
+        # declared property to satisfy Groq's structural constraint, Groq then
+        # enforced "s3_payoff" as present on EVERY section, including s1/s2 --
+        # HTTP 400 "'/sections/0' ... missing properties: 's3_payoff'" -- because
+        # Groq applies one shared item schema to the whole array, so "required"
+        # is not per-section. The actual semantic rule (only s3 carries
+        # s3_payoff; s1/s2 never do) can't be expressed as a per-index
+        # requirement here, so instead both optional-per-section keys are made
+        # nullable: Groq can satisfy "required" (the key is present) while
+        # still passing null for a section where it does not semantically
+        # apply. validate_script already treats falsy (including None) the
+        # same as absent via `raw.get(...) or ""`, so null round-trips safely.
+        section_properties["narration"] = {"type": ["string", "null"]}
+        section_properties["s3_payoff"] = {"type": ["string", "null"]}
     # Groq's strict json_schema mode requires every key declared in `properties`
     # to also appear in `required` (Run #72, Telegram: Groq rejected this schema
     # with HTTP 400 "the following properties must be listed in required:
