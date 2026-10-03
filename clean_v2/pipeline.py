@@ -5076,6 +5076,12 @@ VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
 - For abstract RELATION ideas such as comparison, unequal starting conditions, hidden trade-offs, cause/consequence,
   or before/after, show the relationship itself through a visible contrast, changed state, consequence, or paired
   evidence. A phone, paper, keyboard, thoughtful person, or scenic path by itself is not evidence of that relation.
+- HUMAN PRESENCE POLICY: never make a clearly identifiable face/expression (a close, sharp, front-facing portrait a
+  viewer could recognize) a required semantic_must_have item - rights-safety review will always reject that
+  footage, so requiring it guarantees no candidate can ever pass. Genuine human emotion (confusion, hesitation,
+  tension, relief) is still welcome evidence when the beat needs it: describe it through non-identifying framing
+  instead - hands, posture, body language, a turned-away or distant/angled figure, or a motion-blurred/out-of-focus
+  face - never a clear identifiable one.
 - Before returning JSON, mentally remove the narration. If a neutral viewer could not state the beat's specific
   meaning from the planned visible evidence, rewrite the beat rather than decorating it with mood.
 - Cinematic light and composition support meaning; they never substitute for it.
@@ -5143,9 +5149,10 @@ visual motif remains supportive and non-essential to a listener with the screen 
         "visual_query_en and visual_query_alt_en. The alternate must stay on the same "
         "section idea but show a different observable action, detail, consequence, or "
         "result so the next shot adds information instead of duplicate B-roll. Do not "
-        "paraphrase the same search phrase. Never use face, facial, portrait, selfie, "
-        "expression/expressions, or looking-at-camera language unless the query explicitly "
-        "uses a positive safe composition such as hands only, objects only, back view, or from behind. "
+        "paraphrase the same search phrase. Human emotion is welcome when the beat needs it, but never write a "
+        "query for a clearly identifiable, close, front-facing portrait or selfie - that framing always fails "
+        "rights-safety review. Prefer hands, posture, body language, back view, from behind, or a distant/angled "
+        "figure to convey the same emotion without naming a recognizable face. "
         "If a primary query repeats the previous section's dominant action family (for example "
         "stationery/writing), its alternate MUST move to a genuinely different observable family "
         "so runtime has a real non-repeating fallback."
