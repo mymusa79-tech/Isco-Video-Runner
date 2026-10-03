@@ -2239,7 +2239,14 @@ def _repair_target_section_ids(
             targets.add(anchor)
     if _HOOK_QUALITY_REPAIR_PREFIX in lowered and ordered_ids:
         if _hook_text_itself_is_defective(revision_note):
-            targets.add(ordered_ids[0])
+            # Rewriting the hook changes the exact tension every later section was
+            # written to track (Run 68: a hook-only rewrite left s2/s3 anchored to
+            # the OLD hook's specific wording, which the re-audit then failed on
+            # hook_specificity/payoff_resolves_hook/section_dependency even though
+            # the hook fix itself was correct). Give the whole script as scope so
+            # the model can also make the minimal downstream adjustments needed to
+            # keep every other section's dependency on the NEW hook intact.
+            targets.update(ordered_ids)
         if "payoff_resolves_hook" in lowered:
             # A hook/payoff mismatch is owned by the closing section, not the hook -
             # target it explicitly rather than relying on a "closing payoff" phrase
@@ -2838,7 +2845,15 @@ def _tone_repair_prompt(
         hook_lock_rule = (
             "- The hook itself is the audited defect. Replace the complete first spoken hook sentence "
             "exactly once with a more specific, honest, naturally curious hook about the SAME approved "
-            "topic. Calm is acceptable; forced shock/clickbait is not. Do not alter the sentence after it."
+            "topic. Calm is acceptable; forced shock/clickbait is not. "
+            "- Rewriting the hook changes the exact tension every later section was written to track: a "
+            "hook-only rewrite that leaves the rest of the script anchored to the OLD hook's specific "
+            "wording will fail hook_specificity/section_dependency/payoff_resolves_hook on re-audit even "
+            "though the hook fix itself was correct. ALLOWED_PATCH_SECTION_IDS below therefore includes "
+            "every section, not only the hook: you MAY and SHOULD make the minimal wording adjustments "
+            "needed elsewhere so they keep tracking and resolving the NEW hook's specific tension - this "
+            "is required by the SAME flag, not an unflagged-section violation. Do not expand scope beyond "
+            "what the new hook actually requires, and do not rewrite any section's substance wholesale."
         )
     else:
         hook_lock_rule = (
@@ -2966,7 +2981,9 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   problem, never a full sentence unless the whole sentence is the issue. A long copied span is
   far more likely to contain a transcription slip and be rejected outright.
 - Each patch.replace MUST contain only the minimum local wording needed to fix that target.
-- Maximum 6 patches. Do not patch an unflagged section.
+- Maximum 6 patches. Do not patch a section outside ALLOWED_PATCH_SECTION_IDS; a section listed there
+  because the hook itself was rewritten (see the hook rule above) is not "unflagged" - keeping it
+  aligned with the new hook is required by that same flag.
 
 Return exactly one JSON object in this shape:
 {{
