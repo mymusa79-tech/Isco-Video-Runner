@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "كيف تتحول المقارنة من ملاحظة عابرة إلى مقياس نحاكم به حياتنا؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37090079727",
-  "result": "failure",
-  "updated_at": 1790994787
+  "topic": "شلل الاختيار: لماذا يتردد عقلك في اتخاذ القرارات البسيطة؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37095270325",
+  "result": "",
+  "updated_at": 1791000232
 }
