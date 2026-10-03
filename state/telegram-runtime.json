@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
   "topic": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37071432684",
-  "result": "failure",
-  "updated_at": 1790980788
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37089480298",
+  "result": "",
+  "updated_at": 1790994058
 }
