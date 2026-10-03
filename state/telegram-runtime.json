@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
-  "stage": "🎙️ خارج النص · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37159762511",
-  "result": "",
-  "updated_at": 1791067950
+  "result": "failure",
+  "updated_at": 1791067960
 }
