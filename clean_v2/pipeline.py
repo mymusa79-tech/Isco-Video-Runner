@@ -3192,12 +3192,23 @@ def _persist_repaired_short_action(
     final = sections[-1]
     if not isinstance(final, Mapping):
         return False
-    repaired_action = validate_short_practical_action(
-        final.get("s3_locked_action") or ""
-    )
-    current_action = validate_short_practical_action(
-        plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
-    )
+    current_raw_action = " ".join(
+        str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").split()
+    ).strip()
+    # Legacy/isolated Short repair fixtures can predate the Planning-owned action
+    # contract. There is nothing to persist in that case; do not turn an unrelated
+    # tone repair into short_practical_action_missing.
+    if not current_raw_action:
+        return False
+    repaired_raw_action = " ".join(
+        str(final.get("s3_locked_action") or "").split()
+    ).strip()
+    if not repaired_raw_action:
+        raise RuntimeError(
+            "validated Short repair lost Planning-owned practical_action_ar"
+        )
+    repaired_action = validate_short_practical_action(repaired_raw_action)
+    current_action = validate_short_practical_action(current_raw_action)
     if repaired_action == current_action:
         return False
     if not isinstance(plan, dict):
@@ -5341,24 +5352,24 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief, for_planning=True) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only, this is "خارج النص": build one worthwhile central question and a specific,
-non-obvious angle. Reject generic self-help/listicle treatment. Every section must add a new cause,
-example, distinction, consequence, implication, or resolution; the structure stays invisible and the
-audio must make complete sense with the screen closed. Use a specific episode title ending " | خارج النص".
+For podcast only, this is "خارج النص". Turn the approved topic into a genuinely worthwhile central question
+and a specific, non-obvious angle; reject generic self-help/listicle treatment. The listener's understanding must
+meaningfully change from beginning to end, every section must add a new explanatory job, and the audio must make
+complete sense with the screen closed. Use a specific episode title ending " | خارج النص".
 
-The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A: one short,
-concrete listener question/doubt/objection. B: is the established Charon voice and carries the real
-explanation. Use A sparingly only when it opens a gap that the immediately following B answers; never
-as host/interviewer/filler and never alternate A/B mechanically. Runtime inserts prayer + fixed خارج النص
-identity after the first A hook, so B's first topic words must pick up the SAME noun/tension, not restart.
+The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A:. A is sparse: use only one
+of four listener-proxy jobs when it genuinely unlocks a new layer: a real question, a plausible doubt, a concrete
+objection, or a request for clarification. B is the established Charon voice and carries the explanation. If B would
+deliver essentially the same substance without that A turn, omit A. Never use A as host/interviewer/filler or alternate
+mechanically. Express this through existing section purpose fields; do not invent a new schema or metadata field.
+Runtime inserts prayer + fixed خارج النص identity after A's first hook, so B must pick up the SAME noun/tension.
 
-Visuals are sparse and audio-first. Section 1 uses TWO semantic beats: unresolved A-hook evidence,
-then a changed scale/context/action/state beginning B's answer. Never use microphones, podcast studios,
-empty chairs, waveforms, or fake host/guest imagery merely because there are two voices. After the
-opening pair, default to ONE beat per section; add another only for a major meaning/state change and
-never cut merely because A speaks. Favor unresolved detail -> contextual reveal -> consequence ->
-earned release in calm real environments. payoff_answer must honestly resolve/deepen the central
-question; visuals remain supportive and non-essential with the screen closed.
+Visuals are sparse and audio-first. Section 1 uses TWO semantic beats: unresolved A-hook evidence, then a changed
+scale/context/action/state beginning B's answer. After the opening pair, default to ONE visual beat per section;
+add another only for a major meaning/state change and never cut merely because A speaks. Never fake podcast/studio
+imagery. Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction;
+payoff_answer must resolve/deepen it honestly, while the visual motif remains supportive and non-essential to a
+listener with the screen closed.
 """
         if fmt == "podcast"
         else ""
