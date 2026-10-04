@@ -61,24 +61,54 @@ def with_channel_persona(prompt: str) -> str:
     is_outline = ("EDITORIAL PREMISE CONTRACT" in prompt and "editorial_intent" in prompt) or (
         "LOCKED_EDITORIAL_PREMISE" in prompt and "section_briefs" in prompt
     )
-    if is_outline:
+    is_planning = (
+        "APPROVED_BRIEF:" in prompt
+        and "Build a simple production plan." in prompt
+        and "visual_story" in prompt
+    )
+    if is_outline or is_planning:
         writing = persona_config["writing_voice"]
         dialogue = persona_config["dialogue_contract"]
-        persona_config = {
-            "version": persona_config["version"],
-            "channel": persona_config["channel"],
-            "scope": "outline_blueprint",
-            "writing_voice": {
-                "tone": writing["tone"],
-                "signature_moves": writing["signature_moves"],
-                "banned_ai_phrases": writing["banned_ai_phrases"],
-            },
-            "analysis_lens": persona_config["analysis_lens"],
-            "dialogue_contract": {
-                "rule": dialogue["rule"],
-                "question_answer_rule": dialogue.get("question_answer_rule", ""),
-            },
-        }
+        if is_planning:
+            # Planning already carries explicit hook/progression/visual contracts.
+            # Repeating the full writer persona here costs thousands of UTF-8
+            # bytes and helped push real free-tier Groq requests over 8k TPM.
+            # Keep only the identity decisions Planning actually needs; Script
+            # still receives the full persona.
+            analysis = persona_config["analysis_lens"]
+            persona_config = {
+                "version": persona_config["version"],
+                "channel": persona_config["channel"],
+                "scope": "planning_blueprint",
+                "writing_voice": {
+                    "tone": writing["tone"],
+                    "signature_moves": writing["signature_moves"],
+                    "banned_ai_phrases": writing["banned_ai_phrases"],
+                },
+                "analysis_lens": {
+                    "principle": analysis["principle"],
+                    "generic_rejection_rule": analysis["generic_rejection_rule"],
+                },
+                "dialogue_contract": {
+                    "rule": dialogue["rule"],
+                },
+            }
+        else:
+            persona_config = {
+                "version": persona_config["version"],
+                "channel": persona_config["channel"],
+                "scope": "outline_blueprint",
+                "writing_voice": {
+                    "tone": writing["tone"],
+                    "signature_moves": writing["signature_moves"],
+                    "banned_ai_phrases": writing["banned_ai_phrases"],
+                },
+                "analysis_lens": persona_config["analysis_lens"],
+                "dialogue_contract": {
+                    "rule": dialogue["rule"],
+                    "question_answer_rule": dialogue.get("question_answer_rule", ""),
+                },
+            }
     persona = json.dumps(persona_config, ensure_ascii=False, separators=(",", ":"))
     dialogue_contract = ""
     if "dialogue_qa" in prompt:

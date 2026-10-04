@@ -12,7 +12,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from . import mistral_executor
 
@@ -34,6 +34,10 @@ MAX_ERROR_DETAIL_BYTES = 2 * 1024
 # cascade. 38 KiB leaves ~3 KB of headroom below the known-bad size while
 # still passing typical Planning/Script prompts through unaffected.
 GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
+# Planning has extra prompt/schema overhead. Runs 80/81 showed that 33-36 KiB
+# planning prompts can exceed Groq's 8k TPM request budget after tokenization.
+# Keep a real safety margin for Planning; other Groq stages retain 38 KiB.
+GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES = 30 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 # Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
@@ -1155,8 +1159,70 @@ def _gemini_compatible_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gemini_planning_response_schema(prompt: str) -> dict[str, Any]:
-    """Gemini-compatible copy of the canonical Planning contract."""
-    return _gemini_compatible_json_schema(_mistral_planning_response_schema(prompt))
+    """Small Gemini Planning shape; semantic depth stays in the local validator.
+
+    Gemini structured output can reject overly large/deep schemas with HTTP 400.
+    Keep the fields that prevent visual_story omission while avoiding duplication
+    of the full local visual-story validator in the wire schema.
+    """
+    source = _mistral_planning_response_schema(prompt)
+    source_sections = source["properties"]["sections"]
+    section_source = source_sections["items"]
+    section_properties = {
+        str(name): {"type": "string"}
+        for name in section_source["properties"]
+    }
+    section_schema = {
+        "type": "object",
+        "properties": section_properties,
+        "required": list(section_source["required"]),
+        "additionalProperties": False,
+    }
+
+    story_source = source["properties"]["visual_story"]
+    beats_source = story_source["properties"]["beats"]
+    visual_story_schema = {
+        "type": "object",
+        "properties": {
+            "visual_world": {"type": "string"},
+            "story_arc": {"type": "object", "additionalProperties": True},
+            "retention_thread": {"type": "object", "additionalProperties": True},
+            "beats": {
+                "type": "array",
+                "minItems": int(beats_source["minItems"]),
+                "maxItems": int(beats_source["maxItems"]),
+                "items": {"type": "object", "additionalProperties": True},
+            },
+        },
+        "required": ["visual_world", "story_arc", "retention_thread", "beats"],
+        "additionalProperties": False,
+    }
+
+    properties: dict[str, Any] = {
+        "title": {"type": "string"},
+        "promise": {"type": "string"},
+        "cta": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": section_schema,
+            "minItems": int(source_sections["minItems"]),
+            "maxItems": int(source_sections["maxItems"]),
+        },
+        "visual_story": visual_story_schema,
+    }
+    required = ["title", "promise", "cta", "sections", "visual_story"]
+    for name in ("practical_action_ar", "narrative_format"):
+        if name in source["properties"]:
+            properties[name] = _gemini_compatible_json_schema(
+                source["properties"][name]
+            )
+            required.append(name)
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
 
 
 def _gemini_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
@@ -1165,6 +1231,14 @@ def _gemini_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, An
             prompt,
             max_tokens,
             response_schema=_gemini_planning_response_schema(prompt),
+        )
+    if stage == "script_patch":
+        return _gemini_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
         )
     return _gemini_call(prompt, max_tokens)
 
@@ -1177,6 +1251,14 @@ def _gemini_flash_lite_stage_call(
             prompt,
             max_tokens,
             response_schema=_gemini_planning_response_schema(prompt),
+        )
+    if stage == "script_patch":
+        return _gemini_flash_lite_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
         )
     return _gemini_flash_lite_call(prompt, max_tokens)
 
@@ -1195,6 +1277,18 @@ def _groq_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]
             max_tokens,
             response_schema=_groq_script_response_schema(prompt),
             schema_name="script",
+        )
+    if stage == "script_patch":
+        return _groq_call(
+            prompt,
+            max_tokens,
+            # Groq strict mode needs only the response shape here. The local
+            # patch validator owns the 400/550 character safety bounds, so do
+            # not send Mistral-only minLength/maxLength keywords over the wire.
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
+            schema_name="script_patch",
         )
     return _groq_call(prompt, max_tokens)
 
@@ -1273,6 +1367,8 @@ class ProviderAdapter:
     # Per-provider admission ceiling, tighter than the Runner-wide MAX_PROMPT_BYTES.
     # None means "no provider-specific ceiling beyond the global one".
     max_prompt_utf8_bytes: int | None = None
+    # Optional tighter ceilings for stages whose request/schema overhead differs.
+    max_prompt_utf8_bytes_by_stage: Mapping[str, int] | None = None
 
     def invoke(self, prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
         if self.accepts_stage:
@@ -1293,6 +1389,9 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
             _groq_stage_call,
             accepts_stage=True,
             max_prompt_utf8_bytes=GROQ_MAX_PROMPT_UTF8_BYTES,
+            max_prompt_utf8_bytes_by_stage={
+                "planning": GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+            },
         ),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
@@ -1474,13 +1573,18 @@ class ProviderRouter:
                 )
                 continue
 
-            if adapter.max_prompt_utf8_bytes is not None:
+            stage_prompt_limit = adapter.max_prompt_utf8_bytes
+            if adapter.max_prompt_utf8_bytes_by_stage is not None:
+                stage_prompt_limit = adapter.max_prompt_utf8_bytes_by_stage.get(
+                    stage, stage_prompt_limit
+                )
+            if stage_prompt_limit is not None:
                 admission_prompt_bytes = len(
                     _provider_prompt(prompt, provider=adapter.name, stage=stage).encode(
                         "utf-8"
                     )
                 )
-                if admission_prompt_bytes > adapter.max_prompt_utf8_bytes:
+                if admission_prompt_bytes > stage_prompt_limit:
                     failures.append(f"{adapter.name}:prompt_too_large_for_provider")
                     self._event(
                         stage=stage,
@@ -1492,7 +1596,7 @@ class ProviderRouter:
                         stage_wire_attempt=None,
                         detail=(
                             f"prompt_bytes={admission_prompt_bytes} "
-                            f"limit={adapter.max_prompt_utf8_bytes}"
+                            f"limit={stage_prompt_limit}"
                         ),
                     )
                     continue
@@ -1730,6 +1834,18 @@ class ProviderRouter:
                     )
                 reason = _safe_validator_reason(exc)
                 failures.append(f"{adapter.name}:{reason}")
+                validator_detail = None
+                if stage in {"planning", "script_patch"}:
+                    message = " ".join(str(exc).split()).strip()[:500]
+                    if message:
+                        validator_detail = json.dumps(
+                            {
+                                "validator_error_type": type(exc).__name__,
+                                "validator_error": message,
+                            },
+                            ensure_ascii=True,
+                            separators=(",", ":"),
+                        )
                 self._event(
                     stage=stage,
                     provider=adapter.name,
@@ -1738,6 +1854,7 @@ class ProviderRouter:
                     reason=reason,
                     provider_attempt=provider_attempt,
                     stage_wire_attempt=wire_count,
+                    detail=validator_detail,
                 )
                 continue
             self._event(

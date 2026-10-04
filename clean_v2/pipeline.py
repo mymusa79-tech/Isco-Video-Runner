@@ -2047,8 +2047,19 @@ def _factuality_location_issue_notes(
     )
 
 
-_QUOTED_TONE_FLAG_EXAMPLE = re.compile(r"['\"]([^'\"]{1,220})['\"]")
+_QUOTED_TONE_FLAG_EXAMPLE = re.compile(
+    r'(?:"([^"\n]{1,220})"|\'([^\'\n]{1,220})\'|«([^»\n]{1,220})»|“([^”\n]{1,220})”)'
+)
 _WORD_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+
+def _quoted_tone_excerpt(match: "re.Match[str]") -> str:
+    return next(
+        (group.strip() for group in match.groups() if group is not None),
+        "",
+    )
+
+
 _QUOTE_WORD_OVERLAP_FLOOR = 0.6
 
 
@@ -2098,7 +2109,7 @@ def _drop_unverified_flag_quotes(flag: str, haystack: str) -> str:
     haystack_words = {token.casefold() for token in _WORD_TOKEN.findall(haystack)}
 
     def _replace(match: "re.Match[str]") -> str:
-        excerpt = match.group(1).strip()
+        excerpt = _quoted_tone_excerpt(match)
         if excerpt and _quote_is_verifiable(excerpt, haystack, haystack_words):
             return match.group(0)
         return ""
@@ -2368,9 +2379,43 @@ def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
     """
     return frozenset(
         compact
-        for match in _QUOTED_TONE_FLAG_EXAMPLE.findall(revision_note)
-        if (compact := " ".join(match.split()).strip())
+        for match in _QUOTED_TONE_FLAG_EXAMPLE.finditer(revision_note)
+        if (compact := " ".join(_quoted_tone_excerpt(match).split()).strip())
     )
+
+
+def _short_locked_action_repair_allowed(
+    plan: Mapping[str, Any], revision_note: str
+) -> bool:
+    """Open the Planning-owned Short action only when the audit cites its text.
+
+    Run 80 exposed an impossible state: Tone QA correctly flagged grammar inside
+    practical_action_ar, while the only repair stage was forbidden from touching
+    that host-owned sentence. A direct 3+ word overlap is narrow enough to prove
+    the audit is targeting this exact action without making the lock generally
+    writable.
+    """
+    action = " ".join(
+        str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").split()
+    ).strip()
+    note = " ".join(str(revision_note or "").split()).strip()
+    if not action or not note:
+        return False
+    if action in note:
+        return True
+    # Partial opening requires an audit-verified quoted excerpt. The quote
+    # flattener has already removed fabricated excerpts that do not occur in
+    # the actual script, so ordinary prose overlap cannot unlock host-owned text.
+    verified_quotes = _audit_verified_repair_terms(revision_note)
+    if not verified_quotes:
+        return False
+    words = action.split()
+    for size in range(min(6, len(words)), 2, -1):
+        for start in range(0, len(words) - size + 1):
+            phrase = " ".join(words[start : start + size])
+            if any(phrase in quote or quote in phrase for quote in verified_quotes):
+                return True
+    return False
 
 
 _TANWEEN_FATH_ON_ALEF_RE = re.compile(r"([ء-ي])اً")
@@ -2405,6 +2450,7 @@ def _validate_and_apply_script_patches(
     revision_note: str,
     allowed_section_ids: tuple[str, ...] | None = None,
     is_short_format: bool = False,
+    allow_short_locked_action_repair: bool = False,
 ) -> dict[str, Any]:
     """Apply exact local replacements to the original script; reject broad rewrites."""
     if not isinstance(value, Mapping):
@@ -2422,6 +2468,13 @@ def _validate_and_apply_script_patches(
         raise ValueError("script patch has no deterministic target section")
 
     repaired = copy.deepcopy(dict(original_script))
+    candidate_plan = copy.deepcopy(dict(plan))
+    candidate_locked_action = str(
+        candidate_plan.get("s3_locked_action")
+        or candidate_plan.get("practical_action_ar")
+        or ""
+    ).strip()
+    locked_action_patch_used = False
     sections = repaired.get("sections") or []
     if not isinstance(sections, list):
         raise ValueError("script patch original sections invalid")
@@ -2491,30 +2544,54 @@ def _validate_and_apply_script_patches(
             item = by_id[section_id]
             narration = str(item.get("narration") or "")
             patch_surface = narration
+            action_patch_this_patch = False
+            pending_locked_action = ""
             if is_short_format and section_id == str(sections[-1].get("id") or ""):
-                locked_action = str(
-                    plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
-                ).strip()
+                locked_action = candidate_locked_action
                 if locked_action:
                     payoff_surface = str(item.get("s3_payoff") or "").strip()
                     if not payoff_surface and narration.endswith(locked_action):
                         payoff_surface = narration[: -len(locked_action)].strip()
                     if not payoff_surface:
                         raise ValueError("short s3 patch requires structured s3_payoff")
-                    # Planning owns this exact action. A patch that quotes or replaces it
-                    # is not a quality-repair candidate, so stop locally instead of
-                    # spending another provider attempt.
-                    if (
-                        locked_action in find
-                        or locked_action in replace
-                        or (find in narration and find not in payoff_surface)
-                    ):
-                        raise _ShortLockedActionPatchRejected(
-                            "script patch cannot change Planning-owned practical_action_ar"
+                    action_find_count = locked_action.count(find)
+                    touches_locked_action = action_find_count > 0
+                    if touches_locked_action:
+                        if not allow_short_locked_action_repair:
+                            raise _ShortLockedActionPatchRejected(
+                                "script patch cannot change Planning-owned practical_action_ar"
+                            )
+                        if locked_action_patch_used:
+                            raise ValueError(
+                                "script patch may repair the audited locked action only once"
+                            )
+                        if action_find_count != 1:
+                            raise ValueError(
+                                "locked practical action patch must match exactly once"
+                            )
+                        updated_action = normalize_short_practical_action(
+                            locked_action.replace(find, replace, 1)
                         )
-                    patch_surface = payoff_surface
+                        updated_action = validate_short_practical_action(updated_action)
+                        if updated_action == locked_action:
+                            raise ValueError(
+                                "locked practical action patch made no wording change"
+                            )
+                        pending_locked_action = updated_action
+                        action_patch_this_patch = True
+                    else:
+                        # The action remains host-owned. A patch cannot quote a new
+                        # action into the payoff or reach across the payoff/action seam.
+                        if (
+                            locked_action in replace
+                            or (find in narration and find not in payoff_surface)
+                        ):
+                            raise _ShortLockedActionPatchRejected(
+                                "script patch cannot change Planning-owned practical_action_ar"
+                            )
+                        patch_surface = payoff_surface
 
-            if patch_surface.count(find) != 1:
+            if not action_patch_this_patch and patch_surface.count(find) != 1:
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
@@ -2638,7 +2715,13 @@ def _validate_and_apply_script_patches(
             hook_quality_fix_used = True
         elif hook_fix_this_patch:
             hook_word_fix_used = True
-        if is_short_format and section_id == str(sections[-1].get("id") or ""):
+        if action_patch_this_patch:
+            candidate_locked_action = pending_locked_action
+            candidate_plan["practical_action_ar"] = candidate_locked_action
+            candidate_plan["s3_locked_action"] = candidate_locked_action
+            item["s3_locked_action"] = candidate_locked_action
+            locked_action_patch_used = True
+        elif is_short_format and section_id == str(sections[-1].get("id") or ""):
             updated_payoff = patch_surface.replace(find, replace, 1)
             item["s3_payoff"] = updated_payoff
             # Keep narration unmaterialized during patch application. The canonical
@@ -2654,7 +2737,7 @@ def _validate_and_apply_script_patches(
             + "; ".join(failure_reasons)
         )
 
-    normalized = validate_script(repaired, plan)
+    normalized = validate_script(repaired, candidate_plan)
     if (
         original_hook
         and not hook_word_fix_used
@@ -2703,9 +2786,7 @@ def _validate_and_apply_script_patches(
         # _safe_validator_reason convention, which already special-cases
         # ShortFormatError to log its specific contract code.
         validate_short_script(normalized)
-        if str(
-            plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
-        ).strip():
+        if candidate_locked_action:
             materialize_short_s3(normalized)
     return normalized
 
@@ -2844,8 +2925,10 @@ def _validate_tone_repair_script(
 def _script_for_patch_prompt(
     script: Mapping[str, Any],
     brief: Mapping[str, Any],
+    *,
+    include_locked_action: bool = False,
 ) -> dict[str, Any]:
-    """Expose Short s3 payoff as the only writable closing surface to patch AI."""
+    """Expose only the Short closing surfaces the current audit may repair."""
     view = copy.deepcopy(dict(script))
     if str(brief.get("format") or "") != "short":
         return view
@@ -2854,6 +2937,8 @@ def _script_for_patch_prompt(
         return view
     s3 = sections[-1]
     if not isinstance(s3, dict):
+        return view
+    if include_locked_action:
         return view
     payoff = str(s3.get("s3_payoff") or "").strip()
     if payoff:
@@ -2879,7 +2964,15 @@ def _tone_repair_prompt(
         script,
         revision_note,
     )
-    patch_script = _script_for_patch_prompt(script, brief)
+    allow_short_locked_action_repair = (
+        str(brief.get("format") or "") == "short"
+        and _short_locked_action_repair_allowed(plan, revision_note)
+    )
+    patch_script = _script_for_patch_prompt(
+        script,
+        brief,
+        include_locked_action=allow_short_locked_action_repair,
+    )
     payload = json.dumps(
         {
             "brief": dict(brief),
@@ -2971,10 +3064,18 @@ def _tone_repair_prompt(
         "dangling subordinate clause beginning with عندما / حين / إذا, finish its main clause "
         "using only the existing approved reasoning; do not turn it into advice or add a second action. "
         "Keep all imperative/action-family wording out of the payoff, including inflections and "
-        "derivatives of اختر / ابدأ / اكتب / حدّد / ضع / اجعل / جرّب. The one practical action "
-        "already lives in immutable LOCKED_PLAN.practical_action_ar; the host appends it exactly once. "
+        "derivatives of اختر / ابدأ / اكتب / حدّد / ضع / اجعل / جرّب. The practical action remains "
+        "host-owned and is appended exactly once; touch it only if the audited-action exception below explicitly opens it. "
         if str(brief.get("format") or "") == "short"
         else ""
+    )
+    short_locked_action_rule = (
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
+        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
+        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
+        "words, same topic/meaning; do not move it into s3_payoff or add another action."
+        if allow_short_locked_action_repair
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff; never include it in patch.find or patch.replace and never touch the action; the host appends it exactly once."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
@@ -3018,7 +3119,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 {longform_progression_repair_guidance}
 {gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
-- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
+{short_locked_action_rule}
 {short_payoff_repair_guidance}
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -3075,6 +3176,49 @@ def _normalized_narration_signature(script: Mapping[str, Any]) -> tuple[tuple[st
     )
 
 
+def _persist_repaired_short_action(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    repaired: Mapping[str, Any],
+) -> bool:
+    """Persist an audit-approved Short action change only after full validation."""
+    if str(brief.get("format") or "") != "short":
+        return False
+    sections = repaired.get("sections") or []
+    if not isinstance(sections, list) or len(sections) != 3:
+        return False
+    final = sections[-1]
+    if not isinstance(final, Mapping):
+        return False
+    current_raw_action = " ".join(
+        str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").split()
+    ).strip()
+    # Legacy/isolated Short repair fixtures can predate the Planning-owned action
+    # contract. There is nothing to persist in that case; do not turn an unrelated
+    # tone repair into short_practical_action_missing.
+    if not current_raw_action:
+        return False
+    repaired_raw_action = " ".join(
+        str(final.get("s3_locked_action") or "").split()
+    ).strip()
+    if not repaired_raw_action:
+        raise RuntimeError(
+            "validated Short repair lost Planning-owned practical_action_ar"
+        )
+    repaired_action = validate_short_practical_action(repaired_raw_action)
+    current_action = validate_short_practical_action(current_raw_action)
+    if repaired_action == current_action:
+        return False
+    if not isinstance(plan, dict):
+        raise RuntimeError("Short action repair requires mutable persisted plan")
+    plan["practical_action_ar"] = repaired_action
+    plan["s3_locked_action"] = repaired_action
+    atomic_write_json(output_dir / "plan.json", dict(plan))
+    return True
+
+
 def _run_one_bounded_tone_repair(
     *,
     output_dir: Path,
@@ -3128,6 +3272,9 @@ def _run_one_bounded_tone_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
             is_short_format=str(brief.get("format") or "") == "short",
+            allow_short_locked_action_repair=_short_locked_action_repair_allowed(
+                plan, issue_notes
+            ),
         ),
     )
     atomic_write_json(output_dir / "script-post-tone-repair.json", repaired)
@@ -3148,6 +3295,12 @@ def _run_one_bounded_tone_repair(
             "TONE_REPAIR_NO_EFFECT: bounded tone repair made no narration changes"
         )
 
+    short_action_repaired = _persist_repaired_short_action(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        repaired=repaired,
+    )
     script.clear()
     script.update(repaired)
     _assert_brand_signature_invariant(
@@ -3168,6 +3321,7 @@ def _run_one_bounded_tone_repair(
         "attempts": 1,
         "issue_notes": issue_notes,
         "narration_changed": True,
+        "short_locked_action_repaired": short_action_repaired,
     }
 
 
@@ -3189,7 +3343,15 @@ def _factuality_repair_prompt(
         script,
         revision_note,
     )
-    patch_script = _script_for_patch_prompt(script, brief)
+    allow_short_locked_action_repair = (
+        str(brief.get("format") or "") == "short"
+        and _short_locked_action_repair_allowed(plan, revision_note)
+    )
+    patch_script = _script_for_patch_prompt(
+        script,
+        brief,
+        include_locked_action=allow_short_locked_action_repair,
+    )
     payload = json.dumps(
         {
             "brief": dict(brief),
@@ -3212,6 +3374,14 @@ def _factuality_repair_prompt(
         "comfortable to say in one breath.\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
+    )
+    short_locked_action_rule = (
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
+        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
+        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
+        "words, same topic/meaning and evidence boundary."
+        if allow_short_locked_action_repair
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
@@ -3251,7 +3421,7 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
-- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
+{short_locked_action_rule}
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
@@ -3354,7 +3524,16 @@ def _run_one_bounded_factuality_repair(
             revision_note=issue_notes,
             allowed_section_ids=target_ids,
             is_short_format=str(brief.get("format") or "") == "short",
+            allow_short_locked_action_repair=_short_locked_action_repair_allowed(
+                plan, issue_notes
+            ),
         ),
+    )
+    short_action_repaired = _persist_repaired_short_action(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        repaired=repaired,
     )
     script.clear()
     script.update(repaired)
@@ -3376,6 +3555,7 @@ def _run_one_bounded_factuality_repair(
         "source": "clean-v2-one-bounded-factuality-repair",
         "attempts": 1,
         "issue_notes": issue_notes,
+        "short_locked_action_repaired": short_action_repaired,
     }
 
 
@@ -5141,20 +5321,15 @@ EDITORIAL DEPENDENCY CONTRACT — Short, Film, and Podcast:
 
 VISUAL_EVIDENCE_GUIDANCE = """
 VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
-- Ask "What can the viewer literally see here?" Prove the exact meaning through an observable action, changed state, consequence, comparison, choice,
-  interruption, completion or concrete relationship. meaning_target states the proof job; semantic_must_have,
-  shot_intent and stock queries describe the same evidence, never merely attractive mood.
-- At least ONE semantic_must_have item must prove the idea itself. Lighting, framing, darkness, depth,
-  hands-only or cinematic styling never count as proof.
-- No default desk/laptop/notebook/writing or walking/path/sunset B-roll for abstract self-development.
-  Literal action/location must belong to the narration, or adjacent beats must unmistakably establish its mapping.
-- Abstract RELATION ideas (comparison, unequal starting conditions, trade-offs, cause/consequence, before/after)
-  need visible contrast, changed state, consequence or paired evidence. A lone productivity prop is insufficient.
-- HUMAN PRESENCE POLICY: never require a clearly identifiable face/expression. Show genuine confusion,
-  hesitation, tension or relief through hands, posture/body language, turned-away/distant/angled figures
-  or motion-blurred/out-of-focus faces; rights-safety gates remain mandatory.
-- Remove narration mentally: if a neutral viewer cannot state the specific meaning from visible evidence,
-  rewrite the beat. Cinematic light/composition supports meaning, never substitutes for it.
+- Ask "What can the viewer literally see here?" Every beat must prove its exact meaning through an observable
+  action, changed state, consequence, comparison, choice, interruption, completion, or relationship.
+- meaning_target, semantic_must_have, shot_intent and stock queries must describe the SAME visible proof.
+  At least one semantic_must_have cue must prove the idea itself; lighting/style never counts as proof.
+- Reject default desk/laptop/notebook/writing, walking/path/sunset, or mood-only B-roll unless that literal
+  action/location proves the narration. Abstract relations need visible contrast, state change, or consequence.
+- HUMAN PRESENCE POLICY: never require an identifiable face/expression; use hands, posture, turned-away,
+  distant/angled figures, motion blur, or objects while preserving rights-safety.
+- Remove narration mentally: if a neutral viewer cannot state the intended meaning from the image, rewrite the beat.
 """.strip()
 
 
@@ -5172,44 +5347,22 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief, for_planning=True) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
-worthwhile central question and a specific, non-obvious angle. Reject generic self-help treatment,
-superficial list-style planning, and topics that merely sound deep. The listener's understanding must
-meaningfully change between the beginning and the end. Each section must add a new cause, example,
-tension, distinction, implication, or resolution instead of restating the previous section. The
-structure is internal production scaffolding only: it must be invisible to the listener. Do not
-manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
-make complete sense with the screen closed.
+For podcast only, this is "خارج النص". Turn the approved topic into a genuinely worthwhile central question
+and a specific, non-obvious angle; reject generic self-help/listicle treatment. The listener's understanding must
+meaningfully change from beginning to end, every section must add a new explanatory job, and the audio must make
+complete sense with the screen closed. Use a specific episode title ending " | خارج النص".
 
-The episode title must be specific to THIS episode and carry its real tension or promise; append
-" | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
+The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A:. A is sparse and uses only one of four listener-proxy jobs when it genuinely unlocks a new layer: real question, a plausible doubt, a concrete objection, or a request for clarification.
+B is the established Charon voice and carries the explanation. If B would deliver essentially the same substance without that A turn, omit A. Never use A as host/interviewer/filler or alternate mechanically.
+Express this through existing section purpose fields; do not invent a new schema or metadata field.
+Runtime inserts prayer + fixed خارج النص identity after A's first hook, so B must pick up the SAME noun/tension.
 
-خارج النص has one fixed listener-proxy dialogue identity. The first spoken sentence MUST be A: and
-must be one short, concrete question the listener plausibly has in their own head. B: is the established
-Charon channel voice and carries the real explanation. A is sparse: use only one of four listener-proxy jobs when it genuinely unlocks a new layer:
-a real question, a plausible doubt, a concrete objection, or a request for clarification. Never use A as
-a host, interviewer, co-presenter, agreement filler, or setup machine. Each planned A turn must create a
-specific gap that the immediately following B turn answers before another A appears. If B would deliver
-essentially the same substance without that A turn, omit A instead of manufacturing dialogue. Do not
-alternate A/B mechanically after every sentence. Express this progression through the existing section
-purpose fields; do not invent a new schema or metadata field. The runtime will insert the prayer and fixed
-خارج النص definition between the first A hook and B's first answer, so B's first words must pick up the
-SAME noun/tension from the hook naturally rather than restarting the topic.
-
-Keep the visual companion deliberately sparse and audio-first. For section 1, use TWO semantic beats:
-(1) the A-hook beat is a close/medium no-face unresolved detail, interrupted action, or visible consequence
-that makes the listener's question readable with sound off; (2) the first B-answer beat changes scale,
-context, action or state to reveal new information and begin answering it. Do NOT use microphones,
-podcast studios, two empty chairs, waveform graphics, or fake host/guest imagery just because the audio
-contains two voices. After the opening pair, default to ONE visual beat per section and add a second only
-for a genuine major change in meaning or observable state. Never cut merely because A speaks again.
-Question turns may stay over the current scene unless the question itself opens a new visual idea.
-Favor a recurring grammar of unresolved detail -> contextual reveal -> consequence -> earned release,
-with calm contained medium/wide compositions, tactile real environments, side light and breathing room.
-The visuals support the narration and must never carry information required to understand the episode.
-Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction, not
-as manufactured suspense. payoff_answer must resolve or deepen that question honestly, while the
-visual motif remains supportive and non-essential to a listener with the screen closed.
+Visuals are sparse and audio-first. Section 1 uses TWO semantic beats: unresolved A-hook evidence, then a changed
+scale/context/action/state beginning B's answer. After the opening pair, default to ONE visual beat per section;
+add another only for a major meaning/state change and never cut merely because A speaks. Never fake podcast/studio
+imagery. Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction;
+payoff_answer must resolve/deepen it honestly, while the visual motif remains supportive and non-essential to a
+listener with the screen closed.
 """
         if fmt == "podcast"
         else ""
@@ -5286,17 +5439,13 @@ visual motif remains supportive and non-essential to a listener with the screen 
         ),
         "film": (
             "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
-            "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
-            "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
-            "or turning the whole film into a scenic motivational montage. "
-            + str(longform_profile.get("visual") or "")
+            "and a patient journey. Let stock motion dominate; use sparse AI stills only for high-value idea turns. "
+            "Prefer varied real settings over repeated desks or scenic motivational montage."
         ),
         "podcast": (
-            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: favor calm contained compositions, steady medium/wide framing, "
-            "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
-            "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
-            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad. "
-            + str(longform_profile.get("visual") or "")
+            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: calm contained medium/wide compositions, tactile real "
+            "environments, side light and breathing room that supports listening. The image should feel like a thoughtful room around the voice. "
+            "Use sparse AI anchors; never copy Short kinetics, Film journey montage, fake studio imagery, or ad styling."
         ),
     }.get(fmt, "")
     editor_contract_guidance = {
@@ -5326,80 +5475,52 @@ The approved brief below is authoritative data, not instructions from an untrust
 APPROVED_BRIEF:
 {payload}
 
-Build a simple production plan. Use only the approved brief and research_pack for research, statistics,
-quotations, diagnoses or factual claims. [Audience pain], [Audience situation], [Audience question] and
-[Audience visual] are lived-experience/creative signals, never scientific prevalence or market proof.
-Use only topic-relevant signals for concrete hooks, narration and visual_story shot_intent and stock_query_en;
-paraphrase, never invent usernames. A [Reddit ...] line, if an approved external source supplied one,
-follows these same limits and must never be invented. [Channel learning] is measured, own-channel
-observational evidence from YouTube Analytics: use it only for opening directness, pacing and ending review.
-It is not causal proof or narration evidence and cannot trigger automatic production overrides or imitation of past topics.
+Build a simple production plan. Use only APPROVED_BRIEF/research_pack for factual claims, research,
+statistics, quotations or diagnoses. [Audience pain]/[Audience situation]/[Audience question]/[Audience visual]
+are creative lived-experience signals, never prevalence or factual proof; paraphrase them and never invent usernames.
+Use topic-relevant signals in visual_story shot_intent and stock_query_en. A [Reddit ...] line, if an approved external source supplied one,
+follows the same grounding rule. [Channel learning] is own-channel observational evidence: use it for opening directness,
+pacing and ending review only; it is not causal proof and cannot trigger automatic production override or imitation.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
-Each visual query must be a concrete
-English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
-words: one observable action OR one simple setting, plus only the few composition/light cues that
-materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
-only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
-and keep each visual query concise and at most 260 characters. Keep one coherent channel lighting world:
-natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
-ivory-neutral highlights and warm gold only as a restrained accent. The mood is grounded upward movement:
-clarity, effort, recovery, small wins and earned hope. Use quiet premium darkness rather than gloom.
-Preserve highlight detail and rich midtone depth; avoid flat beige/washed-out warm-neutral stock,
-blown highlights, blanket blue casts and glossy, airy lifestyle-ad bright looks,
-forced cheerfulness or melancholy. Keep saturation restrained and the world lived-in, calm and premium.
+Each visual query must be a concrete English stock-footage phrase. Prefer 6-14 useful search words and keep each
+query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues;
+never cut mid-thought. Prefer face-safe cues such as hands only, back view, or objects only; distant/angled figures are fine.
+Use natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
+ivory-neutral highlights, and warm gold only as a restrained accent. The mood is grounded upward movement.
+Use quiet premium darkness rather than gloom; avoid flat beige/washed-out warm-neutral stock and glossy, airy lifestyle-ad bright looks.
+Do not mix obvious neon/night/cold-blue looks unless the topic requires them. Use foreground/midground/background depth,
+practical light sources and real environments; avoid empty walls, flat generic desks, generic coffee/laptop mood shots,
+and identifiable faces. For Short, prefer the subject/action on the left or lower-left and clean negative space in the
+upper-right for Arabic text when it does not weaken meaning.
 {format_visual_profile}
-Do not mix obvious neon/night/cold-blue looks unless the topic requires them. Prefer environments, hands, objects,
-routines, back views and wide shots without identifiable faces. Use foreground/midground/background depth,
-practical light sources, contextual objects and spatial separation; avoid empty walls, flat generic desks,
-studio backgrounds and generic coffee/laptop mood shots unless they prove the exact idea. For Short,
-prefer the subject/action on the left or lower-left and clean negative space in the upper-right for Arabic text.
 
-CULTURAL COHERENCE is part of the same visual intent, not a separate layer. When a scene contains
-people, homes, work, streets, clothing, food, family life, or everyday social context, prefer a
-credible contemporary Arab/Middle-Eastern environment and modest presentation that feels natural
-for a broad Arab/Muslim audience. Reject scenes centered on alcohol, gambling, nightclub/party
-culture, sexualized or revealing presentation, or unrelated ritual/religious imagery that conflicts
-with the intended context. Do NOT force mosques, prayer rugs, Arabic calligraphy, traditional dress,
-or religious symbols into ordinary scenes unless the topic genuinely requires them. The goal is a
-natural respectful world, not decorative stereotyping.
+CULTURAL COHERENCE is part of this same visual intent: when people/everyday social context appear, prefer a
+credible contemporary Arab/Middle-Eastern environment and modest presentation. Reject scenes centered on alcohol, gambling, nightclub/party
+culture, sexualized presentation, or conflicting ritual imagery. Do NOT force mosques, prayer rugs, calligraphy,
+traditional dress, or religious symbols when the topic does not require them. Be natural, respectful, non-stereotyped.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
-HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
-dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
-topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
-that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
-asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
-coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
-Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
+HOOK VISUAL STOP-POWER: first beat only. The opening MUST NOT be a calm mood-only establishing image; show an
+immediate topic-specific tension/consequence/decisive moment understood with sound off in the first frame.
+Prefer close/medium depth and focal contrast. Avoid unrelated shock, danger, misery, clickbait or ad exaggeration;
+reject passive desk/coffee/window/walking/typing unless that exact action is the tension.
+HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage: hook -> next beat must advance
+the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
+Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage. Treat the hook
-as the first shot of a tiny visual sequence, not as an illustration of one noun from the narration:
-show an observable unresolved moment or visible consequence first; then make the next beat reveal a
-different action, environment, scale, or state that advances the same tension. The first body beat must
-not repeat the hook's dominant scene/action family. A deliberate family return is reserved for a later
-hook/payoff motif only when its state has visibly changed. Search wording should prioritize the concrete
-observable state/action; composition, grade and channel styling are enforced locally and must not bloat
-a stock query with generic cinematic adjectives.
-
-VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, paper, page, planner, sticky notes,
-checklist and writing belong to ONE stationery family; laptop/keyboard/typing to another;
-walking/movement to another. Do not place the same dominant action family in consecutive beats and
-normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
-when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
-completed, so every new shot adds information instead of showing another angle of the same productivity prop.
-
-POST-HOOK VISUAL FLOOR — Short, Film, Podcast: every later beat must preserve/increase semantic specificity.
-Laptop, phone, desk, notebook, typing, scrolling, sitting or "working" is insufficient without a decisive
-visible relation/action: compare, choose, reject, close, sort, narrow, remove, cross out, complete or contrast.
-"Person scrolling many tabs on a laptop" is generic coverage, not evidence. Use devices/desks only when their
-action itself proves the idea; otherwise provide stock_query_alt_en with a stronger, different observable
-situation for the SAME meaning. Runtime prefers that authored alternate locally, never weaker than the hook.
+VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
+separate families. Do not place the same dominant action family in consecutive beats; normally use one family <=2 times,
+except a visibly changed hook/payoff motif. Prefer visible progression: stuck -> choosing -> moving -> completed.
+POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
+typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
+"Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
+stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
 For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
 - beat 4 belongs to s2;
