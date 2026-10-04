@@ -3988,9 +3988,258 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-04T10:48:42Z"
+    },
+    {
+      "idea_id": "idea-b35b409aa1",
+      "title": "كيف تبني درعاً صحياً لحماية طاقتك النفسية؟",
+      "normalized_title": "كيف تبني درعاً صحياً لحماية طاقتك النفسية؟",
+      "market_query": "فن وضع الحدود الشخصية مع الآخرين",
+      "reason": "يشرح كيفية رسم حدود واضحة ومحترمة مع المحيطين لحماية الوقت والتركيز دون الوقوع في فخ الشعور بالذنب.",
+      "market_score": 0.718,
+      "market_evidence": {
+        "sample_count": 4,
+        "distinct_channels": 4,
+        "max_views_per_day": 2065.9,
+        "median_views_per_day": 1374.5,
+        "top_samples": [
+          {
+            "video_id": "da9274BCTTA",
+            "title": "اتقن فن التجاهل وعدم الاهتمام.. تجاهل الجميع وستندهش كيف يريدك الناس (كتاب صوتي)",
+            "channel": "اقرأ كتابك",
+            "published_at": "2026-09-10T18:11:06Z",
+            "views": 49175,
+            "views_per_day": 2065.9,
+            "relevance_overlap": [
+              "اخرين",
+              "حدود",
+              "شخصية",
+              "فن",
+              "وضع"
+            ]
+          },
+          {
+            "video_id": "3INesZwo9uY",
+            "title": "فخ المجاملة: لماذا يدمر الخجل من الرفض سلامك الداخلي ويفتح باب الاستغلال؟🛡️",
+            "channel": "بالعربي The Mind",
+            "published_at": "2026-09-27T10:53:32Z",
+            "views": 10128,
+            "views_per_day": 1425.0,
+            "relevance_overlap": [
+              "اخرين",
+              "حدود",
+              "شخصية",
+              "فن",
+              "وضع"
+            ]
+          },
+          {
+            "video_id": "nlh9Qu_uw7E",
+            "title": "عادات يومية تزيد من هيبتك | كيف تفرض احترامك دون أن تطلبه (كتاب صوتي)",
+            "channel": "مقروء",
+            "published_at": "2026-09-24T15:00:09Z",
+            "views": 13154,
+            "views_per_day": 1323.9,
+            "relevance_overlap": [
+              "اخرين",
+              "حدود",
+              "شخصية",
+              "فن",
+              "وضع"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:53Z"
+    },
+    {
+      "idea_id": "idea-bebe6055cf",
+      "title": "كيف تستعيد ثقتك في حدسك وسط عصر الذكاء الاصطناعي؟",
+      "normalized_title": "كيف تستعيد ثقتك في حدسك وسط عصر الذكاء الاصطناعي؟",
+      "market_query": "تنمية التفكير النقدي والثقة بالنفس",
+      "reason": "يعالج الاعتماد المفرط على الحلول الرقمية الجاهزة ويشجع المشاهد على صقل مهارة التفكير المستقل وبناء الحدس الواعي.",
+      "market_score": 0.462,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 1,
+        "max_views_per_day": 378.9,
+        "median_views_per_day": 364.5,
+        "top_samples": [
+          {
+            "video_id": "1wZDH7Zh30A",
+            "title": "أتقن مبادئ الثقة بالنفس .. تعلم فن الهيبة وقوة الشخصية .. محاضرة ستفيدك كثيراً لـ ناصر الجميعة",
+            "channel": "قـوة العـقل",
+            "published_at": "2026-09-26T17:16:19Z",
+            "views": 2971,
+            "views_per_day": 378.9,
+            "relevance_overlap": [
+              "بالنفس",
+              "تفكير",
+              "تنمية",
+              "نقدي"
+            ]
+          },
+          {
+            "video_id": "U-fGV7DCdRk",
+            "title": "تعلم قواعد الذكاء والقوة لتحظى بالاحترام والهيبة , كن قاسيـا مع الجميع , رووعة الدكتور ناصر الجميعة",
+            "channel": "قـوة العـقل",
+            "published_at": "2026-09-18T13:31:16Z",
+            "views": 5601,
+            "views_per_day": 350.1,
+            "relevance_overlap": [
+              "بالنفس",
+              "تفكير",
+              "تنمية",
+              "نقدي"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:52Z"
+    },
+    {
+      "idea_id": "idea-b302e8bc16",
+      "title": "كيف تتأقلم بهدوء عندما تشعر أنك غريب في مكانك؟",
+      "normalized_title": "كيف تتاقلم بهدوء عندما تشعر انك غريب في مكانك؟",
+      "market_query": "التكيف مع التغيير والبيئات الجديدة",
+      "reason": "يمنح المشاهد مفاتيح نفسية لبناء الأمان الداخلي وتقبل مشاعر عدم الارتياح المؤقتة عند بدء مرحلة جديدة.",
+      "market_score": 0.317,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 45.4,
+        "median_views_per_day": 45.4,
+        "top_samples": [
+          {
+            "video_id": "eY7cUZ3AsIE",
+            "title": "التغيير ما بستناك.. كيف تتأقلم مع ضغط بيئة العمل؟",
+            "channel": "راديو عين - Ain FM",
+            "published_at": "2026-09-21T13:05:27Z",
+            "views": 591,
+            "views_per_day": 45.4,
+            "relevance_overlap": [
+              "تغيير",
+              "تكيف"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:54Z"
+    },
+    {
+      "idea_id": "idea-676f43c9bb",
+      "title": "فن التعامل مع العواصف الشعورية المفاجئة",
+      "normalized_title": "فن التعامل مع العواصف الشعورية المفاجية",
+      "market_query": "كيفية التعامل مع المشاعر الصعبة",
+      "reason": "يقدم تمريناً فكرياً سريعاً لاحتواء التوتر والغضب اللحظي بموضوعية وهدوء دون إنكار المشاعر أو تضخيمها.",
+      "market_score": 0.309,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 40.9,
+        "median_views_per_day": 40.9,
+        "top_samples": [
+          {
+            "video_id": "pO0BdZlFRRg",
+            "title": "قوة لا تقهر: سر السيطرة على عقلك في الأوقات الصعبة",
+            "channel": "عقل نشيط",
+            "published_at": "2026-09-11T16:53:37Z",
+            "views": 934,
+            "views_per_day": 40.9,
+            "relevance_overlap": [
+              "تعامل",
+              "صعبة",
+              "كيفية",
+              "مشاعر"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:52Z"
+    },
+    {
+      "idea_id": "idea-b630e518e4",
+      "title": "وقفة الصيانة: لماذا تحتاج للتباطؤ كي تنطلق بسرعة أكبر؟",
+      "normalized_title": "وقفة الصيانة لماذا تحتاج للتباطو كي تنطلق بسرعة اكبر؟",
+      "market_query": "إدارة الطاقة وتجنب الاحتراق النفسي",
+      "reason": "يستلهم فكرة التوقف في سباقات السرعة لتسليط الضوء على أهمية الاستراحة الاستراتيجية لمنع الإرهاق وتحقيق استمرارية الأداء.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:52Z"
+    },
+    {
+      "idea_id": "idea-80245e0eaf",
+      "title": "عادات فكرية قديمة حان الوقت للتخلي عنها",
+      "normalized_title": "عادات فكرية قديمة حان الوقت للتخلي عنها",
+      "market_query": "التخلص من المعتقدات المقيدة",
+      "reason": "يساعد في فك الارتباط مع السلوكيات المكتسبة منذ الصغر كالسعي المفرط نحو الكمال ومقارنة الذات بالآخرين.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:53Z"
+    },
+    {
+      "idea_id": "idea-5ea1c6f4c3",
+      "title": "الارتباط النفسي بين وضوح الأولويات وراحة البال",
+      "normalized_title": "الارتباط النفسي بين وضوح الاولويات وراحة البال",
+      "market_query": "تحسين اتخاذ القرارات اليومية",
+      "reason": "يناقش أثر تقليل فوضى الاختيارات العشوائية على استعادة التوازن النفسي والشعور بالاستقرار الداخلي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:53Z"
+    },
+    {
+      "idea_id": "idea-3307571104",
+      "title": "الشرطي الداخلي: كيف تنظم حوارك مع نفسك بوعي ولطف؟",
+      "normalized_title": "الشرطي الداخلي كيف تنظم حوارك مع نفسك بوعي ولطف؟",
+      "market_query": "مهارات ضبط النفس وتطوير الذات",
+      "reason": "يعيد توجيه الصوت الناقد داخل الإنسان ليتحول من جلد الذات إلى التوجيه الواقعي والتشجيع الصادق.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-04T13:27:54Z"
     }
   ],
   "sessions": {
+    "3183cae4": {
+      "session_id": "3183cae4",
+      "scope": "short",
+      "idea_ids": [
+        "idea-b35b409aa1",
+        "idea-bebe6055cf",
+        "idea-b302e8bc16"
+      ],
+      "created_at": "2026-10-04T13:27:54Z"
+    },
     "3d4ec579": {
       "session_id": "3d4ec579",
       "scope": "podcast",
@@ -5857,5 +6106,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-04T10:58:07Z"
+  "updated_at": "2026-10-04T13:27:54Z"
 }
