@@ -407,6 +407,106 @@ class PlanningCapacityContractTests(unittest.TestCase):
         retry = providers._mistral_planning_validator_retry_prompt("approved plan", rejected.exception)
         self.assertIn("one imperative followed only by its topic-specific object", retry)
 
+    def test_planning_mechanical_story_failure_rebuilds_longform_locally(self):
+        value = _planning_value("film")
+        value["visual_story"]["visual_world"] = CHANNEL_VISUAL_IDENTITY
+        value["visual_story"]["beats"] = [
+            beat
+            for beat in value["visual_story"]["beats"]
+            if beat["section_id"] not in {"s4", "s5"}
+        ]
+        router = type("RouterEvents", (), {"events": []})()
+        planned = pipeline._validate_plan_with_visual_world_recovery(
+            value,
+            _brief("film"),
+            router=router,
+            state={"identity_rejections": 0},
+        )
+        covered = {
+            beat["section_id"]
+            for beat in planned["visual_story"]["beats"]
+        }
+        self.assertEqual(covered, {"s1", "s2", "s3", "s4", "s5"})
+        fallback_events = [
+            event
+            for event in router.events
+            if event.get("reason") == "visual_story_mechanical_fallback"
+        ]
+        self.assertEqual(len(fallback_events), 1)
+        self.assertFalse(fallback_events[0]["wire_attempted"])
+
+    def test_short_is_not_downgraded_to_generic_story_fallback(self):
+        value = _planning_value("short")
+        value["visual_story"]["visual_world"] = CHANNEL_VISUAL_IDENTITY
+        value["visual_story"]["beats"] = value["visual_story"]["beats"][:3]
+        router = type("RouterEvents", (), {"events": []})()
+        with self.assertRaises(ValueError):
+            pipeline._validate_plan_with_visual_world_recovery(
+                value,
+                _brief("short"),
+                router=router,
+                state={"identity_rejections": 0},
+            )
+        self.assertFalse(
+            any(
+                event.get("reason") == "visual_story_mechanical_fallback"
+                for event in router.events
+            )
+        )
+
+    def test_mistral_script_patch_missing_sections_gets_one_bounded_retry(self):
+        retry_prompt = providers._mistral_script_patch_validator_retry_prompt(
+            "repair prompt",
+            ValueError(
+                "semantic script patch did not change every explicitly flagged section: s1, s3"
+            ),
+        )
+        self.assertIsNotNone(retry_prompt)
+        self.assertIn("s1, s3", retry_prompt)
+        self.assertIn("EACH missing section", retry_prompt)
+
+        calls = []
+        candidates = iter([{"attempt": 1}, {"attempt": 2}])
+
+        def invoke(_prompt, _tokens, _stage):
+            calls.append(_prompt)
+            return next(candidates)
+
+        router = providers.ProviderRouter((
+            providers.ProviderAdapter(
+                "mistral",
+                invoke,
+                stages=frozenset({"script_patch"}),
+                accepts_stage=True,
+            ),
+        ))
+
+        def validator(value):
+            if value["attempt"] == 1:
+                raise ValueError(
+                    "semantic script patch did not change every explicitly flagged section: s1"
+                )
+            return value
+
+        result = router.route(
+            stage="script_patch",
+            prompt="repair prompt",
+            max_tokens=1200,
+            validator=validator,
+        )
+        self.assertEqual(result, {"attempt": 2})
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(
+            any(
+                event.get("reason") == "mistral_script_patch_validator_retry"
+                for event in router.events
+            )
+        )
+
+    def test_short_script_completion_budget_stays_below_run85_groq_overflow(self):
+        self.assertEqual(pipeline.SHORT_SCRIPT_MAX_TOKENS, 1600)
+        self.assertLess(pipeline.SHORT_SCRIPT_MAX_TOKENS, 2500)
+
     def test_oversized_groq_request_still_skips_without_changing_provider_limit(self):
         calls = []
         router = providers.ProviderRouter((providers.ProviderAdapter(
