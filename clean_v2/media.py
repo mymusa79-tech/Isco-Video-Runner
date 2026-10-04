@@ -3886,14 +3886,6 @@ def render_video(
             body_section_ids,
             editorial_signals,
         )
-        _write_edit_decision_contract(
-            output_dir,
-            fmt=fmt,
-            paths=paths,
-            durations=durations,
-            opening_enabled=opening_enabled,
-            body_boundary_decisions=body_boundary_decisions,
-        )
         if body_paths_for_render:
             body_segments = _build_section_body_segments(
                 work_dir,
@@ -4015,6 +4007,14 @@ def render_video(
                 )
             finally:
                 body_path.unlink(missing_ok=True)
+        _write_edit_decision_contract(
+            output_dir,
+            fmt=fmt,
+            paths=paths,
+            durations=durations,
+            opening_enabled=opening_enabled,
+            body_boundary_decisions=body_boundary_decisions,
+        )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
     return output_path
