@@ -1813,9 +1813,13 @@ class CleanV2ContentRepairUnavailable(RuntimeError):
         self.phase = str(phase or "repair")
         self.repair_error_type = type(cause).__name__
         self.repair_failure_classification = (
-            "infrastructure"
-            if "exhausted bounded provider route" in message
-            else "technical"
+            "technical"
+            if "invalid_output" in message
+            else (
+                "infrastructure"
+                if "exhausted bounded provider route" in message
+                else "technical"
+            )
         )
         super().__init__(
             "CLEAN_V2_CONTENT_REPAIR_UNAVAILABLE "
