@@ -6977,9 +6977,11 @@ class Run8081RepairContractTests(unittest.TestCase):
         ) as groq:
             providers_module._groq_stage_call("repair", 400, "script_patch")
         self.assertEqual(groq.call_args.kwargs["schema_name"], "script_patch")
-        self.assertEqual(
-            groq.call_args.kwargs["response_schema"]["required"], ["patches"]
-        )
+        groq_schema = groq.call_args.kwargs["response_schema"]
+        self.assertEqual(groq_schema["required"], ["patches"])
+        serialized_groq_schema = json.dumps(groq_schema, ensure_ascii=True)
+        self.assertNotIn('"minLength"', serialized_groq_schema)
+        self.assertNotIn('"maxLength"', serialized_groq_schema)
 
     def test_gemini_planning_schema_keeps_visual_story_but_is_shallow(self) -> None:
         prompt = _planning_prompt(
