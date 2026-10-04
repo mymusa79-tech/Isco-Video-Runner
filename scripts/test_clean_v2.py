@@ -6933,6 +6933,19 @@ class Run8081RepairContractTests(unittest.TestCase):
             "اختر ثلاثة تفاعلات فقط تحمي طاقتك هذا الأسبوع",
         )
 
+    def test_arabic_guillemets_are_verified_before_repair_scope(self) -> None:
+        script = self._short_script()
+        report = {
+            "naturalness_flags": [
+                "s3: خطأ نحوي في «اختر ثلاث تفاعلات» يحتاج تصحيحًا.",
+                "s3: مثال مختلق «عبارة ليست في النص إطلاقًا» لا يجب تمريره كدليل.",
+            ]
+        }
+        notes = _tone_repair_issue_notes(report, script)
+        self.assertIn("«اختر ثلاث تفاعلات»", notes)
+        self.assertNotIn("«عبارة ليست في النص إطلاقًا»", notes)
+        self.assertIn("مثال مختلق", notes)
+
     def test_script_patch_is_structured_for_gemini_flash_and_groq(self) -> None:
         candidate = {"patches": [{"section_id": "s3", "find": "أ", "replace": "ب"}]}
         with mock.patch.object(
