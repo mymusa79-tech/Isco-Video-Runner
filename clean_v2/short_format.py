@@ -431,9 +431,52 @@ def select_short_template(brief: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def short_prompt_context(brief: Mapping[str, Any]) -> str:
+def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False) -> str:
     selection = select_short_template(brief)
     beats = " -> ".join(selection["beat_shape"])
+    if for_planning:
+        # Planning authors a blueprint and one locked action, not the Script
+        # response. Keep its rules specific to that job; Script retains the full
+        # writing guide below and every production validator is unchanged.
+        return (
+            "SHORT_FORMAT_CONTRACT:\n"
+            f"- selected_template={selection['template']}; beat_shape={beats}\n"
+            f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}; "
+            f"duration_owner=measured_voice; editorial_target_duration=none; "
+            f"operational_safety_max_seconds={SHORT_DURATION_SAFETY_MAX_SECONDS:g}\n"
+            f"- s1 truthful hook: one complete natural Arabic sentence, preferably "
+            f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words, "
+            f"never more than {SHORT_HOOK_MAX_WORDS}, no greeting or clickbait. "
+            "LOCAL HOOK SHAPE GATE: direct question, explicit contrast/paradox or early concrete "
+            "consequence/result; a generic descriptive setup is insufficient. "
+            "HOOK SPECIFICITY SELF-CHECK: if changing one or two words makes the hook fit unrelated "
+            "topics, name a concrete object, situation, behavior, number or consequence unique to THIS brief.\n"
+            "- s2 adds the selected template's specific cause/turn and depends on s1; it must be necessary "
+            "to understand s3, never redundant, generic motivation or an explanatory lull.\n"
+            "- s3 resolves the SAME tension through an earned descriptive payoff tied to s1/s2. "
+            "PAYOFF-EARNED SELF-CHECK: a closing answer that fits an unrelated hook is generic. "
+            "Planning owns top-level practical_action_ar; Script later writes only descriptive "
+            "s3_payoff and runtime appends the exact locked action once.\n"
+            "- practical_action_ar: ONE sentence, at most 18 words, starting with exactly ONE direct Arabic "
+            "imperative from: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، "
+            "اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، "
+            "اقرا، توقف، توقّف، التزم، قم. Follow it with a topic-specific object/behavior only. "
+            "No second action, ثم/و, attached conjunction such as والتزم/واكتب, punctuation-separated "
+            "action or extra advice clause. ACTION-SPECIFICITY SELF-CHECK: its concrete object/number/behavior "
+            "must come from this hook_tension/payoff_answer; a generic verb plus مهمة/هدف/عادة is insufficient.\n"
+            "- No channel identity opener, dialogue labels or social CTA. Quotations require explicit "
+            "approved evidence and the selected quote_reflection template.\n"
+            f"- {selection['writing_directive']}\n"
+            "- SPOKEN_NATURALNESS_LITE: complete grammatical Arabic, concrete observations and natural "
+            "sentence-length variation; no fragments, abstract diagnosis, translated/essay filler or "
+            "motivational slogans. Check agreement, references and sentence completeness.\n"
+            f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
+            "Use visibly different dominant actions or states across s1/s2/s3. For s1 create the template-specific "
+            "scroll-stop visual beat; it must read instantly and must not feel visually flat. "
+            "LOCAL FIRST-SHOT GATE: s1 names a visible "
+            "action/event AND tension/consequence, never quiet thinking, generic desk, static person or "
+            "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage."
+        )
     return (
         "SHORT_FORMAT_CONTRACT:\n"
         f"- selected_template={selection['template']}\n"

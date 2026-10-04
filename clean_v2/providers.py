@@ -12,7 +12,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from . import mistral_executor
 
@@ -34,6 +34,10 @@ MAX_ERROR_DETAIL_BYTES = 2 * 1024
 # cascade. 38 KiB leaves ~3 KB of headroom below the known-bad size while
 # still passing typical Planning/Script prompts through unaffected.
 GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
+# Planning has extra prompt/schema overhead. Runs 80/81 showed that 33-36 KiB
+# planning prompts can exceed Groq's 8k TPM request budget after tokenization.
+# Keep a real safety margin for Planning; other Groq stages retain 38 KiB.
+GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES = 30 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 # Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
@@ -579,11 +583,39 @@ def _mistral_planning_validator_retry_prompt(
     detail = " ".join(str(exc).split()).strip()[:500]
     if not detail:
         return None
+    correction = ""
+    if type(exc).__name__ == "ShortFormatError" and detail.startswith("short_practical_action_"):
+        correction = (
+            "For practical_action_ar, write one imperative followed only by its topic-specific object/behavior, "
+            "at most 18 words. Remove any second verb, ثم/و or attached conjunction (such as والتزم/واكتب), "
+            "and any extra advice clause; preserve this topic's own action target. "
+        )
+    elif detail.startswith("visual_story must cover every planned section: missing="):
+        missing = detail.split("missing=", 1)[1].strip()
+        correction = (
+            f"The visual_story omitted these planned section ids: {missing}. "
+            "Add or repair beats so EVERY named missing section has at least one beat whose section_id exactly "
+            "matches that section. Keep all existing valid section ids/order/count unchanged; do not solve this "
+            "by deleting another section's beat. Reuse that section's own purpose/visual query as the semantic "
+            "source and keep each beat concrete, observable, and stock-searchable. "
+        )
+    elif "post-hook semantic drop requires a stronger observable alternate" in detail:
+        beat_match = re.search(r"visual_story beat\s+([A-Za-z0-9_-]+)", detail)
+        beat_id = beat_match.group(1) if beat_match else "the rejected beat"
+        correction = (
+            f"For {beat_id}, the current post-hook visual is too generic. Keep the SAME section_id and meaning, "
+            "but replace its shot_intent/stock_query_en or provide stock_query_alt_en with a stronger concrete "
+            "observable action, consequence, contrast, or object-state that visibly proves the section idea. "
+            "Do not return generic typing, scrolling, phone/laptop use, passive desk work, or mood-only footage. "
+            "The corrected English query must be distinct from the rejected generic query and remain realistic "
+            "stock footage. "
+        )
     return (
         prompt.rstrip()
         + "\n\nMISTRAL_PLANNING_VALIDATOR_RETRY — the previous complete Planning JSON "
         + "was rejected by the local production validator. "
         + f"Exact rejection: {detail}. "
+        + correction
         + "Return the COMPLETE Planning JSON again, correcting that exact rule only where needed. "
         + "Preserve the APPROVED_BRIEF, format, section ids/order/count, all quality and safety "
         + "contracts, and all required visual-story semantics. For Short, preserve the EXACTLY "
@@ -592,12 +624,50 @@ def _mistral_planning_validator_retry_prompt(
     )
 
 
+def _mistral_script_patch_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One same-provider correction when a bounded patch misses required sections.
+
+    This remains part of the single repair pass: no second audit/repair cycle is
+    opened. It only lets Mistral correct its rejected patch JSON once, exactly
+    like Planning and Short-hook validator retries already do.
+    """
+    if type(exc).__name__ != "ValueError":
+        return None
+    detail = " ".join(str(exc).split()).strip()[:500]
+    prefix = "semantic script patch did not change every explicitly flagged section:"
+    if not detail.startswith(prefix):
+        return None
+    missing = detail.split(":", 1)[1].strip()
+    if not missing:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY — your previous patch JSON was rejected "
+        + "because it did not make a real narration change in every explicitly required semantic section. "
+        + f"Missing required section ids: {missing}. "
+        + "Return the COMPLETE patch JSON again. Include at least one valid minimal exact find/replace patch "
+        + "for EACH missing section id, while also keeping the other listed defects fixed. Each patch.find "
+        + "must be copied VERBATIM from CURRENT_SCRIPT in that exact section and must match exactly once. "
+        + "Do not patch unflagged sections, do not touch locked prayer/channel/CTA/action text unless the "
+        + "original contract explicitly allows it, and do not rewrite the whole script. Return JSON only."
+    )
+
+
 def _safe_validator_reason(exc: Exception) -> str:
     """Persist only a deterministic validator code, never rejected content."""
     base = f"invalid_output_{type(exc).__name__.lower()}"
-    if type(exc).__name__ != "ShortFormatError":
+    if type(exc).__name__ == "AlternateQueryError":
+        # Preserve the historical ValueError prefix for existing route/log
+        # consumers while exposing the precise rejection code after it.
+        base = "invalid_output_valueerror"
+        code = str(getattr(exc, "code", ""))
+    elif type(exc).__name__ == "ShortFormatError":
+        code = str(exc).strip().split(maxsplit=1)[0].casefold()
+    else:
         return base
-    code = str(exc).strip().split(maxsplit=1)[0].casefold()
     if re.fullmatch(r"[a-z0-9_]{1,120}", code):
         return f"{base}_{code}"
     return base
@@ -810,6 +880,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                             "enum": ["hook", "body", "payoff"],
                         },
                         "stock_query_en": dict(non_blank_string),
+                        "stock_query_alt_en": {"type": "string", "maxLength": 260},
                         "display_text_ar": dict(non_blank_string),
                         "source_preference": {
                             "type": "string",
@@ -993,6 +1064,11 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
     required = ["title", "promise", "cta", "sections"]
     if "visual_story" in source["properties"]:
         properties["visual_story"] = source["properties"]["visual_story"]
+        # Groq strict mode requires every property to be required. Preserve the
+        # optional authored alternate as nullable, rather than reopen HTTP 400.
+        beat_schema = properties["visual_story"]["properties"]["beats"]["items"]
+        beat_schema["properties"]["stock_query_alt_en"] = {"type": ["string", "null"]}
+        beat_schema["required"].append("stock_query_alt_en")
         required.append("visual_story")
     if "practical_action_ar" in source["properties"]:
         properties["practical_action_ar"] = dict(source["properties"]["practical_action_ar"])
@@ -1135,8 +1211,70 @@ def _gemini_compatible_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gemini_planning_response_schema(prompt: str) -> dict[str, Any]:
-    """Gemini-compatible copy of the canonical Planning contract."""
-    return _gemini_compatible_json_schema(_mistral_planning_response_schema(prompt))
+    """Small Gemini Planning shape; semantic depth stays in the local validator.
+
+    Gemini structured output can reject overly large/deep schemas with HTTP 400.
+    Keep the fields that prevent visual_story omission while avoiding duplication
+    of the full local visual-story validator in the wire schema.
+    """
+    source = _mistral_planning_response_schema(prompt)
+    source_sections = source["properties"]["sections"]
+    section_source = source_sections["items"]
+    section_properties = {
+        str(name): {"type": "string"}
+        for name in section_source["properties"]
+    }
+    section_schema = {
+        "type": "object",
+        "properties": section_properties,
+        "required": list(section_source["required"]),
+        "additionalProperties": False,
+    }
+
+    story_source = source["properties"]["visual_story"]
+    beats_source = story_source["properties"]["beats"]
+    visual_story_schema = {
+        "type": "object",
+        "properties": {
+            "visual_world": {"type": "string"},
+            "story_arc": {"type": "object", "additionalProperties": True},
+            "retention_thread": {"type": "object", "additionalProperties": True},
+            "beats": {
+                "type": "array",
+                "minItems": int(beats_source["minItems"]),
+                "maxItems": int(beats_source["maxItems"]),
+                "items": {"type": "object", "additionalProperties": True},
+            },
+        },
+        "required": ["visual_world", "story_arc", "retention_thread", "beats"],
+        "additionalProperties": False,
+    }
+
+    properties: dict[str, Any] = {
+        "title": {"type": "string"},
+        "promise": {"type": "string"},
+        "cta": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": section_schema,
+            "minItems": int(source_sections["minItems"]),
+            "maxItems": int(source_sections["maxItems"]),
+        },
+        "visual_story": visual_story_schema,
+    }
+    required = ["title", "promise", "cta", "sections", "visual_story"]
+    for name in ("practical_action_ar", "narrative_format"):
+        if name in source["properties"]:
+            properties[name] = _gemini_compatible_json_schema(
+                source["properties"][name]
+            )
+            required.append(name)
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
 
 
 def _gemini_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
@@ -1145,6 +1283,14 @@ def _gemini_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, An
             prompt,
             max_tokens,
             response_schema=_gemini_planning_response_schema(prompt),
+        )
+    if stage == "script_patch":
+        return _gemini_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
         )
     return _gemini_call(prompt, max_tokens)
 
@@ -1157,6 +1303,14 @@ def _gemini_flash_lite_stage_call(
             prompt,
             max_tokens,
             response_schema=_gemini_planning_response_schema(prompt),
+        )
+    if stage == "script_patch":
+        return _gemini_flash_lite_call(
+            prompt,
+            max_tokens,
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
         )
     return _gemini_flash_lite_call(prompt, max_tokens)
 
@@ -1175,6 +1329,18 @@ def _groq_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]
             max_tokens,
             response_schema=_groq_script_response_schema(prompt),
             schema_name="script",
+        )
+    if stage == "script_patch":
+        return _groq_call(
+            prompt,
+            max_tokens,
+            # Groq strict mode needs only the response shape here. The local
+            # patch validator owns the 400/550 character safety bounds, so do
+            # not send Mistral-only minLength/maxLength keywords over the wire.
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
+            schema_name="script_patch",
         )
     return _groq_call(prompt, max_tokens)
 
@@ -1253,6 +1419,8 @@ class ProviderAdapter:
     # Per-provider admission ceiling, tighter than the Runner-wide MAX_PROMPT_BYTES.
     # None means "no provider-specific ceiling beyond the global one".
     max_prompt_utf8_bytes: int | None = None
+    # Optional tighter ceilings for stages whose request/schema overhead differs.
+    max_prompt_utf8_bytes_by_stage: Mapping[str, int] | None = None
 
     def invoke(self, prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
         if self.accepts_stage:
@@ -1273,6 +1441,9 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
             _groq_stage_call,
             accepts_stage=True,
             max_prompt_utf8_bytes=GROQ_MAX_PROMPT_UTF8_BYTES,
+            max_prompt_utf8_bytes_by_stage={
+                "planning": GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+            },
         ),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
@@ -1379,6 +1550,17 @@ class ProviderRouter:
         try:
             normalized = validator(candidate)
         except Exception as exc:
+            detail = None
+            if stage == "visual_query_recovery" and isinstance(candidate, dict):
+                query = str(candidate.get("alternate_query") or "").strip()
+                detail = json.dumps(
+                    {
+                        "alternate_query_chars": len(query),
+                        "alternate_query_words": len(query.split()),
+                        "alternate_query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
+                    },
+                    separators=(",", ":"),
+                )
             self._event(
                 stage=stage,
                 provider=adapter.name,
@@ -1387,6 +1569,7 @@ class ProviderRouter:
                 reason=_safe_validator_reason(exc),
                 provider_attempt=1,
                 stage_wire_attempt=1,
+                detail=detail,
             )
             raise
         self._event(
@@ -1442,13 +1625,18 @@ class ProviderRouter:
                 )
                 continue
 
-            if adapter.max_prompt_utf8_bytes is not None:
+            stage_prompt_limit = adapter.max_prompt_utf8_bytes
+            if adapter.max_prompt_utf8_bytes_by_stage is not None:
+                stage_prompt_limit = adapter.max_prompt_utf8_bytes_by_stage.get(
+                    stage, stage_prompt_limit
+                )
+            if stage_prompt_limit is not None:
                 admission_prompt_bytes = len(
                     _provider_prompt(prompt, provider=adapter.name, stage=stage).encode(
                         "utf-8"
                     )
                 )
-                if admission_prompt_bytes > adapter.max_prompt_utf8_bytes:
+                if admission_prompt_bytes > stage_prompt_limit:
                     failures.append(f"{adapter.name}:prompt_too_large_for_provider")
                     self._event(
                         stage=stage,
@@ -1460,7 +1648,7 @@ class ProviderRouter:
                         stage_wire_attempt=None,
                         detail=(
                             f"prompt_bytes={admission_prompt_bytes} "
-                            f"limit={adapter.max_prompt_utf8_bytes}"
+                            f"limit={stage_prompt_limit}"
                         ),
                     )
                     continue
@@ -1591,6 +1779,12 @@ class ProviderRouter:
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_short_hook_validator_retry"
+                elif adapter.name == "mistral" and stage == "script_patch":
+                    retry_prompt = _mistral_script_patch_validator_retry_prompt(
+                        provider_prompt, exc
+                    )
+                    if retry_prompt is not None:
+                        retry_event_reason = "mistral_script_patch_validator_retry"
 
                 if retry_prompt is not None:
                     self._event(
@@ -1698,6 +1892,18 @@ class ProviderRouter:
                     )
                 reason = _safe_validator_reason(exc)
                 failures.append(f"{adapter.name}:{reason}")
+                validator_detail = None
+                if stage in {"planning", "script_patch"}:
+                    message = " ".join(str(exc).split()).strip()[:500]
+                    if message:
+                        validator_detail = json.dumps(
+                            {
+                                "validator_error_type": type(exc).__name__,
+                                "validator_error": message,
+                            },
+                            ensure_ascii=True,
+                            separators=(",", ":"),
+                        )
                 self._event(
                     stage=stage,
                     provider=adapter.name,
@@ -1706,6 +1912,7 @@ class ProviderRouter:
                     reason=reason,
                     provider_attempt=provider_attempt,
                     stage_wire_attempt=wire_count,
+                    detail=validator_detail,
                 )
                 continue
             self._event(

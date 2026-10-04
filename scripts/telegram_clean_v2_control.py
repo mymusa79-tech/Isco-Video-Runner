@@ -1383,33 +1383,89 @@ def _history_topic_published(
     )
 
 
+def _history_items_by_kind(
+    state: dict[str, Any],
+    kind: str,
+    used_records: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Newest unfinished production request per topic, scoped to one content kind."""
+    if kind not in LIBRARY_ORDER:
+        raise RuntimeError("unsupported history kind")
+    used_records = used_records if used_records is not None else _release_library_records()
+    result: list[dict[str, Any]] = []
+    seen_topics: set[str] = set()
+    for request in resume_history.incomplete_requests(state):
+        if _library_kind_for_scope(str(request.get("scope") or "")) != kind:
+            continue
+        if _history_topic_published(request, used_records):
+            continue
+        title = str(request.get("approved_topic") or "").strip()
+        request_id = str(request.get("request_id") or "").strip()
+        normalized = normalize_title(title)
+        if not title or not request_id or not normalized or normalized in seen_topics:
+            continue
+        # incomplete_requests() is newest-first, so the first duplicate is the
+        # current request for that topic. Older retries stay in state for audit
+        # history but do not clutter Telegram navigation.
+        seen_topics.add(normalized)
+        result.append(request)
+    return result
+
+
 def _history_view(
     state: dict[str, Any],
 ) -> tuple[str, list[list[dict[str, str]]]]:
     used_records = _release_library_records()
-    items = [
-        request
-        for request in resume_history.incomplete_requests(state)
-        if not _history_topic_published(request, used_records)
-    ]
+    counts = {
+        kind: len(_history_items_by_kind(state, kind, used_records))
+        for kind in LIBRARY_ORDER
+    }
     lines = [
         "📚 المحفوظات",
         "",
-        "طلبات الإنتاج غير المكتملة أو غير المنشورة نهائيًا؛ الأحدث أولًا.",
+        "اختر نوع المحتوى، ثم اختر الموضوع لعرض خيارات الاستئناف أو البدء من جديد.",
+        "",
+    ]
+    keyboard: list[list[dict[str, str]]] = []
+    for kind in LIBRARY_ORDER:
+        icon, label = LIBRARY_LABELS[kind]
+        lines.append(f"{icon} {label} — {counts[kind]}")
+        keyboard.append(
+            [{
+                "text": f"{icon} {label} ({counts[kind]})",
+                "callback_data": f"historyscope:{kind}",
+            }]
+        )
+    keyboard.append(
+        [{"text": "💡 أفكار البحث المحفوظة", "callback_data": "library:saved"}]
+    )
+    keyboard.append([{"text": "↩️ الرئيسية", "callback_data": "main:home"}])
+    return "\n".join(lines), keyboard
+
+
+def _history_scope_view(
+    state: dict[str, Any],
+    kind: str,
+) -> tuple[str, list[list[dict[str, str]]]]:
+    if kind not in LIBRARY_ORDER:
+        raise RuntimeError("unsupported history kind")
+    icon, label = LIBRARY_LABELS[kind]
+    items = _history_items_by_kind(state, kind)
+    lines = [
+        f"📚 المحفوظات — {icon} {label}",
+        "",
+        "اختر الموضوع لعرض حالته وخياراته الحالية.",
     ]
     keyboard: list[list[dict[str, str]]] = []
     if not items:
-        lines.extend(["", "لا توجد طلبات غير مكتملة حاليًا."])
+        lines.extend(["", "لا توجد محاولات غير مكتملة لهذا النوع حاليًا."])
     else:
-        lines.append("")
         for request in items[:30]:
             title = str(request.get("approved_topic") or "").strip()
             request_id = str(request.get("request_id") or "").strip()
-            if not request_id:
-                continue
             status = resume_history.request_status_label(request)
+            short_title = title if len(title) <= 42 else title[:39].rstrip() + "…"
             lines.append(f"• {title} — {status}")
-            short_title = title if len(title) <= 38 else title[:35].rstrip() + "…"
             keyboard.append(
                 [{
                     "text": f"📌 {short_title}",
@@ -1417,11 +1473,8 @@ def _history_view(
                 }]
             )
         if len(items) > 30:
-            lines.append(f"\n+ {len(items) - 30} طلبًا أقدم غير معروض.")
-    keyboard.append(
-        [{"text": "💡 أفكار البحث المحفوظة", "callback_data": "library:saved"}]
-    )
-    keyboard.append([{"text": "↩️ الرئيسية", "callback_data": "main:home"}])
+            lines.append(f"\n+ {len(items) - 30} موضوعًا أقدم غير معروض.")
+    keyboard.append([{"text": "↩️ المحفوظات", "callback_data": "main:saved"}])
     return "\n".join(lines), keyboard
 
 
@@ -1494,13 +1547,17 @@ def _history_request_view(
                 "الخيار الفعّال الوحيد: بدء طلب جديد من الصفر.",
             ]
         )
-        keyboard.append(
-            [{"text": "⛔ استئناف غير متاح", "disabled": {}}]
-        )
     keyboard.append(
-        [{"text": "🆕 بدء من جديد", "callback_data": f"restart:{request_id}"}]
+        [{"text": "🔁 إعادة المحاولة من البداية", "callback_data": f"restart:{request_id}"}]
     )
-    keyboard.append([{"text": "↩️ المحفوظات", "callback_data": "main:saved"}])
+    kind = _library_kind_for_scope(str(request.get("scope") or ""))
+    back_callback = f"historyscope:{kind}" if kind in LIBRARY_ORDER else "main:saved"
+    back_label = (
+        f"↩️ {LIBRARY_LABELS[kind][1]}"
+        if kind in LIBRARY_ORDER
+        else "↩️ المحفوظات"
+    )
+    keyboard.append([{"text": back_label, "callback_data": back_callback}])
     return "\n".join(lines), keyboard
 
 
@@ -1790,6 +1847,20 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 )
                 return
             raise RuntimeError("unsupported main-menu callback")
+        if data.startswith("historyscope:"):
+            kind = data.split(":", 1)[1].strip()
+            try:
+                if kind not in LIBRARY_ORDER:
+                    raise RuntimeError("malformed history scope")
+                history_text, history_keyboard = _history_scope_view(state, kind)
+            except Exception:
+                send_telegram(
+                    "⚠️ تعذر فتح محفوظات هذا النوع الآن.",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            send_telegram(history_text, history_keyboard)
+            return
         if data.startswith("history:"):
             request_id = data.split(":", 1)[1].strip()
             try:

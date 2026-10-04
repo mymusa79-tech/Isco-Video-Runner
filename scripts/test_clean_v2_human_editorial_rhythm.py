@@ -194,6 +194,150 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             self.assertAlmostEqual(sum(durations), 10.0, places=6)
             self.assertGreater(durations[0], durations[1])
 
+    def test_shot_role_is_advisory_and_does_not_change_section_time(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "local_file": "detail.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b1",
+                                "hold_reason": "idea_changes",
+                                "shot_role": "detail",
+                                "environment_family": "workplace",
+                            },
+                            {
+                                "local_file": "payoff.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b2",
+                                "hold_reason": "idea_changes",
+                                "shot_role": "payoff",
+                                "environment_family": "workplace",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "section_events": [
+                            {"section_id": "s1", "start": 0.0, "end": 10.0}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            durations = media_module._section_slot_durations(
+                root,
+                [root / "detail.mp4", root / "payoff.mp4"],
+                10.0,
+                pad=0.0,
+            )
+            self.assertAlmostEqual(sum(durations), 10.0, places=6)
+            self.assertAlmostEqual(durations[0], durations[1], places=6)
+
+    def test_edit_boundary_uses_semantic_and_environment_continuity(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "local_file": "one.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b1",
+                                "hold_reason": "idea_changes",
+                                "shot_role": "establish",
+                                "environment_family": "workplace",
+                            },
+                            {
+                                "local_file": "two.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b2",
+                                "hold_reason": "idea_continues",
+                                "shot_role": "detail",
+                                "environment_family": "workplace",
+                            },
+                            {
+                                "local_file": "three.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b3",
+                                "hold_reason": "idea_continues",
+                                "shot_role": "action",
+                                "environment_family": "transit",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            signals = media_module._editorial_signals_by_local_file(root)
+            decisions = media_module._editorial_boundary_decisions(
+                [root / "one.mp4", root / "two.mp4", root / "three.mp4"],
+                ["s1", "s1", "s1"],
+                signals,
+            )
+            self.assertEqual(decisions[0]["decision"], "DISSOLVE")
+            self.assertEqual(
+                decisions[0]["reason"],
+                "semantic_continuity_confirmed_by_environment",
+            )
+            self.assertEqual(decisions[1]["decision"], "CUT")
+            self.assertEqual(
+                decisions[1]["reason"],
+                "semantic_continuity_with_environment_change",
+            )
+
+    def test_edit_decision_contract_is_local_zero_call_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "local_file": "one.mp4",
+                                "section_id": "s1",
+                                "beat_id": "b1",
+                                "hold_reason": "idea_continues",
+                                "pause_intent": "emphasis",
+                                "audio_energy": "quiet",
+                                "shot_role": "detail",
+                                "environment_family": "workplace",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            report = media_module._write_edit_decision_contract(
+                root,
+                fmt="film",
+                paths=[root / "one.mp4"],
+                durations=[8.0],
+                opening_enabled=False,
+                body_boundary_decisions=[],
+            )
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["compiler_mode"], "local_semantic_edit_compiler_v1")
+            self.assertEqual(report["provider_calls_added"], 0)
+            self.assertEqual(report["ai_calls_added"], 0)
+            self.assertFalse(report["new_production_stage_added"])
+            self.assertTrue(report["shot_role_is_advisory_only"])
+            self.assertTrue(report["environment_family_is_advisory_only"])
+            self.assertEqual(
+                report["shot_timing_owner"], "measured_voice_plus_hold_reason_only"
+            )
+            self.assertEqual(report["slots"][0]["shot_role"], "detail")
+            self.assertEqual(report["slots"][0]["pause_intent"], "emphasis")
+            self.assertTrue((root / "edit-decision-contract.json").is_file())
+
     def test_audio_energy_and_pause_cues_map_inside_voice_owned_section(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
