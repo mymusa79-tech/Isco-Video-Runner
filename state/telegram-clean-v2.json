@@ -5516,9 +5516,30 @@
         "started_at": "2026-10-04T01:46:58Z",
         "finished_at": "2026-10-04T01:48:47Z"
       }
+    },
+    "req-930a143bd105": {
+      "schema_version": 1,
+      "request_id": "req-930a143bd105",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "podcast",
+      "approved_by_user": true,
+      "approved_topic": "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟",
+      "research_pack": [
+        {
+          "source_title": "لماذا تشعر أنك لست جيدًا بما يكفي؟",
+          "source_url": "https://youtu.be/Ju_b_k7-bEM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-8ec9c3edcd",
+      "selected_at": "2026-10-04T10:50:11Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "470aee51362482134b5040c6dd90d61b08e30cce2ab81cae4617c33305b3a215"
     }
   },
-  "current_request_id": "req-9f0268376339",
+  "current_request_id": "req-930a143bd105",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -5773,5 +5794,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-04T10:49:53Z"
+  "updated_at": "2026-10-04T10:50:12Z"
 }
