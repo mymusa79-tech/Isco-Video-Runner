@@ -114,8 +114,12 @@ VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 2
 _PLANNING_FACTUALITY_RULE = (
     "Use precise scientific, psychological, medical, historical, legal, political, statistical or religious "
     "factual claims only when directly supported by APPROVED_RESEARCH_PACK. Never invent studies, numbers, "
-    "quotes, experts or causation. If evidence is insufficient, use a modest non-technical observation or "
-    "omit the claim."
+    "quotes, experts or causation. This ceiling applies upstream to the plan itself: section purposes, the "
+    "hook tension, payoff, writer anchors, and visual-story meaning must never promise a causal mechanism, "
+    "hidden psychological process, or scientific explanation that the approved research cannot support. "
+    "If a source is explicitly market-interest-only or says it does not establish causality, plan around an "
+    "observable behavior, choice pattern, trade-off, consequence, or clearly framed interpretation instead "
+    "of a hidden mechanism. If evidence is insufficient, use a modest non-technical observation or omit the claim."
 )
 
 # One lightweight editorial registry: no provider call, stage, or alternate pipeline.
@@ -1845,16 +1849,17 @@ def _run_legacy_tone_naturalness_audit(
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
     identity_path = output_dir / "narrative-identity.json"
     identity = _read_json_object(identity_path) if identity_path.is_file() else {}
-    short_identity_scope = str(brief.get("format") or "") == "short"
-    if short_identity_scope:
-        trusted_identity = _trusted_identity_for_factuality(
-            output_dir=output_dir,
-            brief=brief,
-        )
-        audit_script = _script_without_trusted_identity(script, trusted_identity)
-    else:
-        trusted_identity = ()
-        audit_script = script
+    # Prayer/channel-definition lines are runtime-owned for every format, not
+    # writer-owned prose. Run 82 exposed a nondeterministic false block where
+    # Podcast re-audit criticized the exact approved prayer after repair. Strip
+    # these exact host-owned phrases from the semantic judgment in all formats;
+    # the hard identity/repair invariants still preserve them in production.
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    audit_script = _script_without_trusted_identity(script, trusted_identity)
+    trusted_identity_scope = bool(trusted_identity)
 
     production_plan = _build_production_plan_for_audit(
         brief=brief,
@@ -1863,11 +1868,7 @@ def _run_legacy_tone_naturalness_audit(
     )
     production_plan.hook = _first_spoken_sentence(audit_script)
     production_plan.closing_payoff = (
-        (
-            _closing_payoff_for_tone_audit(audit_script)
-            if short_identity_scope
-            else _closing_payoff_for_tone_audit(script, identity=identity)
-        )
+        _closing_payoff_for_tone_audit(audit_script, identity=identity)
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -1881,6 +1882,7 @@ def _run_legacy_tone_naturalness_audit(
         api_key,
         production_plan,
         model,
+        research_boundaries=_research_boundaries_context(brief),
     )
     validation = str(result.get("validation") or "")
     if validation != "valid":
@@ -1892,7 +1894,7 @@ def _run_legacy_tone_naturalness_audit(
                     "trusted_identity_excluded_from_model_judgment": True,
                     "trusted_identity": list(trusted_identity),
                 }
-                if short_identity_scope
+                if trusted_identity_scope
                 else {}
             ),
             **result,
@@ -1913,7 +1915,7 @@ def _run_legacy_tone_naturalness_audit(
                 "trusted_identity_excluded_from_model_judgment": True,
                 "trusted_identity": list(trusted_identity),
             }
-            if short_identity_scope
+            if trusted_identity_scope
             else {}
         ),
         **result,
@@ -2215,7 +2217,7 @@ def _research_boundaries_context(brief: Mapping[str, Any]) -> str:
         return ""
     return (
         "[RESEARCH_BOUNDARIES]\n"
-        "These claim_scope lines are hard ceilings for this repair. Do not make any factual "
+        "These claim_scope lines are hard ceilings for this text decision. Do not make any factual "
         "statement more specific, causal, deterministic, diagnostic, or authoritative than them.\n"
         + json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
         + "\n[/RESEARCH_BOUNDARIES]"
@@ -2348,6 +2350,64 @@ _HOOK_OWN_TEXT_DEFECT_FIELDS = (
     "hook_genericness",
 )
 
+_SEMANTIC_TONE_REPAIR_MARKERS = (
+    "editorial_promise_continuity:",
+    "viewer_retention_continuity:",
+    "content_depth:",
+    "hook_quality:",
+    "content_dependency:",
+)
+
+
+def _required_semantic_repair_section_ids(
+    script: Mapping[str, Any],
+    revision_note: str,
+) -> tuple[str, ...]:
+    """Sections a semantic repair must actually change before spending re-audit.
+
+    Run 82 changed the hook and an s3 grammar fragment but left the explicitly
+    flagged s2 continuity defect untouched. The candidate was nevertheless
+    accepted as a repair and consumed the one full re-audit. Require coverage
+    only for semantic flag lines and only for deterministically locatable
+    sections; the full Tone/Factuality/Structural re-audit remains the authority
+    on whether those changes are good enough.
+    """
+    sections = [
+        item for item in (script.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    ordered_ids = [str(item.get("id") or "") for item in sections]
+    if not ordered_ids:
+        return ()
+
+    required: set[str] = set()
+    # Only machine-locatable semantic targets are mandatory coverage. Legacy
+    # prose diagnostics often mention a healthy context section before naming
+    # the actual defect (for example "s1 hook ... but s2 pivots"). Treating
+    # every sN token as a repair target broke valid bounded repairs. Clean V2's
+    # current judge already emits compact target prefixes such as
+    # content_depth:s3 and content_dependency:s2; those are unambiguous.
+    targeted_marker = re.compile(
+        r"\b(?:editorial_promise_continuity|viewer_retention_continuity|"
+        r"content_depth|content_dependency):s([1-5])\b",
+        flags=re.I,
+    )
+    for raw_line in str(revision_note or "").splitlines():
+        line = raw_line.casefold()
+        if not any(marker in line for marker in _SEMANTIC_TONE_REPAIR_MARKERS):
+            continue
+        for match in targeted_marker.finditer(line):
+            candidate = "s" + match.group(1)
+            if candidate in ordered_ids:
+                required.add(candidate)
+        if "hook_quality:" in line and any(
+            field in line for field in _HOOK_OWN_TEXT_DEFECT_FIELDS
+        ):
+            required.add(ordered_ids[0])
+        if "hook_quality:" in line and "payoff_resolves_hook" in line:
+            required.add(ordered_ids[-1])
+
+    return tuple(section_id for section_id in ordered_ids if section_id in required)
+
 
 def _hook_text_itself_is_defective(revision_note: str) -> bool:
     """True only when the hook's own wording was flagged - not just its relationship
@@ -2451,6 +2511,7 @@ def _validate_and_apply_script_patches(
     allowed_section_ids: tuple[str, ...] | None = None,
     is_short_format: bool = False,
     allow_short_locked_action_repair: bool = False,
+    required_changed_section_ids: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Apply exact local replacements to the original script; reject broad rewrites."""
     if not isinstance(value, Mapping):
@@ -2738,6 +2799,27 @@ def _validate_and_apply_script_patches(
         )
 
     normalized = validate_script(repaired, candidate_plan)
+    if required_changed_section_ids:
+        original_by_id = {
+            str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
+            for item in (original_script.get("sections") or [])
+            if isinstance(item, Mapping)
+        }
+        repaired_by_id = {
+            str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
+            for item in (normalized.get("sections") or [])
+            if isinstance(item, Mapping)
+        }
+        missing = [
+            section_id
+            for section_id in required_changed_section_ids
+            if original_by_id.get(section_id) == repaired_by_id.get(section_id)
+        ]
+        if missing:
+            raise ValueError(
+                "semantic script patch did not change every explicitly flagged section: "
+                + ", ".join(missing)
+            )
     if (
         original_hook
         and not hook_word_fix_used
@@ -2987,6 +3069,19 @@ def _tone_repair_prompt(
     allowed_patch_section_ids = _repair_target_section_ids(
         script, revision_note, cta_plan
     )
+    required_semantic_section_ids = _required_semantic_repair_section_ids(
+        script, revision_note
+    )
+    semantic_repair_guidance = (
+        "- SEMANTIC-SPINE REPAIR: the audit found progression/depth/dependency defects, not merely "
+        "surface wording. Every id in REQUIRED_SEMANTIC_CHANGE_SECTION_IDS MUST receive a real meaning-"
+        "changing patch in this response. A grammar-only or cosmetic edit in another section is incomplete "
+        "and will be rejected before re-audit. For these flagged sections, replacing a complete sentence is "
+        "allowed when a phrase edit cannot repair the reasoning; keep the replacement local and inside the "
+        "same section, preserve evidence boundaries and host locks, and do not redesign unrelated material."
+        if required_semantic_section_ids
+        else ""
+    )
     if _hook_text_itself_is_defective(revision_note):
         hook_lock_rule = (
             "- The hook itself is the audited defect. Replace the complete first spoken hook sentence "
@@ -3095,6 +3190,9 @@ REVISION_NOTE:
 ALLOWED_PATCH_SECTION_IDS:
 {json.dumps(list(allowed_patch_section_ids), ensure_ascii=False, separators=(",", ":"))}
 
+REQUIRED_SEMANTIC_CHANGE_SECTION_IDS:
+{json.dumps(list(required_semantic_section_ids), ensure_ascii=False, separators=(",", ":"))}
+
 {research_boundaries}
 
 {targeted_structural}
@@ -3104,10 +3202,11 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   of them. This is your only repair attempt: the full audit runs again on whatever you return, and
   any flag you leave unaddressed will still block the result exactly as if you had changed nothing.
   Use as many of your patches as the listed flags require, up to the maximum below.
-- NO-REGRESSION SELF-CHECK: the current script already PASSED hook_specificity, section_dependency,
-  topic_fidelity, and payoff_earned before this repair was triggered — REVISION_NOTE lists only the
-  narrow defect(s) you must fix, not a license to touch anything else. Before returning your patch,
-  re-read the full sentence your replace text produces in place: it must still name the same concrete
+- NO-REGRESSION SELF-CHECK: treat only dimensions NOT listed as defects in REVISION_NOTE as already
+  passing. Never assume section_dependency, topic_fidelity, payoff quality, hook quality, or continuity
+  passed when REVISION_NOTE says otherwise. Fix every listed defect while preserving dimensions that were
+  not flagged. Before returning your patch, re-read the full sentence your replace text produces in place:
+  it must still name the same concrete
   object, number, or behavior the original sentence used to satisfy those checks, and it must not
   become a generic restatement of the hook or of an adjacent section (if the new sentence would read as
   filler that could be deleted without losing information, or could just as well close a different
@@ -3117,6 +3216,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 {shared_depth_repair_guidance}
 {longform_progression_repair_guidance}
+{semantic_repair_guidance}
 {gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 {short_locked_action_rule}
@@ -3252,6 +3352,7 @@ def _run_one_bounded_tone_repair(
         raise RuntimeError(
             "Tone/Naturalness repair has no deterministic target section"
         )
+    required_semantic_ids = _required_semantic_repair_section_ids(script, issue_notes)
     narration_before = _normalized_narration_signature(script)
     repaired = router.route(
         stage="script_patch",
@@ -3275,6 +3376,7 @@ def _run_one_bounded_tone_repair(
             allow_short_locked_action_repair=_short_locked_action_repair_allowed(
                 plan, issue_notes
             ),
+            required_changed_section_ids=required_semantic_ids,
         ),
     )
     atomic_write_json(output_dir / "script-post-tone-repair.json", repaired)
