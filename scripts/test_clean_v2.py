@@ -6346,8 +6346,9 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
             )
             return built
 
-        def fake_tone(_api_key, production_plan, _model):
+        def fake_tone(_api_key, production_plan, _model, **kwargs):
             captured["plan"] = production_plan
+            captured["research_boundaries"] = kwargs.get("research_boundaries", "")
             return {
                 "status": "pass",
                 "validation": "valid",
