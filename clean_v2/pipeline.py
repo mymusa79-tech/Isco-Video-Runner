@@ -3157,6 +3157,38 @@ def _normalized_narration_signature(script: Mapping[str, Any]) -> tuple[tuple[st
     )
 
 
+def _persist_repaired_short_action(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    repaired: Mapping[str, Any],
+) -> bool:
+    """Persist an audit-approved Short action change only after full validation."""
+    if str(brief.get("format") or "") != "short":
+        return False
+    sections = repaired.get("sections") or []
+    if not isinstance(sections, list) or len(sections) != 3:
+        return False
+    final = sections[-1]
+    if not isinstance(final, Mapping):
+        return False
+    repaired_action = validate_short_practical_action(
+        final.get("s3_locked_action") or ""
+    )
+    current_action = validate_short_practical_action(
+        plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
+    )
+    if repaired_action == current_action:
+        return False
+    if not isinstance(plan, dict):
+        raise RuntimeError("Short action repair requires mutable persisted plan")
+    plan["practical_action_ar"] = repaired_action
+    plan["s3_locked_action"] = repaired_action
+    atomic_write_json(output_dir / "plan.json", dict(plan))
+    return True
+
+
 def _run_one_bounded_tone_repair(
     *,
     output_dir: Path,
@@ -3233,6 +3265,12 @@ def _run_one_bounded_tone_repair(
             "TONE_REPAIR_NO_EFFECT: bounded tone repair made no narration changes"
         )
 
+    short_action_repaired = _persist_repaired_short_action(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        repaired=repaired,
+    )
     script.clear()
     script.update(repaired)
     _assert_brand_signature_invariant(
@@ -3253,6 +3291,7 @@ def _run_one_bounded_tone_repair(
         "attempts": 1,
         "issue_notes": issue_notes,
         "narration_changed": True,
+        "short_locked_action_repaired": short_action_repaired,
     }
 
 
@@ -3460,6 +3499,12 @@ def _run_one_bounded_factuality_repair(
             ),
         ),
     )
+    short_action_repaired = _persist_repaired_short_action(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        repaired=repaired,
+    )
     script.clear()
     script.update(repaired)
     atomic_write_json(output_dir / "script-post-factuality-repair.json", script)
@@ -3480,6 +3525,7 @@ def _run_one_bounded_factuality_repair(
         "source": "clean-v2-one-bounded-factuality-repair",
         "attempts": 1,
         "issue_notes": issue_notes,
+        "short_locked_action_repaired": short_action_repaired,
     }
 
 
