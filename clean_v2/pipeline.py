@@ -2527,6 +2527,7 @@ def _validate_and_apply_script_patches(
             narration = str(item.get("narration") or "")
             patch_surface = narration
             action_patch_this_patch = False
+            pending_locked_action = ""
             if is_short_format and section_id == str(sections[-1].get("id") or ""):
                 locked_action = candidate_locked_action
                 if locked_action:
@@ -2558,10 +2559,7 @@ def _validate_and_apply_script_patches(
                             raise ValueError(
                                 "locked practical action patch made no wording change"
                             )
-                        candidate_locked_action = updated_action
-                        candidate_plan["practical_action_ar"] = updated_action
-                        candidate_plan["s3_locked_action"] = updated_action
-                        item["s3_locked_action"] = updated_action
+                        pending_locked_action = updated_action
                         action_patch_this_patch = True
                     else:
                         # The action remains host-owned. A patch cannot quote a new
@@ -2700,6 +2698,9 @@ def _validate_and_apply_script_patches(
         elif hook_fix_this_patch:
             hook_word_fix_used = True
         if action_patch_this_patch:
+            candidate_locked_action = pending_locked_action
+            candidate_plan["practical_action_ar"] = candidate_locked_action
+            candidate_plan["s3_locked_action"] = candidate_locked_action
             item["s3_locked_action"] = candidate_locked_action
             locked_action_patch_used = True
         elif is_short_format and section_id == str(sections[-1].get("id") or ""):
