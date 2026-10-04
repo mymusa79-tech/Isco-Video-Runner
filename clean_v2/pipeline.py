@@ -2906,8 +2906,10 @@ def _validate_tone_repair_script(
 def _script_for_patch_prompt(
     script: Mapping[str, Any],
     brief: Mapping[str, Any],
+    *,
+    include_locked_action: bool = False,
 ) -> dict[str, Any]:
-    """Expose Short s3 payoff as the only writable closing surface to patch AI."""
+    """Expose only the Short closing surfaces the current audit may repair."""
     view = copy.deepcopy(dict(script))
     if str(brief.get("format") or "") != "short":
         return view
@@ -2916,6 +2918,8 @@ def _script_for_patch_prompt(
         return view
     s3 = sections[-1]
     if not isinstance(s3, dict):
+        return view
+    if include_locked_action:
         return view
     payoff = str(s3.get("s3_payoff") or "").strip()
     if payoff:
@@ -2941,7 +2945,15 @@ def _tone_repair_prompt(
         script,
         revision_note,
     )
-    patch_script = _script_for_patch_prompt(script, brief)
+    allow_short_locked_action_repair = (
+        str(brief.get("format") or "") == "short"
+        and _short_locked_action_repair_allowed(plan, revision_note)
+    )
+    patch_script = _script_for_patch_prompt(
+        script,
+        brief,
+        include_locked_action=allow_short_locked_action_repair,
+    )
     payload = json.dumps(
         {
             "brief": dict(brief),
@@ -3033,10 +3045,18 @@ def _tone_repair_prompt(
         "dangling subordinate clause beginning with عندما / حين / إذا, finish its main clause "
         "using only the existing approved reasoning; do not turn it into advice or add a second action. "
         "Keep all imperative/action-family wording out of the payoff, including inflections and "
-        "derivatives of اختر / ابدأ / اكتب / حدّد / ضع / اجعل / جرّب. The one practical action "
-        "already lives in immutable LOCKED_PLAN.practical_action_ar; the host appends it exactly once. "
+        "derivatives of اختر / ابدأ / اكتب / حدّد / ضع / اجعل / جرّب. The practical action remains "
+        "host-owned and is appended exactly once; touch it only if the audited-action exception below explicitly opens it. "
         if str(brief.get("format") or "") == "short"
         else ""
+    )
+    short_locked_action_rule = (
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
+        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
+        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
+        "words, same topic/meaning; do not move it into s3_payoff or add another action."
+        if allow_short_locked_action_repair
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
@@ -3080,7 +3100,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 {longform_progression_repair_guidance}
 {gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
-- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
+{short_locked_action_rule}
 {short_payoff_repair_guidance}
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -3190,6 +3210,9 @@ def _run_one_bounded_tone_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
             is_short_format=str(brief.get("format") or "") == "short",
+            allow_short_locked_action_repair=_short_locked_action_repair_allowed(
+                plan, issue_notes
+            ),
         ),
     )
     atomic_write_json(output_dir / "script-post-tone-repair.json", repaired)
@@ -3251,7 +3274,15 @@ def _factuality_repair_prompt(
         script,
         revision_note,
     )
-    patch_script = _script_for_patch_prompt(script, brief)
+    allow_short_locked_action_repair = (
+        str(brief.get("format") or "") == "short"
+        and _short_locked_action_repair_allowed(plan, revision_note)
+    )
+    patch_script = _script_for_patch_prompt(
+        script,
+        brief,
+        include_locked_action=allow_short_locked_action_repair,
+    )
     payload = json.dumps(
         {
             "brief": dict(brief),
@@ -3274,6 +3305,14 @@ def _factuality_repair_prompt(
         "comfortable to say in one breath.\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         if str(brief.get("format") or "") in {"short", "film", "podcast"}
         else ""
+    )
+    short_locked_action_rule = (
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
+        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
+        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
+        "words, same topic/meaning and evidence boundary."
+        if allow_short_locked_action_repair
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
@@ -3313,7 +3352,7 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
-- For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
+{short_locked_action_rule}
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
@@ -3416,6 +3455,9 @@ def _run_one_bounded_factuality_repair(
             revision_note=issue_notes,
             allowed_section_ids=target_ids,
             is_short_format=str(brief.get("format") or "") == "short",
+            allow_short_locked_action_repair=_short_locked_action_repair_allowed(
+                plan, issue_notes
+            ),
         ),
     )
     script.clear()
