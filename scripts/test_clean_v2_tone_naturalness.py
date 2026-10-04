@@ -1084,8 +1084,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         }
         revision = "\n".join(
             (
-                "- [tone] editorial_promise_continuity: s2 does not directly earn the hook tension.",
-                "- [tone] viewer_retention_continuity: s3 does not resolve the specific hook.",
+                "- [tone] editorial_promise_continuity:s2 does not directly earn the hook tension.",
+                "- [tone] viewer_retention_continuity:s3 does not resolve the specific hook.",
                 "- [tone] content_depth:s3 generic action.",
                 "- [tone] hook_quality: hook_genericness=true.",
                 "- [tone] content_dependency: failed section_dependency",
@@ -1149,7 +1149,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             ],
         }
         revision = (
-            "- [tone] editorial_promise_continuity: s2 is not earned.\n"
+            "- [tone] editorial_promise_continuity:s2 is not earned.\n"
             "- [tone] content_depth:s3 generic action.\n"
             "- [tone] hook_quality: hook_genericness=true, payoff_resolves_hook=false"
         )
