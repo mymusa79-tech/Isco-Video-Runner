@@ -3075,7 +3075,7 @@ def _tone_repair_prompt(
         "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
         "words, same topic/meaning; do not move it into s3_payoff or add another action."
         if allow_short_locked_action_repair
-        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff; never include it in patch.find or patch.replace and never touch the action."
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff; never include it in patch.find or patch.replace and never touch the action; the host appends it exactly once."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
@@ -5478,8 +5478,9 @@ APPROVED_BRIEF:
 Build a simple production plan. Use only APPROVED_BRIEF/research_pack for factual claims, research,
 statistics, quotations or diagnoses. [Audience pain]/[Audience situation]/[Audience question]/[Audience visual]
 are creative lived-experience signals, never prevalence or factual proof; paraphrase them and never invent usernames.
-[Channel learning] may shape opening directness, pacing and ending review only; it is never causal/narration evidence
-and cannot trigger automatic imitation or production overrides.
+Use topic-relevant signals in visual_story shot_intent and stock_query_en. A [Reddit ...] line, if an approved external source supplied one,
+follows the same grounding rule. [Channel learning] is own-channel observational evidence: use it for opening directness,
+pacing and ending review only; it is not causal proof and cannot trigger automatic production override or imitation.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
