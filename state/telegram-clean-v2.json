@@ -1702,7 +1702,7 @@
       ],
       "selected": true,
       "created_at": "2026-09-30T22:33:05Z",
-      "selected_at": "2026-10-01T08:23:15Z"
+      "selected_at": "2026-10-04T23:00:54Z"
     },
     {
       "idea_id": "idea-3d0060205b",
@@ -4980,6 +4980,17 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
+    },
+    "998e5e9c": {
+      "session_id": "998e5e9c",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7457800a57"
+      ],
+      "created_at": "2026-10-04T23:00:54Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-04T23:00:54Z",
+      "selected_index": 0
     }
   },
   "requests": {
@@ -6459,9 +6470,30 @@
         "started_at": "2026-10-04T21:28:30Z",
         "finished_at": "2026-10-04T21:30:52Z"
       }
+    },
+    "req-48bf2ec28121": {
+      "schema_version": 1,
+      "request_id": "req-48bf2ec28121",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "متى تتحول الراحة إلى هروب؟",
+      "research_pack": [
+        {
+          "source_title": "ليست كل راحة راحة",
+          "source_url": "https://youtu.be/O4tMtYmDKmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-7457800a57",
+      "selected_at": "2026-10-04T23:00:54Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "e2dbd4e77cdb37e12b24869e922b1289a80daebb6656398012bf4f9d3ed60406"
     }
   },
-  "current_request_id": "req-081da19cc1bd",
+  "current_request_id": "req-48bf2ec28121",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -6735,5 +6767,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-04T22:59:59Z"
+  "updated_at": "2026-10-04T23:00:55Z"
 }
