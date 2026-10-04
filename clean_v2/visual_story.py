@@ -929,6 +929,7 @@ def bind_visual_story_to_script(
                     # bookshelf/environment) to be ignored in favor of repeated stationery.
                     beat["shot_intent"] = replacement
                     beat["stock_query_en"] = replacement
+                    beat["semantic_must_have"] = [replacement]
                     current_family = replacement_family
                 elif strict_diversity:
                     raise VisualFamilyRepeatError(

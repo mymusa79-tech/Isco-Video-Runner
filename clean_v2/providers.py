@@ -579,11 +579,19 @@ def _mistral_planning_validator_retry_prompt(
     detail = " ".join(str(exc).split()).strip()[:500]
     if not detail:
         return None
+    correction = ""
+    if type(exc).__name__ == "ShortFormatError" and detail.startswith("short_practical_action_"):
+        correction = (
+            "For practical_action_ar, write one imperative followed only by its topic-specific object/behavior, "
+            "at most 18 words. Remove any second verb, ثم/و or attached conjunction (such as والتزم/واكتب), "
+            "and any extra advice clause; preserve this topic's own action target. "
+        )
     return (
         prompt.rstrip()
         + "\n\nMISTRAL_PLANNING_VALIDATOR_RETRY — the previous complete Planning JSON "
         + "was rejected by the local production validator. "
         + f"Exact rejection: {detail}. "
+        + correction
         + "Return the COMPLETE Planning JSON again, correcting that exact rule only where needed. "
         + "Preserve the APPROVED_BRIEF, format, section ids/order/count, all quality and safety "
         + "contracts, and all required visual-story semantics. For Short, preserve the EXACTLY "
@@ -595,9 +603,12 @@ def _mistral_planning_validator_retry_prompt(
 def _safe_validator_reason(exc: Exception) -> str:
     """Persist only a deterministic validator code, never rejected content."""
     base = f"invalid_output_{type(exc).__name__.lower()}"
-    if type(exc).__name__ != "ShortFormatError":
+    if type(exc).__name__ == "AlternateQueryError":
+        code = str(getattr(exc, "code", ""))
+    elif type(exc).__name__ == "ShortFormatError":
+        code = str(exc).strip().split(maxsplit=1)[0].casefold()
+    else:
         return base
-    code = str(exc).strip().split(maxsplit=1)[0].casefold()
     if re.fullmatch(r"[a-z0-9_]{1,120}", code):
         return f"{base}_{code}"
     return base
@@ -810,6 +821,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                             "enum": ["hook", "body", "payoff"],
                         },
                         "stock_query_en": dict(non_blank_string),
+                        "stock_query_alt_en": {"type": "string", "maxLength": 260},
                         "display_text_ar": dict(non_blank_string),
                         "source_preference": {
                             "type": "string",
@@ -993,6 +1005,11 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
     required = ["title", "promise", "cta", "sections"]
     if "visual_story" in source["properties"]:
         properties["visual_story"] = source["properties"]["visual_story"]
+        # Groq strict mode requires every property to be required. Preserve the
+        # optional authored alternate as nullable, rather than reopen HTTP 400.
+        beat_schema = properties["visual_story"]["properties"]["beats"]["items"]
+        beat_schema["properties"]["stock_query_alt_en"] = {"type": ["string", "null"]}
+        beat_schema["required"].append("stock_query_alt_en")
         required.append("visual_story")
     if "practical_action_ar" in source["properties"]:
         properties["practical_action_ar"] = dict(source["properties"]["practical_action_ar"])
@@ -1379,6 +1396,17 @@ class ProviderRouter:
         try:
             normalized = validator(candidate)
         except Exception as exc:
+            detail = None
+            if stage == "visual_query_recovery" and isinstance(candidate, dict):
+                query = str(candidate.get("alternate_query") or "").strip()
+                detail = json.dumps(
+                    {
+                        "alternate_query_chars": len(query),
+                        "alternate_query_words": len(query.split()),
+                        "alternate_query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
+                    },
+                    separators=(",", ":"),
+                )
             self._event(
                 stage=stage,
                 provider=adapter.name,
@@ -1387,6 +1415,7 @@ class ProviderRouter:
                 reason=_safe_validator_reason(exc),
                 provider_attempt=1,
                 stage_wire_attempt=1,
+                detail=detail,
             )
             raise
         self._event(
