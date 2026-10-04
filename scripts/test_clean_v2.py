@@ -6908,6 +6908,14 @@ class Run8081RepairContractTests(unittest.TestCase):
                 allow_short_locked_action_repair=False,
             )
 
+    def test_short_locked_action_does_not_open_on_unquoted_prose_overlap(self) -> None:
+        plan = self._short_plan()
+        note = (
+            "- [tone] s3 يحتاج صياغة أوضح عندما تحمي طاقتك هذا الأسبوع "
+            "من دون اقتباس النص المقفول نفسه."
+        )
+        self.assertFalse(_short_locked_action_repair_allowed(plan, note))
+
     def test_repaired_short_action_is_persisted_only_after_validation(self) -> None:
         plan = self._short_plan()
         repaired = self._short_script()
