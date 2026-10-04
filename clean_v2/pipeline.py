@@ -1868,11 +1868,7 @@ def _run_legacy_tone_naturalness_audit(
     )
     production_plan.hook = _first_spoken_sentence(audit_script)
     production_plan.closing_payoff = (
-        (
-            _closing_payoff_for_tone_audit(audit_script)
-            if short_identity_scope
-            else _closing_payoff_for_tone_audit(script, identity=identity)
-        )
+        _closing_payoff_for_tone_audit(audit_script, identity=identity)
         or str(plan.get("promise") or "")
     )
     production_plan.identity_opener = str(identity.get("opener") or "").strip()
@@ -2384,15 +2380,22 @@ def _required_semantic_repair_section_ids(
         return ()
 
     required: set[str] = set()
+    # Only machine-locatable semantic targets are mandatory coverage. Legacy
+    # prose diagnostics often mention a healthy context section before naming
+    # the actual defect (for example "s1 hook ... but s2 pivots"). Treating
+    # every sN token as a repair target broke valid bounded repairs. Clean V2's
+    # current judge already emits compact target prefixes such as
+    # content_depth:s3 and content_dependency:s2; those are unambiguous.
+    targeted_marker = re.compile(
+        r"\b(?:editorial_promise_continuity|viewer_retention_continuity|"
+        r"content_depth|content_dependency):s([1-5])\b",
+        flags=re.I,
+    )
     for raw_line in str(revision_note or "").splitlines():
         line = raw_line.casefold()
         if not any(marker in line for marker in _SEMANTIC_TONE_REPAIR_MARKERS):
             continue
-        for match in re.finditer(r"\bs([1-5])\b", line, flags=re.I):
-            candidate = "s" + match.group(1)
-            if candidate in ordered_ids:
-                required.add(candidate)
-        for match in re.finditer(r"\bsection\s+([1-5])\b", line, flags=re.I):
+        for match in targeted_marker.finditer(line):
             candidate = "s" + match.group(1)
             if candidate in ordered_ids:
                 required.add(candidate)
@@ -2400,7 +2403,7 @@ def _required_semantic_repair_section_ids(
             field in line for field in _HOOK_OWN_TEXT_DEFECT_FIELDS
         ):
             required.add(ordered_ids[0])
-        if "payoff_resolves_hook" in line:
+        if "hook_quality:" in line and "payoff_resolves_hook" in line:
             required.add(ordered_ids[-1])
 
     return tuple(section_id for section_id in ordered_ids if section_id in required)
