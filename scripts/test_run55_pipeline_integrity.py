@@ -275,7 +275,7 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             ["visual_world_identity_resume_fallback"],
         )
 
-    def test_visual_world_falls_back_on_first_host_owned_identity_rejection(self) -> None:
+    def test_visual_world_falls_back_after_two_rejections(self) -> None:
         router = type("Router", (), {"events": []})()
         state: dict[str, int] = {}
         value = {
@@ -290,8 +290,15 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
 
         with mock.patch(
             "clean_v2.pipeline._validate_plan_for_brief",
-            side_effect=[error, {"visual_story": {"visual_world": CHANNEL_VISUAL_IDENTITY}}],
+            side_effect=[error, error, {"visual_story": {"visual_world": CHANNEL_VISUAL_IDENTITY}}],
         ):
+            with self.assertRaises(VisualWorldIdentityError):
+                _validate_plan_with_visual_world_recovery(
+                    value,
+                    brief,
+                    router=router,
+                    state=state,
+                )
             plan = _validate_plan_with_visual_world_recovery(
                 value,
                 brief,
@@ -308,8 +315,7 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             if event.get("reason") == "visual_world_identity_fallback"
         ]
         self.assertEqual(len(fallback_events), 1)
-        self.assertEqual(fallback_events[0]["identity_rejections"], 1)
-        self.assertFalse(fallback_events[0]["wire_attempted"])
+        self.assertEqual(fallback_events[0]["identity_rejections"], 2)
 
     def test_research_relevance_rejects_run55_hygiene_false_positive(self) -> None:
         relevant, overlap = market_sample_relevance(
