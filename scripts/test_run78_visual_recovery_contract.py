@@ -263,6 +263,41 @@ class PlanningCapacityContractTests(unittest.TestCase):
                 self.assertEqual(providers._mistral_planning_response_schema(prompt)["properties"]["sections"]["minItems"], 3)
         self.assertEqual(brief, original)
 
+    def test_film_prompt_fits_groq_planning_stage_limit(self):
+        brief = _brief("film")
+        brief.update({
+            "approved_topic": "لماذا نؤجل التغيير حتى نشعر أننا مستعدون تمامًا؟",
+            "editorial_intent": "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، مع تجنب المبالغة والادعاءات غير المدعومة.",
+            "hard_constraints": [
+                "No fabricated facts.",
+                "Use research_pack only within each source claim_scope.",
+                "Gemini 3.8 is the only voice provider: Charon is the primary narrator; Orus is allowed only when Planning selects dialogue_qa.",
+            ],
+            "research_pack": [
+                {
+                    "claim_scope": "دليل سوقي على الاهتمام بالموضوع فقط؛ لا يثبت سببية أو تشخيصًا.",
+                    "source_title": "لماذا ننتظر اللحظة المناسبة قبل أن نبدأ؟",
+                    "source_url": "https://youtu.be/example",
+                }
+            ],
+        })
+        prompt = pipeline._planning_prompt(brief)
+        self.assertLess(
+            len(prompt.encode("utf-8")),
+            providers.GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+        )
+        for marker in (
+            "APPROVED_BRIEF:",
+            "narrative_format=",
+            "VISUAL EVIDENCE CONTRACT",
+            "<CHANNEL_PERSONA>",
+            "<HUMAN_FEEL>",
+        ):
+            self.assertIn(marker, prompt)
+        schema = providers._gemini_planning_response_schema(prompt)
+        self.assertIn("narrative_format", schema["required"])
+        self.assertIn("visual_story", schema["required"])
+
     def test_podcast_prompt_fits_groq_and_keeps_fixed_dialogue_and_quality(self):
         brief = _brief("podcast")
         brief.update({
