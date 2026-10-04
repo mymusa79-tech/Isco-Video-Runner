@@ -1185,6 +1185,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertIn("CLEAN_V2_EVIDENCE_BOUNDARY", scoped)
         self.assertIn("do NOT block merely because the draft lacks such a mechanism", scoped)
         self.assertIn("A text can be deep without pretending evidence exists", scoped)
+        self.assertIn("Do not misclassify a finite imperative clause as a masdar fragment", scoped)
+        self.assertIn("«فأدخل ...»", scoped)
         self.assertIn(boundaries, scoped)
 
     def test_run82_podcast_tone_audit_strips_runtime_prayer_before_judgment(self):

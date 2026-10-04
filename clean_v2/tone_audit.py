@@ -140,6 +140,9 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   completeness defects that would sound wrong aloud: demonstrative/noun agreement (for example
   «هذا التوقعات»), pronoun/reference agreement, broken conjunctions, or a dependent fragment
   such as a section beginning with «مما ...» without a grammatical antecedent in that sentence.
+  Do not misclassify a finite imperative clause as a masdar fragment: forms such as «فأدخل ...»،
+  «فاكتب ...»، «فاختر ...»، «فقارن ...»، «فتوقف ...»، and «فقلّل ...» are verb-led clauses when
+  they have their required object/complement. Judge the actual Arabic syntax, not the surface prefix.
   For every such defect, add one naturalness_flags item that includes the affected section id
   (s1/s2/...) and a short exact excerpt from the draft. Do not flag stylistic preference as grammar.
   Never emit a correction whose proposed replacement is textually identical to the quoted original

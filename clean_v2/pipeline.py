@@ -2363,11 +2363,6 @@ _SEMANTIC_TONE_REPAIR_MARKERS = (
 )
 
 
-def _semantic_tone_repair_required(revision_note: str) -> bool:
-    lowered = str(revision_note or "").casefold()
-    return any(marker in lowered for marker in _SEMANTIC_TONE_REPAIR_MARKERS)
-
-
 def _required_semantic_repair_section_ids(
     script: Mapping[str, Any],
     revision_note: str,
