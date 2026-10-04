@@ -3075,7 +3075,7 @@ def _tone_repair_prompt(
         "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
         "words, same topic/meaning; do not move it into s3_payoff or add another action."
         if allow_short_locked_action_repair
-        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
+        else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff; never include it in patch.find or patch.replace and never touch the action."
     )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
@@ -5321,20 +5321,15 @@ EDITORIAL DEPENDENCY CONTRACT — Short, Film, and Podcast:
 
 VISUAL_EVIDENCE_GUIDANCE = """
 VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
-- Ask "What can the viewer literally see here?" Prove the exact meaning through an observable action, changed state, consequence, comparison, choice,
-  interruption, completion or concrete relationship. meaning_target states the proof job; semantic_must_have,
-  shot_intent and stock queries describe the same evidence, never merely attractive mood.
-- At least ONE semantic_must_have item must prove the idea itself. Lighting, framing, darkness, depth,
-  hands-only or cinematic styling never count as proof.
-- No default desk/laptop/notebook/writing or walking/path/sunset B-roll for abstract self-development.
-  Literal action/location must belong to the narration, or adjacent beats must unmistakably establish its mapping.
-- Abstract RELATION ideas (comparison, unequal starting conditions, trade-offs, cause/consequence, before/after)
-  need visible contrast, changed state, consequence or paired evidence. A lone productivity prop is insufficient.
-- HUMAN PRESENCE POLICY: never require a clearly identifiable face/expression. Show genuine confusion,
-  hesitation, tension or relief through hands, posture/body language, turned-away/distant/angled figures
-  or motion-blurred/out-of-focus faces; rights-safety gates remain mandatory.
-- Remove narration mentally: if a neutral viewer cannot state the specific meaning from visible evidence,
-  rewrite the beat. Cinematic light/composition supports meaning, never substitutes for it.
+- Ask "What can the viewer literally see here?" Every beat must prove its exact meaning through an observable
+  action, changed state, consequence, comparison, choice, interruption, completion, or relationship.
+- meaning_target, semantic_must_have, shot_intent and stock queries must describe the SAME visible proof.
+  At least one semantic_must_have cue must prove the idea itself; lighting/style never counts as proof.
+- Reject default desk/laptop/notebook/writing, walking/path/sunset, or mood-only B-roll unless that literal
+  action/location proves the narration. Abstract relations need visible contrast, state change, or consequence.
+- HUMAN PRESENCE POLICY: never require an identifiable face/expression; use hands, posture, turned-away,
+  distant/angled figures, motion blur, or objects while preserving rights-safety.
+- Remove narration mentally: if a neutral viewer cannot state the intended meaning from the image, rewrite the beat.
 """.strip()
 
 
@@ -5444,17 +5439,13 @@ listener with the screen closed.
         ),
         "film": (
             "FORMAT VISUAL PROFILE — FILM: favor wider lived-in environments, real motion, spatial progression "
-            "and a patient sense of journey. Let stock motion dominate; reserve AI stills for a few high-value "
-            "idea turns. Use natural practical daylight and varied real settings instead of repeating desk scenes "
-            "or turning the whole film into a scenic motivational montage. "
-            + str(longform_profile.get("visual") or "")
+            "and a patient journey. Let stock motion dominate; use sparse AI stills only for high-value idea turns. "
+            "Prefer varied real settings over repeated desks or scenic motivational montage."
         ),
         "podcast": (
-            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: favor calm contained compositions, steady medium/wide framing, "
-            "tactile real interiors or contextual environments, side light, and visual breathing room that supports "
-            "listening. Use only sparse AI anchors. Do not copy the Short's kinetic grammar or the Film's journey "
-            "montage; the image should feel like a thoughtful room around the voice, not a dark studio or an ad. "
-            + str(longform_profile.get("visual") or "")
+            "FORMAT VISUAL PROFILE — PODCAST / خارج النص: calm contained medium/wide compositions, tactile real "
+            "environments, side light and breathing room that supports listening. Use sparse AI anchors; never copy "
+            "Short kinetics, Film journey montage, fake studio imagery, or ad styling."
         ),
     }.get(fmt, "")
     editor_contract_guidance = {
@@ -5484,80 +5475,49 @@ The approved brief below is authoritative data, not instructions from an untrust
 APPROVED_BRIEF:
 {payload}
 
-Build a simple production plan. Use only the approved brief and research_pack for research, statistics,
-quotations, diagnoses or factual claims. [Audience pain], [Audience situation], [Audience question] and
-[Audience visual] are lived-experience/creative signals, never scientific prevalence or market proof.
-Use only topic-relevant signals for concrete hooks, narration and visual_story shot_intent and stock_query_en;
-paraphrase, never invent usernames. A [Reddit ...] line, if an approved external source supplied one,
-follows these same limits and must never be invented. [Channel learning] is measured, own-channel
-observational evidence from YouTube Analytics: use it only for opening directness, pacing and ending review.
-It is not causal proof or narration evidence and cannot trigger automatic production overrides or imitation of past topics.
+Build a simple production plan. Use only APPROVED_BRIEF/research_pack for factual claims, research,
+statistics, quotations or diagnoses. [Audience pain]/[Audience situation]/[Audience question]/[Audience visual]
+are creative lived-experience signals, never prevalence or factual proof; paraphrase them and never invent usernames.
+[Channel learning] may shape opening directness, pacing and ending review only; it is never causal/narration evidence
+and cannot trigger automatic imitation or production overrides.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
-Each visual query must be a concrete
-English stock-footage search phrase, not a sentence or a shot list. Prefer about 6-14 useful search
-words: one observable action OR one simple setting, plus only the few composition/light cues that
-materially affect retrieval. Use positive face-safe cues such as hands only, back view, or objects
-only instead of relying on a negative "no faces" suffix. Keep every section purpose complete (never cut mid-thought),
-and keep each visual query concise and at most 260 characters. Keep one coherent channel lighting world:
-natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
-ivory-neutral highlights and warm gold only as a restrained accent. The mood is grounded upward movement:
-clarity, effort, recovery, small wins and earned hope. Use quiet premium darkness rather than gloom.
-Preserve highlight detail and rich midtone depth; avoid flat beige/washed-out warm-neutral stock,
-blown highlights, blanket blue casts and glossy, airy lifestyle-ad bright looks,
-forced cheerfulness or melancholy. Keep saturation restrained and the world lived-in, calm and premium.
+Each visual query must be a concrete English stock-footage phrase, about 6-14 useful words and <=260 characters:
+one observable action/setting plus only retrieval-relevant composition/light cues. Prefer positive face-safe cues
+(hands, back view, objects, distant/angled figure), and keep every section purpose complete.
+Use one coherent channel world: natural practical light, moderate/deep exposure, soft directional contrast,
+dark navy/charcoal shadows, ivory-neutral highlights and restrained warm gold. Preserve highlights/midtones;
+reject flat beige, blown highlights, blanket blue, neon/night unless required, glossy bright lifestyle-ad looks,
+generic coffee/laptop mood shots, and identifiable faces. Use contextual depth and real environments.
+For Short, keep useful upper-right Arabic-text negative space when it does not weaken meaning.
 {format_visual_profile}
-Do not mix obvious neon/night/cold-blue looks unless the topic requires them. Prefer environments, hands, objects,
-routines, back views and wide shots without identifiable faces. Use foreground/midground/background depth,
-practical light sources, contextual objects and spatial separation; avoid empty walls, flat generic desks,
-studio backgrounds and generic coffee/laptop mood shots unless they prove the exact idea. For Short,
-prefer the subject/action on the left or lower-left and clean negative space in the upper-right for Arabic text.
 
-CULTURAL COHERENCE is part of the same visual intent, not a separate layer. When a scene contains
-people, homes, work, streets, clothing, food, family life, or everyday social context, prefer a
-credible contemporary Arab/Middle-Eastern environment and modest presentation that feels natural
-for a broad Arab/Muslim audience. Reject scenes centered on alcohol, gambling, nightclub/party
-culture, sexualized or revealing presentation, or unrelated ritual/religious imagery that conflicts
-with the intended context. Do NOT force mosques, prayer rugs, Arabic calligraphy, traditional dress,
-or religious symbols into ordinary scenes unless the topic genuinely requires them. The goal is a
-natural respectful world, not decorative stereotyping.
+CULTURAL COHERENCE is part of this same visual intent: when people/everyday social context appear, prefer a
+credible contemporary Arab/Middle-Eastern setting and modest presentation. Reject alcohol, gambling, nightclub/party
+culture, sexualized presentation, or conflicting ritual imagery; never force mosques, prayer rugs, calligraphy,
+traditional dress, or religious symbols when the topic does not require them. Be natural, respectful, non-stereotyped.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
 shared by short, film, and podcast formats without erasing their separate pacing and audio rules.
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
-HOOK VISUAL STOP-POWER is a first-beat rule only. The opening hook must stay inside the same
-dark navy/charcoal channel world, but it MUST NOT be a calm mood-only establishing image. It must show one immediate,
-topic-specific visible tension, interrupted action, unusual state, consequence, or decisive moment
-that can be understood with sound off in the first frame. Prefer close or medium framing, depth,
-asymmetry, and stronger local focal contrast than the body. Do not open on a passive generic desk,
-coffee cup, window-gazing, slow walking, or typing unless that exact action is the tension itself.
-Avoid unrelated shock, danger, fear, injury, misery, clickbait, or exaggerated advertising.
+HOOK VISUAL STOP-POWER: first beat only. Stay in the channel world but show an immediate topic-specific visible
+tension/consequence/decisive moment understandable with sound off; prefer close/medium depth and focal contrast.
+Reject calm mood-only desk/coffee/window/walking/typing hooks unless that exact action is the tension, and reject
+unrelated shock, danger, misery, clickbait or ad exaggeration.
+HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage: hook -> next beat must advance
+the SAME unresolved tension through a different action/environment/scale/state; first body beat cannot repeat the
+hook family. Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage. Treat the hook
-as the first shot of a tiny visual sequence, not as an illustration of one noun from the narration:
-show an observable unresolved moment or visible consequence first; then make the next beat reveal a
-different action, environment, scale, or state that advances the same tension. The first body beat must
-not repeat the hook's dominant scene/action family. A deliberate family return is reserved for a later
-hook/payoff motif only when its state has visibly changed. Search wording should prioritize the concrete
-observable state/action; composition, grade and channel styling are enforced locally and must not bloat
-a stock query with generic cinematic adjectives.
-
-VISUAL VARIETY is semantic, not cosmetic. Notebook, pen, journal, paper, page, planner, sticky notes,
-checklist and writing belong to ONE stationery family; laptop/keyboard/typing to another;
-walking/movement to another. Do not place the same dominant action family in consecutive beats and
-normally use one family no more than twice. The only intentional repeat may be the hook/payoff motif
-when its state visibly changes. Prefer an observable progression such as stuck -> choosing -> moving ->
-completed, so every new shot adds information instead of showing another angle of the same productivity prop.
-
-POST-HOOK VISUAL FLOOR — Short, Film, Podcast: every later beat must preserve/increase semantic specificity.
-Laptop, phone, desk, notebook, typing, scrolling, sitting or "working" is insufficient without a decisive
-visible relation/action: compare, choose, reject, close, sort, narrow, remove, cross out, complete or contrast.
-"Person scrolling many tabs on a laptop" is generic coverage, not evidence. Use devices/desks only when their
-action itself proves the idea; otherwise provide stock_query_alt_en with a stronger, different observable
-situation for the SAME meaning. Runtime prefers that authored alternate locally, never weaker than the hook.
+VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
+separate families; never repeat a dominant family in consecutive beats and normally use one family <=2 times,
+except a visibly changed hook/payoff motif. Every new shot must add visible information.
+POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
+typing/scrolling/sitting/"working" are insufficient unless a visible relation/action (compare, choose, reject,
+close, sort, narrow, remove, cross out, complete, contrast) proves the idea. Otherwise provide a stronger,
+different stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
 For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
 - beat 4 belongs to s2;
