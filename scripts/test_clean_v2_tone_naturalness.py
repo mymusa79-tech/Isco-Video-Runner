@@ -19,6 +19,7 @@ from clean_v2.pipeline import (
     _LONGFORM_PROFILES,
     _PODCAST_FIXED_PROFILE,
     _repair_target_section_ids,
+    _required_semantic_repair_section_ids,
     _run_legacy_factuality_audit,
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
@@ -1045,8 +1046,9 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def audit(_api_key, production_plan, _model):
+            def audit(_api_key, production_plan, _model, **kwargs):
                 captured["plan"] = production_plan
+                captured["research_boundaries"] = kwargs.get("research_boundaries", "")
                 return _tone_result()
 
             with patch(
@@ -1070,6 +1072,178 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(plan.identity_opener, identity["opener"])
         self.assertEqual(plan.identity_closer, identity["closer"])
         self.assertEqual(plan.identity_transitions, identity["transitions"])
+
+    def test_run82_semantic_repair_requires_every_explicitly_flagged_section(self):
+        script = {
+            "title": "وهم الكفاءة",
+            "sections": [
+                {"id": "s1", "narration": "A: هل نتحكم في التقنية أم نتبع ما تعرضه علينا؟"},
+                {"id": "s2", "narration": "B: تتكرر أمامك اقتراحات قريبة مما شاهدته سابقًا."},
+                {"id": "s3", "narration": "B: اكتب فكرتك قبل أن تفتح البحث."},
+            ],
+        }
+        revision = "\n".join(
+            (
+                "- [tone] editorial_promise_continuity: s2 does not directly earn the hook tension.",
+                "- [tone] viewer_retention_continuity: s3 does not resolve the specific hook.",
+                "- [tone] content_depth:s3 generic action.",
+                "- [tone] hook_quality: hook_genericness=true.",
+                "- [tone] content_dependency: failed section_dependency",
+            )
+        )
+        self.assertEqual(
+            _required_semantic_repair_section_ids(script, revision),
+            ("s1", "s2", "s3"),
+        )
+
+        plan = {
+            "title": "وهم الكفاءة",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "phone"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "feed"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "notes"},
+            ],
+        }
+        incomplete = {
+            "patches": [
+                {
+                    "section_id": "s1",
+                    "find": "A: هل نتحكم في التقنية أم نتبع ما تعرضه علينا؟",
+                    "replace": "A: حين تختار من قائمة رتبتها الشاشة مسبقًا، كم يبقى من اختيارك أنت؟",
+                },
+                {
+                    "section_id": "s3",
+                    "find": "B: اكتب فكرتك قبل أن تفتح البحث.",
+                    "replace": "B: قارن ما كنت ستختاره قبل فتح الشاشة بما ظهر لك بعدها، ثم راقب أين تغيّر مسارك.",
+                },
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "explicitly flagged section: s2"):
+            _validate_and_apply_script_patches(
+                incomplete,
+                plan=plan,
+                original_script=script,
+                identity={},
+                cta_plan={},
+                revision_note=revision,
+                allowed_section_ids=("s1", "s2", "s3"),
+                required_changed_section_ids=("s1", "s2", "s3"),
+            )
+
+    def test_run82_repair_prompt_does_not_claim_failed_dimensions_already_passed(self):
+        script = {
+            "title": "وهم الكفاءة",
+            "sections": [
+                {"id": "s1", "narration": "A: هل نتحكم في التقنية أم نتبع ما تعرضه علينا؟"},
+                {"id": "s2", "narration": "B: تتكرر أمامك اقتراحات قريبة مما شاهدته سابقًا."},
+                {"id": "s3", "narration": "B: اكتب فكرتك قبل أن تفتح البحث."},
+            ],
+        }
+        plan = {
+            "title": "وهم الكفاءة",
+            "narrative_format": "dialogue_qa",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "phone"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "feed"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "notes"},
+            ],
+        }
+        revision = (
+            "- [tone] editorial_promise_continuity: s2 is not earned.\n"
+            "- [tone] content_depth:s3 generic action.\n"
+            "- [tone] hook_quality: hook_genericness=true, payoff_resolves_hook=false"
+        )
+        prompt = _tone_repair_prompt(
+            brief={"format": "podcast", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertIn("REQUIRED_SEMANTIC_CHANGE_SECTION_IDS", prompt)
+        self.assertIn('["s1","s2","s3"]', prompt)
+        self.assertIn("SEMANTIC-SPINE REPAIR", prompt)
+        self.assertNotIn("current script already PASSED hook_specificity, section_dependency", prompt)
+        self.assertIn("Never assume section_dependency", prompt)
+
+    def test_run82_tone_scope_respects_noncausal_research_ceiling(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        boundaries = (
+            "[RESEARCH_BOUNDARIES]\n"
+            "market-interest evidence only; does not establish causality or scientific mechanism\n"
+            "[/RESEARCH_BOUNDARIES]"
+        )
+        scoped = _scope_clean_v2_tone_prompt(
+            base,
+            research_boundaries=boundaries,
+        )
+        self.assertIn("CLEAN_V2_EVIDENCE_BOUNDARY", scoped)
+        self.assertIn("do NOT block merely because the draft lacks such a mechanism", scoped)
+        self.assertIn("A text can be deep without pretending evidence exists", scoped)
+        self.assertIn(boundaries, scoped)
+
+    def test_run82_podcast_tone_audit_strips_runtime_prayer_before_judgment(self):
+        captured = {}
+        dummy_plan = SimpleNamespace(
+            hook="",
+            closing_payoff="",
+            identity_opener="",
+            identity_closer="",
+            identity_transitions=[],
+        )
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "A: هل نتحكم فعلًا في التقنية؟ "
+                        + PRAYER_SENTENCE
+                        + " B: لنفحص ما يحدث حين تسبق الشاشة قرارنا."
+                    ),
+                },
+                {"id": "s2", "narration": "B: هذه فقرة ثانية مرتبطة بالسؤال."},
+            ],
+        }
+
+        def build(**kwargs):
+            captured["audit_script"] = kwargs["script"]
+            return dummy_plan
+
+        def audit(_api_key, production_plan, _model, **kwargs):
+            captured["research_boundaries"] = kwargs.get("research_boundaries", "")
+            return _tone_result()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                side_effect=build,
+            ), patch(
+                "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                side_effect=audit,
+            ):
+                _run_legacy_tone_naturalness_audit(
+                    output_dir=root,
+                    brief={"format": "podcast", "research_pack": []},
+                    plan={"promise": ""},
+                    script=script,
+                )
+
+        judged = "\n".join(
+            item["narration"] for item in captured["audit_script"]["sections"]
+        )
+        self.assertNotIn(PRAYER_SENTENCE, judged)
+        self.assertIn("A: هل نتحكم فعلًا في التقنية؟", judged)
 
     def test_run256_tone_scope_defers_visual_query_and_respects_host_locks(self):
         base = (
