@@ -194,7 +194,7 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             self.assertAlmostEqual(sum(durations), 10.0, places=6)
             self.assertGreater(durations[0], durations[1])
 
-    def test_shot_role_shapes_existing_section_time_without_adding_duration(self) -> None:
+    def test_shot_role_is_advisory_and_does_not_change_section_time(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             (root / "rights-manifest.json").write_text(
@@ -239,7 +239,7 @@ class HumanEditorialRhythmTests(unittest.TestCase):
                 pad=0.0,
             )
             self.assertAlmostEqual(sum(durations), 10.0, places=6)
-            self.assertGreater(durations[1], durations[0])
+            self.assertAlmostEqual(durations[0], durations[1], places=6)
 
     def test_edit_boundary_uses_semantic_and_environment_continuity(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -285,10 +285,14 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             )
             self.assertEqual(decisions[0]["decision"], "DISSOLVE")
             self.assertEqual(
-                decisions[0]["reason"], "same_environment_semantic_continuity"
+                decisions[0]["reason"],
+                "semantic_continuity_confirmed_by_environment",
             )
             self.assertEqual(decisions[1]["decision"], "CUT")
-            self.assertEqual(decisions[1]["reason"], "environment_change")
+            self.assertEqual(
+                decisions[1]["reason"],
+                "semantic_continuity_with_environment_change",
+            )
 
     def test_edit_decision_contract_is_local_zero_call_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -324,6 +328,11 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             self.assertEqual(report["provider_calls_added"], 0)
             self.assertEqual(report["ai_calls_added"], 0)
             self.assertFalse(report["new_production_stage_added"])
+            self.assertTrue(report["shot_role_is_advisory_only"])
+            self.assertTrue(report["environment_family_is_advisory_only"])
+            self.assertEqual(
+                report["shot_timing_owner"], "measured_voice_plus_hold_reason_only"
+            )
             self.assertEqual(report["slots"][0]["shot_role"], "detail")
             self.assertEqual(report["slots"][0]["pause_intent"], "emphasis")
             self.assertTrue((root / "edit-decision-contract.json").is_file())
