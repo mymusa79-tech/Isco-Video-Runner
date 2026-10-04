@@ -98,6 +98,41 @@ class VisualRecoveryContractTests(unittest.TestCase):
         self.assertIn("context, not mandatory props", family)
         self.assertIn("Preserve the exact beat meaning", family)
 
+    def test_final_visual_recovery_prompt_uses_observed_failure_class(self):
+        prompt = visual_qa._alternate_visual_query_prompt(
+            original_query="office worker close portrait",
+            narration_context="ضغط العمل يتراكم",
+            semantic_brief="show overload without a recognizable face",
+            failure_reason="identifiable_face",
+        )
+        self.assertIn("Observed failure class", prompt)
+        self.assertIn("identifiable_face", prompt)
+        self.assertIn("hands/back view/objects/distant framing", prompt)
+
+    def test_visual_recovery_reason_is_local_and_deterministic(self):
+        self.assertEqual(
+            visual_qa._visual_recovery_reason(
+                {"no_face_policy": "block"}, floor=0.95, target=0.80
+            ),
+            "identifiable_face",
+        )
+        self.assertEqual(
+            visual_qa._visual_recovery_reason(
+                {"cultural_islamic_policy": "block"}, floor=0.95, target=0.80
+            ),
+            "cultural_conflict",
+        )
+        self.assertEqual(
+            visual_qa._visual_recovery_reason(
+                {"ai_image_only_policy": "block"}, floor=0.95, target=0.80
+            ),
+            "embedded_text_or_logo",
+        )
+        self.assertEqual(
+            visual_qa._visual_recovery_reason({}, floor=0.70, target=0.80),
+            "weak_semantic_fit",
+        )
+
     def test_second_attempt_receives_rejection_and_only_valid_output_changes_proof(self):
         brief, plan, story, script = _podcast_fixture()
         original = copy.deepcopy(story)
