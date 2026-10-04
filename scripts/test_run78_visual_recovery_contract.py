@@ -218,7 +218,32 @@ class VisualRecoveryContractTests(unittest.TestCase):
 class PlanningCapacityContractTests(unittest.TestCase):
     def test_all_short_templates_fit_groq_with_identity_and_rules_preserved(self):
         brief = _brief("short")
-        brief["approved_topic"] = "قوة 1%: كيف يغيّر التحسن الصغير حياتك؟"
+        brief.update({
+            "approved_topic": "كيف تبني درعاً صحياً لحماية طاقتك النفسية؟",
+            "editorial_intent": "محتوى عربي فصيح طبيعي، متفائل وواقعي، واضح ومفيد، مع تجنب المبالغة والادعاءات غير المدعومة.",
+            "hard_constraints": [
+                "No fabricated facts.",
+                "Use research_pack only within each source claim_scope.",
+                "Gemini 3.8 is the only voice provider: Charon is the primary narrator; Orus is allowed only when Planning selects dialogue_qa.",
+            ],
+            "research_pack": [
+                {
+                    "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا.",
+                    "source_title": "اتقن فن التجاهل وعدم الاهتمام.. تجاهل الجميع وستندهش كيف يريدك الناس (كتاب صوتي)",
+                    "source_url": "https://youtu.be/da9274BCTTA",
+                },
+                {
+                    "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا.",
+                    "source_title": "فخ المجاملة: لماذا يدمر الخجل من الرفض سلامك الداخلي ويفتح باب الاستغلال؟",
+                    "source_url": "https://youtu.be/3INesZwo9uY",
+                },
+                {
+                    "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا.",
+                    "source_title": "عادات يومية تزيد من هيبتك | كيف تفرض احترامك دون أن تطلبه",
+                    "source_url": "https://youtu.be/nlh9Qu_uw7E",
+                },
+            ],
+        })
         original = copy.deepcopy(brief)
         selection = short_format.select_short_template(brief)
         for template in short_format.TEMPLATE_ORDER:
@@ -228,7 +253,10 @@ class PlanningCapacityContractTests(unittest.TestCase):
                             visual_query_directive=short_format.TEMPLATE_VISUAL_QUERY_DIRECTIVES[template])
             with self.subTest(template=template), mock.patch.object(short_format, "select_short_template", return_value=selected):
                 prompt = pipeline._planning_prompt(brief)
-                self.assertLess(len(prompt.encode("utf-8")), providers.GROQ_MAX_PROMPT_UTF8_BYTES - 2000)
+                self.assertLess(
+                    len(prompt.encode("utf-8")),
+                    providers.GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+                )
                 for marker in ("APPROVED_BRIEF:", "SHORT_FORMAT_CONTRACT:", "ACTION-SPECIFICITY SELF-CHECK",
                                "HOOK SPECIFICITY SELF-CHECK", "VISUAL EVIDENCE CONTRACT", "<CHANNEL_PERSONA>", "<HUMAN_FEEL>"):
                     self.assertIn(marker, prompt)
@@ -237,9 +265,37 @@ class PlanningCapacityContractTests(unittest.TestCase):
 
     def test_podcast_prompt_fits_groq_and_keeps_fixed_dialogue_and_quality(self):
         brief = _brief("podcast")
-        brief["approved_topic"] = "لماذا يتحول السعي إلى تحسين حياتنا أحيانًا إلى شعور دائم بأننا غير كافين؟"
+        brief.update({
+            "approved_topic": "وهم الكفاءة السريعة: حين يفقد العقل استقلاله بالاتكال المفرط على التقنية",
+            "editorial_intent": "برنامج خارج النص: حوار listener-proxy ثابت بالعربية الفصحى الطبيعية وبصوت القناة الثابت، ويقدّم حوارًا حقيقيًا مع مستمع واحد. A بصوت Orus يمثل ذلك المستمع بسؤال أو اعتراض قصير ومحدد عند الحاجة فقط، وB بصوت Charon هو صوت القناة ويحمل الشرح الأساسي. يبدأ الموضوع بسؤال مركزي حقيقي، ثم يجيب B على نفس التوتر مباشرة بعد هوية البرنامج ويتقدم طبقة بعد طبقة حتى يتغير فهم المستمع. لا مضيف/ضيف، لا مجاملات، لا تناوب آلي، لا قائمة نصائح، ولا محاضرة؛ الحلقة يجب أن تبقى مفهومة وممتعة صوتيًا دون الصورة.",
+            "hard_constraints": [
+                "No fabricated facts.",
+                "Use research_pack only within each source claim_scope.",
+                "Gemini 3.8 is the only voice provider: Charon is the primary narrator; Orus is allowed only when Planning selects dialogue_qa.",
+                "Outside Text uses fixed listener-proxy dialogue: Orus is A (the sparse listener question/objection) and Charon is B (the channel voice carrying the answer).",
+                "Every A turn must unlock a genuinely new layer and receive an immediate B answer; never use A as a host, interviewer, or filler speaker.",
+                "Outside Text must stay conversational and simple-deep; it must not become a monologue, host/guest interview, lecture, or numbered-list episode, and must never invent first-person experiences.",
+                "Selected visuals must remain modest and respectful for a broad Arab/Muslim audience.",
+            ],
+            "research_pack": [
+                {
+                    "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا.",
+                    "source_title": "الذكاء الاصطناعي وعقولنا: كيف تسيطر الخوارزميات على تفكيرك؟",
+                    "source_url": "https://youtu.be/KDZgqMmE1j4",
+                },
+                {
+                    "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا.",
+                    "source_title": "هل يتحكم الذكاء الاصطناعي في عقلك الآن؟",
+                    "source_url": "https://youtu.be/UJqWOEL7ke8",
+                },
+            ],
+            "series_name": "خارج النص",
+        })
         prompt = pipeline._planning_prompt(brief)
-        self.assertLess(len(prompt.encode()), providers.GROQ_MAX_PROMPT_UTF8_BYTES - 2000)
+        self.assertLess(
+            len(prompt.encode("utf-8")),
+            providers.GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+        )
         for marker in ("narrative_format=dialogue_qa", "The first spoken sentence MUST be A:",
                        "VISUAL VARIETY is semantic, not cosmetic", "POST-HOOK VISUAL FLOOR",
                        "CTA speech and visuals are forbidden"):
@@ -250,9 +306,13 @@ class PlanningCapacityContractTests(unittest.TestCase):
         mistral = providers._mistral_planning_response_schema(prompt)
         gemini = providers._gemini_planning_response_schema(prompt)
         groq = providers._groq_planning_response_schema(prompt)
-        for schema in (mistral, gemini, groq):
+        for schema in (mistral, groq):
             beat = schema["properties"]["visual_story"]["properties"]["beats"]["items"]
             self.assertIn("stock_query_alt_en", beat["properties"])
+        self.assertIn("visual_story", gemini["required"])
+        gemini_beat = gemini["properties"]["visual_story"]["properties"]["beats"]["items"]
+        self.assertEqual(gemini_beat["type"], "object")
+        self.assertTrue(gemini_beat["additionalProperties"])
         def assert_strict(schema):
             if schema.get("type") == "object":
                 self.assertEqual(set(schema["properties"]), set(schema["required"]))
@@ -280,11 +340,20 @@ class PlanningCapacityContractTests(unittest.TestCase):
     def test_oversized_groq_request_still_skips_without_changing_provider_limit(self):
         calls = []
         router = providers.ProviderRouter((providers.ProviderAdapter(
-            "groq", lambda *_: calls.append("groq"), max_prompt_utf8_bytes=providers.GROQ_MAX_PROMPT_UTF8_BYTES
+            "groq",
+            lambda *_: calls.append("groq"),
+            max_prompt_utf8_bytes=providers.GROQ_MAX_PROMPT_UTF8_BYTES,
+            max_prompt_utf8_bytes_by_stage={
+                "planning": providers.GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
+            },
         ),))
         with self.assertRaises(RuntimeError):
-            router.route(stage="planning", prompt="x" * (providers.GROQ_MAX_PROMPT_UTF8_BYTES + 1),
-                         max_tokens=100, validator=lambda value: value)
+            router.route(
+                stage="planning",
+                prompt="x" * (providers.GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES + 1),
+                max_tokens=100,
+                validator=lambda value: value,
+            )
         self.assertEqual(calls, [])
         self.assertEqual(router.events[0]["reason"], "prompt_too_large_for_provider")
 
