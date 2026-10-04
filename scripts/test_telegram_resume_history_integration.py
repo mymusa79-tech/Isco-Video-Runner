@@ -38,6 +38,84 @@ def _request() -> dict:
 
 
 class TelegramResumeHistoryIntegrationTests(unittest.TestCase):
+    def test_saved_root_restores_long_short_podcast_tabs(self):
+        state = control.default_state()
+
+        long_request = _request()
+        long_request["request_id"] = "req-long"
+        long_request["scope"] = "long"
+        long_request["approved_topic"] = "موضوع طويل"
+        long_request["selected_at"] = "2026-10-01T01:00:00Z"
+
+        short_old = _request()
+        short_old["request_id"] = "req-short-old"
+        short_old["approved_topic"] = "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"
+        short_old["selected_at"] = "2026-10-01T01:00:00Z"
+
+        short_new = _request()
+        short_new["request_id"] = "req-short-new"
+        short_new["approved_topic"] = "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"
+        short_new["selected_at"] = "2026-10-02T01:00:00Z"
+
+        podcast_request = _request()
+        podcast_request["request_id"] = "req-podcast"
+        podcast_request["scope"] = "podcast"
+        podcast_request["approved_topic"] = "موضوع بودكاست"
+        podcast_request["selected_at"] = "2026-10-03T01:00:00Z"
+
+        state["requests"] = {
+            item["request_id"]: item
+            for item in (long_request, short_old, short_new, podcast_request)
+        }
+
+        with mock.patch.object(control, "_release_library_records", return_value=[]):
+            text, keyboard = control._history_view(state)
+
+        callbacks = [button["callback_data"] for row in keyboard for button in row]
+        self.assertEqual(
+            callbacks[:3],
+            ["historyscope:long", "historyscope:short", "historyscope:podcast"],
+        )
+        self.assertIn("🎬 طويل — 1", text)
+        self.assertIn("⚡ شورت — 1", text)
+        self.assertIn("🎙️ بودكاست — 1", text)
+        self.assertFalse(any(value.startswith("history:") for value in callbacks))
+
+    def test_history_scope_shows_only_kind_and_dedupes_to_newest_request(self):
+        state = control.default_state()
+
+        old = _request()
+        old["request_id"] = "req-old"
+        old["approved_topic"] = "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"
+        old["selected_at"] = "2026-10-01T01:00:00Z"
+
+        new = _request()
+        new["request_id"] = "req-new"
+        new["approved_topic"] = "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"
+        new["selected_at"] = "2026-10-02T01:00:00Z"
+
+        other = _request()
+        other["request_id"] = "req-long"
+        other["scope"] = "long"
+        other["approved_topic"] = "موضوع طويل لا يجب أن يظهر"
+        other["selected_at"] = "2026-10-03T01:00:00Z"
+
+        state["requests"] = {
+            item["request_id"]: item
+            for item in (old, new, other)
+        }
+
+        with mock.patch.object(control, "_release_library_records", return_value=[]):
+            text, keyboard = control._history_scope_view(state, "short")
+
+        callbacks = [button["callback_data"] for row in keyboard for button in row]
+        self.assertIn("history:req-new", callbacks)
+        self.assertNotIn("history:req-old", callbacks)
+        self.assertNotIn("history:req-long", callbacks)
+        self.assertEqual(callbacks.count("history:req-new"), 1)
+        self.assertNotIn("موضوع طويل لا يجب أن يظهر", text)
+        self.assertEqual(keyboard[-1][0]["callback_data"], "main:saved")
+
     def test_history_detail_shows_resume_only_when_verified(self):
         request = _request()
         state = control.default_state()
@@ -55,6 +133,7 @@ class TelegramResumeHistoryIntegrationTests(unittest.TestCase):
         self.assertIn("سيستكمل من: Text Audit", text)
         self.assertIn("resume:req-history", callbacks)
         self.assertIn("restart:req-history", callbacks)
+        self.assertIn("historyscope:short", callbacks)
 
     def test_disabled_resume_has_specific_reason_and_only_restart_action(self):
         request = _request()
