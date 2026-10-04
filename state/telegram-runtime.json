@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "long",
   "kind": "",
   "topic": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37235948656",
-  "result": "",
-  "updated_at": 1791149066
+  "result": "failure",
+  "updated_at": 1791149199
 }
