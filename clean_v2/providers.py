@@ -655,6 +655,39 @@ def _mistral_short_hook_validator_retry_prompt(
     )
 
 
+def _mistral_script_patch_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """Give Mistral one bounded completion pass for a partial semantic repair."""
+    if type(exc).__name__ != "ValueError":
+        return None
+    match = re.fullmatch(
+        r"semantic script patch did not change every explicitly flagged section:\s*"
+        r"(s[1-5](?:,\s*s[1-5])*)",
+        " ".join(str(exc).split()).strip(),
+        flags=re.I,
+    )
+    if not match:
+        return None
+    missing = [item.strip().lower() for item in match.group(1).split(",") if item.strip()]
+    if not missing:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY — your previous bounded patch "
+        + "was structurally valid but did not make a real narration change in every "
+        + "semantic section explicitly required by the repair contract. Missing required "
+        + "section changes: "
+        + ", ".join(missing)
+        + ". Return the COMPLETE script_patch JSON again, still using only 1-6 minimal "
+        + "exact find/replace patches. Include at least one valid, meaningfully changed "
+        + "patch for EACH missing section while preserving every host-owned lock, CTA, "
+        + "prayer, section id/order, research boundary and unaffected sentence. Do not "
+        + "broaden the rewrite and do not explain. Return JSON only."
+    )
+
+
 def _safe_mistral_script_patch_raw_diagnostic(
     raw_content: str, exc: Exception
 ) -> dict[str, Any]:
@@ -1727,6 +1760,12 @@ class ProviderRouter:
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_short_hook_validator_retry"
+                elif adapter.name == "mistral" and stage == "script_patch":
+                    retry_prompt = _mistral_script_patch_validator_retry_prompt(
+                        provider_prompt, exc
+                    )
+                    if retry_prompt is not None:
+                        retry_event_reason = "mistral_script_patch_validator_retry"
 
                 if retry_prompt is not None:
                     self._event(
