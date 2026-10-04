@@ -2048,7 +2048,7 @@ def _factuality_location_issue_notes(
 
 
 _QUOTED_TONE_FLAG_EXAMPLE = re.compile(
-    r'(?:\"([^\"\\n]{1,220})\"|\'([^\'\\n]{1,220})\'|«([^»\\n]{1,220})»|“([^”\\n]{1,220})”)'
+    r'(?:"([^"\n]{1,220})"|\'([^\'\n]{1,220})\'|«([^»\n]{1,220})»|“([^”\n]{1,220})”)'
 )
 _WORD_TOKEN = re.compile(r"\w+", re.UNICODE)
 
@@ -2058,6 +2058,8 @@ def _quoted_tone_excerpt(match: "re.Match[str]") -> str:
         (group.strip() for group in match.groups() if group is not None),
         "",
     )
+
+
 _QUOTE_WORD_OVERLAP_FLOOR = 0.6
 
 
