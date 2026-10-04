@@ -280,7 +280,7 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             signals = media_module._editorial_signals_by_local_file(root)
             decisions = media_module._editorial_boundary_decisions(
                 [root / "one.mp4", root / "two.mp4", root / "three.mp4"],
-                ["s1", "s1", "s1"],
+                ["s1", "s2", "s2"],
                 signals,
             )
             self.assertEqual(decisions[0]["decision"], "DISSOLVE")
