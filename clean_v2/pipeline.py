@@ -2373,6 +2373,33 @@ def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
     )
 
 
+def _short_locked_action_repair_allowed(
+    plan: Mapping[str, Any], revision_note: str
+) -> bool:
+    """Open the Planning-owned Short action only when the audit cites its text.
+
+    Run 80 exposed an impossible state: Tone QA correctly flagged grammar inside
+    practical_action_ar, while the only repair stage was forbidden from touching
+    that host-owned sentence. A direct 3+ word overlap is narrow enough to prove
+    the audit is targeting this exact action without making the lock generally
+    writable.
+    """
+    action = " ".join(
+        str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").split()
+    ).strip()
+    note = " ".join(str(revision_note or "").split()).strip()
+    if not action or not note:
+        return False
+    if action in note:
+        return True
+    words = action.split()
+    for size in range(min(6, len(words)), 2, -1):
+        for start in range(0, len(words) - size + 1):
+            if " ".join(words[start : start + size]) in note:
+                return True
+    return False
+
+
 _TANWEEN_FATH_ON_ALEF_RE = re.compile(r"([ء-ي])اً")
 
 
@@ -2405,6 +2432,7 @@ def _validate_and_apply_script_patches(
     revision_note: str,
     allowed_section_ids: tuple[str, ...] | None = None,
     is_short_format: bool = False,
+    allow_short_locked_action_repair: bool = False,
 ) -> dict[str, Any]:
     """Apply exact local replacements to the original script; reject broad rewrites."""
     if not isinstance(value, Mapping):
@@ -2422,6 +2450,13 @@ def _validate_and_apply_script_patches(
         raise ValueError("script patch has no deterministic target section")
 
     repaired = copy.deepcopy(dict(original_script))
+    candidate_plan = copy.deepcopy(dict(plan))
+    candidate_locked_action = str(
+        candidate_plan.get("s3_locked_action")
+        or candidate_plan.get("practical_action_ar")
+        or ""
+    ).strip()
+    locked_action_patch_used = False
     sections = repaired.get("sections") or []
     if not isinstance(sections, list):
         raise ValueError("script patch original sections invalid")
@@ -2491,30 +2526,56 @@ def _validate_and_apply_script_patches(
             item = by_id[section_id]
             narration = str(item.get("narration") or "")
             patch_surface = narration
+            action_patch_this_patch = False
             if is_short_format and section_id == str(sections[-1].get("id") or ""):
-                locked_action = str(
-                    plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
-                ).strip()
+                locked_action = candidate_locked_action
                 if locked_action:
                     payoff_surface = str(item.get("s3_payoff") or "").strip()
                     if not payoff_surface and narration.endswith(locked_action):
                         payoff_surface = narration[: -len(locked_action)].strip()
                     if not payoff_surface:
                         raise ValueError("short s3 patch requires structured s3_payoff")
-                    # Planning owns this exact action. A patch that quotes or replaces it
-                    # is not a quality-repair candidate, so stop locally instead of
-                    # spending another provider attempt.
-                    if (
-                        locked_action in find
-                        or locked_action in replace
-                        or (find in narration and find not in payoff_surface)
-                    ):
-                        raise _ShortLockedActionPatchRejected(
-                            "script patch cannot change Planning-owned practical_action_ar"
+                    action_find_count = locked_action.count(find)
+                    touches_locked_action = action_find_count > 0
+                    if touches_locked_action:
+                        if not allow_short_locked_action_repair:
+                            raise _ShortLockedActionPatchRejected(
+                                "script patch cannot change Planning-owned practical_action_ar"
+                            )
+                        if locked_action_patch_used:
+                            raise ValueError(
+                                "script patch may repair the audited locked action only once"
+                            )
+                        if action_find_count != 1:
+                            raise ValueError(
+                                "locked practical action patch must match exactly once"
+                            )
+                        updated_action = normalize_short_practical_action(
+                            locked_action.replace(find, replace, 1)
                         )
-                    patch_surface = payoff_surface
+                        updated_action = validate_short_practical_action(updated_action)
+                        if updated_action == locked_action:
+                            raise ValueError(
+                                "locked practical action patch made no wording change"
+                            )
+                        candidate_locked_action = updated_action
+                        candidate_plan["practical_action_ar"] = updated_action
+                        candidate_plan["s3_locked_action"] = updated_action
+                        item["s3_locked_action"] = updated_action
+                        action_patch_this_patch = True
+                    else:
+                        # The action remains host-owned. A patch cannot quote a new
+                        # action into the payoff or reach across the payoff/action seam.
+                        if (
+                            locked_action in replace
+                            or (find in narration and find not in payoff_surface)
+                        ):
+                            raise _ShortLockedActionPatchRejected(
+                                "script patch cannot change Planning-owned practical_action_ar"
+                            )
+                        patch_surface = payoff_surface
 
-            if patch_surface.count(find) != 1:
+            if not action_patch_this_patch and patch_surface.count(find) != 1:
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
@@ -2638,7 +2699,10 @@ def _validate_and_apply_script_patches(
             hook_quality_fix_used = True
         elif hook_fix_this_patch:
             hook_word_fix_used = True
-        if is_short_format and section_id == str(sections[-1].get("id") or ""):
+        if action_patch_this_patch:
+            item["s3_locked_action"] = candidate_locked_action
+            locked_action_patch_used = True
+        elif is_short_format and section_id == str(sections[-1].get("id") or ""):
             updated_payoff = patch_surface.replace(find, replace, 1)
             item["s3_payoff"] = updated_payoff
             # Keep narration unmaterialized during patch application. The canonical
@@ -2654,7 +2718,7 @@ def _validate_and_apply_script_patches(
             + "; ".join(failure_reasons)
         )
 
-    normalized = validate_script(repaired, plan)
+    normalized = validate_script(repaired, candidate_plan)
     if (
         original_hook
         and not hook_word_fix_used
@@ -2703,9 +2767,7 @@ def _validate_and_apply_script_patches(
         # _safe_validator_reason convention, which already special-cases
         # ShortFormatError to log its specific contract code.
         validate_short_script(normalized)
-        if str(
-            plan.get("s3_locked_action") or plan.get("practical_action_ar") or ""
-        ).strip():
+        if candidate_locked_action:
             materialize_short_s3(normalized)
     return normalized
 
