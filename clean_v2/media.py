@@ -2995,7 +2995,6 @@ def _editorial_boundary_decisions(
         left_environment = str(left_signal.get("environment_family") or "").strip()
         right_environment = str(right_signal.get("environment_family") or "").strip()
         right_hold = str(right_signal.get("hold_reason") or "").strip()
-        right_role = str(right_signal.get("shot_role") or "").strip()
 
         decision = "CUT"
         reason = "semantic_boundary"
@@ -3071,6 +3070,7 @@ def _write_edit_decision_contract(
         "schema_version": EDIT_DECISION_CONTRACT_VERSION,
         "status": "pass",
         "source": "clean-v2-local-renderer",
+        "compiler_mode": "local_semantic_edit_compiler_v1",
         "format": fmt,
         "timeline_owner": "measured_voice",
         "opening_director_locked": bool(opening_enabled),
