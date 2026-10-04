@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 from clean_v2 import media as media_module
@@ -21,6 +22,7 @@ from clean_v2.pipeline import (
     _planning_prompt,
     _script_prompt,
     _validate_plan_for_brief,
+    _validate_plan_with_visual_world_recovery,
 )
 from clean_v2.visual_story import (
     CHANNEL_VISUAL_IDENTITY,
@@ -150,6 +152,34 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("Person scrolling many tabs on a laptop", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+
+    def test_first_visual_world_identity_rejection_is_normalized_locally(self) -> None:
+        value = _planning_value("film")
+        router = SimpleNamespace(events=[])
+        state = {"identity_rejections": 0}
+
+        planned = _validate_plan_with_visual_world_recovery(
+            value,
+            _brief("film"),
+            router=router,
+            state=state,
+        )
+
+        self.assertEqual(state["identity_rejections"], 1)
+        self.assertEqual(
+            planned["visual_story"]["visual_world"],
+            CHANNEL_VISUAL_IDENTITY,
+        )
+        host_events = [
+            item for item in router.events
+            if item.get("provider") == "host"
+        ]
+        self.assertEqual(len(host_events), 1)
+        self.assertEqual(
+            host_events[0]["reason"],
+            "visual_world_identity_fallback",
+        )
+        self.assertFalse(host_events[0]["wire_attempted"])
 
     def test_post_hook_visual_floor_prefers_stronger_alternate_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
