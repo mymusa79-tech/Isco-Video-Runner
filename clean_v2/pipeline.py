@@ -5172,44 +5172,24 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     short_context = short_prompt_context(brief, for_planning=True) if fmt == "short" else ""
     podcast_context = (
         """
-For podcast only, this is the channel series "خارج النص". Turn the approved topic into a genuinely
-worthwhile central question and a specific, non-obvious angle. Reject generic self-help treatment,
-superficial list-style planning, and topics that merely sound deep. The listener's understanding must
-meaningfully change between the beginning and the end. Each section must add a new cause, example,
-tension, distinction, implication, or resolution instead of restating the previous section. The
-structure is internal production scaffolding only: it must be invisible to the listener. Do not
-manufacture suspense, cliffhangers, or rhetorical questions just to hold attention. The audio must
-make complete sense with the screen closed.
+For podcast only, this is "خارج النص": build one worthwhile central question and a specific,
+non-obvious angle. Reject generic self-help/listicle treatment. Every section must add a new cause,
+example, distinction, consequence, implication, or resolution; the structure stays invisible and the
+audio must make complete sense with the screen closed. Use a specific episode title ending " | خارج النص".
 
-The episode title must be specific to THIS episode and carry its real tension or promise; append
-" | خارج النص" to that specific title. Never use "خارج النص" by itself as the episode title.
+The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A: one short,
+concrete listener question/doubt/objection. B: is the established Charon voice and carries the real
+explanation. Use A sparingly only when it opens a gap that the immediately following B answers; never
+as host/interviewer/filler and never alternate A/B mechanically. Runtime inserts prayer + fixed خارج النص
+identity after the first A hook, so B's first topic words must pick up the SAME noun/tension, not restart.
 
-خارج النص has one fixed listener-proxy dialogue identity. The first spoken sentence MUST be A: and
-must be one short, concrete question the listener plausibly has in their own head. B: is the established
-Charon channel voice and carries the real explanation. A is sparse: use only one of four listener-proxy jobs when it genuinely unlocks a new layer:
-a real question, a plausible doubt, a concrete objection, or a request for clarification. Never use A as
-a host, interviewer, co-presenter, agreement filler, or setup machine. Each planned A turn must create a
-specific gap that the immediately following B turn answers before another A appears. If B would deliver
-essentially the same substance without that A turn, omit A instead of manufacturing dialogue. Do not
-alternate A/B mechanically after every sentence. Express this progression through the existing section
-purpose fields; do not invent a new schema or metadata field. The runtime will insert the prayer and fixed
-خارج النص definition between the first A hook and B's first answer, so B's first words must pick up the
-SAME noun/tension from the hook naturally rather than restarting the topic.
-
-Keep the visual companion deliberately sparse and audio-first. For section 1, use TWO semantic beats:
-(1) the A-hook beat is a close/medium no-face unresolved detail, interrupted action, or visible consequence
-that makes the listener's question readable with sound off; (2) the first B-answer beat changes scale,
-context, action or state to reveal new information and begin answering it. Do NOT use microphones,
-podcast studios, two empty chairs, waveform graphics, or fake host/guest imagery just because the audio
-contains two voices. After the opening pair, default to ONE visual beat per section and add a second only
-for a genuine major change in meaning or observable state. Never cut merely because A speaks again.
-Question turns may stay over the current scene unless the question itself opens a new visual idea.
-Favor a recurring grammar of unresolved detail -> contextual reveal -> consequence -> earned release,
-with calm contained medium/wide compositions, tactile real environments, side light and breathing room.
-The visuals support the narration and must never carry information required to understand the episode.
-Use the shared hook-to-payoff thread as the episode's genuine central question or contradiction, not
-as manufactured suspense. payoff_answer must resolve or deepen that question honestly, while the
-visual motif remains supportive and non-essential to a listener with the screen closed.
+Visuals are sparse and audio-first. Section 1 uses TWO semantic beats: unresolved A-hook evidence,
+then a changed scale/context/action/state beginning B's answer. Never use microphones, podcast studios,
+empty chairs, waveforms, or fake host/guest imagery merely because there are two voices. After the
+opening pair, default to ONE beat per section; add another only for a major meaning/state change and
+never cut merely because A speaks. Favor unresolved detail -> contextual reveal -> consequence ->
+earned release in calm real environments. payoff_answer must honestly resolve/deepen the central
+question; visuals remain supportive and non-essential with the screen closed.
 """
         if fmt == "podcast"
         else ""
