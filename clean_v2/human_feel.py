@@ -49,6 +49,35 @@ def with_human_feel(prompt: str) -> str:
     if "نداء اليقظة" not in prompt or "<HUMAN_FEEL>" in prompt:
         return prompt
     rules = load_human_feel()
+    is_planning = (
+        "APPROVED_BRIEF:" in prompt
+        and "Build a simple production plan." in prompt
+        and "visual_story" in prompt
+    )
+    if is_planning:
+        # Planning needs the human editorial direction, not the full writer list.
+        # Keep the same marker/meaning while avoiding duplicate prompt weight.
+        rules = {
+            "scope": "planning_blueprint",
+            "prefer": [
+                item
+                for item in rules["prefer"]
+                if item in {
+                    "specific observations",
+                    "concrete examples",
+                    "earned emotional movement",
+                }
+            ],
+            "reject": [
+                item
+                for item in rules["reject"]
+                if item in {
+                    "generic AI filler",
+                    "motivational poster language",
+                    "fake personal stories",
+                }
+            ],
+        }
     payload = json.dumps(rules, ensure_ascii=False, separators=(",", ":"))
     return (
         prompt
