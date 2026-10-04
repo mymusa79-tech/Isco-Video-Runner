@@ -429,6 +429,11 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # narration is roughly 13,000-15,000 output tokens once JSON section
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
+# A standalone Short has only three compact sections. Keeping a 2,500-token
+# completion allowance pushed Groq over its free-tier 8k TPM envelope in Run 85
+# before it could produce any text. 1,600 leaves ample JSON/narration headroom
+# while keeping the same prompt, validators and quality gates.
+SHORT_SCRIPT_MAX_TOKENS = 1600
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
 _GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
 
@@ -4751,6 +4756,56 @@ def _validate_resumed_visual_story(
         return validate_visual_story(repaired, resume_plan)
 
 
+_MECHANICAL_VISUAL_STORY_RECOVERY_PATTERNS = (
+    re.compile(r"^visual_story beat [A-Za-z0-9_-]+ post-hook semantic drop requires a stronger observable alternate$"),
+    re.compile(r"^visual_story must cover every planned section: missing=s[1-5](?:,s[1-5])*$"),
+)
+
+
+def _recover_mechanical_longform_visual_story(
+    value: Any,
+    brief: Mapping[str, Any],
+    *,
+    router: Any,
+    error: Exception,
+) -> dict[str, Any] | None:
+    """Rebuild only mechanically invalid Film/Podcast story structure from the plan.
+
+    The plan's section purposes and visual queries remain authoritative. The rebuilt
+    story is sent through the exact same strict validator, so this is not a quality
+    bypass and adds no provider call. Short is excluded because its 5-beat authored
+    hook contract cannot be reconstructed from three section queries without
+    inventing new meanings.
+    """
+    if str(brief.get("format") or "") not in {"film", "podcast"}:
+        return None
+    detail = " ".join(str(error).split()).strip()
+    if not any(pattern.fullmatch(detail) for pattern in _MECHANICAL_VISUAL_STORY_RECOVERY_PATTERNS):
+        return None
+    if not isinstance(value, Mapping):
+        return None
+
+    candidate = copy.deepcopy(dict(value))
+    candidate["visual_story"] = fallback_visual_story(candidate)
+    _append_runtime_event(
+        router,
+        {
+            "stage": "planning",
+            "provider": "host",
+            "result": "warning_fallback",
+            "reason": "visual_story_mechanical_fallback",
+            "rejected_reason": detail[:240],
+            "fallback": "fallback_visual_story",
+            "wire_attempted": False,
+        },
+    )
+    return _validate_plan_for_brief(
+        candidate,
+        brief,
+        enforce_visual_identity=True,
+    )
+
+
 def _validate_plan_with_visual_world_recovery(
     value: Any,
     brief: Mapping[str, Any],
@@ -4793,11 +4848,32 @@ def _validate_plan_with_visual_world_recovery(
                 "wire_attempted": False,
             },
         )
-        return _validate_plan_for_brief(
-            candidate,
+        try:
+            return _validate_plan_for_brief(
+                candidate,
+                brief,
+                enforce_visual_identity=True,
+            )
+        except ValueError as exc:
+            recovered = _recover_mechanical_longform_visual_story(
+                candidate,
+                brief,
+                router=router,
+                error=exc,
+            )
+            if recovered is not None:
+                return recovered
+            raise
+    except ValueError as exc:
+        recovered = _recover_mechanical_longform_visual_story(
+            value,
             brief,
-            enforce_visual_identity=True,
+            router=router,
+            error=exc,
         )
+        if recovered is not None:
+            return recovered
+        raise
 
 
 def _visual_family_recovery_prompt(
@@ -6730,7 +6806,7 @@ class CleanV2Pipeline:
                             transitions=identity.get("transitions"),
                             identity_opener=str(identity.get("opener") or ""),
                         ),
-                        max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else 2500,
+                        max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else SHORT_SCRIPT_MAX_TOKENS,
                         validator=lambda value: _validate_script_for_brief(
                             value,
                             plan,
