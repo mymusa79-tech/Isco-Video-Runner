@@ -5444,8 +5444,8 @@ listener with the screen closed.
         ),
         "podcast": (
             "FORMAT VISUAL PROFILE — PODCAST / خارج النص: calm contained medium/wide compositions, tactile real "
-            "environments, side light and breathing room that supports listening. Use sparse AI anchors; never copy "
-            "Short kinetics, Film journey montage, fake studio imagery, or ad styling."
+            "environments, side light and breathing room that supports listening. The image should feel like a thoughtful room around the voice. "
+            "Use sparse AI anchors; never copy Short kinetics, Film journey montage, fake studio imagery, or ad styling."
         ),
     }.get(fmt, "")
     editor_contract_guidance = {
@@ -5484,19 +5484,20 @@ Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
 Each visual query must be a concrete English stock-footage phrase. Prefer 6-14 useful search words and keep each
-query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues.
-Prefer positive face-safe cues (hands only, back view, objects, distant/angled figure), and keep section purposes complete.
-Use one coherent channel world: natural practical light, moderate-to-deep exposure, soft directional contrast,
-dark navy/charcoal shadows, ivory-neutral highlights and restrained warm gold; preserve highlights/midtones.
-The mood is grounded upward movement. Use quiet premium darkness rather than gloom. Reject flat beige, blown
-highlights, blanket blue, neon/night unless required, glossy lifestyle-ad looks, generic coffee/laptop mood shots,
-and identifiable faces. Use contextual depth and real environments.
-For Short, keep useful upper-right Arabic-text negative space when it does not weaken meaning.
+query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues;
+never cut mid-thought. Prefer face-safe cues such as hands only, back view, or objects only; distant/angled figures are fine.
+Use natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
+ivory-neutral highlights, and warm gold only as a restrained accent. The mood is grounded upward movement.
+Use quiet premium darkness rather than gloom; avoid flat beige/washed-out warm-neutral stock and glossy, airy lifestyle-ad bright looks.
+Do not mix obvious neon/night/cold-blue looks unless the topic requires them. Use foreground/midground/background depth,
+practical light sources and real environments; avoid empty walls, flat generic desks, generic coffee/laptop mood shots,
+and identifiable faces. For Short, prefer the subject/action on the left or lower-left and clean negative space in the
+upper-right for Arabic text when it does not weaken meaning.
 {format_visual_profile}
 
 CULTURAL COHERENCE is part of this same visual intent: when people/everyday social context appear, prefer a
-credible contemporary Arab/Middle-Eastern environment and modest presentation. Reject alcohol, gambling, nightclub/party
-culture, sexualized presentation, or conflicting ritual imagery; never force mosques, prayer rugs, calligraphy,
+credible contemporary Arab/Middle-Eastern environment and modest presentation. Reject scenes centered on alcohol, gambling, nightclub/party
+culture, sexualized presentation, or conflicting ritual imagery. Do NOT force mosques, prayer rugs, calligraphy,
 traditional dress, or religious symbols when the topic does not require them. Be natural, respectful, non-stereotyped.
 
 Build ONE unified visual story for the whole video in this same Planning response. This contract is
@@ -5504,21 +5505,21 @@ shared by short, film, and podcast formats without erasing their separate pacing
 The visual world must stay coherent with the restrained lighting world above. The story arc is only
 beginning -> transformation -> arrival.
 
-HOOK VISUAL STOP-POWER: first beat only. Stay in the channel world but show an immediate topic-specific visible
-tension/consequence/decisive moment understandable with sound off; prefer close/medium depth and focal contrast.
-Reject calm mood-only desk/coffee/window/walking/typing hooks unless that exact action is the tension, and reject
-unrelated shock, danger, misery, clickbait or ad exaggeration.
+HOOK VISUAL STOP-POWER: first beat only. The opening MUST NOT be a calm mood-only establishing image; show an
+immediate topic-specific tension/consequence/decisive moment understood with sound off in the first frame.
+Prefer close/medium depth and focal contrast. Avoid unrelated shock, danger, misery, clickbait or ad exaggeration;
+reject passive desk/coffee/window/walking/typing unless that exact action is the tension.
 HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage: hook -> next beat must advance
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
 VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
-separate families; never repeat a dominant family in consecutive beats and normally use one family <=2 times,
-except a visibly changed hook/payoff motif. Every new shot must add visible information.
+separate families. Do not place the same dominant action family in consecutive beats; normally use one family <=2 times,
+except a visibly changed hook/payoff motif. Prefer visible progression: stuck -> choosing -> moving -> completed.
 POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
-typing/scrolling/sitting/"working" are insufficient unless a visible relation/action (compare, choose, reject,
-close, sort, narrow, remove, cross out, complete, contrast) proves the idea. Otherwise provide a stronger,
-different stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
+typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
+"Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
+stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
 For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
 - beat 4 belongs to s2;
