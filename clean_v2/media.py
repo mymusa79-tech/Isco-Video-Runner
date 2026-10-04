@@ -142,13 +142,6 @@ STOCK_PRIMARY_PAGE_SIZE = 24
 # already authors these semantic signals; the renderer now consumes them instead
 # of inventing a second creative layer or making another provider call.
 EDIT_DECISION_CONTRACT_VERSION = 1
-EDITORIAL_SHOT_ROLE_WEIGHTS = {
-    "establish": 1.08,
-    "detail": 0.90,
-    "action": 0.96,
-    "consequence": 1.06,
-    "payoff": 1.14,
-}
 
 
 def _utc_now() -> str:
@@ -2975,13 +2968,6 @@ def _editorial_signals_by_local_file(
     return result
 
 
-def _editorial_visual_weight(signal: Mapping[str, str]) -> float:
-    """Combine existing semantic hold + shot-role intent without changing section time."""
-    hold_weight = EDITORIAL_HOLD_WEIGHTS.get(str(signal.get("hold_reason") or ""), 1.0)
-    role_weight = EDITORIAL_SHOT_ROLE_WEIGHTS.get(str(signal.get("shot_role") or ""), 1.0)
-    return max(0.50, float(hold_weight) * float(role_weight))
-
-
 def _editorial_boundary_decisions(
     paths: list[Path],
     section_ids: list[str] | None,
@@ -3013,25 +2999,34 @@ def _editorial_boundary_decisions(
 
         decision = "CUT"
         reason = "semantic_boundary"
-        if left_environment and right_environment and left_environment != right_environment:
-            reason = "environment_change"
-        elif right_hold == "idea_continues":
-            decision = "DISSOLVE"
-            reason = "same_environment_semantic_continuity"
+        same_environment = bool(
+            left_environment
+            and right_environment
+            and left_environment == right_environment
+            and left_environment != "contextual"
+        )
+        environment_changed = bool(
+            left_environment
+            and right_environment
+            and left_environment != right_environment
+            and "contextual" not in {left_environment, right_environment}
+        )
+        if left_section and right_section and left_section != right_section:
+            reason = "section_change"
         elif right_hold in {"idea_changes", "hook_progression"}:
             reason = right_hold
-        elif right_hold == "payoff_landing" and (
-            not left_environment or not right_environment or left_environment == right_environment
-        ):
+        elif right_hold == "idea_continues" and same_environment:
             decision = "DISSOLVE"
-            reason = "payoff_landing"
-        elif left_section and right_section and left_section != right_section:
-            reason = "section_change"
-        elif right_role == "detail" and (
-            not left_environment or not right_environment or left_environment == right_environment
-        ):
+            reason = "semantic_continuity_confirmed_by_environment"
+        elif right_hold == "idea_continues" and environment_changed:
+            reason = "semantic_continuity_with_environment_change"
+        elif right_hold == "idea_continues":
+            reason = "semantic_continuity_without_strong_environment_evidence"
+        elif right_hold == "payoff_landing" and same_environment:
             decision = "DISSOLVE"
-            reason = "same_environment_detail"
+            reason = "payoff_landing_same_environment"
+        elif right_hold == "payoff_landing":
+            reason = "payoff_landing_cut"
         decisions.append(
             {
                 "from_local_file": left.name,
@@ -3079,8 +3074,10 @@ def _write_edit_decision_contract(
         "format": fmt,
         "timeline_owner": "measured_voice",
         "opening_director_locked": bool(opening_enabled),
-        "shot_timing_owner": "authored_semantic_signals_inside_measured_section_time",
-        "transition_owner": "semantic_environment_continuity",
+        "shot_timing_owner": "measured_voice_plus_hold_reason_only",
+        "transition_owner": "hold_reason_with_environment_as_supporting_evidence",
+        "shot_role_is_advisory_only": True,
+        "environment_family_is_advisory_only": True,
         "slots": slots,
         "body_boundaries": list(body_boundary_decisions),
         "provider_calls_added": 0,
@@ -3200,7 +3197,10 @@ def _section_slot_durations(
     # section. Missing/legacy signals are exactly weight 1.0, preserving old behavior.
     signals = _editorial_signals_by_local_file(output_dir)
     weights = [
-        _editorial_visual_weight(signals.get(path.name, {}))
+        EDITORIAL_HOLD_WEIGHTS.get(
+            signals.get(path.name, {}).get("hold_reason", ""),
+            1.0,
+        )
         for path in paths
     ]
     section_weight_totals: dict[str, float] = {section_id: 0.0 for section_id in order}
