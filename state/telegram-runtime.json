@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "وهم الكفاءة السريعة: حين يفقد العقل استقلاله بالاتكال المفرط على التقنية",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37226376984",
   "result": "",
-  "updated_at": 1791140228
+  "updated_at": 1791140356
 }
