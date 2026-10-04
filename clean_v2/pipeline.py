@@ -2047,8 +2047,17 @@ def _factuality_location_issue_notes(
     )
 
 
-_QUOTED_TONE_FLAG_EXAMPLE = re.compile(r"['\"]([^'\"]{1,220})['\"]")
+_QUOTED_TONE_FLAG_EXAMPLE = re.compile(
+    r'(?:\"([^\"\\n]{1,220})\"|\'([^\'\\n]{1,220})\'|«([^»\\n]{1,220})»|“([^”\\n]{1,220})”)'
+)
 _WORD_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+
+def _quoted_tone_excerpt(match: "re.Match[str]") -> str:
+    return next(
+        (group.strip() for group in match.groups() if group is not None),
+        "",
+    )
 _QUOTE_WORD_OVERLAP_FLOOR = 0.6
 
 
@@ -2098,7 +2107,7 @@ def _drop_unverified_flag_quotes(flag: str, haystack: str) -> str:
     haystack_words = {token.casefold() for token in _WORD_TOKEN.findall(haystack)}
 
     def _replace(match: "re.Match[str]") -> str:
-        excerpt = match.group(1).strip()
+        excerpt = _quoted_tone_excerpt(match)
         if excerpt and _quote_is_verifiable(excerpt, haystack, haystack_words):
             return match.group(0)
         return ""
@@ -2368,8 +2377,8 @@ def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
     """
     return frozenset(
         compact
-        for match in _QUOTED_TONE_FLAG_EXAMPLE.findall(revision_note)
-        if (compact := " ".join(match.split()).strip())
+        for match in _QUOTED_TONE_FLAG_EXAMPLE.finditer(revision_note)
+        if (compact := " ".join(_quoted_tone_excerpt(match).split()).strip())
     )
 
 
