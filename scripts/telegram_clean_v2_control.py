@@ -1372,11 +1372,12 @@ def _history_topic_published(
 def _history_items_by_kind(
     state: dict[str, Any],
     kind: str,
+    used_records: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Newest unfinished production request per topic, scoped to one content kind."""
     if kind not in LIBRARY_ORDER:
         raise RuntimeError("unsupported history kind")
-    used_records = _release_library_records()
+    used_records = used_records if used_records is not None else _release_library_records()
     result: list[dict[str, Any]] = []
     seen_topics: set[str] = set()
     for request in resume_history.incomplete_requests(state):
@@ -1400,8 +1401,9 @@ def _history_items_by_kind(
 def _history_view(
     state: dict[str, Any],
 ) -> tuple[str, list[list[dict[str, str]]]]:
+    used_records = _release_library_records()
     counts = {
-        kind: len(_history_items_by_kind(state, kind))
+        kind: len(_history_items_by_kind(state, kind, used_records))
         for kind in LIBRARY_ORDER
     }
     lines = [
@@ -1531,11 +1533,8 @@ def _history_request_view(
                 "الخيار الفعّال الوحيد: بدء طلب جديد من الصفر.",
             ]
         )
-        keyboard.append(
-            [{"text": "⛔ استئناف غير متاح", "disabled": {}}]
-        )
     keyboard.append(
-        [{"text": "🆕 بدء من جديد", "callback_data": f"restart:{request_id}"}]
+        [{"text": "🔁 إعادة المحاولة من البداية", "callback_data": f"restart:{request_id}"}]
     )
     kind = _library_kind_for_scope(str(request.get("scope") or ""))
     back_callback = f"historyscope:{kind}" if kind in LIBRARY_ORDER else "main:saved"
