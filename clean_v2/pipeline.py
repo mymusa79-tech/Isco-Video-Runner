@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
 from .deadline import StageDeadlineError, stage_deadline
+from .contextual_cta import ContextualCtaError
 from .identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
     PRAYER_SENTENCE,
@@ -106,6 +107,7 @@ TEXT_AUDIT_DEADLINE_SECONDS = 15 * 60
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
 VISUAL_BIND_STAGE = "visual_binding"
+CTA_BIND_STAGE = "contextual_cta_binding"
 POST_TEXT_VISUAL_BIND_STAGE = "post_text_visual_binding"
 VISUAL_BIND_RECOVERY_MAX_ATTEMPTS = 2
 VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 2
@@ -397,6 +399,7 @@ STAGES = (
     IDENTITY_STAGE,
     "script",
     VISUAL_BIND_STAGE,
+    CTA_BIND_STAGE,
     STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
     POST_TEXT_VISUAL_BIND_STAGE,
@@ -2963,6 +2966,16 @@ def _tone_repair_prompt(
         if str(brief.get("format") or "") in {"film", "podcast"}
         else ""
     )
+    short_payoff_repair_guidance = (
+        "- Short s3_payoff must be a complete descriptive sentence. If the flagged text is a "
+        "dangling subordinate clause beginning with عندما / حين / إذا, finish its main clause "
+        "using only the existing approved reasoning; do not turn it into advice or add a second action. "
+        "Keep all imperative/action-family wording out of the payoff, including inflections and "
+        "derivatives of اختر / ابدأ / اكتب / حدّد / ضع / اجعل / جرّب. The one practical action "
+        "already lives in immutable LOCKED_PLAN.practical_action_ar; the host appends it exactly once. "
+        if str(brief.get("format") or "") == "short"
+        else ""
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -3006,6 +3019,7 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 {gemini_spoken_repair_guidance}
 - Preserve the section count, ids, order, title, and each section's role.
 - For Short s3, patch only the descriptive s3_payoff text shown in CURRENT_SCRIPT. LOCKED_PLAN.practical_action_ar is immutable Planning-owned data: never include it in patch.find or patch.replace and never attempt to rewrite it.
+{short_payoff_repair_guidance}
 {hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
@@ -6185,8 +6199,10 @@ class _Journal:
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
-            if isinstance(exc, StageDeadlineError):
-                self.payload["failure_origin_stage"] = name
+            self.payload["failure_origin_stage"] = name
+            if isinstance(exc, ContextualCtaError):
+                record["error_code"] = exc.code
+                self.payload["failure_reason"] = exc.code
             if content_repair_unavailable:
                 repair_failure = {
                     "content_block_confirmed": True,
@@ -6491,6 +6507,7 @@ class CleanV2Pipeline:
                 journal.reuse(IDENTITY_STAGE)
                 journal.reuse("script")
                 journal.reuse(VISUAL_BIND_STAGE)
+                journal.reuse(CTA_BIND_STAGE)
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
                 )
@@ -6557,11 +6574,14 @@ class CleanV2Pipeline:
                 )
                 from clean_v2.contextual_cta import bind_contextual_cta_to_script
 
-                bind_contextual_cta_to_script(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
+                journal.run(
+                    CTA_BIND_STAGE,
+                    lambda: bind_contextual_cta_to_script(
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=script,
+                    ),
                 )
                 _assert_brand_signature_invariant(
                     script["sections"], fmt, identity["opener"], identity["closer"]

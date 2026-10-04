@@ -70,6 +70,14 @@ class CtaMode(str, Enum):
     NONE = "none"
 
 
+class ContextualCtaError(RuntimeError):
+    """A local CTA contract rejection with a safe manifest reason code."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
 @dataclass(frozen=True)
 class CtaBinding:
     contract_version: str
@@ -127,6 +135,7 @@ _ACTION_MARKERS: dict[CtaMode, tuple[str, ...]] = {
 }
 
 _SENTENCE_END = re.compile(r"(?<=[.!؟!])\s+")
+_PODCAST_TURN = re.compile(r"(?<!\S)([AB]):\s+")
 
 
 def _compact(text: object) -> str:
@@ -224,8 +233,7 @@ def _insert_spoken_cta(
         return narration, len(prefix.split())
 
     if fmt == "podcast":
-        turn_re = re.compile(r"(?<!\S)([AB]):\s+")
-        matches = list(turn_re.finditer(narration))
+        matches = list(_PODCAST_TURN.finditer(narration))
         b_indexes = [
             index for index, match in enumerate(matches)
             if match.group(1) == "B"
@@ -261,7 +269,7 @@ def _insert_spoken_cta(
         updated = (
             narration[:turn_start]
             + replacement
-            + narration[turn_end:]
+            + (" " + narration[turn_end:].lstrip() if narration[turn_end:] else "")
         ).strip()
         insertion_prefix = narration[:turn_start] + before
         return updated, len(insertion_prefix.split())
@@ -293,20 +301,20 @@ def _assert_spoken_cta_topic_only(
     ]
     if fmt == "short":
         if spoken:
-            raise RuntimeError("short_spoken_social_cta_forbidden")
+            raise ContextualCtaError("short_spoken_social_cta_forbidden")
         return
     if not spoken or binding.mode == CtaMode.NONE:
         return
     if not sections or not binding.anchor_section_id:
-        raise RuntimeError("longform_cta_topic_anchor_missing")
+        raise ContextualCtaError("longform_cta_topic_anchor_missing")
 
     joined = " ".join(_compact(item.get("narration")) for item in sections)
     if joined.count(spoken) != 1:
-        raise RuntimeError("longform_cta_must_appear_exactly_once")
+        raise ContextualCtaError("longform_cta_must_appear_exactly_once")
 
     first_id = str(sections[0].get("id") or "")
     if binding.anchor_section_id == first_id:
-        raise RuntimeError("longform_cta_forbidden_in_hook_identity_opening")
+        raise ContextualCtaError("longform_cta_forbidden_in_hook_identity_opening")
 
     anchor = next(
         (
@@ -316,7 +324,13 @@ def _assert_spoken_cta_topic_only(
         None,
     )
     if anchor is None or spoken not in _compact(anchor.get("narration")):
-        raise RuntimeError("longform_cta_moved_outside_anchor_topic")
+        raise ContextualCtaError("longform_cta_moved_outside_anchor_topic")
+
+    if fmt == "podcast":
+        narration = _compact(anchor.get("narration"))
+        turns = list(_PODCAST_TURN.finditer(narration, 0, narration.index(spoken)))
+        if not turns or turns[-1].group(1) != "B":
+            raise ContextualCtaError("podcast_cta_must_be_spoken_by_b")
 
     last = sections[-1]
     if str(last.get("id") or "") == binding.anchor_section_id:
@@ -329,7 +343,7 @@ def _assert_spoken_cta_topic_only(
         # Timeline First owns the final sentence as Outro when there is no fixed
         # closer. The CTA must land before that final sentence.
         if sentences and spoken in sentences[-1]:
-            raise RuntimeError("longform_cta_forbidden_in_outro")
+            raise ContextualCtaError("longform_cta_forbidden_in_outro")
 
 
 def _screen_copy(mode: CtaMode, authored: str) -> tuple[str, str]:
@@ -594,12 +608,35 @@ def bind_contextual_cta_to_script(
     binding = bind_contextual_cta(runtime_plan)
 
     insertion_word_offset = None
+    existing_copies_removed = 0
     if (
         binding.mode != CtaMode.NONE
         and binding.anchor_section_id
         and binding.spoken_text
         and not binding.visual_only
     ):
+        # Run #77 attempt 2: the writer included LOCKED_PLAN.cta in s3,
+        # despite the host-managed prompt, and the host inserted it again in
+        # s2. Own this exact phrase across the whole script before placing it
+        # once at the safe topic anchor. Never remove paraphrased requests or
+        # unrelated content, and leave Short's no-CTA path untouched.
+        for item in script.get("sections") or []:
+            if not isinstance(item, dict):
+                continue
+            narration = _compact(item.get("narration"))
+            # The host may have appended a terminal period to Planning's
+            # exact phrase. Remove that canonical form first, then the raw
+            # authored form; no paraphrase or fuzzy matching is involved.
+            phrases = dict.fromkeys((binding.spoken_text, _compact(plan.get("cta"))))
+            for phrase in phrases:
+                if not phrase:
+                    continue
+                copies = narration.count(phrase)
+                if copies:
+                    existing_copies_removed += copies
+                    narration = _compact(narration.replace(phrase, " "))
+                    item["narration"] = narration
+
         for item in script.get("sections") or []:
             if not isinstance(item, dict):
                 continue
@@ -627,6 +664,7 @@ def bind_contextual_cta_to_script(
     report["binding_phase"] = "pre_tts"
     report["provider_calls_added"] = 0
     report["spoken_insertion_word_offset"] = insertion_word_offset
+    report["existing_cta_copies_removed"] = existing_copies_removed
     report["spoken_alignment_policy"] = "one_contextual_longform_cta"
     report["render_status"] = "pending"
     report_path.write_text(
