@@ -67,13 +67,14 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         prompt = _mistral_planning_validator_retry_prompt(
             "BASE",
             ValueError(
-                "visual_story beat b4 post-hook semantic drop requires a stronger observable alternate"
+                "visual_story beat b4 post-hook semantic drop requires "
+                "a stronger observable alternate"
             ),
         )
         self.assertIsNotNone(prompt)
         self.assertIn("For b4", prompt)
-        self.assertIn("too generic", prompt)
-        self.assertIn("stock_query_alt_en", prompt)
+        self.assertIn("SAME section_id and meaning", prompt)
+        self.assertIn("stronger concrete observable", prompt)
         self.assertIn("Do not return generic typing", prompt)
 
     def test_run84_planning_retry_targets_missing_sections(self) -> None:
@@ -98,7 +99,8 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         def validator(candidate: dict) -> dict:
             if candidate["attempt"] == 1:
                 raise ValueError(
-                    "semantic script patch did not change every explicitly flagged section: s1"
+                    "semantic script patch did not change every explicitly "
+                    "flagged section: s1"
                 )
             return {"status": "pass"}
 
@@ -122,6 +124,7 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("MISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY", calls[1])
         self.assertIn("Missing required section ids: s1", calls[1])
+        self.assertIn("copied VERBATIM from CURRENT_SCRIPT", calls[1])
         self.assertEqual(
             [event["result"] for event in router.events],
             ["retrying", "success"],
@@ -131,7 +134,7 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
             "mistral_script_patch_validator_retry",
         )
 
-    def test_script_patch_retry_is_only_for_missing_required_semantic_coverage(self) -> None:
+    def test_script_patch_retry_stays_narrow(self) -> None:
         self.assertIsNone(
             _mistral_script_patch_validator_retry_prompt(
                 "BASE",
@@ -142,9 +145,7 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
     def test_visual_identity_is_host_normalized_on_first_rejection(self) -> None:
         router = type("Router", (), {"events": []})()
         state = {"identity_rejections": 0}
-        candidate = {
-            "visual_story": {"visual_world": "bright generic lifestyle"},
-        }
+        candidate = {"visual_story": {"visual_world": "bright generic lifestyle"}}
         calls: list[dict] = []
 
         def fake_validate(value, _brief, *, enforce_visual_identity):
@@ -177,6 +178,7 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
             router.events[-1]["reason"],
             "visual_world_identity_fallback",
         )
+        self.assertFalse(router.events[-1]["wire_attempted"])
 
     def test_retry_is_not_offered_for_unrelated_runtime_failure(self) -> None:
         self.assertIsNone(
