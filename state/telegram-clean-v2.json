@@ -6439,9 +6439,9 @@
       ],
       "idea_id": "run55-live-research",
       "selected_at": "2026-10-04T21:27:51Z",
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-04T21:28:16Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-04T21:28:20Z",
       "request_sha256": "1872bfab58bfdeff27745af7d988914bb2c4f13b89886153373f51c22e1b8a16"
     }
   },
@@ -6719,5 +6719,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-04T21:28:17Z"
+  "updated_at": "2026-10-04T21:28:20Z"
 }
