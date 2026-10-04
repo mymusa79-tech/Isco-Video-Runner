@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
+from clean_v2 import pipeline
 from clean_v2.providers import (
     ProviderAdapter,
     ProviderRouter,
     _mistral_planning_validator_retry_prompt,
+    _mistral_script_patch_validator_retry_prompt,
     _safe_mistral_planning_raw_diagnostic,
 )
+from clean_v2.visual_story import CHANNEL_VISUAL_IDENTITY, VisualWorldIdentityError
 
 
 class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
@@ -57,6 +61,121 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         self.assertEqual(
             router.events[0]["reason"],
             "mistral_planning_validator_retry",
+        )
+
+    def test_run83_planning_retry_targets_post_hook_semantic_drop(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError(
+                "visual_story beat b4 post-hook semantic drop requires a stronger observable alternate"
+            ),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("For b4", prompt)
+        self.assertIn("too generic", prompt)
+        self.assertIn("stock_query_alt_en", prompt)
+        self.assertIn("Do not return generic typing", prompt)
+
+    def test_run84_planning_retry_targets_missing_sections(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError("visual_story must cover every planned section: missing=s4,s5"),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("s4,s5", prompt)
+        self.assertIn("EVERY named missing section", prompt)
+        self.assertIn("section_id exactly matches", prompt)
+
+    def test_run85_script_patch_gets_one_semantic_coverage_retry(self) -> None:
+        calls: list[str] = []
+
+        def fake_call(prompt: str, max_tokens: int, stage: str) -> dict:
+            self.assertEqual(stage, "script_patch")
+            self.assertEqual(max_tokens, 1200)
+            calls.append(prompt)
+            return {"attempt": len(calls)}
+
+        def validator(candidate: dict) -> dict:
+            if candidate["attempt"] == 1:
+                raise ValueError(
+                    "semantic script patch did not change every explicitly flagged section: s1"
+                )
+            return {"status": "pass"}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    fake_call,
+                    stages=frozenset({"script_patch"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        result = router.route(
+            stage="script_patch",
+            prompt="CURRENT_SCRIPT:\n{}\nREQUIRED_SEMANTIC_CHANGE_SECTION_IDS:[\"s1\"]",
+            max_tokens=1200,
+            validator=validator,
+        )
+        self.assertEqual(result, {"status": "pass"})
+        self.assertEqual(len(calls), 2)
+        self.assertIn("MISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY", calls[1])
+        self.assertIn("Missing required section ids: s1", calls[1])
+        self.assertEqual(
+            [event["result"] for event in router.events],
+            ["retrying", "success"],
+        )
+        self.assertEqual(
+            router.events[0]["reason"],
+            "mistral_script_patch_validator_retry",
+        )
+
+    def test_script_patch_retry_is_only_for_missing_required_semantic_coverage(self) -> None:
+        self.assertIsNone(
+            _mistral_script_patch_validator_retry_prompt(
+                "BASE",
+                ValueError("script patch changed locked prayer sentence"),
+            )
+        )
+
+    def test_visual_identity_is_host_normalized_on_first_rejection(self) -> None:
+        router = type("Router", (), {"events": []})()
+        state = {"identity_rejections": 0}
+        candidate = {
+            "visual_story": {"visual_world": "bright generic lifestyle"},
+        }
+        calls: list[dict] = []
+
+        def fake_validate(value, _brief, *, enforce_visual_identity):
+            self.assertTrue(enforce_visual_identity)
+            calls.append(value)
+            if len(calls) == 1:
+                raise VisualWorldIdentityError("missing navy and gold")
+            return value
+
+        with mock.patch.object(
+            pipeline,
+            "_validate_plan_for_brief",
+            side_effect=fake_validate,
+        ):
+            result = pipeline._validate_plan_with_visual_world_recovery(
+                candidate,
+                {"format": "film"},
+                router=router,
+                state=state,
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            result["visual_story"]["visual_world"],
+            CHANNEL_VISUAL_IDENTITY,
+        )
+        self.assertEqual(state["identity_rejections"], 1)
+        self.assertEqual(router.events[-1]["provider"], "host")
+        self.assertEqual(
+            router.events[-1]["reason"],
+            "visual_world_identity_fallback",
         )
 
     def test_retry_is_not_offered_for_unrelated_runtime_failure(self) -> None:
