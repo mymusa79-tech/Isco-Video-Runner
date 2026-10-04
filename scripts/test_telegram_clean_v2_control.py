@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import telegram_clean_v2_control as control
+from scripts import telegram_resume_history as resume_history
 
 
 class TelegramCleanV2ControlTests(unittest.TestCase):
@@ -203,6 +204,78 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertTrue(dispatch.exists())
             payload = json.loads(dispatch.read_text(encoding="utf-8"))
             self.assertEqual(payload["request_id"], "req-1")
+
+    def test_provider_cooldown_blocks_dispatch_and_notifies_without_creating_file(self):
+        """Telegram runs #79/81/83/84 (2026-10-04): ten dispatches fired back to
+        back all hit the same full provider-cascade exhaustion. This locks in the
+        fix: once record-production-terminal observes a pre-layer failure and
+        starts a cooldown (resume_history.apply_provider_cooldown_if_exhausted),
+        confirming a new request must not create a dispatch file or burn more
+        of the same exhausted quota - it must tell the user to wait instead."""
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-cooldown",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "short",
+            "approved_by_user": True,
+            "approved_topic": "موضوع",
+            "research_pack": [],
+            "idea_id": "idea-1",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"]["req-cooldown"] = request
+        state["current_request_id"] = "req-cooldown"
+        resume_history.apply_provider_cooldown_if_exhausted(state, failure_classification="pre-layer")
+        update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "تأكيد الإنتاج"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update, dispatch)
+            self.assertFalse(dispatch.exists())
+            self.assertNotEqual(state["requests"]["req-cooldown"]["status"], "dispatched")
+            self.assertIn("دقيقة", send.call_args.args[0])
+
+    def test_provider_cooldown_does_not_block_once_elapsed(self):
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-expired",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "short",
+            "approved_by_user": True,
+            "approved_topic": "موضوع",
+            "research_pack": [],
+            "idea_id": "idea-1",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"]["req-expired"] = request
+        state["current_request_id"] = "req-expired"
+        state["provider_cooldown_until"] = "2020-01-01T00:00:00Z"
+        update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "تأكيد الإنتاج"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram"):
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update, dispatch)
+            self.assertTrue(dispatch.exists())
+
+    def test_content_quality_block_does_not_start_cooldown(self):
+        """CleanV2ToneContentBlock (Run #82) is the system correctly catching a
+        real defect, not provider exhaustion - it must never throttle the next
+        legitimate dispatch."""
+        state = control.default_state()
+        resume_history.apply_provider_cooldown_if_exhausted(state, failure_classification="content_quality")
+        self.assertIsNone(state["provider_cooldown_until"])
 
     def test_confirmation_button_is_bound_to_current_request(self):
         state = control.default_state()

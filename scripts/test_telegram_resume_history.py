@@ -29,6 +29,32 @@ def artifact_zip(manifest: dict) -> bytes:
     return stream.getvalue()
 
 
+class ProviderCooldownTests(unittest.TestCase):
+    def test_pre_layer_failure_starts_cooldown(self) -> None:
+        state: dict = {}
+        started = history.apply_provider_cooldown_if_exhausted(state, failure_classification="pre-layer")
+        self.assertTrue(started)
+        remaining = history.provider_cooldown_remaining_seconds(state)
+        self.assertGreater(remaining, 0)
+        self.assertLessEqual(remaining, history.PROVIDER_COOLDOWN_MINUTES * 60)
+
+    def test_content_quality_block_never_starts_cooldown(self) -> None:
+        """Run #82: CleanV2ToneContentBlock is the system correctly blocking a
+        genuine defect, not a provider/infrastructure failure. It must not
+        throttle the next dispatch."""
+        state: dict = {}
+        started = history.apply_provider_cooldown_if_exhausted(state, failure_classification="content_quality")
+        self.assertFalse(started)
+        self.assertEqual(history.provider_cooldown_remaining_seconds(state), 0)
+
+    def test_expired_cooldown_reports_zero_remaining(self) -> None:
+        state = {"provider_cooldown_until": "2020-01-01T00:00:00Z"}
+        self.assertEqual(history.provider_cooldown_remaining_seconds(state), 0)
+
+    def test_missing_cooldown_reports_zero_remaining(self) -> None:
+        self.assertEqual(history.provider_cooldown_remaining_seconds({}), 0)
+
+
 class ResumeHistoryTests(unittest.TestCase):
     def test_incomplete_requests_excludes_final_published(self):
         a = make_request()
