@@ -14,6 +14,15 @@ STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
 MAX_RETENTION_QUALITY_FLOOR_DROP = 0.05
 BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR = 0.78
+ALTERNATE_QUERY_MAX_CHARACTERS = 80
+ALTERNATE_QUERY_MIN_WORDS = 4
+ALTERNATE_QUERY_MAX_WORDS = 14
+
+
+class AlternateQueryError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
 
 
 class CleanV2VisualQABlock(RuntimeError):
@@ -118,7 +127,8 @@ Keep the replacement culturally suitable for a broad Arab/Muslim audience: prefe
 credible Arab/Middle-Eastern settings when people or everyday social context matter; avoid alcohol,
 gambling, nightclub/party imagery, sexualized or revealing presentation, and unrelated ritual/religious
 imagery. Do not force religious symbols or stereotyped traditional dress when they are not relevant.
-Use 4 to 14 English words only. Describe ONE observable action or ONE simple setting when the beat
+Use {ALTERNATE_QUERY_MIN_WORDS} to {ALTERNATE_QUERY_MAX_WORDS} English words only,
+at most {ALTERNATE_QUERY_MAX_CHARACTERS} characters including spaces. Describe ONE observable action or ONE simple setting when the beat
 is not relational. If the beat's meaning IS a comparison, unequal condition, cause/consequence, or
 before/after relation, preserve that relation through one clear visible contrast/context inside ONE
 stock-realistic moment instead of deleting the idea and returning a generic mood shot. Avoid impossible
@@ -130,19 +140,24 @@ Return ONLY JSON: {{"alternate_query": "..."}}.
 
 def _validate_alternate_query(value: Any, *, original_query: str) -> dict[str, str]:
     if not isinstance(value, dict):
-        raise ValueError("alternate query output must be an object")
+        raise AlternateQueryError("alternate_query_invalid_shape", "alternate query output must be an object")
     query = str(value.get("alternate_query") or "").strip()
     words = query.split()
-    if (
-        not query
-        or len(query) > 80
-        or not any(ch.isalpha() for ch in query)
-        or not 4 <= len(words) <= 14
-    ):
-        raise ValueError("alternate query must be a concise 4-14 word stock search phrase")
+    if not query or not any(ch.isalpha() for ch in query):
+        raise AlternateQueryError("alternate_query_empty", "alternate query must contain a stock search phrase")
+    if len(query) > ALTERNATE_QUERY_MAX_CHARACTERS:
+        raise AlternateQueryError(
+            "alternate_query_too_long",
+            f"alternate query has {len(query)} characters; maximum is {ALTERNATE_QUERY_MAX_CHARACTERS} including spaces",
+        )
+    if not ALTERNATE_QUERY_MIN_WORDS <= len(words) <= ALTERNATE_QUERY_MAX_WORDS:
+        raise AlternateQueryError(
+            "alternate_query_word_count",
+            f"alternate query has {len(words)} words; use {ALTERNATE_QUERY_MIN_WORDS}-{ALTERNATE_QUERY_MAX_WORDS} English words",
+        )
     normalize = lambda text: " ".join(text.casefold().split())
     if normalize(query) == normalize(original_query):
-        raise ValueError("alternate query did not change")
+        raise AlternateQueryError("alternate_query_unchanged", "alternate query did not change")
     return {"alternate_query": query}
 
 
