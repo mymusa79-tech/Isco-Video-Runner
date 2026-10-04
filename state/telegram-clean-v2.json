@@ -4049,9 +4049,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-10-04T13:27:53Z"
+      "research_pack": [
+        {
+          "source_title": "اتقن فن التجاهل وعدم الاهتمام.. تجاهل الجميع وستندهش كيف يريدك الناس (كتاب صوتي)",
+          "source_url": "https://youtu.be/da9274BCTTA",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "فخ المجاملة: لماذا يدمر الخجل من الرفض سلامك الداخلي ويفتح باب الاستغلال؟🛡️",
+          "source_url": "https://youtu.be/3INesZwo9uY",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "عادات يومية تزيد من هيبتك | كيف تفرض احترامك دون أن تطلبه (كتاب صوتي)",
+          "source_url": "https://youtu.be/nlh9Qu_uw7E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-10-04T13:27:53Z",
+      "selected_at": "2026-10-04T13:29:18Z"
     },
     {
       "idea_id": "idea-bebe6055cf",
@@ -4238,7 +4255,9 @@
         "idea-bebe6055cf",
         "idea-b302e8bc16"
       ],
-      "created_at": "2026-10-04T13:27:54Z"
+      "created_at": "2026-10-04T13:27:54Z",
+      "closed_at": "2026-10-04T13:29:18Z",
+      "selected_index": 0
     },
     "3d4ec579": {
       "session_id": "3d4ec579",
@@ -5849,9 +5868,40 @@
         "started_at": "2026-10-04T10:55:46Z",
         "finished_at": "2026-10-04T10:58:07Z"
       }
+    },
+    "req-6266d6e3180b": {
+      "schema_version": 1,
+      "request_id": "req-6266d6e3180b",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تبني درعاً صحياً لحماية طاقتك النفسية؟",
+      "research_pack": [
+        {
+          "source_title": "اتقن فن التجاهل وعدم الاهتمام.. تجاهل الجميع وستندهش كيف يريدك الناس (كتاب صوتي)",
+          "source_url": "https://youtu.be/da9274BCTTA",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "فخ المجاملة: لماذا يدمر الخجل من الرفض سلامك الداخلي ويفتح باب الاستغلال؟🛡️",
+          "source_url": "https://youtu.be/3INesZwo9uY",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "عادات يومية تزيد من هيبتك | كيف تفرض احترامك دون أن تطلبه (كتاب صوتي)",
+          "source_url": "https://youtu.be/nlh9Qu_uw7E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b35b409aa1",
+      "selected_at": "2026-10-04T13:29:18Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "4e806334399b90db394866dbfd1b234dc422c7a639d1bbdf37e473de7e82ddf2"
     }
   },
-  "current_request_id": "req-c1ea51ec5087",
+  "current_request_id": "req-6266d6e3180b",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -6106,5 +6156,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-04T13:27:54Z"
+  "updated_at": "2026-10-04T13:29:18Z"
 }
