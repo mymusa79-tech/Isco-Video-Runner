@@ -280,7 +280,7 @@ class HumanEditorialRhythmTests(unittest.TestCase):
             signals = media_module._editorial_signals_by_local_file(root)
             decisions = media_module._editorial_boundary_decisions(
                 [root / "one.mp4", root / "two.mp4", root / "three.mp4"],
-                ["s1", "s2", "s2"],
+                ["s1", "s1", "s1"],
                 signals,
             )
             self.assertEqual(decisions[0]["decision"], "DISSOLVE")
@@ -325,6 +325,7 @@ class HumanEditorialRhythmTests(unittest.TestCase):
                 body_boundary_decisions=[],
             )
             self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["compiler_mode"], "local_semantic_edit_compiler_v1")
             self.assertEqual(report["provider_calls_added"], 0)
             self.assertEqual(report["ai_calls_added"], 0)
             self.assertFalse(report["new_production_stage_added"])
