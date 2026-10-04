@@ -1282,7 +1282,12 @@ def _groq_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]
         return _groq_call(
             prompt,
             max_tokens,
-            response_schema=MISTRAL_SCRIPT_PATCH_SCHEMA,
+            # Groq strict mode needs only the response shape here. The local
+            # patch validator owns the 400/550 character safety bounds, so do
+            # not send Mistral-only minLength/maxLength keywords over the wire.
+            response_schema=_gemini_compatible_json_schema(
+                MISTRAL_SCRIPT_PATCH_SCHEMA
+            ),
             schema_name="script_patch",
         )
     return _groq_call(prompt, max_tokens)
