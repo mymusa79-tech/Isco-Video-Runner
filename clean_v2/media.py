@@ -138,6 +138,18 @@ SHORT_MIN_COLOR_SATURATION_AVG = 5.0
 COVERR_MAX_SEARCHES_PER_RUN = 12
 STOCK_PRIMARY_PAGE_SIZE = 24
 
+# Edit Decision Contract V1 is deliberately local and deterministic. Planning
+# already authors these semantic signals; the renderer now consumes them instead
+# of inventing a second creative layer or making another provider call.
+EDIT_DECISION_CONTRACT_VERSION = 1
+EDITORIAL_SHOT_ROLE_WEIGHTS = {
+    "establish": 1.08,
+    "detail": 0.90,
+    "action": 0.96,
+    "consequence": 1.06,
+    "payoff": 1.14,
+}
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -2952,11 +2964,134 @@ def _editorial_signals_by_local_file(
         if not local_file:
             continue
         result[local_file] = {
+            "section_id": str(item.get("section_id") or "").strip(),
+            "beat_id": str(item.get("beat_id") or "").strip(),
             "hold_reason": str(item.get("hold_reason") or "").strip(),
             "pause_intent": str(item.get("pause_intent") or "").strip(),
             "audio_energy": str(item.get("audio_energy") or "").strip(),
+            "shot_role": str(item.get("shot_role") or "").strip(),
+            "environment_family": str(item.get("environment_family") or "").strip(),
         }
     return result
+
+
+def _editorial_visual_weight(signal: Mapping[str, str]) -> float:
+    """Combine existing semantic hold + shot-role intent without changing section time."""
+    hold_weight = EDITORIAL_HOLD_WEIGHTS.get(str(signal.get("hold_reason") or ""), 1.0)
+    role_weight = EDITORIAL_SHOT_ROLE_WEIGHTS.get(str(signal.get("shot_role") or ""), 1.0)
+    return max(0.50, float(hold_weight) * float(role_weight))
+
+
+def _editorial_boundary_decisions(
+    paths: list[Path],
+    section_ids: list[str] | None,
+    signals: Mapping[str, Mapping[str, str]],
+) -> list[dict[str, Any]]:
+    """Choose CUT/DISSOLVE from the authored semantic continuity evidence only."""
+    if len(paths) < 2:
+        return []
+    decisions: list[dict[str, Any]] = []
+    for index in range(1, len(paths)):
+        left = paths[index - 1]
+        right = paths[index]
+        left_signal = signals.get(left.name, {})
+        right_signal = signals.get(right.name, {})
+        left_section = (
+            section_ids[index - 1]
+            if section_ids is not None and index - 1 < len(section_ids)
+            else str(left_signal.get("section_id") or "")
+        )
+        right_section = (
+            section_ids[index]
+            if section_ids is not None and index < len(section_ids)
+            else str(right_signal.get("section_id") or "")
+        )
+        left_environment = str(left_signal.get("environment_family") or "").strip()
+        right_environment = str(right_signal.get("environment_family") or "").strip()
+        right_hold = str(right_signal.get("hold_reason") or "").strip()
+        right_role = str(right_signal.get("shot_role") or "").strip()
+
+        decision = "CUT"
+        reason = "semantic_boundary"
+        if left_section and right_section and left_section != right_section:
+            reason = "section_change"
+        elif left_environment and right_environment and left_environment != right_environment:
+            reason = "environment_change"
+        elif right_hold in {"idea_changes", "hook_progression"}:
+            reason = right_hold
+        elif right_hold == "idea_continues":
+            decision = "DISSOLVE"
+            reason = "same_environment_semantic_continuity"
+        elif right_hold == "payoff_landing" and (
+            not left_environment or not right_environment or left_environment == right_environment
+        ):
+            decision = "DISSOLVE"
+            reason = "payoff_landing"
+        elif right_role == "detail" and (
+            not left_environment or not right_environment or left_environment == right_environment
+        ):
+            decision = "DISSOLVE"
+            reason = "same_environment_detail"
+        decisions.append(
+            {
+                "from_local_file": left.name,
+                "to_local_file": right.name,
+                "from_section_id": left_section,
+                "to_section_id": right_section,
+                "decision": decision,
+                "reason": reason,
+            }
+        )
+    return decisions
+
+
+def _write_edit_decision_contract(
+    output_dir: Path,
+    *,
+    fmt: str,
+    paths: list[Path],
+    durations: list[float],
+    opening_enabled: bool,
+    body_boundary_decisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Persist the exact local edit decisions consumed by the renderer."""
+    signals = _editorial_signals_by_local_file(output_dir)
+    slots: list[dict[str, Any]] = []
+    for path, seconds in zip(paths, durations):
+        signal = signals.get(path.name, {})
+        slots.append(
+            {
+                "local_file": path.name,
+                "section_id": str(signal.get("section_id") or ""),
+                "beat_id": str(signal.get("beat_id") or ""),
+                "duration_seconds": round(float(seconds), 6),
+                "hold_reason": str(signal.get("hold_reason") or ""),
+                "shot_role": str(signal.get("shot_role") or ""),
+                "environment_family": str(signal.get("environment_family") or ""),
+                "pause_intent": str(signal.get("pause_intent") or ""),
+                "audio_energy": str(signal.get("audio_energy") or ""),
+            }
+        )
+    report = {
+        "schema_version": EDIT_DECISION_CONTRACT_VERSION,
+        "status": "pass",
+        "source": "clean-v2-local-renderer",
+        "format": fmt,
+        "timeline_owner": "measured_voice",
+        "opening_director_locked": bool(opening_enabled),
+        "shot_timing_owner": "authored_semantic_signals_inside_measured_section_time",
+        "transition_owner": "semantic_environment_continuity",
+        "slots": slots,
+        "body_boundaries": list(body_boundary_decisions),
+        "provider_calls_added": 0,
+        "ai_calls_added": 0,
+        "new_production_stage_added": False,
+    }
+    (Path(output_dir) / "edit-decision-contract.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return report
 
 
 def _exact_section_seconds_from_timeline(
@@ -3065,10 +3200,7 @@ def _section_slot_durations(
     # section. Missing/legacy signals are exactly weight 1.0, preserving old behavior.
     signals = _editorial_signals_by_local_file(output_dir)
     weights = [
-        EDITORIAL_HOLD_WEIGHTS.get(
-            signals.get(path.name, {}).get("hold_reason", ""),
-            1.0,
-        )
+        _editorial_visual_weight(signals.get(path.name, {}))
         for path in paths
     ]
     section_weight_totals: dict[str, float] = {section_id: 0.0 for section_id in order}
@@ -3571,17 +3703,28 @@ def _build_section_body_segments(
     height: int,
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
     grade_filters: Mapping[str, str] | None = None,
+    boundary_decisions: list[dict[str, Any]] | None = None,
 ) -> list[Path]:
-    """Match/trim every body clip, then dissolve adjacent same-section clips."""
+    """Match/trim every body clip, then dissolve only continuity-owned boundaries."""
     work_dir.mkdir(parents=True, exist_ok=True)
     groups: list[list[int]] = []
-    if section_ids is None:
+    if section_ids is None and boundary_decisions is None:
         groups = [[index] for index in range(len(paths))]
     else:
         current: list[int] = []
         current_id: str | None = None
-        for index, section_id in enumerate(section_ids):
-            if current and section_id != current_id:
+        for index, path in enumerate(paths):
+            section_id = (
+                section_ids[index]
+                if section_ids is not None and index < len(section_ids)
+                else ""
+            )
+            split = bool(current and section_id and current_id and section_id != current_id)
+            if current and boundary_decisions is not None:
+                boundary = boundary_decisions[index - 1] if index - 1 < len(boundary_decisions) else {}
+                if str(boundary.get("decision") or "CUT") != "DISSOLVE":
+                    split = True
+            if split:
                 groups.append(current)
                 current = []
             current.append(index)
@@ -3732,8 +3875,26 @@ def render_video(
     if work_dir.is_dir():
         shutil.rmtree(work_dir, ignore_errors=True)
     try:
+        body_section_ids = (
+            _pacing_section_ids(output_dir, body_paths_for_render)
+            if body_paths_for_render
+            else None
+        )
+        editorial_signals = _editorial_signals_by_local_file(output_dir)
+        body_boundary_decisions = _editorial_boundary_decisions(
+            body_paths_for_render,
+            body_section_ids,
+            editorial_signals,
+        )
+        _write_edit_decision_contract(
+            output_dir,
+            fmt=fmt,
+            paths=paths,
+            durations=durations,
+            opening_enabled=opening_enabled,
+            body_boundary_decisions=body_boundary_decisions,
+        )
         if body_paths_for_render:
-            body_section_ids = _pacing_section_ids(output_dir, body_paths_for_render)
             body_segments = _build_section_body_segments(
                 work_dir,
                 body_paths_for_render,
@@ -3747,6 +3908,7 @@ def render_video(
                     else COHESION_DISSOLVE_SECONDS
                 ),
                 grade_filters=grade_filters,
+                boundary_decisions=body_boundary_decisions,
             )
         else:
             body_segments = []
