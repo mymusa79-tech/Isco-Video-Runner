@@ -5329,10 +5329,11 @@ APPROVED_BRIEF:
 Build a simple production plan. Use only the approved brief and research_pack for research, statistics,
 quotations, diagnoses or factual claims. [Audience pain], [Audience situation], [Audience question] and
 [Audience visual] are lived-experience/creative signals, never scientific prevalence or market proof.
-Use only topic-relevant signals for concrete hooks, narration and visual_story; paraphrase, never invent
-usernames or [Reddit ...] evidence. [Channel learning] is measured, own-channel observational evidence
-from YouTube Analytics: use it only for opening directness, pacing and ending review. It is not causal
-proof or narration evidence and cannot trigger automatic production overrides or imitation of past topics.
+Use only topic-relevant signals for concrete hooks, narration and visual_story shot_intent and stock_query_en;
+paraphrase, never invent usernames. A [Reddit ...] line, if an approved external source supplied one,
+follows these same limits and must never be invented. [Channel learning] is measured, own-channel
+observational evidence from YouTube Analytics: use it only for opening directness, pacing and ending review.
+It is not causal proof or narration evidence and cannot trigger automatic production overrides or imitation of past topics.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
@@ -5428,12 +5429,12 @@ HUMAN EDITORIAL RHYTHM applies to short, film, and podcast: separate genuinely d
 (setup -> interruption, cause -> consequence, attempt -> result, decision -> action) into semantic beats.
 Prefer establish -> detail/cutaway -> consequence/payoff when earned; never manufacture cuts without a
 meaning change or stretch one generic clip over unrelated mechanism, example and payoff.
-Author these existing signals per beat, following meaning rather than random variation:
+Author these existing signals per beat, following meaning, never random variation:
 - hold_reason: exactly idea_continues, idea_changes, hook_progression, or payoff_landing; idea_continues
   requires the SAME visible idea, never arbitrary lengthening. Hook normally uses hook_progression,
   arrival/payoff uses payoff_landing. This is the sole cut/hold signal; no cut_reason or second timing system.
 - pause_intent: exactly none, micro, emphasis, transition, or ending; acoustic music-bed boundary only,
-  never inserted silence or changed measured voice duration.
+  never inserts silence or changes measured voice duration.
 - audio_energy: exactly quiet, low, steady, lift, or resolve; music envelope only, never voice level or a new track.
 - shot_role: exactly establish, detail, action, consequence, or payoff; image job, separate from hook/body/payoff.
 - environment_family: one compact English scene-family slug such as workplace, home, transit, public_space
@@ -5484,7 +5485,7 @@ the hook; Intro, prayer visual, channel identity and Outro use real voice-unit b
 runtime. Prayer/definition/first topic line form one continuous opening beat. Plan no greeting, prayer,
 channel introduction, extra preamble or duplicate identity material.
 
-COVER_LITE is metadata in this SAME Planning response, never a new stage/model call. Plan and sections
+COVER_LITE is metadata inside this SAME Planning response, never a new stage/model call. Plan and sections
 each get distinctive, natural, truthful 2-5 word Arabic cover_text repaid by that episode's tension/payoff.
 Avoid generic motivation, clickbait, emojis, hashtags, logos and punctuation-heavy copy. Derived Shorts
 reuse this metadata without AI calls. Hook remains cover-aware: one focal object/action, visible tension

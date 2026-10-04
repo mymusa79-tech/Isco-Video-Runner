@@ -125,6 +125,7 @@ class VisualRecoveryContractTests(unittest.TestCase):
         self.assertEqual(bound["beats"][1]["semantic_must_have"], [GOOD_QUERY])
         self.assertEqual(bound["beats"][1]["meaning_target"], original["beats"][1]["meaning_target"])
         failures = [e for e in router.events if e.get("result") == "invalid_output"]
+        self.assertTrue(failures[0]["reason"].startswith("invalid_output_valueerror_"))
         self.assertIn("alternate_query_too_long", failures[0]["reason"])
         detail = json.loads(failures[0]["detail"])
         self.assertEqual(detail["alternate_query_chars"], len(LONG_QUERY))

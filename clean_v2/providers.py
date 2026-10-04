@@ -604,6 +604,9 @@ def _safe_validator_reason(exc: Exception) -> str:
     """Persist only a deterministic validator code, never rejected content."""
     base = f"invalid_output_{type(exc).__name__.lower()}"
     if type(exc).__name__ == "AlternateQueryError":
+        # Preserve the historical ValueError prefix for existing route/log
+        # consumers while exposing the precise rejection code after it.
+        base = "invalid_output_valueerror"
         code = str(getattr(exc, "code", ""))
     elif type(exc).__name__ == "ShortFormatError":
         code = str(exc).strip().split(maxsplit=1)[0].casefold()
