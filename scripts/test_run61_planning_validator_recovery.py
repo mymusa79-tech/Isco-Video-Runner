@@ -178,6 +178,89 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
             "visual_world_identity_fallback",
         )
 
+    def test_run83_retry_targets_rejected_post_hook_beat(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError(
+                "visual_story beat b4 post-hook semantic drop requires "
+                "a stronger observable alternate"
+            ),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("For b4", prompt)
+        self.assertIn("SAME section_id and meaning", prompt)
+        self.assertIn("generic typing", prompt)
+        self.assertIn("stronger concrete observable", prompt)
+
+    def test_run84_retry_targets_missing_longform_sections(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError(
+                "visual_story must cover every planned section: missing=s4,s5"
+            ),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("s4,s5", prompt)
+        self.assertIn("EVERY named missing section", prompt)
+        self.assertIn("section_id exactly matches", prompt)
+        self.assertIn("do not solve this by deleting another section", prompt)
+
+    def test_run85_script_patch_gets_one_validator_guided_retry(self) -> None:
+        calls: list[str] = []
+
+        def fake_call(prompt: str, max_tokens: int, stage: str) -> dict:
+            self.assertEqual(max_tokens, 1200)
+            self.assertEqual(stage, "script_patch")
+            calls.append(prompt)
+            return {"attempt": len(calls)}
+
+        def validator(candidate: dict) -> dict:
+            if candidate["attempt"] == 1:
+                raise ValueError(
+                    "semantic script patch did not change every explicitly "
+                    "flagged section: s1"
+                )
+            return {"status": "pass"}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    fake_call,
+                    stages=frozenset({"script_patch"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        result = router.route(
+            stage="script_patch",
+            prompt="CURRENT_SCRIPT:\n{}\nREQUIRED_SEMANTIC_CHANGE_SECTION_IDS:[\"s1\"]",
+            max_tokens=1200,
+            validator=validator,
+        )
+
+        self.assertEqual(result, {"status": "pass"})
+        self.assertEqual(len(calls), 2)
+        self.assertIn("MISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY", calls[1])
+        self.assertIn("Missing required section ids: s1", calls[1])
+        self.assertIn("copied VERBATIM from CURRENT_SCRIPT", calls[1])
+        self.assertEqual(
+            [event["result"] for event in router.events],
+            ["retrying", "success"],
+        )
+        self.assertEqual(
+            router.events[0]["reason"],
+            "mistral_script_patch_validator_retry",
+        )
+
+    def test_script_patch_retry_is_only_for_missing_required_semantic_sections(self) -> None:
+        self.assertIsNone(
+            _mistral_script_patch_validator_retry_prompt(
+                "BASE",
+                ValueError("script patch changed locked prayer sentence"),
+            )
+        )
+
     def test_retry_is_not_offered_for_unrelated_runtime_failure(self) -> None:
         self.assertIsNone(
             _mistral_planning_validator_retry_prompt(
