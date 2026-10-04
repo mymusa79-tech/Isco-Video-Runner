@@ -2403,10 +2403,17 @@ def _short_locked_action_repair_allowed(
         return False
     if action in note:
         return True
+    # Partial opening requires an audit-verified quoted excerpt. The quote
+    # flattener has already removed fabricated excerpts that do not occur in
+    # the actual script, so ordinary prose overlap cannot unlock host-owned text.
+    verified_quotes = _audit_verified_repair_terms(revision_note)
+    if not verified_quotes:
+        return False
     words = action.split()
     for size in range(min(6, len(words)), 2, -1):
         for start in range(0, len(words) - size + 1):
-            if " ".join(words[start : start + size]) in note:
+            phrase = " ".join(words[start : start + size])
+            if any(phrase in quote or quote in phrase for quote in verified_quotes):
                 return True
     return False
 
