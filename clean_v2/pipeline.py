@@ -5483,18 +5483,19 @@ and cannot trigger automatic imitation or production overrides.
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
-Each visual query must be a concrete English stock-footage phrase, about 6-14 useful words and <=260 characters:
-one observable action/setting plus only retrieval-relevant composition/light cues. Prefer positive face-safe cues
-(hands, back view, objects, distant/angled figure), and keep every section purpose complete.
-Use one coherent channel world: natural practical light, moderate/deep exposure, soft directional contrast,
-dark navy/charcoal shadows, ivory-neutral highlights and restrained warm gold. Preserve highlights/midtones;
-reject flat beige, blown highlights, blanket blue, neon/night unless required, glossy bright lifestyle-ad looks,
-generic coffee/laptop mood shots, and identifiable faces. Use contextual depth and real environments.
+Each visual query must be a concrete English stock-footage phrase. Prefer 6-14 useful search words and keep each
+query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues.
+Prefer positive face-safe cues (hands only, back view, objects, distant/angled figure), and keep section purposes complete.
+Use one coherent channel world: natural practical light, moderate-to-deep exposure, soft directional contrast,
+dark navy/charcoal shadows, ivory-neutral highlights and restrained warm gold; preserve highlights/midtones.
+The mood is grounded upward movement. Use quiet premium darkness rather than gloom. Reject flat beige, blown
+highlights, blanket blue, neon/night unless required, glossy lifestyle-ad looks, generic coffee/laptop mood shots,
+and identifiable faces. Use contextual depth and real environments.
 For Short, keep useful upper-right Arabic-text negative space when it does not weaken meaning.
 {format_visual_profile}
 
 CULTURAL COHERENCE is part of this same visual intent: when people/everyday social context appear, prefer a
-credible contemporary Arab/Middle-Eastern setting and modest presentation. Reject alcohol, gambling, nightclub/party
+credible contemporary Arab/Middle-Eastern environment and modest presentation. Reject alcohol, gambling, nightclub/party
 culture, sexualized presentation, or conflicting ritual imagery; never force mosques, prayer rugs, calligraphy,
 traditional dress, or religious symbols when the topic does not require them. Be natural, respectful, non-stereotyped.
 
@@ -5508,8 +5509,8 @@ tension/consequence/decisive moment understandable with sound off; prefer close/
 Reject calm mood-only desk/coffee/window/walking/typing hooks unless that exact action is the tension, and reject
 unrelated shock, danger, misery, clickbait or ad exaggeration.
 HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new stage: hook -> next beat must advance
-the SAME unresolved tension through a different action/environment/scale/state; first body beat cannot repeat the
-hook family. Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
+the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
+Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
 VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
 separate families; never repeat a dominant family in consecutive beats and normally use one family <=2 times,
