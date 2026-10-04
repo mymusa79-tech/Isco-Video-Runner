@@ -3013,20 +3013,20 @@ def _editorial_boundary_decisions(
 
         decision = "CUT"
         reason = "semantic_boundary"
-        if left_section and right_section and left_section != right_section:
-            reason = "section_change"
-        elif left_environment and right_environment and left_environment != right_environment:
+        if left_environment and right_environment and left_environment != right_environment:
             reason = "environment_change"
-        elif right_hold in {"idea_changes", "hook_progression"}:
-            reason = right_hold
         elif right_hold == "idea_continues":
             decision = "DISSOLVE"
             reason = "same_environment_semantic_continuity"
+        elif right_hold in {"idea_changes", "hook_progression"}:
+            reason = right_hold
         elif right_hold == "payoff_landing" and (
             not left_environment or not right_environment or left_environment == right_environment
         ):
             decision = "DISSOLVE"
             reason = "payoff_landing"
+        elif left_section and right_section and left_section != right_section:
+            reason = "section_change"
         elif right_role == "detail" and (
             not left_environment or not right_environment or left_environment == right_environment
         ):
@@ -3719,11 +3719,11 @@ def _build_section_body_segments(
                 if section_ids is not None and index < len(section_ids)
                 else ""
             )
-            split = bool(current and section_id and current_id and section_id != current_id)
             if current and boundary_decisions is not None:
                 boundary = boundary_decisions[index - 1] if index - 1 < len(boundary_decisions) else {}
-                if str(boundary.get("decision") or "CUT") != "DISSOLVE":
-                    split = True
+                split = str(boundary.get("decision") or "CUT") != "DISSOLVE"
+            else:
+                split = bool(current and section_id and current_id and section_id != current_id)
             if split:
                 groups.append(current)
                 current = []
