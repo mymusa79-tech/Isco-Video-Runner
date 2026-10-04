@@ -83,6 +83,7 @@ def with_channel_persona(prompt: str) -> str:
                 "writing_voice": {
                     "tone": writing["tone"],
                     "signature_moves": writing["signature_moves"],
+                    "banned_ai_phrases": writing["banned_ai_phrases"],
                 },
                 "analysis_lens": {
                     "principle": analysis["principle"],
