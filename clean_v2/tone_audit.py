@@ -104,9 +104,28 @@ def _scope_religious_quote_prompt(prompt: str) -> str:
     )
 
 
-def _scope_clean_v2_tone_prompt(prompt: str) -> str:
-    """Keep the legacy semantic audit focused on narration the repair can own."""
+def _scope_clean_v2_tone_prompt(
+    prompt: str,
+    *,
+    research_boundaries: str = "",
+) -> str:
+    """Keep the semantic judge strict while respecting the approved evidence ceiling."""
     scoped = _scope_religious_quote_prompt(prompt)
+    evidence_scope = ""
+    if research_boundaries.strip():
+        evidence_scope = """
+[CLEAN_V2_EVIDENCE_BOUNDARY]
+The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional context.
+- Keep the same strict hook/progression/depth bar, but judge depth only from claims and reasoning the
+  approved evidence can support.
+- If a boundary explicitly says it does NOT establish causality, diagnosis, percentages, or scientific
+  mechanism, do NOT block merely because the draft lacks such a mechanism and do NOT recommend inventing
+  one. Demand specificity through observable behavior, a concrete choice pattern, a supported distinction,
+  a consequence already present in approved material, or a clearly framed non-causal interpretation.
+- Never suggest adding studies, psychological triggers, algorithmic motives, hidden mental processes, or
+  stronger causal explanations outside the boundary. A text can be deep without pretending evidence exists.
+[/CLEAN_V2_EVIDENCE_BOUNDARY]
+""" + research_boundaries.strip()
     return scoped + """
 [CLEAN_V2_TONE_SCOPE]
 - This is a spoken-text audit. Do not block on visual_query, footage choice, shot choice,
@@ -192,7 +211,7 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   * Add these three fields to the SAME JSON object: "filler_flags" (array of
     strings), "payoff_earned" (boolean), "cold_open_story_violation" (boolean).
 [/CLEAN_V2_TONE_SCOPE]
-""".strip()
+""".strip() + ("\n\n" + evidence_scope if evidence_scope else "")
 
 
 def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
@@ -355,6 +374,8 @@ def audit_tone_and_naturalness_with_mistral(
     api_key: str,
     plan: object,
     model: str,
+    *,
+    research_boundaries: str = "",
 ) -> dict[str, Any]:
     """Keep frozen audit semantics with the bounded Clean V2 HTTP provider route."""
     del api_key, model
@@ -399,7 +420,10 @@ def audit_tone_and_naturalness_with_mistral(
                     )
                 )
 
-            scoped_prompt = _scope_clean_v2_tone_prompt(prompt)
+            scoped_prompt = _scope_clean_v2_tone_prompt(
+                prompt,
+                research_boundaries=research_boundaries,
+            )
             extended = [
                 ("gemini", gemini_call),
                 ("groq", groq_call),
