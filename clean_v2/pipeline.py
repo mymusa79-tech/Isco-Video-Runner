@@ -5357,11 +5357,9 @@ and a specific, non-obvious angle; reject generic self-help/listicle treatment. 
 meaningfully change from beginning to end, every section must add a new explanatory job, and the audio must make
 complete sense with the screen closed. Use a specific episode title ending " | خارج النص".
 
-The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A:. A is sparse: use only one
-of four listener-proxy jobs when it genuinely unlocks a new layer: a real question, a plausible doubt, a concrete
-objection, or a request for clarification. B is the established Charon voice and carries the explanation. If B would
-deliver essentially the same substance without that A turn, omit A. Never use A as host/interviewer/filler or alternate
-mechanically. Express this through existing section purpose fields; do not invent a new schema or metadata field.
+The fixed house style is listener-proxy dialogue. The first spoken sentence MUST be A:. A is sparse and uses only one of four listener-proxy jobs when it genuinely unlocks a new layer: a real question, a plausible doubt, a concrete objection, or a request for clarification.
+B is the established Charon voice and carries the explanation. If B would deliver essentially the same substance without that A turn, omit A. Never use A as host/interviewer/filler or alternate mechanically.
+Express this through existing section purpose fields; do not invent a new schema or metadata field.
 Runtime inserts prayer + fixed خارج النص identity after A's first hook, so B must pick up the SAME noun/tension.
 
 Visuals are sparse and audio-first. Section 1 uses TWO semantic beats: unresolved A-hook evidence, then a changed
