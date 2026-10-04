@@ -47,6 +47,8 @@ from clean_v2.pipeline import (
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _script_text_haystack,
+    _short_locked_action_repair_allowed,
+    _persist_repaired_short_action,
     _tone_repair_issue_notes,
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
@@ -6805,6 +6807,176 @@ class PlanningProviderSchemaRegressionTests(unittest.TestCase):
             adapters["gemini_flash_lite"].call,
             providers_module._gemini_flash_lite_stage_call,
         )
+
+
+class Run8081RepairContractTests(unittest.TestCase):
+    def _short_plan(self) -> dict:
+        return {
+            "title": "حماية الطاقة",
+            "promise": "تمييز الحماية عن الانسحاب",
+            "cta": "",
+            "practical_action_ar": "اختر ثلاث تفاعلات فقط تحمي طاقتك هذا الأسبوع",
+            "s3_locked_action": "اختر ثلاث تفاعلات فقط تحمي طاقتك هذا الأسبوع",
+            "sections": [
+                {"id": "s1", "heading": "سؤال", "purpose": "فتح التوتر", "visual_query_en": "hands pausing before replying"},
+                {"id": "s2", "heading": "تمييز", "purpose": "شرح الفرق", "visual_query_en": "phone placed aside beside task"},
+                {"id": "s3", "heading": "نتيجة", "purpose": "هبوط النتيجة", "visual_query_en": "three selected message cards on desk"},
+            ],
+        }
+
+    def _short_script(self) -> dict:
+        action = "اختر ثلاث تفاعلات فقط تحمي طاقتك هذا الأسبوع"
+        payoff = "الفرق يظهر حين تصبح طاقتك موجهة نحو ما يستحقها بدل أن تتبدد."
+        return {
+            "title": "حماية الطاقة",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هل حماية طاقتك تعني حقًا أن تبتعد عن كل تفاعل يزعجك طوال الوقت؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "العزلة قد تخفي المشكلة، بينما الحماية الأوضح تبدأ من معرفة أين تذهب طاقتك فعلًا.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+
+    def test_run80_audit_can_open_only_the_cited_locked_action_phrase(self) -> None:
+        plan = self._short_plan()
+        script = self._short_script()
+        note = (
+            "- [tone] s3: خطأ في مطابقة العدد والمعدود في «اختر ثلاث تفاعلات»، "
+            "والصواب «ثلاثة تفاعلات» لأن المفرد مذكر."
+        )
+        self.assertTrue(_short_locked_action_repair_allowed(plan, note))
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s3",
+                        "find": "ثلاث تفاعلات",
+                        "replace": "ثلاثة تفاعلات",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=note,
+            allowed_section_ids=("s3",),
+            is_short_format=True,
+            allow_short_locked_action_repair=True,
+        )
+        self.assertEqual(
+            repaired["sections"][-1]["s3_locked_action"],
+            "اختر ثلاثة تفاعلات فقط تحمي طاقتك هذا الأسبوع",
+        )
+        self.assertIn(
+            "اختر ثلاثة تفاعلات فقط تحمي طاقتك هذا الأسبوع",
+            repaired["sections"][-1]["narration"],
+        )
+
+    def test_short_locked_action_stays_closed_without_audit_evidence(self) -> None:
+        plan = self._short_plan()
+        with self.assertRaisesRegex(
+            ValueError, "cannot change Planning-owned practical_action_ar"
+        ):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s3",
+                            "find": "ثلاث تفاعلات",
+                            "replace": "ثلاثة تفاعلات",
+                        }
+                    ]
+                },
+                plan=plan,
+                original_script=self._short_script(),
+                identity={},
+                cta_plan={},
+                revision_note="- [tone] s3 يحتاج انتقالًا أوضح.",
+                allowed_section_ids=("s3",),
+                is_short_format=True,
+                allow_short_locked_action_repair=False,
+            )
+
+    def test_repaired_short_action_is_persisted_only_after_validation(self) -> None:
+        plan = self._short_plan()
+        repaired = self._short_script()
+        repaired["sections"][-1]["s3_locked_action"] = (
+            "اختر ثلاثة تفاعلات فقط تحمي طاقتك هذا الأسبوع"
+        )
+        repaired["sections"][-1]["narration"] = (
+            repaired["sections"][-1]["s3_payoff"]
+            + " "
+            + repaired["sections"][-1]["s3_locked_action"]
+        )
+        with tempfile.TemporaryDirectory() as root:
+            changed = _persist_repaired_short_action(
+                output_dir=Path(root),
+                brief={"format": "short"},
+                plan=plan,
+                repaired=repaired,
+            )
+            stored = json.loads((Path(root) / "plan.json").read_text(encoding="utf-8"))
+        self.assertTrue(changed)
+        self.assertEqual(
+            stored["practical_action_ar"],
+            "اختر ثلاثة تفاعلات فقط تحمي طاقتك هذا الأسبوع",
+        )
+
+    def test_script_patch_is_structured_for_gemini_flash_and_groq(self) -> None:
+        candidate = {"patches": [{"section_id": "s3", "find": "أ", "replace": "ب"}]}
+        with mock.patch.object(
+            providers_module, "_gemini_call", return_value=candidate
+        ) as gemini:
+            providers_module._gemini_stage_call("repair", 400, "script_patch")
+        gemini_schema = gemini.call_args.kwargs["response_schema"]
+        self.assertEqual(gemini_schema["required"], ["patches"])
+
+        with mock.patch.object(
+            providers_module, "_gemini_flash_lite_call", return_value=candidate
+        ) as flash:
+            providers_module._gemini_flash_lite_stage_call(
+                "repair", 400, "script_patch"
+            )
+        flash_schema = flash.call_args.kwargs["response_schema"]
+        self.assertEqual(flash_schema["required"], ["patches"])
+
+        with mock.patch.object(
+            providers_module, "_groq_call", return_value=candidate
+        ) as groq:
+            providers_module._groq_stage_call("repair", 400, "script_patch")
+        self.assertEqual(groq.call_args.kwargs["schema_name"], "script_patch")
+        self.assertEqual(
+            groq.call_args.kwargs["response_schema"]["required"], ["patches"]
+        )
+
+    def test_gemini_planning_schema_keeps_visual_story_but_is_shallow(self) -> None:
+        prompt = _planning_prompt(
+            {
+                "approved_by_user": True,
+                "approved_topic": "اختبار تخطيط",
+                "format": "podcast",
+                "language": "ar",
+                "audience": "Arabic-speaking adults",
+                "editorial_intent": "حوار بسيط وعميق.",
+                "research_pack": [],
+                "hard_constraints": ["No fabricated facts."],
+            }
+        )
+        schema = providers_module._gemini_planning_response_schema(prompt)
+        self.assertIn("visual_story", schema["required"])
+        beat = schema["properties"]["visual_story"]["properties"]["beats"]["items"]
+        self.assertEqual(beat, {"type": "object", "additionalProperties": True})
 
 
 if __name__ == "__main__":
