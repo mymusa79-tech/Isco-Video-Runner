@@ -3335,7 +3335,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     "content_block_confirmed": True,
                     "block_kind": "tone",
                     "phase": "repair",
-                    "classification": "infrastructure",
+                    "classification": "technical",
                     "error_type": "RuntimeError",
                 },
             )
@@ -3347,7 +3347,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(repair["status"], "repair_path_unavailable")
             self.assertTrue(repair["content_block_confirmed"])
             self.assertEqual(
-                repair["repair_failure_classification"], "infrastructure"
+                repair["repair_failure_classification"], "technical"
             )
 
     def test_audio_mastering_failure_is_a_plain_technical_failure(self) -> None:

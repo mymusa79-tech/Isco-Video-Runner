@@ -590,6 +590,26 @@ def _mistral_planning_validator_retry_prompt(
             "at most 18 words. Remove any second verb, ثم/و or attached conjunction (such as والتزم/واكتب), "
             "and any extra advice clause; preserve this topic's own action target. "
         )
+    elif detail.startswith("visual_story must cover every planned section: missing="):
+        missing = detail.split("missing=", 1)[1].strip()
+        correction = (
+            f"The visual_story omitted these planned section ids: {missing}. "
+            "Add or repair beats so EVERY named missing section has at least one beat whose section_id exactly "
+            "matches that section. Keep all existing valid section ids/order/count unchanged; do not solve this "
+            "by deleting another section's beat. Reuse that section's own purpose/visual query as the semantic "
+            "source and keep each beat concrete, observable, and stock-searchable. "
+        )
+    elif "post-hook semantic drop requires a stronger observable alternate" in detail:
+        beat_match = re.search(r"visual_story beat\s+([A-Za-z0-9_-]+)", detail)
+        beat_id = beat_match.group(1) if beat_match else "the rejected beat"
+        correction = (
+            f"For {beat_id}, the current post-hook visual is too generic. Keep the SAME section_id and meaning, "
+            "but replace its shot_intent/stock_query_en or provide stock_query_alt_en with a stronger concrete "
+            "observable action, consequence, contrast, or object-state that visibly proves the section idea. "
+            "Do not return generic typing, scrolling, phone/laptop use, passive desk work, or mood-only footage. "
+            "The corrected English query must be distinct from the rejected generic query and remain realistic "
+            "stock footage. "
+        )
     return (
         prompt.rstrip()
         + "\n\nMISTRAL_PLANNING_VALIDATOR_RETRY — the previous complete Planning JSON "
@@ -601,6 +621,38 @@ def _mistral_planning_validator_retry_prompt(
         + "contracts, and all required visual-story semantics. For Short, preserve the EXACTLY "
         + "5-beat house cut (three distinct s1 hook beats, then one s2 body beat, then one s3 "
         + "payoff beat) and keep the social CTA empty. Do not explain the correction. Return JSON only."
+    )
+
+
+def _mistral_script_patch_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One same-provider correction when a bounded patch misses required sections.
+
+    This remains part of the single repair pass: no second audit/repair cycle is
+    opened. It only lets Mistral correct its rejected patch JSON once, exactly
+    like Planning and Short-hook validator retries already do.
+    """
+    if type(exc).__name__ != "ValueError":
+        return None
+    detail = " ".join(str(exc).split()).strip()[:500]
+    prefix = "semantic script patch did not change every explicitly flagged section:"
+    if not detail.startswith(prefix):
+        return None
+    missing = detail.split(":", 1)[1].strip()
+    if not missing:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_SCRIPT_PATCH_VALIDATOR_RETRY — your previous patch JSON was rejected "
+        + "because it did not make a real narration change in every explicitly required semantic section. "
+        + f"Missing required section ids: {missing}. "
+        + "Return the COMPLETE patch JSON again. Include at least one valid minimal exact find/replace patch "
+        + "for EACH missing section id, while also keeping the other listed defects fixed. Each patch.find "
+        + "must be copied VERBATIM from CURRENT_SCRIPT in that exact section and must match exactly once. "
+        + "Do not patch unflagged sections, do not touch locked prayer/channel/CTA/action text unless the "
+        + "original contract explicitly allows it, and do not rewrite the whole script. Return JSON only."
     )
 
 
@@ -1727,6 +1779,12 @@ class ProviderRouter:
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_short_hook_validator_retry"
+                elif adapter.name == "mistral" and stage == "script_patch":
+                    retry_prompt = _mistral_script_patch_validator_retry_prompt(
+                        provider_prompt, exc
+                    )
+                    if retry_prompt is not None:
+                        retry_event_reason = "mistral_script_patch_validator_retry"
 
                 if retry_prompt is not None:
                     self._event(
