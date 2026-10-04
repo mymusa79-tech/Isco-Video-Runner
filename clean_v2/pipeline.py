@@ -110,7 +110,11 @@ VISUAL_BIND_STAGE = "visual_binding"
 CTA_BIND_STAGE = "contextual_cta_binding"
 POST_TEXT_VISUAL_BIND_STAGE = "post_text_visual_binding"
 VISUAL_BIND_RECOVERY_MAX_ATTEMPTS = 2
-VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 2
+# Channel visual identity is host-owned and deterministic. If a provider omits
+# the navy/gold markers, normalize that one field immediately instead of burning
+# the next provider in the free-tier cascade. All other Planning validation stays
+# unchanged and can still reject the candidate.
+VISUAL_WORLD_REGEN_REJECTIONS_BEFORE_FALLBACK = 1
 _PLANNING_FACTUALITY_RULE = (
     "Use precise scientific, psychological, medical, historical, legal, political, statistical or religious "
     "factual claims only when directly supported by APPROVED_RESEARCH_PACK. Never invent studies, numbers, "
