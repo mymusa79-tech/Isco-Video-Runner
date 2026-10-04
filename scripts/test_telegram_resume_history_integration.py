@@ -157,8 +157,37 @@ class TelegramResumeHistoryIntegrationTests(unittest.TestCase):
         disabled = [button for row in keyboard for button in row if "disabled" in button]
         self.assertIn("checkpoint غير موجود", text)
         self.assertFalse(any(value.startswith("resume:") for value in callbacks))
-        self.assertEqual(disabled, [{"text": "⛔ استئناف غير متاح", "disabled": {}}])
+        self.assertEqual(disabled, [])
         self.assertIn("restart:req-history", callbacks)
+        restart_button = next(
+            button for row in keyboard for button in row
+            if button.get("callback_data") == "restart:req-history"
+        )
+        self.assertIn("إعادة المحاولة", restart_button["text"])
+
+    def test_history_scope_callback_opens_only_requested_tab(self):
+        request = _request()
+        state = control.default_state()
+        state["requests"][request["request_id"]] = request
+        update = {
+            "callback_query": {
+                "from": {"id": 123},
+                "message": {"chat": {"id": 123}},
+                "data": "historyscope:short",
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "_release_library_records", return_value=[]), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            control.handle_update(state, update, Path(tmp) / "dispatch.json")
+
+        text, keyboard = send.call_args.args
+        self.assertIn("📚 المحفوظات — ⚡ شورت", text)
+        callbacks = [button["callback_data"] for row in keyboard for button in row]
+        self.assertIn("history:req-history", callbacks)
+        self.assertEqual(keyboard[-1][0]["callback_data"], "main:saved")
 
     def test_restart_creates_new_request_and_requires_normal_confirmation(self):
         request = _request()
