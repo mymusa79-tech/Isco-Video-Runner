@@ -297,8 +297,14 @@ def _meaning_preservation_tokens(value: object) -> set[str]:
     return tokens
 
 
+_MEANING_SENSITIVE_STEMS = frozenset({
+    "writ", "select", "choos", "compar", "mark", "complet", "finish",
+    "sort", "rank", "narrow",
+})
+
+
 def _alternate_preserves_beat_meaning(beat: Mapping[str, Any], alternate: str) -> bool:
-    """Allow diversity alternates only when they keep at least one authored semantic anchor."""
+    """Protect explicit semantic actions without rejecting valid authored scene changes."""
     authored = " ".join(
         str(item or "")
         for item in (beat.get("semantic_must_have") or [])
@@ -307,8 +313,13 @@ def _alternate_preserves_beat_meaning(beat: Mapping[str, Any], alternate: str) -
     if not authored:
         authored = str(beat.get("shot_intent") or beat.get("stock_query_en") or "")
     required = _meaning_preservation_tokens(authored)
+    sensitive = required & _MEANING_SENSITIVE_STEMS
+    if not sensitive:
+        # Existing authored alternates may intentionally change scene family to
+        # express a broader beat meaning. Keep that proven behavior.
+        return True
     candidate = _meaning_preservation_tokens(alternate)
-    return bool(required and candidate and (required & candidate))
+    return bool(candidate and (required & candidate))
 
 
 def _default_environment_family(value: object) -> str:
