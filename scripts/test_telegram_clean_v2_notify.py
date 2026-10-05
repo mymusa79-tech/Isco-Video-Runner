@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from scripts.telegram_clean_v2_notify import (
     artifact_delivery_text,
@@ -14,6 +18,7 @@ from scripts.telegram_clean_v2_notify import (
     runtime_status_payload,
     started_text,
     terminal_text,
+    workflow_watchdog,
     workflow_watchdog_text,
 )
 
@@ -99,7 +104,8 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         }
         guidance = failure_guidance(manifest, "failure")
         self.assertIn("انتظر قليلًا", guidance)
-        self.assertIn("أعد المحاولة", guidance)
+        self.assertIn("نفس الطلب", guidance)
+        self.assertIn("الاستئناف", guidance)
 
     def test_voice_failure_guidance_uses_gemini_retry_window(self):
         manifest = {
@@ -121,6 +127,48 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("Gemini", guidance)
         self.assertIn("62 دقيقة", guidance)
         self.assertIn("أعد المحاولة", guidance)
+
+    def test_watchdog_retries_detailed_voice_terminal_message_from_manifest(self):
+        manifest = {
+            "status": "failed",
+            "topic": "موضوع تجريبي",
+            "voice_failure": {
+                "charon_reason": "TtsProviderError(gemini_3_8_http_429)_http_429",
+                "retry_after_seconds": 3661.0,
+            },
+            "stages": [
+                {
+                    "name": "voice",
+                    "status": "failed",
+                    "error_type": "VoiceInfrastructureError",
+                    "failure_classification": "infrastructure",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as root:
+            out = Path(root) / "short"
+            out.mkdir(parents=True)
+            (out / "run-manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "scripts.telegram_clean_v2_notify.send_message",
+                return_value=True,
+            ) as send:
+                result = workflow_watchdog(
+                    output_root=Path(root),
+                    job_status="failure",
+                    scope="short",
+                    run_url="https://github.example/run/92",
+                )
+
+            self.assertEqual(result, 0)
+            sent_text = send.call_args.args[0]
+            self.assertIn("62 دقيقة", sent_text)
+            self.assertIn("نفس الطلب", sent_text)
+            self.assertIn("الاستئناف", sent_text)
+            self.assertTrue((out / ".telegram-terminal-sent").exists())
 
     def test_content_block_and_repair_outage_are_reported_together(self):
         repair_failure = {
