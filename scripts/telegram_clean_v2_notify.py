@@ -295,6 +295,19 @@ def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
             "ابدأ محاولة إنتاج جديدة؛ لا تُعِد استخدام النص المرفوض نفسه."
         )
     if classification == "infrastructure" or stage == "voice":
+        voice = manifest.get("voice_failure")
+        if isinstance(voice, dict):
+            raw_retry = voice.get("retry_after_seconds")
+            try:
+                retry_seconds = float(raw_retry)
+            except (TypeError, ValueError):
+                retry_seconds = 0.0
+            if retry_seconds > 0:
+                if retry_seconds < 60:
+                    wait_text = f"{max(1, int(round(retry_seconds)))} ثانية"
+                else:
+                    wait_text = f"{max(1, int((retry_seconds + 59) // 60))} دقيقة"
+                return f"Gemini طلب الانتظار نحو {wait_text}. أعد المحاولة بعد ذلك."
         return "مشكلة مؤقتة في الخدمة أو المزوّد. انتظر قليلًا ثم أعد المحاولة."
     if any(token in classification + " " + error_type for token in ("quality", "content", "validation", "factual")):
         return "المحتوى لم يجتز الفحص. ابدأ بحثًا جديدًا أو اختر موضوعًا آخر."
