@@ -3717,6 +3717,69 @@ class StockVisualRecoveryPoolTests(unittest.TestCase):
 
         self.assertEqual(len(result), 3)
 
+    def test_recovery_pool_includes_coverr_as_third_source(self) -> None:
+        """Run #87: semantic recovery searched only Pexels and Pixabay, so a weak
+        clip could never be replaced from Coverr even though it was available."""
+        source = media_module.StockVisualSource()
+        pools = {
+            "_pexels_recovery_pool": [self._candidate("pexels", f"p{i}") for i in (1, 2, 3)],
+            "_pixabay_recovery_pool": [self._candidate("pixabay", f"x{i}") for i in (1, 2, 3)],
+            "_coverr_recovery_pool": [self._candidate("coverr", f"c{i}") for i in (1, 2, 3)],
+        }
+
+        def fake_download(_url, destination):
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels_recovery_pool", return_value=pools["_pexels_recovery_pool"]
+        ), mock.patch.object(
+            source, "_pixabay_recovery_pool", return_value=pools["_pixabay_recovery_pool"]
+        ), mock.patch.object(
+            source, "_coverr_recovery_pool", return_value=pools["_coverr_recovery_pool"]
+        ) as coverr_search, mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            result = source.acquire_replacement_candidates(
+                "person checking calendar at desk", Path(root), "film",
+                destination_name="visual-01.mp4", section_id="s1", max_candidates=3,
+            )
+
+        self.assertEqual(coverr_search.call_count, 1)
+        self.assertEqual(
+            [(row["provider"], row["asset_id"]) for _path, row in result],
+            [("pexels", "p1"), ("pixabay", "x1"), ("coverr", "c1")],
+        )
+
+    def test_coverr_recovery_pool_filters_and_respects_budget(self) -> None:
+        source = media_module.StockVisualSource()
+        source._used.add(("coverr", "used"))
+        hits = [
+            {"id": "used", "urls": {"mp4_download": "https://c/used"}},
+            {"id": "ai", "is_ai": True, "urls": {"mp4_download": "https://c/ai"}},
+            {"id": "nourl", "urls": {}},
+            {"id": "good1", "title": "desk shadows", "duration": 8,
+             "urls": {"mp4_download": "https://c/good1"}},
+            {"id": "good2", "title": "desk", "duration": 8,
+             "urls": {"mp4_download": "https://c/good2"}},
+        ]
+        with mock.patch.object(media_module, "_read_secret", return_value="key"), mock.patch.object(
+            media_module, "_get_json", return_value={"hits": hits}
+        ):
+            pool = source._coverr_recovery_pool("desk shadows", portrait=True, limit=6)
+        ids = {row["asset_id"] for row in pool}
+        self.assertEqual(ids, {"good1", "good2"})
+        self.assertTrue(all(row["provider"] == "coverr" for row in pool))
+
+        source._coverr_search_calls = media_module.COVERR_MAX_SEARCHES_PER_RUN
+        with mock.patch.object(media_module, "_read_secret", return_value="key"), mock.patch.object(
+            media_module, "_get_json", side_effect=AssertionError("budget exhausted: no wire call")
+        ):
+            self.assertEqual(source._coverr_recovery_pool("desk", portrait=True, limit=3), [])
+
+        with mock.patch.object(media_module, "_read_secret", return_value=""):
+            fresh = media_module.StockVisualSource()
+            self.assertEqual(fresh._coverr_recovery_pool("desk", portrait=True, limit=3), [])
+
 
 class VisualQASemanticRecoveryTests(unittest.TestCase):
     ORIGINAL_QUERY = "person scrolling phone while looking at wall clock"

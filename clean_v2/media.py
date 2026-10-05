@@ -2377,6 +2377,109 @@ class StockVisualSource:
             )
         return candidates
 
+    def _coverr_recovery_pool(
+        self,
+        query: str,
+        *,
+        portrait: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Coverr candidates for semantic recovery, in local-rank order.
+
+        Run #87: recovery searched only Pexels and Pixabay although Coverr (already
+        used for first-pass selection) was available, so a weak clip could not be
+        replaced from the third source. Shares the per-run Coverr search budget.
+        """
+        query = _provider_stock_query(query, "coverr")
+        key = _read_secret("COVERR_API_KEY")
+        if not key:
+            self._event("coverr", query, "unavailable", wire_attempted=False, reason="missing_api_key")
+            return []
+        if self._coverr_search_calls >= COVERR_MAX_SEARCHES_PER_RUN:
+            self._event(
+                "coverr", query, "skipped", wire_attempted=False,
+                reason="run_search_budget_exhausted",
+            )
+            return []
+        self._coverr_search_calls += 1
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:160],
+                "page_size": max(12, int(limit)),
+                "sort": "popular",
+                "urls": "true",
+            }
+        )
+        candidates: list[dict[str, Any]] = []
+        try:
+            body = _get_json(
+                f"https://api.coverr.co/videos?{params}",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], str, str]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
+                asset_id = str(hit.get("id") or "").strip()
+                if not asset_id or ("coverr", asset_id) in self._used:
+                    continue
+                if bool(hit.get("is_ai") or hit.get("ai_generated")):
+                    continue
+                source_type = str(hit.get("source") or hit.get("type") or "").casefold()
+                if source_type in {"ai", "generated", "ai_generated"}:
+                    continue
+                urls = hit.get("urls") or {}
+                download_url = str(
+                    (urls.get("mp4_download") if isinstance(urls, Mapping) else "")
+                    or (urls.get("mp4") if isinstance(urls, Mapping) else "")
+                    or ""
+                ).strip()
+                if not download_url:
+                    continue
+                width = int(hit.get("max_width") or 0)
+                height = int(hit.get("max_height") or 0)
+                if not width or not height:
+                    width, height = ((1080, 1920) if bool(hit.get("is_vertical")) else (1920, 1080))
+                metadata = " ".join(
+                    [
+                        str(hit.get("title") or ""),
+                        str(hit.get("description") or ""),
+                        " ".join(str(x) for x in (hit.get("tags") or []) if x),
+                        " ".join(str(x) for x in (hit.get("search_keywords") or []) if x),
+                    ]
+                )
+                score = _stock_local_rank_score(
+                    index=index, count=count, width=width, height=height,
+                    duration=float(hit.get("duration") or 0.0), portrait=portrait,
+                    query=query, metadata=metadata,
+                )
+                ranked.append((score, hit, download_url, asset_id))
+            for score, hit, download_url, asset_id in sorted(ranked, key=lambda item: -item[0]):
+                candidates.append(
+                    {
+                        "provider": "coverr",
+                        "asset_id": asset_id,
+                        "download_url": download_url,
+                        "source_url": str(hit.get("url") or "https://coverr.co"),
+                        "creator": "Coverr",
+                        "creator_url": "https://coverr.co",
+                        "query": query,
+                        "media_kind": "video",
+                        "attribution_required": True,
+                        "local_rank_score": round(float(score), 6),
+                    }
+                )
+                if len(candidates) >= max(1, int(limit)):
+                    break
+            self._event(
+                "coverr", query,
+                "recovery_pool_ready" if candidates else "empty",
+                wire_attempted=True, reason=f"candidates={len(candidates)}",
+            )
+        except Exception as exc:
+            self._event("coverr", query, "failed", wire_attempted=True, reason=str(exc)[:80])
+        return candidates
+
     def _pixabay_recovery_pool(
         self,
         query: str,
@@ -2485,8 +2588,8 @@ class StockVisualSource:
     ) -> list[tuple[Path, dict[str, Any]]]:
         """Return up to three safe alternate-query candidates with a fixed bound.
 
-        Recovery performs exactly one Pexels search and one Pixabay search, preserves
-        each provider's own relevance ordering, interleaves the two pools, and admits
+        Recovery performs exactly one Pexels, one Pixabay and one Coverr search, preserves
+        each provider's own relevance ordering, interleaves the three pools, and admits
         at most max_candidates downloaded candidates. Security V1 and the existing
         media transform run before a candidate can reach cloud Visual QA.
         """
@@ -2524,10 +2627,15 @@ class StockVisualSource:
             portrait=portrait,
             limit=per_provider_limit,
         )
-        provider_pools = (pexels, pixabay)
+        coverr = self._coverr_recovery_pool(
+            normalized_query,
+            portrait=portrait,
+            limit=per_provider_limit,
+        )
+        provider_pools = (pexels, pixabay, coverr)
         interleaved: list[dict[str, Any]] = []
         position = 0
-        while len(interleaved) < per_provider_limit * 2:
+        while len(interleaved) < per_provider_limit * 3:
             added = False
             for pool in provider_pools:
                 if position < len(pool):
