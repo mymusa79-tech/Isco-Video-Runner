@@ -348,6 +348,7 @@ jobs:
           ISCO_ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.8-flash-tts
+          GEMINI_TTS_VOICE: Charon
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
