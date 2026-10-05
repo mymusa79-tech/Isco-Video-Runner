@@ -1058,8 +1058,8 @@ def _provider_stock_query(query: str, provider: str) -> str:
     if name.startswith("coverr"):
         adapted = compact_searchable_visual_intent(
             raw,
-            drop_tokens=_COVERR_QUERY_DROP_TOKENS,
-            max_words=12,
+            drop_tokens=_PIXABAY_QUERY_DROP_TOKENS | frozenset({"showing", "many", "small"}),
+            max_words=4,
         )
         return _bounded_provider_query_chars(adapted or raw, 160)
 

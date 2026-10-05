@@ -25,7 +25,7 @@ from scripts import vision_stage_contract_v2 as contract
 MISTRAL_VISION_PROVIDER = "mistral"
 MISTRAL_VISION_MODEL = "ministral-14b-2512"
 MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
-MISTRAL_TIMEOUT_SECONDS = 60
+MISTRAL_TIMEOUT_SECONDS = 35
 MISTRAL_VISION_QUOTA_DOMAIN = "vision"
 
 _TELEMETRY: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(

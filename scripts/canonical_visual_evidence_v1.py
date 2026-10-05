@@ -44,8 +44,8 @@ def secret_free_subprocess_env() -> dict[str, str]:
 
 EVIDENCE_VERSION = "canonical_visual_evidence.v1"
 FRAME_POSITIONS = (0.18, 0.50, 0.82)
-MAX_FRAME_WIDTH = 1280
-JPEG_QUALITY = 2
+MAX_FRAME_WIDTH = 896
+JPEG_QUALITY = 4
 
 
 @dataclass(frozen=True)

@@ -50,7 +50,7 @@ from scripts import mistral_visual_qa_fallback as mistral_vision
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_TIMEOUT_SECONDS = 60
+GROQ_TIMEOUT_SECONDS = 35
 GROQ_CATALOG_TIMEOUT_SECONDS = 15
 GEMINI_GENERATION_QUOTA_DOMAIN = "generate_content"
 GROQ_VISION_QUOTA_DOMAIN = "vision"

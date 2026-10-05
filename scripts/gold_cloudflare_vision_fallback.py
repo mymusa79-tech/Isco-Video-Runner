@@ -42,7 +42,7 @@ from scripts import canonical_visual_evidence_v1 as canonical_evidence
 CLOUDFLARE_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 CLOUDFLARE_VISION_PROVIDER = "cloudflare_workers_ai"
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
-CLOUDFLARE_TIMEOUT_SECONDS = 60
+CLOUDFLARE_TIMEOUT_SECONDS = 35
 CLOUDFLARE_PROBE_TIMEOUT_SECONDS = 15
 CLOUDFLARE_MAX_CALLS_PER_WORKFLOW = 5
 CLOUDFLARE_QUOTA_FILENAME = "cloudflare-gold-vision-quota-v1.json"

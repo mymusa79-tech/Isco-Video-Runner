@@ -3613,6 +3613,17 @@ class VisualQADiagnosticsTests(unittest.TestCase):
             self.assertIn(field, source)
 
 
+class CoverrQueryShapeTests(unittest.TestCase):
+    def test_coverr_query_is_short_keyword_form(self) -> None:
+        from clean_v2 import media as media_module
+
+        long_query = "hand hovering over paper then stopping in hesitation close up"
+        adapted = media_module._provider_stock_query(long_query, "coverr")
+        self.assertTrue(adapted)
+        self.assertLessEqual(len(adapted.split()), 4)
+        self.assertIn("paper", adapted)
+
+
 class StockVisualRecoveryPoolTests(unittest.TestCase):
     @staticmethod
     def _candidate(provider: str, asset_id: str) -> dict:

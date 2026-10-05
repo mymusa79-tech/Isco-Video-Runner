@@ -24,7 +24,7 @@ from isco_video_agent.providers import gemini as gemini_provider
 # required image-input + structured-output features. This removes model-churn as a
 # production dependency while preserving the existing Gemini -> OpenRouter boundary.
 OPENROUTER_VISION_MODEL = "openrouter/free"
-OPENROUTER_TIMEOUT_SECONDS = 60
+OPENROUTER_TIMEOUT_SECONDS = 35
 OPENROUTER_FRAME_COUNT = 3
 OPENROUTER_FRAME_TIMEOUT_SECONDS = 30
 MAX_PREVIEW_BYTES = 16 * 1024 * 1024
