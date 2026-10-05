@@ -1847,6 +1847,7 @@ def _run_legacy_tone_naturalness_audit(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
+    preferred_provider: str = "",
 ) -> dict[str, Any]:
     # Reuse the frozen Engine's tone/naturalness prompt, semantic rules,
     # normalization, fail-closed behavior, and Approval Shopping guard.
@@ -1891,6 +1892,7 @@ def _run_legacy_tone_naturalness_audit(
         production_plan,
         model,
         research_boundaries=_research_boundaries_context(brief),
+        preferred_provider=preferred_provider,
     )
     validation = str(result.get("validation") or "")
     if validation != "valid":
@@ -3826,14 +3828,46 @@ def _run_text_audit_repair_pass(
             {**repair_report, "status": "repair_applied_reauditing"},
         )
         try:
-            # Re-run the complete Text Audit: factuality remains authoritative and
-            # fail-closed; Tone is re-run inside the same composite audit.
-            post_text_audit = text_audit(
-                output_dir=output_dir,
-                brief=brief,
-                plan=plan,
-                script=script,
-            )
+            # Run 90: verify Tone first with the same provider that authored the
+            # pre-repair verdict, then re-run factuality. The old composite order
+            # (factuality -> Tone) let a factuality 429 open the shared provider
+            # circuit before Tone re-audit, silently switching the semantic judge
+            # after the single repair. Both audits remain mandatory and fail closed;
+            # only repair-verification ordering/provider preference changes.
+            if text_audit is _run_text_audits:
+                preferred_tone_provider = str(
+                    blocked.report.get("provider") or ""
+                ).strip()
+                post_tone = _run_legacy_tone_naturalness_audit(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    preferred_provider=preferred_tone_provider,
+                )
+                post_factuality = _run_legacy_factuality_audit(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                )
+                post_text_audit = {
+                    "schema_version": 1,
+                    "source": "clean-v2-composite-text-audit",
+                    "status": "pass",
+                    "factuality_status": post_factuality.get("status"),
+                    "tone_naturalness_status": post_tone.get("status"),
+                    "tone_reaudit_preferred_provider": preferred_tone_provider,
+                }
+            else:
+                # Preserve injectable/focused test callers that supply their own
+                # composite audit function.
+                post_text_audit = text_audit(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                )
             post_structural = _run_structural_ai_flags(
                 output_dir=output_dir,
                 brief=brief,
