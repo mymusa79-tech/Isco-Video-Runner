@@ -57,6 +57,15 @@ def _literal_attempts_one_calls(fn, target_name: str) -> int:
     return count
 
 
+def _direct_call_count(fn, target_name: str) -> int:
+    """Count direct calls to one named compatibility/provider boundary."""
+    count = 0
+    for node in ast.walk(_tree(fn)):
+        if isinstance(node, ast.Call) and _callable_name(node.func) == target_name:
+            count += 1
+    return count
+
+
 def _assert_single_wire_call_without_loop(fn, *, label: str) -> None:
     tree = _tree(fn)
     loops = [node for node in ast.walk(tree) if isinstance(node, (ast.For, ast.AsyncFor, ast.While))]
@@ -96,16 +105,19 @@ def certify_provider_retry_ownership() -> dict[str, object]:
             "tts_retry_owner_drift final_voice_boundary_attempts_default_must_equal_1"
         )
 
-    # The Runner Voice Mesh must pass a literal one to Engine's historical provider
-    # adapter, never forward a caller-controlled retry count.
-    if _literal_attempts_one_calls(final_tts, "gemini_synthesize") != 1:
+    # The compatibility seam may use the historical Engine adapter with an explicit
+    # attempts=1, or the current Gemini 3.8 helper exactly once. Both prove one wire
+    # handoff and forbid caller-controlled provider retry expansion.
+    legacy_handoff = _literal_attempts_one_calls(final_tts, "gemini_synthesize")
+    gemini38_handoff = _direct_call_count(final_tts, "_gemini38_synthesize")
+    if legacy_handoff + gemini38_handoff != 1:
         raise ProviderRetryOwnershipError(
-            "tts_retry_owner_drift voice_mesh_must_forward_attempts_1_exactly_once"
+            "tts_retry_owner_drift voice_mesh_must_have_exactly_one_provider_handoff"
         )
 
     # Engine's production TTS owner passes synthesize_wav as a callback into its direct
-    # provider ledger and must force attempts=1 when Runner's Piper fallback is installed.
-    # TtsBudget/TtsCircuit then owns the one optional bonus cloud attempt and failover.
+    # provider ledger and must force attempts=1. TtsBudget/TtsCircuit may own the bounded
+    # retry decision, but the Runner compatibility seam never substitutes another voice.
     if _literal_attempts_one_calls(orchestrator._synthesize_tts_section, "synthesize_wav") < 1:
         raise ProviderRetryOwnershipError(
             "tts_retry_owner_drift engine_runner_path_missing_attempts_1"
