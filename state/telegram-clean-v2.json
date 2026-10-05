@@ -6997,9 +6997,40 @@
       "confirmed_at": null,
       "dispatched_at": null,
       "request_sha256": "3382e1c6c7fac4b1fe0131079aff632d20174052d0e58299ddc078903343b7fd"
+    },
+    "req-9ee33dd6dce8": {
+      "schema_version": 1,
+      "request_id": "req-9ee33dd6dce8",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
+      "research_pack": [
+        {
+          "source_title": "EGGSTER CAN'T GO A DAY WITHOUT AN ACE",
+          "source_url": "https://youtu.be/fTG6LLEEdgg",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "400 days off the booze today guys! Massive achievement for myself & I'm so happy😎🙌🤝💪#sobrietyjourney",
+          "source_url": "https://youtu.be/vLcE9l3DqUE",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "ليش الـ 24 ساعة تمر  بحياتك كل يوم بدون إنجاز؟ (الحل السري)",
+          "source_url": "https://youtu.be/TI-95BxJfz4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b946be3ff6",
+      "selected_at": "2026-10-05T21:45:32Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "62bb742060b644a1c45d603838f2bfb0e2c98dd29b4287d71e23e1762fecd792"
     }
   },
-  "current_request_id": "req-9ccf4ab39f25",
+  "current_request_id": "req-9ee33dd6dce8",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7330,6 +7361,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-05T21:44:46Z",
+  "updated_at": "2026-10-05T21:45:33Z",
   "provider_cooldown_until": "2026-10-05T18:34:00.867273Z"
 }
