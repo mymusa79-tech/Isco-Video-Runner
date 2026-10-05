@@ -556,13 +556,16 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             "hands frozen above empty notebook with pen and loose paper"
         )
         visual_story["beats"][1]["shot_intent"] = (
-            "hands sorting sticky notes and selecting one small note"
+            "hands sorting sticky notes and selecting one task"
         )
+        visual_story["beats"][1]["semantic_must_have"] = [
+            "selecting one task from several options"
+        ]
         visual_story["beats"][2]["shot_intent"] = (
             "hands writing first line in notebook with pen on page"
         )
         planned["sections"][0]["visual_query_alt_en"] = (
-            "half empty bookshelf with one book pulled out no face"
+            "phone screen with one selected task abstract interface"
         )
 
         script = {
@@ -581,7 +584,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         bound = bind_visual_story_to_script(visual_story, planned, script)
 
         self.assertIn("notebook", bound["beats"][0]["shot_intent"])
-        self.assertIn("bookshelf", bound["beats"][1]["shot_intent"])
+        self.assertIn("selected task", bound["beats"][1]["shot_intent"])
         self.assertNotIn("sticky", bound["beats"][1]["shot_intent"])
         # A genuinely different middle scene resets adjacency, so the payoff may
         # intentionally return to the opening motif in a changed state.
@@ -596,6 +599,37 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         self.assertIn("Meaning:", hook_context)
         self.assertIn("Must show:", hook_context)
         self.assertIn("Current:", hook_context)
+
+    def test_writer_binding_rejects_diversity_alternate_that_changes_beat_meaning(self) -> None:
+        planned = _validate_plan_for_brief(_planning_value("short"), _brief("short"))
+        visual_story = dict(planned.pop("visual_story"))
+        visual_story["beats"][0]["shot_intent"] = (
+            "hands frozen above empty notebook with pen and loose paper"
+        )
+        visual_story["beats"][1]["shot_intent"] = (
+            "hands sorting sticky notes and selecting one task"
+        )
+        visual_story["beats"][1]["semantic_must_have"] = [
+            "selecting one task from several options"
+        ]
+        planned["sections"][0]["visual_query_alt_en"] = (
+            "half empty bookshelf with one book pulled out no face"
+        )
+        script = {
+            "title": "نص نهائي",
+            "sections": [
+                {
+                    "id": section["id"],
+                    "narration": f"معنى نهائي مكتمل للقسم {index}. وتظهر نتيجة واضحة.",
+                }
+                for index, section in enumerate(planned["sections"], start=1)
+            ],
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            "repeat the previous stationery scene family",
+        ):
+            bind_visual_story_to_script(visual_story, planned, script)
 
     def test_stock_result_ranking_uses_existing_metadata_as_semantic_tiebreaker(self) -> None:
         common = {
