@@ -104,8 +104,7 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         }
         guidance = failure_guidance(manifest, "failure")
         self.assertIn("انتظر قليلًا", guidance)
-        self.assertIn("نفس الطلب", guidance)
-        self.assertIn("الاستئناف", guidance)
+        self.assertIn("أعد المحاولة", guidance)
 
     def test_voice_failure_guidance_uses_gemini_retry_window(self):
         manifest = {
@@ -126,7 +125,8 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         guidance = failure_guidance(manifest, "failure")
         self.assertIn("Gemini", guidance)
         self.assertIn("62 دقيقة", guidance)
-        self.assertIn("أعد المحاولة", guidance)
+        self.assertIn("نفس الطلب", guidance)
+        self.assertIn("الاستئناف", guidance)
 
     def test_watchdog_retries_detailed_voice_terminal_message_from_manifest(self):
         manifest = {
