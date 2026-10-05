@@ -875,6 +875,8 @@ def bind_visual_story_to_script(
     visual_story: Mapping[str, Any],
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
+    *,
+    allow_composition_fallback: bool = False,
 ) -> dict[str, Any]:
     """Bind Planning visuals to the accepted Writer output without another model call.
 
@@ -987,10 +989,16 @@ def bind_visual_story_to_script(
                     # Preserve authored semantic proof: the alternate changes only
                     # how the same beat is shown, never what QA must prove.
                     current_family = replacement_family
+                elif strict_diversity and not allow_composition_fallback:
+                    raise VisualFamilyRepeatError(
+                        "writer visual binding would repeat the previous "
+                        f"{current_family} scene family without a distinct alternate",
+                        family=current_family,
+                        beat_id=str(beat.get("id") or ""),
+                        section_id=section_id,
+                        query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
+                    )
                 else:
-                    # Repetition is not allowed to trigger another AI call or kill
-                    # production. Keep the exact meaning and require a different
-                    # composition/scale/state downstream.
                     avoids = [
                         str(item).strip()
                         for item in (beat.get("semantic_should_avoid") or [])
@@ -1007,6 +1015,15 @@ def bind_visual_story_to_script(
             if strict_diversity and current_family:
                 family_uses[current_family] = family_uses.get(current_family, 0) + 1
                 if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
+                    if not allow_composition_fallback:
+                        raise VisualFamilyRepeatError(
+                            "writer visual binding repeats visual family too often: "
+                            f"{current_family}",
+                            family=current_family,
+                            beat_id=str(beat.get("id") or ""),
+                            section_id=section_id,
+                            query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
+                        )
                     avoids = [
                         str(item).strip()
                         for item in (beat.get("semantic_should_avoid") or [])

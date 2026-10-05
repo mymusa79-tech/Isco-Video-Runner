@@ -55,27 +55,19 @@ class _ExactWriterRouter:
 
 
 class Run55PipelineIntegrityTests(unittest.TestCase):
-    def test_script_checkpoint_stays_after_binding_and_post_script_persistence(self) -> None:
+    def test_script_checkpoint_is_persisted_before_visual_binding(self) -> None:
         source = inspect.getsource(CleanV2Pipeline.run)
         script_start = source.index('script = journal.run(')
+        source_story = source.index('"visual-story-source.json"', script_start)
+        source_script = source.index('"script-source.json"', script_start)
+        source_narration = source.index('"narration-source.txt"', script_start)
         checkpoint = source.index('completed_stage="script"', script_start)
-        pre_checkpoint = source[script_start:checkpoint]
+        binding = source.index("VISUAL_BIND_STAGE", checkpoint)
 
-        binding = pre_checkpoint.index("VISUAL_BIND_STAGE")
-        brand = pre_checkpoint.index("_apply_brand_signature(")
-        cta = pre_checkpoint.index("bind_contextual_cta_to_script(")
-        script_write = pre_checkpoint.index(
-            'atomic_write_json(output_dir / "script.json", script)'
-        )
-        narration_write = pre_checkpoint.index(
-            '(output_dir / "narration.txt").write_text('
-        )
-
-        self.assertLess(binding, brand)
-        self.assertLess(brand, cta)
-        self.assertLess(cta, script_write)
-        self.assertLess(script_write, narration_write)
-        self.assertNotIn('completed_stage="script"', pre_checkpoint)
+        self.assertLess(source_story, checkpoint)
+        self.assertLess(source_script, checkpoint)
+        self.assertLess(source_narration, checkpoint)
+        self.assertLess(checkpoint, binding)
 
     def test_visual_binding_failure_marks_manifest_failed(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -97,7 +89,7 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_BIND_STAGE)
             self.assertEqual(manifest["stages"][-1]["status"], "failed")
 
-    def test_visual_family_recovery_uses_same_writer_provider_and_is_bounded(self) -> None:
+    def test_visual_family_recovery_is_local_and_zero_wire(self) -> None:
         router = _ExactWriterRouter()
         error = VisualFamilyRepeatError(
             "writer visual binding repeats visual family too often: stationery",
@@ -106,46 +98,33 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             section_id="s2",
             query="hand writing in notebook",
         )
-        story = {
-            "beats": [
-                {
-                    "id": "b3",
-                    "section_id": "s2",
-                    "meaning_target": "show a different concrete next step",
-                    "semantic_must_have": ["one visible next step"],
-                    "shot_intent": "hand writing in notebook",
-                    "stock_query_en": "hand writing in notebook",
-                }
-            ]
-        }
-
         with tempfile.TemporaryDirectory() as root, mock.patch(
             "clean_v2.pipeline._bind_writer_visual_story",
             side_effect=[error, {"beats": []}],
-        ):
+        ) as binder:
             bound = _bind_writer_visual_story_with_recovery(
                 router=router,
                 output_dir=Path(root),
                 brief={},
                 plan={},
                 script={},
-                visual_story=story,
+                visual_story={"beats": []},
             )
 
         self.assertEqual(bound, {"beats": []})
-        self.assertEqual(
-            router.exact_calls,
-            [("mistral", "visual_query_recovery")],
+        self.assertEqual(router.exact_calls, [])
+        self.assertEqual(binder.call_count, 2)
+        self.assertTrue(
+            binder.call_args_list[1].kwargs["allow_composition_fallback"]
         )
-        retry_events = [
+        fallback_events = [
             event for event in router.events
-            if event.get("reason") == "visual_family_repeat"
+            if event.get("reason") == "visual_family_repeat_local_composition"
         ]
-        self.assertEqual(len(retry_events), 1)
-        self.assertEqual(retry_events[0]["rejected_family"], "stationery")
-        self.assertEqual(retry_events[0]["recovery_attempt"], 1)
+        self.assertEqual(len(fallback_events), 1)
+        self.assertFalse(fallback_events[0]["wire_attempted"])
 
-    def test_visual_family_recovery_never_exceeds_two_extra_writer_calls(self) -> None:
+    def test_visual_family_local_fallback_is_bounded_to_one_retry(self) -> None:
         router = _ExactWriterRouter()
         error = VisualFamilyRepeatError(
             "writer visual binding repeats visual family too often: stationery",
@@ -154,23 +133,10 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
             section_id="s2",
             query="hand writing in notebook",
         )
-        story = {
-            "beats": [
-                {
-                    "id": "b3",
-                    "section_id": "s2",
-                    "meaning_target": "show a different concrete next step",
-                    "semantic_must_have": ["one visible next step"],
-                    "shot_intent": "hand writing in notebook",
-                    "stock_query_en": "hand writing in notebook",
-                }
-            ]
-        }
-
         with tempfile.TemporaryDirectory() as root, mock.patch(
             "clean_v2.pipeline._bind_writer_visual_story",
             side_effect=[error, error, error],
-        ):
+        ) as binder:
             with self.assertRaises(VisualFamilyRepeatError):
                 _bind_writer_visual_story_with_recovery(
                     router=router,
@@ -178,13 +144,11 @@ class Run55PipelineIntegrityTests(unittest.TestCase):
                     brief={},
                     plan={},
                     script={},
-                    visual_story=story,
+                    visual_story={"beats": []},
                 )
 
-        self.assertEqual(len(router.exact_calls), 2)
-        self.assertTrue(
-            all(provider == "mistral" for provider, _stage in router.exact_calls)
-        )
+        self.assertEqual(router.exact_calls, [])
+        self.assertEqual(binder.call_count, 2)
 
     def test_visual_world_requires_dark_identity_and_gold_accent(self) -> None:
         accepted = require_channel_visual_world(

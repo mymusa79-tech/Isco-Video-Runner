@@ -4263,7 +4263,7 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
     paths = [Path("brief.json"), Path("plan.json")]
     if rank == _RESUME_STAGE_INDEX["planning"]:
         paths.append(Path("visual-story.json"))
-    if rank >= _RESUME_STAGE_INDEX["script"]:
+    elif rank == _RESUME_STAGE_INDEX["script"]:
         paths.extend(
             [
                 Path("visual-story-source.json"),
@@ -4278,6 +4278,7 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
                 Path("visual-story.json"),
                 Path("script.json"),
                 Path("narration.txt"),
+                Path("narrative-identity.json"),
                 Path("cta-plan.json"),
                 Path(TEXT_AUDIT_CHECKPOINT_FILE),
             ]
@@ -4321,6 +4322,19 @@ def _write_resume_checkpoint(
 ) -> None:
     if completed_stage not in RESUMABLE_STAGES:
         raise RuntimeError(f"non-resumable Clean V2 checkpoint stage: {completed_stage}")
+    if completed_stage == "script":
+        # Compatibility for deterministic tests/older callers that already
+        # materialized the accepted Writer bytes under their legacy names.
+        # Real production writes these immutable source files before Visual Binding.
+        for source_name, legacy_name in (
+            ("visual-story-source.json", "visual-story.json"),
+            ("script-source.json", "script.json"),
+            ("narration-source.txt", "narration.txt"),
+        ):
+            source_path = output_dir / source_name
+            legacy_path = output_dir / legacy_name
+            if not source_path.is_file() and legacy_path.is_file():
+                shutil.copy2(legacy_path, source_path)
     artifacts: dict[str, str] = {}
     for relative in _checkpoint_artifact_paths(output_dir, completed_stage):
         path = output_dir / relative
@@ -4774,6 +4788,7 @@ def _bind_writer_visual_story(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
     visual_story: Mapping[str, Any],
+    allow_composition_fallback: bool = False,
 ) -> dict[str, Any]:
     """Make the accepted Writer output authoritative for downstream visual context."""
     trusted_identity = _trusted_identity_for_factuality(
@@ -4781,7 +4796,12 @@ def _bind_writer_visual_story(
         brief=brief,
     )
     writer_script = _script_without_trusted_identity(script, trusted_identity)
-    bound = bind_visual_story_to_script(visual_story, plan, writer_script)
+    bound = bind_visual_story_to_script(
+        visual_story,
+        plan,
+        writer_script,
+        allow_composition_fallback=allow_composition_fallback,
+    )
     atomic_write_json(output_dir / "visual-story.json", bound)
     return bound
 
@@ -4898,14 +4918,36 @@ def _bind_writer_visual_story_with_recovery(
     bind_visual_story_to_script; if none preserves the meaning, downstream
     selection must vary composition/scale/state instead of failing production.
     """
-    del router
-    return _bind_writer_visual_story(
-        output_dir=output_dir,
-        brief=brief,
-        plan=plan,
-        script=script,
-        visual_story=visual_story,
-    )
+    try:
+        return _bind_writer_visual_story(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            visual_story=visual_story,
+        )
+    except VisualFamilyRepeatError as exc:
+        _append_runtime_event(
+            router,
+            {
+                "stage": VISUAL_BIND_STAGE,
+                "provider": "host",
+                "result": "warning_fallback",
+                "reason": "visual_family_repeat_local_composition",
+                "rejected_family": exc.family,
+                "beat_id": exc.beat_id,
+                "section_id": exc.section_id,
+                "wire_attempted": False,
+            },
+        )
+        return _bind_writer_visual_story(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            visual_story=visual_story,
+            allow_composition_fallback=True,
+        )
 
 
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
