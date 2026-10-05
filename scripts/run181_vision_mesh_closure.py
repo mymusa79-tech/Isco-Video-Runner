@@ -61,6 +61,16 @@ MISTRAL_VISION_MODEL = mistral_vision.MISTRAL_VISION_MODEL
 MISTRAL_VISION_PROVIDER = mistral_vision.MISTRAL_VISION_PROVIDER
 MISTRAL_VISION_QUOTA_DOMAIN = mistral_vision.MISTRAL_VISION_QUOTA_DOMAIN
 
+
+def _skip_gemini_vision_by_policy() -> bool:
+    return str(os.environ.get("CLEAN_V2_VISUAL_SKIP_GEMINI") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 _INSTALLED = False
 _GROQ_MODEL_CERTIFIED: ContextVar[bool | None] = ContextVar(
     "isco_run181_groq_vision_model_certified",
@@ -768,6 +778,14 @@ def _route_visual_audit_v3(
         ledger.register_task(spec)
     state = contract.legacy._state()
     attempts = 0
+
+    if _skip_gemini_vision_by_policy():
+        state.gemini_open = True
+        state.gemini_reason = "production_policy_skip_gemini_visual"
+        print(
+            "Vision Stage Contract V3: Gemini Vision skipped by production policy; "
+            "continuing with bounded free fallback mesh"
+        )
 
     shared_gemini = health.provider_unavailable(
         "gemini",
