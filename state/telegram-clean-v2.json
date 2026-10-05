@@ -7010,7 +7010,26 @@
         "likes": 8,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-05T14:10:07Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 65,
+      "hidden_subscribers": false,
+      "total_views": 40143,
+      "video_count": 147,
+      "last_long": null,
+      "last_podcast": null,
+      "last_short": {
+        "video_id": "_jtKIGFJMWI",
+        "title": "كثرة الخيارات لا تعني حرية… أحيانًا تعني ضياعك",
+        "published_at": "2026-10-04T15:31:20Z",
+        "duration_seconds": 8,
+        "views": 201,
+        "likes": 8,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-05T14:09:42Z"
+  "updated_at": "2026-10-05T14:10:08Z"
 }
