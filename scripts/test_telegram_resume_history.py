@@ -29,6 +29,50 @@ def artifact_zip(manifest: dict) -> bytes:
     return stream.getvalue()
 
 
+class ArtifactRedirectAuthTests(unittest.TestCase):
+    def test_authorization_not_forwarded_to_other_host_on_redirect(self) -> None:
+        import threading
+        import urllib.request
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        seen: dict = {}
+
+        class Blob(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                seen["auth"] = self.headers.get("Authorization")
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"zipbytes")
+
+            def log_message(self, *args):
+                pass
+
+        class Api(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{blob.server_port}/blob")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        blob = HTTPServer(("127.0.0.1", 0), Blob)
+        api = HTTPServer(("127.0.0.1", 0), Api)
+        for server in (blob, api):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            opener = urllib.request.build_opener(history._DropAuthOnCrossHostRedirect())
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{api.server_port}/zip", headers={"Authorization": "Bearer secret"}
+            )
+            with opener.open(request, timeout=5) as response:
+                self.assertEqual(response.read(), b"zipbytes")
+        finally:
+            blob.shutdown()
+            api.shutdown()
+        self.assertIsNone(seen["auth"])
+
+
 class ProviderCooldownTests(unittest.TestCase):
     def test_pre_layer_failure_starts_cooldown(self) -> None:
         state: dict = {}
