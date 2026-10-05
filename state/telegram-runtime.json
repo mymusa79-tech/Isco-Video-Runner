@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "لماذا نشعر أننا متأخرون عن الآخرين؟",
-  "stage": "⚡ الشورت · 4/6 المشاهد ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37332951065",
-  "result": "",
-  "updated_at": 1791217732
+  "result": "failure",
+  "updated_at": 1791218937
 }
