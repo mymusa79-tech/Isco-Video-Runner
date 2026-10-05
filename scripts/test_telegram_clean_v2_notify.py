@@ -101,6 +101,27 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("انتظر قليلًا", guidance)
         self.assertIn("أعد المحاولة", guidance)
 
+    def test_voice_failure_guidance_uses_gemini_retry_window(self):
+        manifest = {
+            "status": "failed",
+            "voice_failure": {
+                "charon_reason": "TtsProviderError(gemini_3_8_http_429)_http_429",
+                "retry_after_seconds": 3661.0,
+            },
+            "stages": [
+                {
+                    "name": "voice",
+                    "status": "failed",
+                    "error_type": "VoiceInfrastructureError",
+                    "failure_classification": "infrastructure",
+                }
+            ],
+        }
+        guidance = failure_guidance(manifest, "failure")
+        self.assertIn("Gemini", guidance)
+        self.assertIn("62 دقيقة", guidance)
+        self.assertIn("أعد المحاولة", guidance)
+
     def test_content_block_and_repair_outage_are_reported_together(self):
         repair_failure = {
             "content_block_confirmed": True,
