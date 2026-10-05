@@ -465,6 +465,18 @@ def evaluate_resume(
     }
 
 
+class _DropAuthOnCrossHostRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and (
+            urllib.parse.urlparse(newurl).netloc != urllib.parse.urlparse(req.full_url).netloc
+        ):
+            for name in list(redirected.headers):
+                if name.lower() == "authorization":
+                    del redirected.headers[name]
+        return redirected
+
+
 def _github_request(path: str, *, method: str = "GET", want_bytes: bool = False) -> Any:
     token = str(os.environ.get("GITHUB_RUNTIME_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
     repository = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
@@ -481,7 +493,11 @@ def _github_request(path: str, *, method: str = "GET", want_bytes: bool = False)
         },
         method=method,
     )
-    with urllib.request.urlopen(request, timeout=15) as response:
+    # Artifact zips answer with a 302 to blob storage. urllib re-sends our
+    # Authorization header there, which the storage host rejects, so the
+    # download failed and resume was shown as unavailable. Strip it cross-host.
+    opener = urllib.request.build_opener(_DropAuthOnCrossHostRedirect())
+    with opener.open(request, timeout=120 if want_bytes else 15) as response:
         raw = response.read()
     if want_bytes:
         return raw
