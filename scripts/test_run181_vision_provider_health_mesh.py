@@ -315,6 +315,40 @@ class Run181RoutingTests(unittest.TestCase):
             openrouter.assert_not_called()
             health.reset_provider_health()
 
+    def test_production_policy_skips_gemini_vision_and_uses_groq(self) -> None:
+        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.dict(
+            os.environ,
+            {
+                "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
+                "CLEAN_V2_VISUAL_SKIP_GEMINI": "true",
+            },
+            clear=False,
+        ), mock.patch.object(
+            closure,
+            "_run_groq_attempt",
+            return_value=dict(_PASS),
+        ) as groq, mock.patch.object(
+            v2,
+            "_run_openrouter_attempt",
+        ) as openrouter:
+            gemini = mock.Mock(return_value=dict(_PASS))
+            result = self._route_with_empty_telemetry(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                gemini,
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertEqual(result["status"], "pass")
+        gemini.assert_not_called()
+        groq.assert_called_once()
+        openrouter.assert_not_called()
+
     def test_semantic_block_remains_final_and_never_provider_shops(self) -> None:
         block = dict(_PASS)
         block["status"] = "block"
