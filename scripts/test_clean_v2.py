@@ -316,6 +316,8 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
 
         self.assertIn(_PLANNING_FACTUALITY_RULE, prompt)
         self.assertEqual(prompt.count(_PLANNING_FACTUALITY_RULE), 1)
+        self.assertIn("not X but Y", _PLANNING_FACTUALITY_RULE)
+        self.assertIn("measured possibility", _PLANNING_FACTUALITY_RULE)
         self.assertIn('"research_pack"', prompt)
         self.assertIn('"claim_scope"', prompt)
 

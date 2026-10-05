@@ -307,7 +307,10 @@ def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
                     wait_text = f"{max(1, int(round(retry_seconds)))} ثانية"
                 else:
                     wait_text = f"{max(1, int((retry_seconds + 59) // 60))} دقيقة"
-                return f"Gemini طلب الانتظار نحو {wait_text}. أعد المحاولة بعد ذلك."
+                return (
+                    f"Gemini طلب الانتظار نحو {wait_text}. "
+                    "أعد نفس الطلب بعد ذلك؛ سيستخدم الاستئناف المحفوظ إن كان متاحًا."
+                )
         return "مشكلة مؤقتة في الخدمة أو المزوّد. انتظر قليلًا ثم أعد المحاولة."
     if any(token in classification + " " + error_type for token in ("quality", "content", "validation", "factual")):
         return "المحتوى لم يجتز الفحص. ابدأ بحثًا جديدًا أو اختر موضوعًا آخر."
@@ -445,6 +448,38 @@ def workflow_watchdog(*, output_root: Path, job_status: str, scope: str, run_url
         return 0
     if output_root.exists() and any(output_root.rglob(".telegram-terminal-sent")):
         return 0
+
+    # If the first terminal send failed, reuse the real manifest here instead of
+    # degrading to a generic watchdog message. This preserves Voice 429 retry
+    # guidance without adding another workflow, provider, or notification path.
+    if output_root.exists():
+        for manifest_path in sorted(output_root.rglob("run-manifest.json")):
+            manifest = _read_json(manifest_path)
+            if not manifest:
+                continue
+            directory_kind = manifest_path.parent.name
+            kind = (
+                "long"
+                if directory_kind == "film"
+                else directory_kind
+                if directory_kind in {"short", "podcast"}
+                else ("long" if scope in {"long", "bundle"} else scope)
+            )
+            delivered = send_message(
+                terminal_text(
+                    manifest=manifest,
+                    job_status=job_status,
+                    kind=kind,
+                    run_url=run_url,
+                )
+            )
+            if delivered:
+                try:
+                    (manifest_path.parent / ".telegram-terminal-sent").touch()
+                except OSError:
+                    pass
+            return 0 if delivered else 1
+
     return 0 if send_message(workflow_watchdog_text(scope=scope, run_url=run_url)) else 1
 
 

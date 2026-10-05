@@ -123,7 +123,11 @@ _PLANNING_FACTUALITY_RULE = (
     "hidden psychological process, or scientific explanation that the approved research cannot support. "
     "If a source is explicitly market-interest-only or says it does not establish causality, plan around an "
     "observable behavior, choice pattern, trade-off, consequence, or clearly framed interpretation instead "
-    "of a hidden mechanism. If evidence is insufficient, use a modest non-technical observation or omit the claim."
+    "of a hidden mechanism. Never tell the viewer that a feeling or behavior is 'not X but Y', or name one "
+    "hidden psychological cause as the explanation, unless APPROVED_RESEARCH_PACK directly supports that "
+    "causal contrast. Without that support, frame it as a measured possibility (may/sometimes/one possible "
+    "reason) or stay with the observable pattern. If evidence is insufficient, use a modest non-technical "
+    "observation or omit the claim."
 )
 
 # One lightweight editorial registry: no provider call, stage, or alternate pipeline.
