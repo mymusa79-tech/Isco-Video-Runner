@@ -21,6 +21,7 @@ STAGE_LABELS = {
     "visuals": "Visuals",
 }
 RERUN_MAX_AGE_DAYS = 30
+PROVIDER_COOLDOWN_MINUTES = 20
 
 JsonGetter = Callable[[str], Any]
 BytesGetter = Callable[[str], bytes]
@@ -139,6 +140,43 @@ def record_production_terminal(
     )
     request["production"] = production
     return request
+
+
+def apply_provider_cooldown_if_exhausted(
+    state: dict[str, Any], *, failure_classification: str, at: str | None = None
+) -> bool:
+    """Telegram runs #79/81/83/84 (planning) and #76_1/80/85 (text_audit repair)
+    on 2026-10-04 all hit the identical signature: every fallback provider
+    (Gemini, Groq, OpenRouter, Mistral) rejected or rate-limited in the same run,
+    because nothing stopped the next production dispatch from firing the instant
+    a prior one failed before reaching the content layer. Ten dispatches in rapid
+    succession just kept re-spending the same exhausted shared free-tier budgets.
+
+    `failure_classification == "pre-layer"` is the pipeline's own signal that a
+    stage never reached a content decision (as opposed to a genuine content-
+    quality block, e.g. CleanV2ToneContentBlock, which is the system correctly
+    working and should not be throttled). On a pre-layer failure, start a short
+    cooldown so the control bot refuses to stage a new dispatch until it passes,
+    instead of silently repeating the same wasted attempt. Zero added cost, zero
+    new dependency: this only reads a field the manifest already carries.
+    """
+    if str(failure_classification or "") != "pre-layer":
+        return False
+    now = datetime.now(timezone.utc) if at is None else _parse_time(at) or datetime.now(timezone.utc)
+    until = now + timedelta(minutes=PROVIDER_COOLDOWN_MINUTES)
+    state["provider_cooldown_until"] = until.isoformat().replace("+00:00", "Z")
+    return True
+
+
+def provider_cooldown_remaining_seconds(state: Mapping[str, Any]) -> int:
+    raw = str(state.get("provider_cooldown_until") or "").strip()
+    if not raw:
+        return 0
+    until = _parse_time(raw)
+    if until is None:
+        return 0
+    remaining = (until - datetime.now(timezone.utc)).total_seconds()
+    return max(0, int(remaining))
 
 
 def incomplete_requests(state: Mapping[str, Any]) -> list[dict[str, Any]]:

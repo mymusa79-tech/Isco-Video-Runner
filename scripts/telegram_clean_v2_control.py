@@ -89,6 +89,7 @@ def default_state() -> dict[str, Any]:
         "current_request_id": None,
         "youtube_snapshots": [],
         "updated_at": None,
+        "provider_cooldown_until": None,
     }
 
 
@@ -859,6 +860,16 @@ def cancel_current(state: dict[str, Any]) -> dict[str, Any]:
     return request
 
 
+class ProviderCooldownActive(RuntimeError):
+    """Raised when a prior production run just failed pre-layer (provider
+    exhaustion) and the cooldown window from
+    resume_history.apply_provider_cooldown_if_exhausted() has not elapsed yet."""
+
+    def __init__(self, remaining_seconds: int) -> None:
+        self.remaining_seconds = max(0, int(remaining_seconds))
+        super().__init__(f"provider cooldown active for {self.remaining_seconds}s")
+
+
 def confirm_current(state: dict[str, Any]) -> dict[str, Any]:
     request_id = str(state.get("current_request_id") or "")
     request = state.get("requests", {}).get(request_id)
@@ -890,6 +901,9 @@ def _stage_confirmation_dispatch(
     result = confirm_current(state)
     if result["already_dispatched"]:
         return result
+    remaining = resume_history.provider_cooldown_remaining_seconds(state)
+    if remaining > 0:
+        raise ProviderCooldownActive(remaining)
     request = result["request"]
     dispatch_path.parent.mkdir(parents=True, exist_ok=True)
     dispatch_path.write_text(
@@ -1728,6 +1742,13 @@ def _confirm_and_notify(
             dispatch_path,
             expected_request_id=expected_request_id,
         )
+    except ProviderCooldownActive as cooldown:
+        minutes = max(1, (cooldown.remaining_seconds + 59) // 60)
+        send_telegram(
+            "⏳ آخر محاولة فشلت قبل أن تبدأ الكتابة الفعلية (نفاد حدود المزودين: Gemini/Groq/OpenRouter في نفس الوقت).\n"
+            f"إعادة الإرسال الآن ستهدر الحصة المتبقية بلا فائدة. انتظر نحو {minutes} دقيقة ثم أعد الضغط على تأكيد."
+        )
+        return
     except Exception:
         if expected_request_id is not None:
             send_telegram(
@@ -2172,12 +2193,17 @@ def main() -> int:
         ):
             raise RuntimeError("production history request integrity mismatch")
         manifest_status = "missing"
+        manifest_failure_classification = ""
         try:
             manifest_value = json.loads(args.manifest.read_text(encoding="utf-8"))
             if isinstance(manifest_value, dict):
                 manifest_status = str(manifest_value.get("status") or "unknown")
+                manifest_failure_classification = str(manifest_value.get("failure_classification") or "")
         except (OSError, ValueError, TypeError):
             pass
+        resume_history.apply_provider_cooldown_if_exhausted(
+            state, failure_classification=manifest_failure_classification
+        )
         updated = resume_history.record_production_terminal(
             state,
             request_id=args.request_id,
