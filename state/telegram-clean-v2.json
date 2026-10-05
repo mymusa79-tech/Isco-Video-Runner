@@ -6820,8 +6820,8 @@
       ],
       "idea_id": "idea-b6fd6e4fe9",
       "selected_at": "2026-10-05T15:26:49Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-05T15:27:13Z",
       "dispatched_at": null,
       "request_sha256": "9569d47eebb7252cee37cd527850ac6958a175896bdfa1fa43150c30d3f6dabb"
     }
@@ -7157,5 +7157,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-05T15:26:49Z"
+  "updated_at": "2026-10-05T15:27:13Z"
 }
