@@ -314,6 +314,92 @@ class ToneBoundedTransportTests(unittest.TestCase):
         self.assertEqual(result["validation"], "valid")
         self.assertEqual(result["naturalness_flags"], ["s1: unnatural grammar"])
 
+    def test_run90_reaudit_prefers_original_judge_and_keeps_block_final(self):
+        with patch.object(
+            providers, "_groq_call", return_value=tone_payload(blocked=True)
+        ) as groq_call, patch.object(
+            providers, "_gemini_call", side_effect=AssertionError("preferred judge not first")
+        ) as gemini_call, patch.object(
+            providers, "_openrouter_call", side_effect=AssertionError("content block bypassed")
+        ) as openrouter_call, patch.object(
+            tone_audit, "_mistral_tone_call", side_effect=AssertionError("content block bypassed")
+        ) as mistral_call:
+            result = tone_audit.audit_tone_and_naturalness_with_mistral(
+                "",
+                self.plan,
+                "",
+                preferred_provider="groq",
+            )
+
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(result["provider"], "groq")
+        groq_call.assert_called_once()
+        gemini_call.assert_not_called()
+        openrouter_call.assert_not_called()
+        mistral_call.assert_not_called()
+
+
+class Run90ToneReauditStabilityTests(unittest.TestCase):
+    def test_tone_repair_reaudits_tone_first_with_original_provider(self):
+        order = []
+        blocked = pipeline.CleanV2ToneContentBlock(
+            {
+                "status": "block",
+                "provider": "groq",
+                "naturalness_flags": ["s3: dangling fragment starting with 'عندما'"],
+                "preachiness_flags": [],
+                "cultural_dignity_flags": [],
+                "narrative_format_flags": [],
+                "unverified_religious_quote_flags": [],
+            }
+        )
+
+        def initial_audit(**_kwargs):
+            raise blocked
+
+        def tone_reaudit(**kwargs):
+            order.append("tone")
+            self.assertEqual(kwargs["preferred_provider"], "groq")
+            return {"status": "pass"}
+
+        def factuality_reaudit(**_kwargs):
+            order.append("factuality")
+            return {"status": "pass"}
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            pipeline,
+            "_run_one_bounded_tone_repair",
+            return_value={"attempts": 1, "narration_changed": True},
+        ), patch.object(
+            pipeline,
+            "_run_legacy_tone_naturalness_audit",
+            side_effect=tone_reaudit,
+        ), patch.object(
+            pipeline,
+            "_run_legacy_factuality_audit",
+            side_effect=factuality_reaudit,
+        ), patch.object(
+            pipeline,
+            "_run_structural_ai_flags",
+            return_value={"flags": []},
+        ), patch.object(
+            pipeline,
+            "_run_text_audits",
+            side_effect=initial_audit,
+        ):
+            result = pipeline._run_text_audit_repair_pass(
+                text_audit=pipeline._run_text_audits,
+                router=SimpleNamespace(),
+                output_dir=Path(tmp),
+                brief={"format": "short"},
+                plan={},
+                script={},
+            )
+
+        self.assertEqual(order, ["tone", "factuality"])
+        self.assertEqual(result["tone_reaudit_preferred_provider"], "groq")
+        self.assertEqual(result["tone_repair_status"], "repaired")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -379,6 +379,7 @@ def audit_tone_and_naturalness_with_mistral(
     model: str,
     *,
     research_boundaries: str = "",
+    preferred_provider: str = "",
 ) -> dict[str, Any]:
     """Keep frozen audit semantics with the bounded Clean V2 HTTP provider route."""
     del api_key, model
@@ -433,6 +434,25 @@ def audit_tone_and_naturalness_with_mistral(
                 ("openrouter", openrouter_call),
                 ("mistral", _mistral_tone_call),
             ]
+            # Run 90: the first Tone verdict came from Groq and found one local
+            # grammar defect. The repair fixed that defect, but the composite
+            # re-audit ran factuality first; its Groq 429 opened the shared
+            # circuit, forcing Tone to a different judge (Mistral), which then
+            # introduced brand-new semantic objections in unchanged text. For
+            # a repair verification, prefer the same judge that authored the
+            # original content verdict. This is not approval shopping: a real
+            # block from that provider still returns immediately, and technical
+            # failure still falls through the unchanged bounded provider mesh.
+            preferred = str(preferred_provider or "").strip().lower()
+            if preferred:
+                match = next(
+                    (item for item in extended if item[0] == preferred),
+                    None,
+                )
+                if match is not None:
+                    extended = [match] + [
+                        item for item in extended if item[0] != preferred
+                    ]
             return text_audit_router.route_text_audit(
                 extended,
                 scoped_prompt,
