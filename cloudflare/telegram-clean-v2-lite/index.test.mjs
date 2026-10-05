@@ -203,7 +203,7 @@ test("production history and resume callbacks reach the durable control owner", 
     return new Response(null, { status: 204 });
   };
   try {
-    for (const [i, data] of ["main:saved", "history:req-62", "resume:req-62", "restart:req-62"].entries()) {
+    for (const [i, data] of ["main:saved", "historyscope:long", "historyscope:short", "historyscope:podcast", "history:req-62", "resume:req-62", "restart:req-62"].entries()) {
       const update = callbackUpdate(100 + i, data);
       const response = await invoke(update, env);
       assert.equal(response.status, 200);
@@ -212,8 +212,8 @@ test("production history and resume callbacks reach the durable control owner", 
       const forwarded = JSON.parse(Buffer.from(body.inputs.webhook_update_b64, "base64").toString("utf8"));
       assert.equal(forwarded.callback_query.data, data);
     }
-    await invoke({ update_id: 104, message: { from: { id: 123 }, chat: { id: 123 }, text: "/saved" } }, env);
-    assert.equal(dispatches.length, 5);
+    await invoke({ update_id: 107, message: { from: { id: 123 }, chat: { id: 123 }, text: "/saved" } }, env);
+    assert.equal(dispatches.length, 8);
     const message = JSON.parse(Buffer.from(dispatches.at(-1).inputs.webhook_update_b64, "base64").toString("utf8"));
     assert.equal(message.message.text, "/saved");
   } finally {

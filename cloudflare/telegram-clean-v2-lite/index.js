@@ -521,7 +521,7 @@ export default {
         ));
       } else if (current.data.startsWith("confirm:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من التأكيد…"));
-      } else if (/^(history|resume|restart):/.test(current.data)) {
+      } else if (/^(historyscope|history|resume|restart):/.test(current.data)) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من المحاولة المحفوظة…"));
       } else if (current.data === "main:saved") {
         ctx.waitUntil(answerCallback(env, current.callbackId, "📚 أفتح سجل المحاولات…"));
