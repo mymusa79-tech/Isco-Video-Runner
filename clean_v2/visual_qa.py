@@ -14,6 +14,7 @@ STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
 MAX_RETENTION_QUALITY_FLOOR_DROP = 0.05
 BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR = 0.78
+BEST_AVAILABLE_HOOK_SEMANTIC_FLOOR = 0.80
 ALTERNATE_QUERY_MAX_CHARACTERS = 80
 ALTERNATE_QUERY_MIN_WORDS = 4
 ALTERNATE_QUERY_MAX_WORDS = 14
@@ -31,6 +32,32 @@ class CleanV2VisualQABlock(RuntimeError):
 
 class CleanV2VisualQAInfrastructure(RuntimeError):
     pass
+
+
+def _can_retain_safe_best_available_primary(
+    *,
+    primary_audit: Mapping[str, Any],
+    primary_floor: float,
+    best_recovery_floor: float,
+    is_hook: bool,
+) -> bool:
+    """Keep a safe best-available stock clip after bounded recovery is exhausted.
+
+    The 0.85 final-cut threshold remains the quality target. This fallback only
+    prevents a PASS clip from killing production when every bounded recovery
+    candidate is no better. Hooks keep a stricter 0.80 floor; later beats use
+    the existing 0.78 safe-best-available floor.
+    """
+    minimum_floor = (
+        BEST_AVAILABLE_HOOK_SEMANTIC_FLOOR
+        if is_hook
+        else BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
+    )
+    return (
+        str(primary_audit.get("status") or "").lower() == "pass"
+        and float(primary_floor) >= float(minimum_floor)
+        and float(best_recovery_floor) <= float(primary_floor)
+    )
 
 
 def _retention_quality_target(
@@ -1130,10 +1157,12 @@ def run_final_cut_visual_qa(
                         # not just the broad topic. BLOCK/unsafe/low-fit primaries
                         # still fail closed unchanged.
                         primary_is_safe_best_available = (
-                            not retention_quality_enabled
-                            and str(primary_audit.get("status") or "").lower() == "pass"
-                            and primary_floor >= BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
-                            and best_recovery_floor <= primary_floor
+                            _can_retain_safe_best_available_primary(
+                                primary_audit=primary_audit,
+                                primary_floor=primary_floor,
+                                best_recovery_floor=best_recovery_floor,
+                                is_hook=beat_id == hook_beat_id,
+                            )
                         )
                         if primary_is_safe_best_available:
                             primary_audit["final_cut_readiness"] = "best_available_primary"
@@ -1144,6 +1173,12 @@ def run_final_cut_visual_qa(
                                     "reason": "no_recovery_candidate_better_than_safe_primary",
                                     "recovery_floor": round(best_recovery_floor, 6),
                                     "retained_primary_floor": round(primary_floor, 6),
+                                    "best_available_floor": round(
+                                        BEST_AVAILABLE_HOOK_SEMANTIC_FLOOR
+                                        if beat_id == hook_beat_id
+                                        else BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR,
+                                        6,
+                                    ),
                                     "candidate_review_count": len(candidate_reviews),
                                     "candidate_reviews": candidate_reviews,
                                 }
