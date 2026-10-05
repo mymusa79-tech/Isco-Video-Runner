@@ -273,6 +273,43 @@ def _has_semantic_proof(cues: list[str]) -> bool:
     return False
 
 
+_MEANING_PRESERVATION_NOISE = _SEMANTIC_PROOF_NOISE | frozenset({
+    "hand", "hands", "person", "people", "object", "objects", "only", "face",
+    "view", "back", "scene", "workspace", "room", "table",
+})
+
+
+def _meaning_preservation_tokens(value: object) -> set[str]:
+    tokens: set[str] = set()
+    for raw in re.findall(r"[a-z0-9]+", str(value or "").casefold()):
+        if raw in _MEANING_PRESERVATION_NOISE or len(raw) < 3:
+            continue
+        token = raw
+        if len(token) > 6 and token.endswith("ing"):
+            token = token[:-3]
+        elif len(token) > 5 and token.endswith("ed"):
+            token = token[:-2]
+        elif len(token) > 4 and token.endswith("s"):
+            token = token[:-1]
+        if token and token not in _MEANING_PRESERVATION_NOISE:
+            tokens.add(token)
+    return tokens
+
+
+def _alternate_preserves_beat_meaning(beat: Mapping[str, Any], alternate: str) -> bool:
+    """Allow diversity alternates only when they keep at least one authored semantic anchor."""
+    authored = " ".join(
+        str(item or "")
+        for item in (beat.get("semantic_must_have") or [])
+        if str(item or "").strip()
+    )
+    if not authored:
+        authored = str(beat.get("shot_intent") or beat.get("stock_query_en") or "")
+    required = _meaning_preservation_tokens(authored)
+    candidate = _meaning_preservation_tokens(alternate)
+    return bool(required and candidate and (required & candidate))
+
+
 def _default_environment_family(value: object) -> str:
     """Return one coarse scene family for continuity without creating a new stage."""
     tokens = set(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
@@ -919,7 +956,11 @@ def bind_visual_story_to_script(
                 replacement_family = ""
                 for alternate in alternates:
                     alternate_family = _visual_action_family(alternate)
-                    if alternate and alternate_family != current_family:
+                    if (
+                        alternate
+                        and alternate_family != current_family
+                        and _alternate_preserves_beat_meaning(beat, alternate)
+                    ):
                         replacement = alternate
                         replacement_family = alternate_family
                         break
