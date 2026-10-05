@@ -32,6 +32,7 @@ jobs:
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      CLEAN_V2_VISUAL_SKIP_GEMINI: "true"
       CLEAN_V2_AI_STILL_FREE_ONLY: "true"
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       STATE_BRANCH: clean-v2-telegram-state
@@ -52,6 +53,55 @@ jobs:
 
       - name: Verify exact Runner checkout
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Check queued Runner freshness
+        id: runner_freshness
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          current_main="$(git rev-parse refs/remotes/origin/main)"
+          echo "current_main_sha=$current_main" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_SHA" = "$current_main" ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Stale queued production::queued_sha=$GITHUB_SHA current_main=$current_main"
+          fi
+
+      - name: Notify Telegram that stale queued production was rejected
+        if: steps.runner_freshness.outputs.stale == 'true'
+        env:
+          CURRENT_MAIN_SHA: ${{ steps.runner_freshness.outputs.current_main_sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          text = (
+              "⚠️ أوقفت محاولة إنتاج قديمة قبل أن تستهلك وقتًا أو حصة مزودات. "
+              "كانت مرتبطة بنسخة أقدم من النظام، بينما main تم تحديثه. "
+              "أعد تأكيد الإنتاج لتبدأ المحاولة على النسخة الحالية."
+          )
+          payload = urllib.parse.urlencode(
+              {"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}
+          ).encode()
+          url = "https://api.telegram.org/bot" + os.environ["TELEGRAM_BOT_TOKEN"] + "/sendMessage"
+          with urllib.request.urlopen(
+              urllib.request.Request(url, data=payload),
+              timeout=20,
+          ) as response:
+              body = json.loads(response.read().decode("utf-8"))
+          if not body.get("ok"):
+              raise SystemExit("Telegram stale-run notification failed")
+          PY
+
+      - name: Reject stale queued Runner before production
+        if: steps.runner_freshness.outputs.stale == 'true'
+        run: |
+          echo "Refusing stale queued production: queued=$GITHUB_SHA current=${{ steps.runner_freshness.outputs.current_main_sha }}" >&2
+          exit 75
 
       - name: Restore verified CC0 music cache
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
@@ -310,7 +360,7 @@ jobs:
           esac
 
       - name: Prepare exact Telegram request checkpoint
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         id: clean_v2_checkpoint
         run: |
           set -euo pipefail
@@ -337,14 +387,14 @@ jobs:
             --job-status '${{ job.status }}'
 
       - name: Save exact Telegram request checkpoint
-        if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
+        if: always() && steps.runner_freshness.outputs.stale != 'true' && steps.clean_v2_checkpoint.outputs.save == 'true'
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ env.CLEAN_V2_RESUME }}
           key: clean-v2-resume-v6-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ inputs.request_sha256 }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Prepare verified Gemini TTS chunks
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         id: clean_v2_tts_cache
         run: |
           set -euo pipefail
@@ -356,14 +406,14 @@ jobs:
           fi
 
       - name: Save verified Gemini TTS chunks
-        if: always() && steps.clean_v2_tts_cache.outputs.save == 'true'
+        if: always() && steps.runner_freshness.outputs.stale != 'true' && steps.clean_v2_tts_cache.outputs.save == 'true'
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ env.CLEAN_V2_TTS_CACHE_PATH }}
           key: clean-v2-gemini38-chunk-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Persist recent narrative and Podcast promo history
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         run: |
           set -euo pipefail
           test -n "${CLEAN_V2_NARRATIVE_HISTORY_ROOT:-}"
@@ -378,7 +428,7 @@ jobs:
 
       - name: Upload Telegram Clean V2 production evidence
         id: upload
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: clean-v2-telegram-${{ github.run_number }}
@@ -398,7 +448,7 @@ jobs:
             --delivery-key "telegram"
 
       - name: Telegram terminal watchdog
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         env:
           TELEGRAM_JOB_STATUS: ${{ job.status }}
         run: |
@@ -411,7 +461,7 @@ jobs:
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
 
       - name: Record Telegram production terminal history
-        if: always()
+        if: always() && steps.runner_freshness.outputs.stale != 'true'
         continue-on-error: true
         env:
           REQUEST_ID: ${{ inputs.request_id }}
