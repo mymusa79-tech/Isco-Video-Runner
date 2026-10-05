@@ -61,7 +61,9 @@ _WRITER_INTENT_DROP_TOKENS = frozenset({
 _EMBEDDED_TEXT_REQUEST_RE = re.compile(
     r"\b(?:with|showing|displaying|containing)\s+(?:readable\s+)?(?:arabic\s+)?"
     r"(?:text|words|caption|captions|title|subtitle|lettering|typography|quote|label)\b.*$"
-    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading|showing|displaying)\b.*$"
+    r"|\b(?:sign|screen|paper|note|poster)\s+(?:saying|reading)\b.*$"
+    r"|\b(?:sign|screen|paper|note|poster)\s+(?:showing|displaying)\s+"
+    r"(?:readable\s+)?(?:arabic\s+)?(?:text|words|caption|captions|title|subtitle|lettering|typography|quote|label)\b.*$"
     r"|(?:^|\s)(?:arabic\s+)?(?:text|words|caption|captions|title|subtitle|quote|label)"
     r"\s+(?:saying|reading|showing|displaying)\b.*$",
     re.IGNORECASE,
@@ -982,24 +984,22 @@ def bind_visual_story_to_script(
                     # bookshelf/environment) to be ignored in favor of repeated stationery.
                     beat["shot_intent"] = replacement
                     beat["stock_query_en"] = replacement
-                    beat["semantic_must_have"] = [replacement]
+                    # Preserve authored semantic proof: the alternate changes only
+                    # how the same beat is shown, never what QA must prove.
                     current_family = replacement_family
-                elif strict_diversity:
-                    raise VisualFamilyRepeatError(
-                        "writer visual binding would repeat the previous "
-                        f"{current_family} scene family without a distinct alternate",
-                        family=current_family,
-                        beat_id=str(beat.get("id") or ""),
-                        section_id=section_id,
-                        query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
-                    )
                 else:
+                    # Repetition is not allowed to trigger another AI call or kill
+                    # production. Keep the exact meaning and require a different
+                    # composition/scale/state downstream.
                     avoids = [
                         str(item).strip()
                         for item in (beat.get("semantic_should_avoid") or [])
                         if str(item).strip()
                     ]
-                    repeat_avoid = f"repeat of previous {current_family} action/composition"
+                    repeat_avoid = (
+                        f"repeat of previous {current_family} action/composition; "
+                        "require visibly different scale, framing, or state"
+                    )
                     if repeat_avoid not in avoids:
                         avoids.insert(0, repeat_avoid)
                     beat["semantic_should_avoid"] = avoids[:4]
@@ -1007,14 +1007,18 @@ def bind_visual_story_to_script(
             if strict_diversity and current_family:
                 family_uses[current_family] = family_uses.get(current_family, 0) + 1
                 if family_uses[current_family] > _ACTION_FAMILY_MAX_USES:
-                    raise VisualFamilyRepeatError(
-                        "writer visual binding repeats visual family too often: "
-                        f"{current_family}",
-                        family=current_family,
-                        beat_id=str(beat.get("id") or ""),
-                        section_id=section_id,
-                        query=str(beat.get("shot_intent") or beat.get("stock_query_en") or ""),
+                    avoids = [
+                        str(item).strip()
+                        for item in (beat.get("semantic_should_avoid") or [])
+                        if str(item).strip()
+                    ]
+                    overuse_avoid = (
+                        f"additional {current_family} repetition; require a visibly different "
+                        "environment, scale, framing, or state while preserving the beat meaning"
                     )
+                    if overuse_avoid not in avoids:
+                        avoids.insert(0, overuse_avoid)
+                    beat["semantic_should_avoid"] = avoids[:4]
 
             # The Writer may own overlay copy, but image providers never own text.
             # Remove embedded-text requests from image semantics and keep the Arabic
