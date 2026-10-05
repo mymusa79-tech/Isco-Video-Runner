@@ -232,6 +232,36 @@ class VisualQaPipelineDeadlineTests(unittest.TestCase):
                 self.assertNotIn("quality_pending_stage", manifest)
                 self.assertEqual(json.loads(checkpoint.read_text())["completed_stage"], "visuals")
 
+    def _blocked_stage_record(self, exc):
+        from clean_v2.visual_qa import CleanV2VisualQABlock  # noqa: F401
+        with tempfile.TemporaryDirectory() as tmp:
+            journal = pipeline._Journal(Path(tmp) / "run-manifest.json", runner_sha="runner", engine_sha="engine")
+            for name in pipeline.STAGES[:pipeline.STAGES.index("final_cut_visual_qa")]:
+                journal.reuse(name)
+
+            def fail():
+                raise exc
+
+            with self.assertRaises(type(exc)):
+                journal.run("final_cut_visual_qa", fail)
+            return json.loads(journal.path.read_text(encoding="utf-8"))["stages"][-1]
+
+    def test_visual_qa_block_reason_is_persisted_in_manifest(self):
+        """Run #87: Final Cut QA blocked and only error_type survived, so the
+        cause had to be inferred from scores. The CLEAN_V2_* reason code must now
+        be recorded on the stage."""
+        from clean_v2.visual_qa import CleanV2VisualQABlock
+        stage = self._blocked_stage_record(
+            CleanV2VisualQABlock("CLEAN_V2_VISUAL_QA_BLOCK reason=weak_semantic_fit section=s1 extra words")
+        )
+        self.assertEqual(stage["status"], "blocked")
+        self.assertEqual(stage["failure_detail"], "CLEAN_V2_VISUAL_QA_BLOCK reason=weak_semantic_fit")
+
+    def test_arbitrary_exception_text_is_never_persisted(self):
+        stage = self._blocked_stage_record(RuntimeError("provider said api_key=SECRET-123 failed"))
+        self.assertNotIn("failure_detail", stage)
+        self.assertNotIn("SECRET-123", json.dumps(stage))
+
     def test_successful_call_passes_through_unaffected(self):
         expected = {"status": "pass", "final_media_mutated": False}
         result = pipeline._run_visual_qa_with_deadline(
