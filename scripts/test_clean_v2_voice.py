@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.error
 import wave
 from pathlib import Path
 from unittest.mock import patch
@@ -340,15 +341,33 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         ])
 
     def test_gemini_http_error_preserves_retry_metadata(self) -> None:
-        class Http429(Exception):
-            code = 429
-            headers = {"Retry-After": "0.5"}
+        body = json.dumps(
+            {
+                "error": {
+                    "code": 429,
+                    "message": "Resource exhausted. Please retry in 3720.25s.",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                            "retryDelay": "3720.25s",
+                        }
+                    ],
+                }
+            }
+        ).encode("utf-8")
+        error = urllib.error.HTTPError(
+            "https://example.invalid",
+            429,
+            "Too Many Requests",
+            {},
+            io.BytesIO(body),
+        )
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             "clean_v2.media.urllib.request.urlopen",
-            side_effect=Http429(),
+            side_effect=error,
         ):
-            with self.assertRaises(Exception):
+            with self.assertRaises(TtsProviderError) as raised:
                 _gemini38_synthesize(
                     "gemini-test-key",
                     "اختبار.",
@@ -357,6 +376,9 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
                     primary_voice="Charon",
                     questioner_voice="Orus",
                 )
+
+        self.assertEqual(raised.exception.http_status, 429)
+        self.assertAlmostEqual(raised.exception.retry_after_seconds or 0.0, 3720.25)
 
     def test_cta_phrase_isolated_only_from_topic_voice_units(self) -> None:
         cta = "إذا أضافت لك الفكرة شيئًا، يكفيني إعجابك."
@@ -445,7 +467,11 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         def tts(_key, transcript, path, *, model, **_kwargs):
             calls.append((transcript, model))
             if model == GEMINI38_TTS_MODEL and transcript == "القسم الثاني.":
-                raise TtsProviderError("gemini_3_8_http_429", http_status=429)
+                raise TtsProviderError(
+                    "gemini_3_8_http_429",
+                    http_status=429,
+                    retry_after_seconds=3661.0,
+                )
             return _write_audio(Path(path))
 
         sections = [
@@ -464,7 +490,7 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             ), patch(
                 "clean_v2.pipeline.concat_wav_parts", side_effect=concat_audio
             ):
-                with self.assertRaises(VoiceInfrastructureError):
+                with self.assertRaises(VoiceInfrastructureError) as raised:
                     _synthesize_sectioned_voice(
                         synth,
                         sections,
@@ -492,6 +518,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         self.assertEqual(report["failed_section"], "s2")
         self.assertEqual(report["tts_wire_attempts"], 2)
         self.assertEqual(report["tts_cache_hits"], 0)
+        self.assertEqual(report["retry_after_seconds"], 3661.0)
+        self.assertEqual(raised.exception.retry_after_seconds, 3661.0)
 
     def test_exact_tts_chunk_is_restored_without_provider_call(self) -> None:
         calls = {"count": 0}
@@ -580,7 +608,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             def fail():
                 raise VoiceInfrastructureError(
                     charon_attempts=3,
-                    charon_reason="gemini_3_8_http_503",
+                    charon_reason="gemini_3_8_http_429",
+                    retry_after_seconds=125.5,
                 )
 
             with self.assertRaises(VoiceInfrastructureError):
@@ -591,6 +620,8 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
             self.assertEqual(voice_failure["charon_attempts"], 3)
             self.assertEqual(voice_failure["tts_wire_attempts"], 3)
             self.assertEqual(voice_failure["tts_cache_hits"], 0)
+            self.assertEqual(voice_failure["retry_after_seconds"], 125.5)
+            self.assertIn("retry_at_utc", voice_failure)
             self.assertFalse(voice_failure["fallback_used"])
 
     def test_retired_fallback_workflows_are_absent(self) -> None:
