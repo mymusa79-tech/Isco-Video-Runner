@@ -6391,6 +6391,14 @@ class _Journal:
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
             self.payload["failure_origin_stage"] = name
+            # Run #87: Final Cut QA blocked a run whose reason was not
+            # recorded anywhere (only error_type survived), so the cause had to be
+            # inferred from scores. Persist the pipeline's own CLEAN_V2_* reason
+            # code only - never arbitrary exception text, which can carry
+            # provider payloads.
+            reason_match = re.search(r"CLEAN_V2_[A-Z0-9_]+(?: reason=[A-Za-z0-9_.:\-]+)?", message)
+            if reason_match:
+                record["failure_detail"] = reason_match.group(0)[:200]
             if isinstance(exc, ContextualCtaError):
                 record["error_code"] = exc.code
                 self.payload["failure_reason"] = exc.code
