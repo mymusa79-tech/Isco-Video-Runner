@@ -6588,19 +6588,19 @@
       "request_sha256": "55c1d0ac43cc74a6924ead6b46006cc32062ec67d4f9ac05034346cd3ea5b002",
       "production": {
         "run_id": "37296265225",
-        "run_attempt": 1,
+        "run_attempt": 2,
         "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37296265225",
         "runner_sha": "619b9925f00edccff08f62923599f8012182e487",
         "engine_sha": "595f69a28ff6ddc5532291c9f113f334562292f9",
-        "resume_cache_key": "clean-v2-resume-v6-Linux-619b9925f00edccff08f62923599f8012182e487-595f69a28ff6ddc5532291c9f113f334562292f9-55c1d0ac43cc74a6924ead6b46006cc32062ec67d4f9ac05034346cd3ea5b002-37296265225-1",
-        "last_job_status": "failure",
-        "manifest_status": "quality_pending",
-        "artifact_id": 11340656640,
-        "artifact_name": "clean-v2-telegram-87",
-        "artifact_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37296265225/artifacts/11340656640",
+        "resume_cache_key": "clean-v2-resume-v6-Linux-619b9925f00edccff08f62923599f8012182e487-595f69a28ff6ddc5532291c9f113f334562292f9-55c1d0ac43cc74a6924ead6b46006cc32062ec67d4f9ac05034346cd3ea5b002-37296265225-2",
+        "last_job_status": "in_progress",
+        "manifest_status": "running",
+        "artifact_id": null,
+        "artifact_name": "",
+        "artifact_url": "",
         "final_published": false,
-        "started_at": "2026-10-05T10:23:35Z",
-        "finished_at": "2026-10-05T10:36:37Z"
+        "started_at": "2026-10-05T12:26:41Z",
+        "finished_at": null
       }
     }
   },
@@ -6897,5 +6897,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-05T10:36:37Z"
+  "updated_at": "2026-10-05T12:26:41Z"
 }
