@@ -222,6 +222,29 @@ def _tts_retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
+def _tts_retry_after_body_seconds(raw: bytes) -> float | None:
+    """Extract Google RetryInfo/message delay without retaining provider payloads."""
+    if not raw:
+        return None
+    text = raw[: 64 * 1024].decode("utf-8", errors="replace")
+    patterns = (
+        r'"retryDelay"\s*:\s*"([0-9]+(?:\.[0-9]+)?)s"',
+        r'"retry_after(?:_seconds)?"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?',
+        r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*s(?:ec(?:ond)?s?)?",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if not match:
+            continue
+        try:
+            seconds = float(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(seconds) and seconds >= 0:
+            return seconds
+    return None
+
+
 def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
     """Return a safe same-provider delay, or None when retrying would violate evidence."""
     status = _tts_http_status(exc)
@@ -436,10 +459,16 @@ def _gemini38_synthesize(
         with urllib.request.urlopen(request, timeout=180) as response:
             body = response.read((MAX_TTS_AUDIO_BYTES * 2) + 1024 * 1024)
     except urllib.error.HTTPError as exc:
+        retry_after_seconds = _tts_retry_after_seconds(exc)
+        if retry_after_seconds is None:
+            try:
+                retry_after_seconds = _tts_retry_after_body_seconds(exc.read(64 * 1024))
+            except (OSError, ValueError, AttributeError):
+                retry_after_seconds = None
         raise TtsProviderError(
             f"gemini_3_8_http_{int(exc.code)}",
             http_status=int(exc.code),
-            retry_after_seconds=_tts_retry_after_seconds(exc),
+            retry_after_seconds=retry_after_seconds,
         ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise TtsProviderError(
@@ -526,11 +555,19 @@ class VoiceInfrastructureError(RuntimeError):
         charon_reason: str,
         provider: str = GEMINI38_PROVIDER,
         secondary_reason: str = "gemini_3_8_only_fail_closed_no_fallback",
+        retry_after_seconds: float | None = None,
     ) -> None:
         self.charon_attempts = int(charon_attempts)
         self.charon_reason = str(charon_reason or "unknown")
         self.provider = str(provider or GEMINI38_PROVIDER)
         self.secondary_reason = str(secondary_reason or "gemini_3_8_only_fail_closed_no_fallback")
+        self.retry_after_seconds = (
+            float(retry_after_seconds)
+            if retry_after_seconds is not None
+            and math.isfinite(float(retry_after_seconds))
+            and float(retry_after_seconds) >= 0
+            else None
+        )
         self.fallback_used = False
         super().__init__(
             "CLEAN_V2_VOICE_INFRASTRUCTURE "
@@ -684,6 +721,11 @@ class GeminiOnlyVoiceSynthesizer:
             charon_attempts=self.charon_attempts,
             charon_reason=reason,
             provider=provider,
+            retry_after_seconds=(
+                _tts_retry_after_seconds(last_error)
+                if last_error is not None
+                else None
+            ),
         )
 
 
