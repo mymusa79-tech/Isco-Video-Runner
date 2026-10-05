@@ -275,7 +275,8 @@ def _has_semantic_proof(cues: list[str]) -> bool:
 
 _MEANING_PRESERVATION_NOISE = _SEMANTIC_PROOF_NOISE | frozenset({
     "hand", "hands", "person", "people", "object", "objects", "only", "face",
-    "view", "back", "scene", "workspace", "room", "table",
+    "view", "back", "scene", "workspace", "room", "table", "one", "single",
+    "small", "several", "many",
 })
 
 
