@@ -948,22 +948,25 @@ def _synthesize_sectioned_voice_pass(
                     setattr(exc, "tts_cache_hits", total_cache_hits)
                 except Exception:
                     pass
-                atomic_write_json(
-                    report_path,
-                    {
-                        "schema_version": 1,
-                        "source": "clean-v2-sectioned-voice",
-                        "status": "failed",
-                        "failed_section": section_id,
-                        "failed_chunk": chunk_index,
-                        "chunk_chars": len(chunk_text),
-                        "reason": "gemini_3_8_voice_failed_closed",
-                        "tts_wire_attempts": failure_wire_attempts,
-                        "tts_cache_hits": total_cache_hits,
-                        "sections": reports,
-                        "current_section_chunks": chunk_reports,
-                    },
-                )
+                failure_report = {
+                    "schema_version": 1,
+                    "source": "clean-v2-sectioned-voice",
+                    "status": "failed",
+                    "failed_section": section_id,
+                    "failed_chunk": chunk_index,
+                    "chunk_chars": len(chunk_text),
+                    "reason": "gemini_3_8_voice_failed_closed",
+                    "tts_wire_attempts": failure_wire_attempts,
+                    "tts_cache_hits": total_cache_hits,
+                    "sections": reports,
+                    "current_section_chunks": chunk_reports,
+                }
+                retry_after_seconds = getattr(exc, "retry_after_seconds", None)
+                if retry_after_seconds is not None:
+                    failure_report["retry_after_seconds"] = round(
+                        float(retry_after_seconds), 3
+                    )
+                atomic_write_json(report_path, failure_report)
                 raise
 
             provider = str(getattr(voice_synthesizer, "last_provider", "") or "")
@@ -6471,6 +6474,14 @@ class _Journal:
                     )[:120],
                     "fallback_used": False,
                 }
+                retry_after_seconds = getattr(exc, "retry_after_seconds", None)
+                if retry_after_seconds is not None:
+                    retry_after = max(0.0, float(retry_after_seconds))
+                    voice_failure["retry_after_seconds"] = round(retry_after, 3)
+                    voice_failure["retry_at_utc"] = datetime.fromtimestamp(
+                        datetime.now(timezone.utc).timestamp() + retry_after,
+                        tz=timezone.utc,
+                    ).isoformat()
                 record["voice_failure"] = voice_failure
                 self.payload["voice_failure"] = voice_failure
                 self.payload["tts_wire_attempts"] = voice_failure["tts_wire_attempts"]
