@@ -350,7 +350,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
 
         return fail
 
-    def test_planning_and_script_use_exact_five_provider_order(self) -> None:
+    def test_planning_and_script_use_stage_specific_provider_order(self) -> None:
         for stage in ("planning", "script"):
             with self.subTest(stage=stage):
                 order: list[str] = []
@@ -387,17 +387,21 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     )
 
                 self.assertEqual(result, {"ok": True})
-                # gemini_flash_lite has no key in this test process, so it fails
-                # closed with a NoWireFailure (no network attempt, no wire count)
-                # between gemini and groq - it never reaches the mocked `order`.
-                self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
-                self.assertEqual(
-                    [item["provider"] for item in router.events],
-                    ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
-                )
-                self.assertEqual(router.events[1]["reason"], "missing_api_key")
-                self.assertEqual(router.events[1]["wire_attempted"], False)
-                self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+                # Stage-specific order: planning leads with Mistral; script leads with
+                # gemini_flash_lite, which has no key in this test process and so fails
+                # closed with a NoWireFailure (no network attempt) before Mistral.
+                # Gemini 3.7 and Groq are never used for these stages.
+                self.assertEqual(order, ["mistral"])
+                if stage == "planning":
+                    self.assertEqual([item["provider"] for item in router.events], ["mistral"])
+                else:
+                    self.assertEqual(
+                        [item["provider"] for item in router.events],
+                        ["gemini_flash_lite", "mistral"],
+                    )
+                    self.assertEqual(router.events[0]["reason"], "missing_api_key")
+                    self.assertEqual(router.events[0]["wire_attempted"], False)
+                self.assertEqual(router.events[-1]["stage_wire_attempt"], 1)
 
     def test_run243_mistral_planning_invalid_json_gets_one_bounded_same_provider_retry(self) -> None:
         order: list[str] = []
@@ -449,10 +453,9 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             )
 
         self.assertEqual(result, _plan())
-        self.assertEqual(
-            order,
-            ["gemini", "groq", "openrouter", "mistral", "mistral"],
-        )
+        # Stage-specific order: planning starts with Mistral, so no other provider is
+        # touched before its bounded same-provider retry succeeds.
+        self.assertEqual(order, ["mistral", "mistral"])
         self.assertEqual(mistral_attempts, 2)
         mistral_events = [
             event for event in router.events if event["provider"] == "mistral"
@@ -464,10 +467,10 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             "mistral_strict_schema_invalid_json",
         )
         self.assertEqual(mistral_events[0]["provider_attempt"], 1)
-        self.assertEqual(mistral_events[0]["stage_wire_attempt"], 4)
+        self.assertEqual(mistral_events[0]["stage_wire_attempt"], 1)
         self.assertEqual(mistral_events[1]["result"], "success")
         self.assertEqual(mistral_events[1]["provider_attempt"], 2)
-        self.assertEqual(mistral_events[1]["stage_wire_attempt"], 5)
+        self.assertEqual(mistral_events[1]["stage_wire_attempt"], 2)
 
     def test_mistral_planning_second_invalid_json_fails_closed_without_third_attempt(self) -> None:
         mistral_attempts = 0
@@ -515,7 +518,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             ["retrying", "failed"],
         )
         self.assertEqual(mistral_events[-1]["provider_attempt"], 2)
-        self.assertEqual(mistral_events[-1]["stage_wire_attempt"], 5)
+        self.assertEqual(mistral_events[-1]["stage_wire_attempt"], 2)
 
     def test_run137_s5_visual_query_recovery_passes_strict_schema_to_mistral(self) -> None:
         order: list[str] = []
