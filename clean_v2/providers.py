@@ -738,6 +738,55 @@ def _mistral_short_hook_validator_retry_prompt(
     )
 
 
+def _mistral_short_contract_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+    stage: str,
+) -> str | None:
+    """One bounded same-provider correction for two recurring Short contract rejections.
+
+    Observed in analysed runs: Mistral's Short script or script_patch is rejected
+    because (a) the s3 payoff narration contains an action instruction (the single
+    practical action belongs only to the Planning-owned locked action), or (b) the
+    first hook sentence has no concrete tension. Both are deterministic local rules
+    that were previously fatal for Mistral with no correction attempt. Never edits
+    narration locally, never relaxes a rule, never touches the locked action.
+    """
+    if type(exc).__name__ != "ShortFormatError":
+        return None
+    code = str(exc).strip().split(maxsplit=1)[0] if str(exc).strip() else ""
+    shape = (
+        "Return the COMPLETE patch JSON again, keeping every other valid patch and "
+        "copying each patch.find VERBATIM from CURRENT_SCRIPT so it matches exactly once."
+        if stage == "script_patch"
+        else "Return the COMPLETE script JSON again with the same section ids and order."
+    )
+    if code == "short_s3_payoff_contains_forbidden_action_family":
+        return (
+            prompt.rstrip()
+            + "\n\nMISTRAL_SHORT_S3_PAYOFF_VALIDATOR_RETRY - previous output was rejected "
+            + "because the s3 payoff sentences contained an instruction or action "
+            + "recommendation. The s3 payoff may only describe the earned outcome or "
+            + "realization in plain observation; it must NOT tell the listener to do, "
+            + "stop, choose, refuse, start or avoid anything. The single practical action "
+            + "lives only in the locked s3 action sentence, which must stay exactly as "
+            + "given. " + shape + " Rewrite ONLY the s3 payoff sentences as a descriptive "
+            + "outcome and keep every other contract unchanged. Return JSON only."
+        )
+    if stage == "script" and code == "short_hook_requires_immediate_concrete_tension":
+        return (
+            prompt.rstrip()
+            + "\n\nMISTRAL_SHORT_HOOK_TENSION_VALIDATOR_RETRY - previous output was rejected "
+            + "because its first spoken sentence had no concrete tension. " + shape
+            + " Rewrite ONLY the first spoken sentence so it opens with one concrete "
+            + "tension: a direct question, an explicit contrast (not X but Y / despite / "
+            + "but), or a concrete early loss, failure or escalation. Keep it natural "
+            + "Arabic, 12-16 words, same meaning and every other contract unchanged. "
+            + "Return JSON only."
+        )
+    return None
+
+
 def _safe_mistral_script_patch_raw_diagnostic(
     raw_content: str, exc: Exception
 ) -> dict[str, Any]:
@@ -1838,12 +1887,24 @@ class ProviderRouter:
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_short_hook_validator_retry"
+                    else:
+                        retry_prompt = _mistral_short_contract_validator_retry_prompt(
+                            provider_prompt, exc, stage
+                        )
+                        if retry_prompt is not None:
+                            retry_event_reason = "mistral_short_contract_validator_retry"
                 elif adapter.name == "mistral" and stage == "script_patch":
                     retry_prompt = _mistral_script_patch_validator_retry_prompt(
                         provider_prompt, exc
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_script_patch_validator_retry"
+                    else:
+                        retry_prompt = _mistral_short_contract_validator_retry_prompt(
+                            provider_prompt, exc, stage
+                        )
+                        if retry_prompt is not None:
+                            retry_event_reason = "mistral_short_contract_validator_retry"
 
                 validator_retries_used = 0
                 abandon_provider = False
