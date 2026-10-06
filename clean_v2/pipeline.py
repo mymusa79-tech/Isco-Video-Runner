@@ -5367,12 +5367,18 @@ def _inspect_final_with_short_gate(
 ) -> dict[str, Any]:
     report = final_inspector(final_path)
     if fmt in {"short", "film", "podcast"}:
-        from clean_v2.timeline_first import assert_final_matches_voice
+        from clean_v2.timeline_first import (
+            assert_final_matches_voice,
+            final_duration_tolerance_seconds,
+        )
 
         timeline = _read_json_object(output_dir / "timeline-first.json")
         assert_final_matches_voice(
             final_seconds=float(report["duration_seconds"]),
             timeline=timeline,
+            tolerance_seconds=final_duration_tolerance_seconds(
+                fmt, float(timeline.get("voice_seconds_measured") or 0.0)
+            ),
         )
 
     if fmt == "short":

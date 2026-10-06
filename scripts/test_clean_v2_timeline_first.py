@@ -106,6 +106,42 @@ class TimelineFirstDurationTests(unittest.TestCase):
             self.assertEqual(report["duration_seconds"], 137.25)
 
 
+class LongFormFinalToleranceTests(unittest.TestCase):
+    """Run 39: a 107.94 s podcast voice rendered to a 107.80 s video (0.13 %, the gap was
+    closing silence) was rejected by the fixed 80 ms window."""
+
+    def _gate(self, fmt: str, voice: float, final: float) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            TimelineFirstDurationTests()._write_timeline(root, voice, fmt=fmt)
+            _inspect_final_with_short_gate(
+                final_inspector=lambda _path: {
+                    "status": "pass",
+                    "duration_seconds": final,
+                    "width": 1920,
+                    "height": 1080,
+                },
+                output_dir=root,
+                final_path=root / "final.mp4",
+                fmt=fmt,
+            )
+
+    def test_podcast_accepts_the_observed_run39_duration_gap(self) -> None:
+        self._gate("podcast", 107.94, 107.80)
+
+    def test_podcast_still_rejects_a_truncated_render(self) -> None:
+        from clean_v2.timeline_first import TimelineFirstError
+
+        with self.assertRaises(TimelineFirstError):
+            self._gate("podcast", 107.94, 105.0)
+
+    def test_short_keeps_the_strict_fixed_window(self) -> None:
+        from clean_v2.timeline_first import TimelineFirstError
+
+        with self.assertRaises(TimelineFirstError):
+            self._gate("short", 34.0, 34.14)
+
+
 class TimelineFirstIdentityBoundsTests(unittest.TestCase):
     def test_intro_prayer_identity_and_outro_use_measured_audio_bounds(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
