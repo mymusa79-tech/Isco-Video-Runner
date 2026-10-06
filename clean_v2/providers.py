@@ -1486,6 +1486,21 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
     )
 
 
+# Stage-specific provider order for the default router (measured over ~29 analysed
+# runs, see PR notes): Gemini 3.7 and Groq never produce usable planning/script
+# output on the free tier, and spending Gemini 3.7's small free quota here leaves
+# none for the audit judges. Gemini 3.7 is therefore reserved for audits (which call
+# it through their own provider path, not through this router). Mistral leads
+# planning and script_patch; Gemini Flash-Lite leads script writing, where it
+# succeeds most often. OpenRouter stays as a last free safety net. Stages not listed
+# here (narrative_identity, visual_query_recovery, ...) keep default_adapters() order.
+STAGE_PROVIDER_ORDER: dict[str, tuple[str, ...]] = {
+    "planning": ("mistral", "gemini_flash_lite", "openrouter"),
+    "script": ("gemini_flash_lite", "mistral", "openrouter"),
+    "script_patch": ("mistral", "gemini_flash_lite", "openrouter"),
+}
+
+
 class ProviderRouter:
     """One pass over a bounded provider list.
 
@@ -1499,6 +1514,11 @@ class ProviderRouter:
     """
 
     def __init__(self, adapters: Iterable[ProviderAdapter] | None = None) -> None:
+        # Stage ordering applies only to the default adapter set; an explicit adapter
+        # list (tests, special callers) is routed exactly as given.
+        self.stage_provider_order: dict[str, tuple[str, ...]] | None = (
+            STAGE_PROVIDER_ORDER if adapters is None else None
+        )
         self.adapters = tuple(adapters or default_adapters())
         if not self.adapters:
             raise ValueError("at least one provider adapter is required")
@@ -1642,6 +1662,12 @@ class ProviderRouter:
             for adapter in self.adapters
             if adapter.stages is None or stage in adapter.stages
         )
+        stage_order = (self.stage_provider_order or {}).get(stage)
+        if stage_order:
+            by_name = {adapter.name: adapter for adapter in eligible_adapters}
+            eligible_adapters = tuple(
+                by_name[name] for name in stage_order if name in by_name
+            ) or eligible_adapters
         for adapter_index, adapter in enumerate(eligible_adapters):
             if adapter.name in self._rate_limited_for_run:
                 failures.append(f"{adapter.name}:rate_limit_cached")
