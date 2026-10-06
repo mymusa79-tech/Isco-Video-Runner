@@ -148,10 +148,9 @@ def _non_causal_research_guidance(brief: Mapping[str, Any]) -> str:
     if not any(marker.casefold() in haystack for marker in _NON_CAUSAL_RESEARCH_MARKERS):
         return ""
     return (
-        "NON_CAUSAL_RESEARCH_MODE: the approved research explicitly does not establish causality. "
-        "Do not plan or write X-causes-Y, X-generates-Y, 'the real driver', or 'not X but Y' claims. "
-        "Use only an observable pattern, a clearly framed interpretation/reframe, and a practical implication "
-        "already supported by the approved material. Do not invent a hidden mechanism to make the story feel deeper."
+        "NON_CAUSAL_RESEARCH_MODE: research does not establish causality. "
+        "Do not write X-causes-Y, 'the real driver', or 'not X but Y'. "
+        "Use an observable pattern, measured reframe, and supported practical implication; do not invent a hidden mechanism."
     )
 
 
@@ -5610,13 +5609,10 @@ HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new 
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
-separate families. Do not place the same dominant action family in consecutive beats; use one action family at most twice,
-except a visibly changed hook/payoff motif. Also treat desk/laptop/keyboard/phone/stationery/paper/writing as ONE
-generic productivity-prop cluster: unless the approved topic is explicitly about work, typing, writing, or a device,
-that whole cluster may occupy at most TWO beats in the story. The remaining beats must move to a different
-topic-relevant environment, action, consequence, or state — not another desk prop. Prefer visible progression:
-stuck -> choosing -> moving -> completed.
+VISUAL VARIETY is semantic, not cosmetic. Do not repeat the dominant action family consecutively and normally
+use one family at most twice. Treat desk/laptop/keyboard/phone/stationery/paper/writing as ONE generic productivity-prop cluster:
+unless the topic is explicitly about work, writing, or a device, use that cluster in at most TWO beats. Other beats need a
+different topic-relevant environment, action, consequence, or state. Prefer visible progression: stuck -> choosing -> moving -> completed.
 POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
