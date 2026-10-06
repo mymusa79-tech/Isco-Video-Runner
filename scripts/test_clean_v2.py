@@ -432,6 +432,50 @@ class ProviderCapacityMemoryTests(unittest.TestCase):
         self.assertFalse(cached[0]["wire_attempted"])
 
 
+class TransientRateLimitCircuitTests(unittest.TestCase):
+    def _route_twice(self, detail: str):
+        calls = {"limited": 0, "fallback": 0}
+
+        def limited(_prompt, _tokens):
+            calls["limited"] += 1
+            raise ProviderWireFailure(
+                "http_429", http_status=429, retry_after_seconds=None, error_detail=detail
+            )
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("limited", limited),
+                ProviderAdapter("fallback", lambda _p, _t: {"ok": True}),
+            )
+        )
+        for stage in ("planning", "script"):
+            router.route(
+                stage=stage, prompt=stage, max_tokens=100, validator=lambda value: value
+            )
+        return router, calls
+
+    def test_temporary_upstream_429_does_not_open_run_circuit(self) -> None:
+        router, calls = self._route_twice(
+            "google/gemma-4-26b-a4b-it:free is temporarily rate-limited upstream. "
+            "Please retry shortly"
+        )
+        self.assertNotIn("limited", router._rate_limited_for_run)
+        self.assertEqual(calls["limited"], 2)
+
+    def test_real_quota_429_still_opens_run_circuit(self) -> None:
+        router, calls = self._route_twice(
+            "You exceeded your current quota, please check your plan and billing details"
+        )
+        self.assertIn("limited", router._rate_limited_for_run)
+        self.assertEqual(calls["limited"], 1)
+
+    def test_quota_marker_wins_over_transient_wording(self) -> None:
+        router, _ = self._route_twice(
+            "temporarily rate-limited: you exceeded your current quota"
+        )
+        self.assertIn("limited", router._rate_limited_for_run)
+
+
 class GeminiFlashLiteFallbackTests(unittest.TestCase):
     def test_flash_lite_sits_between_gemini_and_groq(self) -> None:
         names = [adapter.name for adapter in providers_module.default_adapters()]
@@ -3200,11 +3244,18 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["status"], "blocked")
             self.assertTrue((output / "factuality-audit.json").is_file())
             self.assertFalse((output / "narration.wav").exists())
-            self.assertFalse((output / "resume-checkpoint.json").exists())
+            # Only the rejected script/audit checkpoint is dropped; the validated
+            # planning checkpoint survives so Planning is not redone from zero.
+            kept = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(kept["completed_stage"], "planning")
+            self.assertNotIn("script.json", kept["artifacts"])
+            self.assertNotIn("narration.txt", kept["artifacts"])
 
             # A genuine factuality block makes this exact script unusable. A later
-            # attempt must regenerate planning/script instead of inheriting the
-            # rejected checkpoint.
+            # attempt must regenerate the script (and its audit) from the kept plan
+            # instead of inheriting the rejected script.
             second_output = root / "second"
             second_router = _FakeRouter()
             second = CleanV2Pipeline(
@@ -3231,11 +3282,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
             second_manifest = json.loads(
                 (second_output / "run-manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(second_manifest["resumed_stages"], [])
-            self.assertNotIn("resume_checkpoint_accepted", second_manifest)
+            self.assertEqual(second_manifest["resumed_stages"], ["planning"])
             self.assertEqual(
                 [event["stage"] for event in second_router.events],
-                ["planning", "script"],
+                ["script"],
             )
 
     def test_text_audit_provider_exhaustion_is_infrastructure(self) -> None:
@@ -3342,7 +3392,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 },
             )
             self.assertEqual(manifest["stages"][-1]["status"], "blocked")
-            self.assertFalse((output / "resume-checkpoint.json").exists())
+            kept = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(kept["completed_stage"], "planning")
             repair = json.loads(
                 (output / "tone-repair.json").read_text(encoding="utf-8")
             )

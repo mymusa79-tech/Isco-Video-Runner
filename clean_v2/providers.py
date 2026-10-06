@@ -40,6 +40,32 @@ GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
 GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES = 30 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
+
+# A 429 whose own body says the limit is temporary (OpenRouter free models: "temporarily
+# rate-limited upstream ... retry shortly") must not poison the provider for the rest of
+# the run, and through the text-audit circuit seed it must not remove a judge from the
+# audit panel. Real quota exhaustion still circuits: the quota markers always win.
+_TRANSIENT_429_MARKERS = (
+    "temporarily rate-limited",
+    "temporarily rate limited",
+    "retry shortly",
+    "rate-limited upstream",
+)
+_QUOTA_429_MARKERS = (
+    "exceeded your current quota",
+    "quota exceeded",
+    "daily quota",
+    "per day",
+    "insufficient quota",
+    "spend limit",
+)
+
+
+def _is_transient_429_detail(detail: object) -> bool:
+    lowered = str(detail or "").lower()
+    if not lowered or any(marker in lowered for marker in _QUOTA_429_MARKERS):
+        return False
+    return any(marker in lowered for marker in _TRANSIENT_429_MARKERS)
 # Mirrors CHARON_RETRY_DELAYS_SECONDS[0] in media.py: a single short same-provider
 # retry for a classic transient server/network failure only (502/503/504 or a
 # transport-level error), never for a genuine client error or the 429/quota path
@@ -1735,7 +1761,9 @@ class ProviderRouter:
                         )
                         if short_retry and adapter_index + 1 < len(eligible_adapters):
                             time.sleep(float(retry_after))
-                        elif not short_retry:
+                        elif not short_retry and not _is_transient_429_detail(
+                            getattr(exc, "error_detail", None)
+                        ):
                             self._rate_limited_for_run.add(adapter.name)
                     provider_failed = True
                     break
