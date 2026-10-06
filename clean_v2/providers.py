@@ -40,6 +40,11 @@ GROQ_MAX_PROMPT_UTF8_BYTES = 38 * 1024
 GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES = 30 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
+# Mistral is often the last Planning provider standing and each rejection names a
+# different local-contract rule (run 83/84/94: identity -> coverage -> semantic drop).
+# One correction was not enough; two keep every validator intact while giving the
+# repair loop room to converge. Other stages keep their single correction.
+MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES = 2
 
 # A 429 whose own body says the limit is temporary (OpenRouter free models: "temporarily
 # rate-limited upstream ... retry shortly") must not poison the provider for the rest of
@@ -1814,7 +1819,9 @@ class ProviderRouter:
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_script_patch_validator_retry"
 
-                if retry_prompt is not None:
+                validator_retries_used = 0
+                abandon_provider = False
+                while retry_prompt is not None:
                     self._event(
                         stage=stage,
                         provider=adapter.name,
@@ -1838,7 +1845,8 @@ class ProviderRouter:
                             provider_attempt=None,
                             stage_wire_attempt=None,
                         )
-                        continue
+                        abandon_provider = True
+                        break
                     except Exception as retry_exc:
                         wire_count += 1
                         retry_reason = str(
@@ -1854,7 +1862,8 @@ class ProviderRouter:
                             provider_attempt=retry_attempt,
                             stage_wire_attempt=wire_count,
                         )
-                        continue
+                        abandon_provider = True
+                        break
                     else:
                         wire_count += 1
                         provider_attempt = retry_attempt
@@ -1862,6 +1871,20 @@ class ProviderRouter:
                             normalized = validator(retry_candidate)
                         except Exception as retry_exc:
                             exc = retry_exc
+                            validator_retries_used += 1
+                            retry_prompt = None
+                            if (
+                                adapter.name == "mistral"
+                                and stage == "planning"
+                                and validator_retries_used
+                                < MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES
+                            ):
+                                retry_prompt = _mistral_planning_validator_retry_prompt(
+                                    provider_prompt, exc
+                                )
+                            if retry_prompt is None:
+                                break
+                            continue
                         else:
                             self._event(
                                 stage=stage,
@@ -1874,6 +1897,8 @@ class ProviderRouter:
                             )
                             return normalized
 
+                if abandon_provider:
+                    continue
                 if adapter.name == "mistral" and stage == "planning":
                     raw_content = mistral_executor.get_last_mistral_executor_raw_content()
                     print(
