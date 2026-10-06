@@ -35,7 +35,7 @@ class Run93SimpleClosureTests(unittest.TestCase):
         }
         prompt = _planning_prompt(brief)
         self.assertIn("NON_CAUSAL_RESEARCH_MODE", prompt)
-        self.assertIn("generic productivity-prop cluster", prompt)
+        self.assertIn("ONE productivity cluster", prompt)
 
     def test_task_state_on_screen_survives_text_sanitizer(self):
         intent = _writer_searchable_intent(
