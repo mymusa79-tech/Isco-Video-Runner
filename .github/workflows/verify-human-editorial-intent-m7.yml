@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs of the same PR. Non-PR events (push to main, manual
+# dispatch) get a unique group per run, so they are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   combined-regression:
     name: Human Editorial Intent M7 Focused Gate
