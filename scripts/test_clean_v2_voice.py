@@ -59,7 +59,13 @@ class _RateLimit(RuntimeError):
 
 class _LongRateLimit(RuntimeError):
     http_status = 429
-    retry_after_seconds = 30.0
+    retry_after_seconds = 125.0
+
+
+class _PerMinuteRateLimit(RuntimeError):
+    # Observed in podcast runs 38/40: Gemini TTS 429 with a 33 s / 57 s window.
+    http_status = 429
+    retry_after_seconds = 33.0
 
 
 class _FakeResponse:
@@ -127,6 +133,43 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         self.assertEqual(calls["count"], 2)
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.25])
         self.assertFalse(synth.fallback_used)
+
+    def test_per_minute_retry_after_waits_once_then_continues(self) -> None:
+        calls = {"count": 0}
+
+        def tts(_key, _text, path, **_kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise _PerMinuteRateLimit("http_429")
+            return _write_audio(Path(path))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch("clean_v2.media._gemini38_synthesize", side_effect=tts), patch(
+                "clean_v2.media.time.sleep"
+            ) as sleep:
+                synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
+
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [33.0])
+        self.assertFalse(synth.fallback_used)
+
+    def test_daily_quota_text_keeps_the_short_ceiling(self) -> None:
+        class _DailyQuota(RuntimeError):
+            http_status = 429
+            retry_after_seconds = 33.0
+
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch(
+                "clean_v2.media._gemini38_synthesize",
+                side_effect=_DailyQuota("http_429 GenerateRequestsPerDayPerProjectPerModel quota per day"),
+            ) as tts, patch("clean_v2.media.time.sleep") as sleep:
+                with self.assertRaises(VoiceInfrastructureError):
+                    synth.synthesize("نص قصير.", Path(temporary) / "out.wav")
+
+        self.assertEqual(tts.call_count, 1)
+        sleep.assert_not_called()
 
     def test_long_retry_after_fails_closed_without_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
