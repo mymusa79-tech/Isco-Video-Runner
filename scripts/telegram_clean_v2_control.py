@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -496,9 +497,43 @@ def fetch_trends() -> list[str]:
         return []
 
 
+# Why a research run found nothing. Only fixed codes are stored (never raw error
+# text), so no secret or provider payload can reach the Telegram message.
+_RESEARCH_FAILURES: set[str] = set()
+
+_RESEARCH_FAILURE_MESSAGES = {
+    "youtube_key_missing": "مفتاح YouTube Data API غير مضبوط.",
+    "youtube_quota": (
+        "حصة YouTube Data API اليومية انتهت؛ تتجدد عند منتصف الليل بتوقيت المحيط الهادئ "
+        "(حوالي 11 صباحًا بتوقيت مسقط)."
+    ),
+    "youtube_error": "تعذر الوصول إلى YouTube Data API.",
+    "gemini_unavailable": "تعذر توليد أفكار جديدة من Gemini، فاستُخدمت الأفكار الاحتياطية فقط.",
+}
+
+
+def _classify_youtube_failure(exc: BaseException) -> str:
+    if isinstance(exc, urllib.error.HTTPError) and exc.code in (403, 429):
+        try:
+            body = exc.read().decode("utf-8", "replace").lower()
+        except Exception:
+            body = ""
+        if "quota" in body or "ratelimit" in body or exc.code == 429:
+            return "youtube_quota"
+    return "youtube_error"
+
+
+def research_failure_reason() -> str:
+    """Arabic reason for an empty research result, from the fixed codes recorded."""
+    order = ("youtube_key_missing", "youtube_quota", "youtube_error", "gemini_unavailable")
+    reasons = [_RESEARCH_FAILURE_MESSAGES[code] for code in order if code in _RESEARCH_FAILURES]
+    return " ".join(reasons)
+
+
 def youtube_search(query: str, *, max_results: int = 6) -> list[dict[str, Any]]:
     key = str(os.environ.get("YOUTUBE_API_KEY") or "").strip()
     if not key:
+        _RESEARCH_FAILURES.add("youtube_key_missing")
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     params = urllib.parse.urlencode(
@@ -533,7 +568,8 @@ def youtube_search(query: str, *, max_results: int = 6) -> list[dict[str, Any]]:
 def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
     try:
         videos = youtube_search(query)
-    except Exception:
+    except Exception as exc:
+        _RESEARCH_FAILURES.add(_classify_youtube_failure(exc))
         videos = []
     now = datetime.now(timezone.utc)
     rows: list[dict[str, Any]] = []
@@ -650,6 +686,7 @@ def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
         return result[:8]
     except Exception as exc:
         print(f"Gemini research fallback activated: {type(exc).__name__}")
+        _RESEARCH_FAILURES.add("gemini_unavailable")
         return []
 
 
@@ -693,6 +730,7 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
 def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
     if scope not in SCOPES:
         raise RuntimeError("unsupported scope")
+    _RESEARCH_FAILURES.clear()
     obsolete_at = utc_now()
     for existing_session in state.get("sessions", {}).values():
         if (
@@ -1957,9 +1995,11 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 result = research(state, scope)
             except Exception as exc:
                 print(f"Telegram research failed: {type(exc).__name__}")
+                reason = research_failure_reason()
                 send_telegram(
                     "⚠️ لم يُعثر على مواضيع مناسبة بهذه المعايير الآن. "
-                    "لم يبدأ أي إنتاج؛ جرّب معايير مختلفة أو أعد البحث لاحقًا."
+                    + (f"السبب: {reason} " if reason else "")
+                    + "لم يبدأ أي إنتاج؛ جرّب معايير مختلفة أو أعد البحث لاحقًا."
                 )
                 return
             text, keyboard = render_candidates(result)

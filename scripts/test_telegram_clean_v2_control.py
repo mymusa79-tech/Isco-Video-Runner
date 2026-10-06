@@ -1258,5 +1258,50 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertEqual(send.call_count, 2)
 
 
+class ResearchFailureReasonTests(unittest.TestCase):
+    def _http_error(self, code: int, body: str):
+        import io
+        import urllib.error
+
+        return urllib.error.HTTPError("https://x", code, "err", {}, io.BytesIO(body.encode()))
+
+    def test_quota_error_is_reported_with_reset_time(self):
+        with mock.patch.object(control, "youtube_search", side_effect=self._http_error(403, '{"error":{"errors":[{"reason":"quotaExceeded"}]}}')):
+            control._RESEARCH_FAILURES.clear()
+            control.market_evidence("اختبار")
+        reason = control.research_failure_reason()
+        self.assertIn("حصة YouTube", reason)
+        self.assertIn("11 صباحًا", reason)
+
+    def test_missing_key_is_reported(self):
+        control._RESEARCH_FAILURES.clear()
+        with mock.patch.dict("os.environ", {"YOUTUBE_API_KEY": ""}):
+            control.youtube_search("اختبار")
+        self.assertIn("مفتاح YouTube", control.research_failure_reason())
+
+    def test_generic_error_never_leaks_raw_text(self):
+        control._RESEARCH_FAILURES.clear()
+        with mock.patch.object(control, "youtube_search", side_effect=RuntimeError("secret-token-123")):
+            control.market_evidence("اختبار")
+        reason = control.research_failure_reason()
+        self.assertIn("تعذر الوصول", reason)
+        self.assertNotIn("secret-token-123", reason)
+
+    def test_no_failures_gives_empty_reason(self):
+        control._RESEARCH_FAILURES.clear()
+        self.assertEqual(control.research_failure_reason(), "")
+
+    def test_research_clears_stale_failures(self):
+        control._RESEARCH_FAILURES.add("youtube_quota")
+        state = control.default_state()
+        rows = [{"title": "فكرة", "market_query": "فكرة", "reason": "سبب"}]
+        evidence = (0.5, {"sample_count": 1, "distinct_channels": 1, "top_samples": []})
+        with mock.patch.object(control, "_candidate_pool", return_value=rows), mock.patch.object(
+            control, "market_evidence", return_value=evidence
+        ):
+            control.research(state, "short")
+        self.assertEqual(control.research_failure_reason(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
