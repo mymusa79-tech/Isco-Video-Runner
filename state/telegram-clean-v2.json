@@ -7341,9 +7341,40 @@
         "started_at": "2026-10-06T03:24:50Z",
         "finished_at": "2026-10-06T03:27:06Z"
       }
+    },
+    "req-952ba81ce8b4": {
+      "schema_version": 1,
+      "request_id": "req-952ba81ce8b4",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فن قول «لا» بذكاء ودون شعور بالذنب",
+      "research_pack": [
+        {
+          "source_title": "Master the Art of Choosing Yourself Without Guilt, Fear, or Explanation | Machiavelli",
+          "source_url": "https://youtu.be/f9XXjzawCTM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "EVITA estos ERRORES al HABLAR: Cómo Ganar AUTORIDAD y RESPETO | Audiolibro Completo",
+          "source_url": "https://youtu.be/L4bukTObiDs",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "El LENGUAJE del PODER: Cómo HABLAR con ELEGANCIA | Audiolibro Completo",
+          "source_url": "https://youtu.be/u0qIhqeXV9E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-91ca350ff2",
+      "selected_at": "2026-10-06T15:11:05Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "abb5760fecbb0e2278bba0b3ea46b8294119116e59b833d657580556361b7c66"
     }
   },
-  "current_request_id": "req-79044702d5b6",
+  "current_request_id": "req-952ba81ce8b4",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7674,6 +7705,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-06T15:10:39Z",
+  "updated_at": "2026-10-06T15:11:06Z",
   "provider_cooldown_until": "2026-10-06T03:47:06.461460Z"
 }
