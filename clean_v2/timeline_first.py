@@ -11,6 +11,20 @@ CONTRACT_ID = "clean-v2-timeline-first-v1"
 DEFAULT_SHORT_SAFETY_MAX_SECONDS = 120.0
 DEFAULT_FILM_SAFETY_MAX_SECONDS = 3600.0
 FINAL_DURATION_TOLERANCE_SECONDS = 0.08
+# Long-form renders (film/podcast) accumulate per-segment frame rounding, so a fixed
+# 80 ms window rejects a perfectly good 108 s podcast whose video is 0.14 s (0.13 %)
+# shorter than the voice (the missing part was the closing silence). Scale the window
+# with the voice length for long-form only; Short keeps the strict fixed window.
+LONG_FORM_FINAL_TOLERANCE_RATIO = 0.0025
+
+
+def final_duration_tolerance_seconds(fmt: str, voice_seconds: float) -> float:
+    if str(fmt) in {"film", "podcast"}:
+        return max(
+            FINAL_DURATION_TOLERANCE_SECONDS,
+            LONG_FORM_FINAL_TOLERANCE_RATIO * float(voice_seconds),
+        )
+    return FINAL_DURATION_TOLERANCE_SECONDS
 
 
 class TimelineFirstError(RuntimeError):
