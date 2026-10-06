@@ -7767,8 +7767,27 @@
         "likes": 8,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-06T21:31:43Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 66,
+      "hidden_subscribers": false,
+      "total_views": 40486,
+      "video_count": 150,
+      "last_long": null,
+      "last_podcast": null,
+      "last_short": {
+        "video_id": "9t6zFdXGCzY",
+        "title": "كيف تقول «لا» دون شعور بالذنب؟ | ضع حدودك بذكاء",
+        "published_at": "2026-10-06T17:25:23Z",
+        "duration_seconds": 8,
+        "views": 27,
+        "likes": 0,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-06T21:31:19Z",
+  "updated_at": "2026-10-06T21:31:43Z",
   "provider_cooldown_until": "2026-10-06T15:34:28.364417Z"
 }
