@@ -32,6 +32,12 @@ MAX_TTS_AUDIO_BYTES = 64 * 1024 * 1024
 CHARON_MAX_ATTEMPTS = 2
 CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
+# Gemini TTS free-tier 429s carry a per-minute Retry-After (observed 33 s and 57 s in
+# podcast runs 38/40, which each died at the first chunk and lost the whole production
+# on the fixed 10 s ceiling). One bounded same-provider retry per chunk may wait up to
+# this long when the exception does not name a daily/day quota.
+MAX_TTS_RATE_WINDOW_RETRY_AFTER_SECONDS = 65.0
+_TTS_DAILY_QUOTA_MARKERS = ("perday", "per day", "per_day", "daily")
 
 GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
 GEMINI38_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
@@ -261,12 +267,14 @@ def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
         # Gemini supplies a very short Retry-After, permit one delayed retry only;
         # repeatedly spending the same exhausted TTS quota is worse than failing
         # closed with already-generated chunks preserved in the durable cache.
-        if (
-            retry_index > 0
-            or retry_after is None
-            or retry_after <= 0
-            or retry_after > MAX_SHORT_TTS_RETRY_AFTER_SECONDS
-        ):
+        if retry_index > 0 or retry_after is None or retry_after <= 0:
+            return None
+        ceiling = (
+            MAX_SHORT_TTS_RETRY_AFTER_SECONDS
+            if any(marker in detail for marker in _TTS_DAILY_QUOTA_MARKERS)
+            else MAX_TTS_RATE_WINDOW_RETRY_AFTER_SECONDS
+        )
+        if retry_after > ceiling:
             return None
         return retry_after
     if retry_after is not None:
