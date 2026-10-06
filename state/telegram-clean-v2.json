@@ -7251,9 +7251,35 @@
         "started_at": "2026-10-05T22:48:15Z",
         "finished_at": "2026-10-05T22:50:14Z"
       }
+    },
+    "req-79044702d5b6": {
+      "schema_version": 1,
+      "request_id": "req-79044702d5b6",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "podcast",
+      "approved_by_user": true,
+      "approved_topic": "وهم الكفاءة السريعة: حين يفقد العقل استقلاله بالاتكال المفرط على التقنية",
+      "research_pack": [
+        {
+          "source_title": "الذكاء الاصطناعي وعقولنا: كيف تسيطر الخوارزميات على تفكيرك؟ 🧠🤖",
+          "source_url": "https://youtu.be/KDZgqMmE1j4",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "هل يتحكم الذكاء الاصطناعي في عقلك الآن؟ 🤯",
+          "source_url": "https://youtu.be/UJqWOEL7ke8",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b7ff51f4cc",
+      "selected_at": "2026-10-06T03:24:12Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "be45d920113f3294964cb62401eb177f0b2c30f2893b57ceec9b426d41d493bd"
     }
   },
-  "current_request_id": "req-3b6b69c27bc5",
+  "current_request_id": "req-79044702d5b6",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7584,6 +7610,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-06T03:23:54Z",
+  "updated_at": "2026-10-06T03:24:13Z",
   "provider_cooldown_until": "2026-10-05T23:10:14.254682Z"
 }
