@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "وهم الكفاءة السريعة: حين يفقد العقل استقلاله بالاتكال المفرط على التقنية",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37408838204",
-  "result": "failure",
-  "updated_at": 1791257224
+  "topic": "فن قول «لا» بذكاء ودون شعور بالذنب",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37485325737",
+  "result": "",
+  "updated_at": 1791299509
 }
