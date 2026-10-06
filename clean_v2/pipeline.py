@@ -5609,10 +5609,10 @@ HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new 
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-VISUAL VARIETY is semantic, not cosmetic. Do not repeat the dominant action family consecutively and normally
-use one family at most twice. Treat desk/laptop/keyboard/phone/stationery/paper/writing as ONE generic productivity-prop cluster:
-unless the topic is explicitly about work, writing, or a device, use that cluster in at most TWO beats. Other beats need a
-different topic-relevant environment, action, consequence, or state. Prefer visible progression: stuck -> choosing -> moving -> completed.
+VISUAL VARIETY is semantic, not cosmetic. Do not place the same dominant action family in consecutive beats;
+normally use one family <=2 times. Treat desk/laptop/keyboard/phone/stationery/paper/writing as ONE generic productivity-prop cluster:
+unless the topic is about those props, use that cluster in <=2 beats. Other beats need a different topic-relevant
+environment/action/state. Prefer visible progression: stuck -> choosing -> moving -> completed.
 POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
