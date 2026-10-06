@@ -6937,9 +6937,34 @@ class CleanV2Pipeline:
                         and journal.payload.get("quality_pending_stage") == TEXT_AUDIT_STAGE
                     ):
                         # A genuine content block invalidates the exact rejected
-                        # script. Infrastructure exhaustion keeps the prior script
+                        # script, so the script/audit checkpoint is dropped (re-auditing
+                        # the same bytes would be approval shopping). The validated
+                        # planning artifacts are not what was rejected, and Planning is
+                        # the most failure-prone stage: keep a planning-only checkpoint
+                        # so a later resume regenerates a fresh script and a fresh audit
+                        # instead of redoing Planning from zero.
+                        # Infrastructure exhaustion keeps the prior script
                         # checkpoint so a later provider can audit it once.
                         (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
+                        try:
+                            # Visual Binding rewrote visual-story.json for the rejected
+                            # script; the immutable planning-time bytes live in the
+                            # source copy written at the script checkpoint.
+                            planned_story = output_dir / "visual-story-source.json"
+                            if planned_story.is_file() and planned_story.stat().st_size > 0:
+                                shutil.copy2(planned_story, output_dir / "visual-story.json")
+                            _write_resume_checkpoint(
+                                output_dir,
+                                completed_stage="planning",
+                                approved_brief_sha256=approved_brief_digest,
+                                engine_sha=engine_sha,
+                                runner_sha=runner_sha,
+                                max_visuals=max_visuals,
+                            )
+                        except Exception:
+                            (output_dir / "resume-checkpoint.json").unlink(
+                                missing_ok=True
+                            )
                     raise
 
                 # A successful bounded repair mutates the script. Re-enter every

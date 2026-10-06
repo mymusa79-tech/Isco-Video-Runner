@@ -63,6 +63,67 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
             "mistral_planning_validator_retry",
         )
 
+    def _route_with_failures(self, failures_before_success: int, stage: str = "planning"):
+        calls: list[str] = []
+
+        def fake_call(prompt: str, max_tokens: int, stage_name: str) -> dict:
+            calls.append(prompt)
+            return {"attempt": len(calls)}
+
+        errors = [
+            "visual_story must cover every planned section: missing=s4,s5",
+            "visual_story beat b4 post-hook semantic drop requires a stronger observable alternate",
+            "third unrelated rule",
+        ]
+
+        def validator(candidate: dict) -> dict:
+            if candidate["attempt"] <= failures_before_success:
+                raise ValueError(errors[candidate["attempt"] - 1])
+            return {"status": "pass"}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    fake_call,
+                    stages=frozenset({"planning", "script_patch"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        return router, calls, validator
+
+    def test_mistral_planning_gets_a_second_validator_guided_retry(self) -> None:
+        router, calls, validator = self._route_with_failures(2)
+        result = router.route(
+            stage="planning", prompt="BASE", max_tokens=3000, validator=validator
+        )
+        self.assertEqual(result, {"status": "pass"})
+        self.assertEqual(len(calls), 3)
+        self.assertIn("missing=s4,s5", calls[1])
+        # The second correction targets the NEW rejection, not the first one.
+        self.assertIn("post-hook semantic drop", calls[2])
+        self.assertEqual(
+            [event["result"] for event in router.events],
+            ["retrying", "retrying", "success"],
+        )
+
+    def test_mistral_planning_retries_are_bounded_at_two(self) -> None:
+        router, calls, validator = self._route_with_failures(99)
+        with self.assertRaises(RuntimeError):
+            router.route(
+                stage="planning", prompt="BASE", max_tokens=3000, validator=validator
+            )
+        self.assertEqual(len(calls), 3)
+
+    def test_script_patch_keeps_a_single_validator_retry(self) -> None:
+        router, calls, validator = self._route_with_failures(99)
+        with self.assertRaises(RuntimeError):
+            router.route(
+                stage="script_patch", prompt="BASE", max_tokens=1200, validator=validator
+            )
+        self.assertLessEqual(len(calls), 2)
+
     def test_run83_planning_retry_targets_post_hook_semantic_drop(self) -> None:
         prompt = _mistral_planning_validator_retry_prompt(
             "BASE",
