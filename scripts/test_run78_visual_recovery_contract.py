@@ -53,7 +53,7 @@ def _podcast_fixture():
 
 
 class VisualRecoveryContractTests(unittest.TestCase):
-    def _router(self, replies):
+    def _router(self, replies=()):
         calls = []
         values = iter(replies)
 
@@ -66,7 +66,7 @@ class VisualRecoveryContractTests(unittest.TestCase):
 
         router = providers.ProviderRouter((
             providers.ProviderAdapter("gemini_flash_lite", invoke),
-            providers.ProviderAdapter("mistral", lambda *_: self.fail("must retain the successful writer")),
+            providers.ProviderAdapter("mistral", lambda *_: self.fail("writer visual binding must stay local")),
         ))
         router.events.append({"stage": "script", "provider": "gemini_flash_lite", "result": "success"})
         return router, calls
@@ -89,14 +89,13 @@ class VisualRecoveryContractTests(unittest.TestCase):
                 visual_qa._validate_alternate_query(value, original_query=GOOD_QUERY)
             self.assertEqual(rejected.exception.code, code)
 
-    def test_both_recovery_prompts_advertise_existing_character_limit(self):
-        _, _, story, _ = _podcast_fixture()
-        family = pipeline._visual_family_recovery_prompt(error=_family_error(), visual_story=story)
-        final_qa = visual_qa._alternate_visual_query_prompt(original_query="paper", narration_context="tasks")
-        self.assertIn("at most 80 characters including spaces", family)
+    def test_writer_family_recovery_is_removed_but_final_visual_recovery_contract_remains(self):
+        self.assertFalse(hasattr(pipeline, "_visual_family_recovery_prompt"))
+        final_qa = visual_qa._alternate_visual_query_prompt(
+            original_query="paper",
+            narration_context="tasks",
+        )
         self.assertIn("at most 80 characters including spaces", final_qa)
-        self.assertIn("context, not mandatory props", family)
-        self.assertIn("Preserve the exact beat meaning", family)
 
     def test_final_visual_recovery_prompt_uses_observed_failure_class(self):
         prompt = visual_qa._alternate_visual_query_prompt(
@@ -133,121 +132,77 @@ class VisualRecoveryContractTests(unittest.TestCase):
             "weak_semantic_fit",
         )
 
-    def test_second_attempt_receives_rejection_and_only_valid_output_changes_proof(self):
+    def test_family_repeat_uses_one_local_composition_retry_and_zero_provider_calls(self):
         brief, plan, story, script = _podcast_fixture()
-        original = copy.deepcopy(story)
-        router, calls = self._router([LONG_QUERY, GOOD_QUERY])
-        seen = []
-
-        def bind(**kwargs):
-            candidate = kwargs["visual_story"]
-            seen.append(copy.deepcopy(candidate))
-            if candidate["beats"][1]["stock_query_en"] != GOOD_QUERY:
-                raise _family_error()
-            return candidate
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(pipeline, "_bind_writer_visual_story", side_effect=bind):
-            bound = pipeline._bind_writer_visual_story_with_recovery(
-                router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-            )
-        self.assertEqual(len(calls), 2)
-        self.assertEqual({call[1] for call in calls}, {180})
-        self.assertIn("alternate_query_too_long", calls[1][0])
-        self.assertIn("maximum is 80", calls[1][0])
-        self.assertNotEqual(calls[0][0], calls[1][0])
-        self.assertEqual(seen[0], seen[1])
-        self.assertEqual(story, original)
-        self.assertEqual(bound["beats"][1]["semantic_must_have"], [GOOD_QUERY])
-        self.assertEqual(bound["beats"][1]["meaning_target"], original["beats"][1]["meaning_target"])
-        failures = [e for e in router.events if e.get("result") == "invalid_output"]
-        self.assertTrue(failures[0]["reason"].startswith("invalid_output_valueerror_"))
-        self.assertIn("alternate_query_too_long", failures[0]["reason"])
-        detail = json.loads(failures[0]["detail"])
-        self.assertEqual(detail["alternate_query_chars"], len(LONG_QUERY))
-        self.assertEqual(detail["alternate_query_words"], len(LONG_QUERY.split()))
-        self.assertNotIn(LONG_QUERY, json.dumps(router.events))
-
-    def test_two_bad_outputs_remain_fail_closed_without_more_calls(self):
-        brief, plan, story, script = _podcast_fixture()
-        router, calls = self._router([LONG_QUERY, LONG_QUERY])
+        router, calls = self._router()
+        error = _family_error()
+        rebound = copy.deepcopy(story)
         with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            pipeline, "_bind_writer_visual_story", side_effect=_family_error()
-        ):
-            with self.assertRaises(VisualFamilyRepeatError) as raised:
-                pipeline._bind_writer_visual_story_with_recovery(
-                    router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-                )
-        self.assertIsInstance(raised.exception.__cause__, visual_qa.AlternateQueryError)
-        self.assertEqual(len(calls), 2)
-
-    def test_same_family_is_rejected_instead_of_silently_accepted(self):
-        brief, plan, story, script = _podcast_fixture()
-        router, calls = self._router(["hands writing another task on paper", "hands marking checklist with red pen"])
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            pipeline, "_bind_writer_visual_story", side_effect=_family_error()
-        ):
-            with self.assertRaises(VisualFamilyRepeatError):
-                pipeline._bind_writer_visual_story_with_recovery(
-                    router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-                )
-        self.assertEqual(len(calls), 2)
-        self.assertIn("alternate_query_repeats_rejected_family", calls[1][0])
-
-    def test_provider_outage_retains_original_family_failure_and_call_bound(self):
-        brief, plan, story, script = _podcast_fixture()
-        outage = providers.ProviderWireFailure("http_503", http_status=503)
-        router, calls = self._router([outage, outage])
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            pipeline, "_bind_writer_visual_story", side_effect=_family_error()
-        ):
-            with self.assertRaises(VisualFamilyRepeatError) as raised:
-                pipeline._bind_writer_visual_story_with_recovery(
-                    router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-                )
-        self.assertIs(raised.exception.__cause__, outage)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual([e["reason"] for e in router.events if e.get("result") == "failed"], ["http_503", "http_503"])
-
-    def test_run78_scene_pattern_binds_with_one_valid_same_writer_recovery(self):
-        brief, plan, story, script = _podcast_fixture()
-        original = copy.deepcopy(story)
-        router, calls = self._router([GOOD_QUERY])
-        with tempfile.TemporaryDirectory() as root:
+            pipeline,
+            "_bind_writer_visual_story",
+            side_effect=[error, rebound],
+        ) as binder:
             bound = pipeline._bind_writer_visual_story_with_recovery(
-                router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-            )
-            saved = json.loads((Path(root) / "visual-story.json").read_text())
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(saved, bound)
-        self.assertEqual(bound["beats"][1]["semantic_must_have"], [GOOD_QUERY])
-        self.assertEqual(bound["beats"][1]["meaning_target"], original["beats"][1]["meaning_target"])
-        self.assertEqual(bound["beats"][4]["semantic_must_have"], original["beats"][4]["semantic_must_have"])
-        self.assertEqual(story, original)
-
-    def test_two_distinct_rejected_beats_share_the_existing_two_call_budget(self):
-        brief, plan, story, script = _podcast_fixture()
-        story["beats"][4]["shot_intent"] = "hands placing completed paper task card into wooden box"
-        story["beats"][4]["stock_query_en"] = story["beats"][4]["shot_intent"]
-        replies = [GOOD_QUERY, "hands removing tangled cords from finished repair tools"]
-        router, calls = self._router(replies)
-        with tempfile.TemporaryDirectory() as root:
-            bound = pipeline._bind_writer_visual_story_with_recovery(
-                router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
-            )
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(bound["beats"][4]["semantic_must_have"], [replies[1]])
-
-    def test_authored_alternates_update_proof_without_any_provider_call(self):
-        brief, plan, story, script = _podcast_fixture()
-        story["beats"][1]["stock_query_alt_en"] = GOOD_QUERY
-        story["beats"][4]["stock_query_alt_en"] = "hands removing tangled cords from finished repair tools"
-        router, calls = self._router([])
-        with tempfile.TemporaryDirectory() as root:
-            bound = pipeline._bind_writer_visual_story_with_recovery(
-                router=router, output_dir=Path(root), brief=brief, plan=plan, script=script, visual_story=story
+                router=router,
+                output_dir=Path(root),
+                brief=brief,
+                plan=plan,
+                script=script,
+                visual_story=story,
             )
         self.assertEqual(calls, [])
-        self.assertEqual(bound["beats"][1]["semantic_must_have"], [GOOD_QUERY])
+        self.assertEqual(bound, rebound)
+        self.assertEqual(binder.call_count, 2)
+        self.assertTrue(binder.call_args_list[1].kwargs["allow_composition_fallback"])
+        events = [
+            event for event in router.events
+            if event.get("reason") == "visual_family_repeat_local_composition"
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertFalse(events[0]["wire_attempted"])
+
+    def test_local_composition_retry_is_bounded_to_one_extra_bind(self):
+        brief, plan, story, script = _podcast_fixture()
+        router, calls = self._router()
+        error = _family_error()
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            pipeline,
+            "_bind_writer_visual_story",
+            side_effect=[error, error],
+        ) as binder:
+            with self.assertRaises(VisualFamilyRepeatError):
+                pipeline._bind_writer_visual_story_with_recovery(
+                    router=router,
+                    output_dir=Path(root),
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                    visual_story=story,
+                )
+        self.assertEqual(calls, [])
+        self.assertEqual(binder.call_count, 2)
+
+    def test_authored_alternates_preserve_original_semantic_proof_without_provider_call(self):
+        brief, plan, story, script = _podcast_fixture()
+        original_proof = list(story["beats"][1]["semantic_must_have"])
+        story["beats"][1]["stock_query_alt_en"] = GOOD_QUERY
+        story["beats"][4]["stock_query_alt_en"] = "hands removing tangled cords from finished repair tools"
+        router, calls = self._router()
+        with tempfile.TemporaryDirectory() as root:
+            bound = pipeline._bind_writer_visual_story_with_recovery(
+                router=router,
+                output_dir=Path(root),
+                brief=brief,
+                plan=plan,
+                script=script,
+                visual_story=story,
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(bound["beats"][1]["semantic_must_have"], original_proof)
+        self.assertEqual(
+            bound["beats"][1]["meaning_target"],
+            story["beats"][1]["meaning_target"],
+        )
 
 
 class PlanningCapacityContractTests(unittest.TestCase):

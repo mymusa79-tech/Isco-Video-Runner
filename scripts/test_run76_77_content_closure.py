@@ -143,7 +143,7 @@ class Run77CtaClosureTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["error_code"], code)
             self.assertEqual(manifest["stages"][-1]["status"], "failed")
             checkpoint = json.loads((root / "output/resume-checkpoint.json").read_text())
-            self.assertEqual(checkpoint["completed_stage"], "planning")
+            self.assertEqual(checkpoint["completed_stage"], "script")
             voice.synthesize.assert_not_called()
             visuals.acquire.assert_not_called()
 

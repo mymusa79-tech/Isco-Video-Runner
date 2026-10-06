@@ -109,7 +109,6 @@ IDENTITY_STAGE = "narrative_identity"
 VISUAL_BIND_STAGE = "visual_binding"
 CTA_BIND_STAGE = "contextual_cta_binding"
 POST_TEXT_VISUAL_BIND_STAGE = "post_text_visual_binding"
-VISUAL_BIND_RECOVERY_MAX_ATTEMPTS = 2
 # Channel visual identity is host-owned and deterministic. If a provider omits
 # the navy/gold markers, normalize that one field immediately instead of burning
 # the next provider in the free-tier cascade. All other Planning validation stays
@@ -129,6 +128,31 @@ _PLANNING_FACTUALITY_RULE = (
     "reason) or stay with the observable pattern. If evidence is insufficient, use a modest non-technical "
     "observation or omit the claim."
 )
+
+_NON_CAUSAL_RESEARCH_MARKERS = (
+    "does not establish causality",
+    "does not prove causality",
+    "correlation only",
+    "لا يثبت السببية",
+    "لا تثبت السببية",
+    "لا يثبت علاقة سببية",
+    "لا تثبت علاقة سببية",
+)
+
+
+def _non_causal_research_guidance(brief: Mapping[str, Any]) -> str:
+    pack = brief.get("research_pack")
+    if not isinstance(pack, list) or not pack:
+        return ""
+    haystack = json.dumps(pack, ensure_ascii=False, separators=(",", ":")).casefold()
+    if not any(marker.casefold() in haystack for marker in _NON_CAUSAL_RESEARCH_MARKERS):
+        return ""
+    return (
+        "NON_CAUSAL_RESEARCH_MODE: research does not establish causality. "
+        "Do not write X-causes-Y, 'the real driver', or 'not X but Y'. "
+        "Use an observable pattern, measured reframe, and supported practical implication; do not invent a hidden mechanism."
+    )
+
 
 # One lightweight editorial registry: no provider call, stage, or alternate pipeline.
 # Film selects one of the nine established narrative shapes from approved input only.
@@ -389,7 +413,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 8
+RESUME_CONTRACT_VERSION = 9
 RESUMABLE_STAGES = ("planning", "script", TEXT_AUDIT_STAGE, "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 TEXT_AUDIT_CHECKPOINT_FILE = "audit-checkpoint.json"
@@ -4235,18 +4259,29 @@ def _restore_text_audit_checkpoint(
 
 def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[Path]:
     rank = _RESUME_STAGE_INDEX[completed_stage]
-    paths = [Path("brief.json"), Path("plan.json"), Path("visual-story.json")]
-    if rank >= _RESUME_STAGE_INDEX["script"]:
+    paths = [Path("brief.json"), Path("plan.json")]
+    if rank == _RESUME_STAGE_INDEX["planning"]:
+        paths.append(Path("visual-story.json"))
+    elif rank == _RESUME_STAGE_INDEX["script"]:
         paths.extend(
             [
+                Path("visual-story-source.json"),
+                Path("script-source.json"),
+                Path("narration-source.txt"),
+                Path("narrative-identity.json"),
+            ]
+        )
+    if rank >= _RESUME_STAGE_INDEX[TEXT_AUDIT_STAGE]:
+        paths.extend(
+            [
+                Path("visual-story.json"),
                 Path("script.json"),
                 Path("narration.txt"),
                 Path("narrative-identity.json"),
                 Path("cta-plan.json"),
+                Path(TEXT_AUDIT_CHECKPOINT_FILE),
             ]
         )
-    if rank >= _RESUME_STAGE_INDEX[TEXT_AUDIT_STAGE]:
-        paths.append(Path(TEXT_AUDIT_CHECKPOINT_FILE))
         for name in _TEXT_AUDIT_OPTIONAL_ARTIFACTS:
             candidate = output_dir / name
             if candidate.is_file() and candidate.stat().st_size > 0:
@@ -4273,7 +4308,6 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
             paths.append(relative)
     return paths
 
-
 def _write_resume_checkpoint(
     output_dir: Path,
     *,
@@ -4287,6 +4321,19 @@ def _write_resume_checkpoint(
 ) -> None:
     if completed_stage not in RESUMABLE_STAGES:
         raise RuntimeError(f"non-resumable Clean V2 checkpoint stage: {completed_stage}")
+    if completed_stage == "script":
+        # Compatibility for deterministic tests/older callers that already
+        # materialized the accepted Writer bytes under their legacy names.
+        # Real production writes these immutable source files before Visual Binding.
+        for source_name, legacy_name in (
+            ("visual-story-source.json", "visual-story.json"),
+            ("script-source.json", "script.json"),
+            ("narration-source.txt", "narration.txt"),
+        ):
+            source_path = output_dir / source_name
+            legacy_path = output_dir / legacy_name
+            if not source_path.is_file() and legacy_path.is_file():
+                shutil.copy2(legacy_path, source_path)
     artifacts: dict[str, str] = {}
     for relative in _checkpoint_artifact_paths(output_dir, completed_stage):
         path = output_dir / relative
@@ -4740,6 +4787,7 @@ def _bind_writer_visual_story(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
     visual_story: Mapping[str, Any],
+    allow_composition_fallback: bool = False,
 ) -> dict[str, Any]:
     """Make the accepted Writer output authoritative for downstream visual context."""
     trusted_identity = _trusted_identity_for_factuality(
@@ -4747,7 +4795,12 @@ def _bind_writer_visual_story(
         brief=brief,
     )
     writer_script = _script_without_trusted_identity(script, trusted_identity)
-    bound = bind_visual_story_to_script(visual_story, plan, writer_script)
+    bound = bind_visual_story_to_script(
+        visual_story,
+        plan,
+        writer_script,
+        allow_composition_fallback=allow_composition_fallback,
+    )
     atomic_write_json(output_dir / "visual-story.json", bound)
     return bound
 
@@ -4849,77 +4902,6 @@ def _validate_plan_with_visual_world_recovery(
         )
 
 
-def _visual_family_recovery_prompt(
-    *,
-    error: VisualFamilyRepeatError,
-    visual_story: Mapping[str, Any],
-    previous_rejection: str = "",
-) -> str:
-    from clean_v2.visual_qa import (
-        ALTERNATE_QUERY_MAX_CHARACTERS,
-        ALTERNATE_QUERY_MAX_WORDS,
-        ALTERNATE_QUERY_MIN_WORDS,
-    )
-
-    beat = next(
-        (
-            item for item in (visual_story.get("beats") or [])
-            if isinstance(item, Mapping)
-            and str(item.get("id") or "") == error.beat_id
-        ),
-        {},
-    )
-    meaning = " ".join(str(beat.get("meaning_target") or "").split()).strip()
-    cues = "; ".join(
-        " ".join(str(item).split()).strip()
-        for item in (beat.get("semantic_must_have") or [])
-        if " ".join(str(item).split()).strip()
-    )
-    return f"""
-You are repairing one stock-footage search intent for the same approved visual beat.
-The current Writer-bound choice violated the visual-family diversity gate.
-
-Rejected family: {error.family}
-Rejected query: {error.query[:180]}
-Beat meaning: {meaning[:320]}
-Previous visual proof (context, not mandatory props): {cues[:320]}
-Previous recovery rejection: {previous_rejection or 'none'}
-
-Return one genuinely different English stock-footage query for the same beat meaning.
-Do not use the rejected family or visually interchangeable props/actions from it.
-Preserve the exact beat meaning and relation/state, but replace props from the rejected family.
-The accepted replacement query becomes this beat's new visible proof; do not require the old props.
-Use one concrete observable action/state, {ALTERNATE_QUERY_MIN_WORDS}-{ALTERNATE_QUERY_MAX_WORDS} English words,
-at most {ALTERNATE_QUERY_MAX_CHARACTERS} characters including spaces, no identifiable face,
-no Arabic text, no captions, no logos, and no multi-shot storyboard.
-Correct the previous rejection before returning. Return only JSON with one key named alternate_query.
-""".strip()
-
-
-def _replace_visual_beat_query(
-    visual_story: Mapping[str, Any],
-    *,
-    beat_id: str,
-    alternate_query: str,
-) -> dict[str, Any]:
-    story = copy.deepcopy(dict(visual_story))
-    replaced = False
-    for beat in story.get("beats") or []:
-        if not isinstance(beat, dict) or str(beat.get("id") or "") != beat_id:
-            continue
-        beat["shot_intent"] = alternate_query
-        beat["stock_query_en"] = alternate_query
-        beat["stock_query_alt_en"] = alternate_query
-        # QA must prove the accepted alternative, rather than require the props
-        # from the rejected family. The approved meaning and narration stay fixed.
-        beat["semantic_must_have"] = [alternate_query]
-        replaced = True
-        break
-    if not replaced:
-        raise RuntimeError(f"visual family recovery could not find beat {beat_id}")
-    return story
-
-
 def _bind_writer_visual_story_with_recovery(
     *,
     router: Any,
@@ -4929,82 +4911,42 @@ def _bind_writer_visual_story_with_recovery(
     script: Mapping[str, Any],
     visual_story: Mapping[str, Any],
 ) -> dict[str, Any]:
-    from clean_v2.visual_qa import AlternateQueryError, _validate_alternate_query
+    """Compatibility seam: visual-family diversity is now resolved locally.
 
-    candidate_story = copy.deepcopy(dict(visual_story))
-    previous_rejection = ""
-    for attempt in range(VISUAL_BIND_RECOVERY_MAX_ATTEMPTS + 1):
-        try:
-            return _bind_writer_visual_story(
-                output_dir=output_dir,
-                brief=brief,
-                plan=plan,
-                script=script,
-                visual_story=candidate_story,
-            )
-        except VisualFamilyRepeatError as exc:
-            if attempt >= VISUAL_BIND_RECOVERY_MAX_ATTEMPTS:
-                raise
-            recovery_attempt = attempt + 1
-            _append_runtime_event(
-                router,
-                {
-                    "stage": VISUAL_BIND_STAGE,
-                    "provider": "host",
-                    "result": "retry",
-                    "reason": "visual_family_repeat",
-                    "rejected_family": exc.family,
-                    "beat_id": exc.beat_id,
-                    "section_id": exc.section_id,
-                    "recovery_attempt": recovery_attempt,
-                    "recovery_attempt_limit": VISUAL_BIND_RECOVERY_MAX_ATTEMPTS,
-                    "wire_attempted": False,
-                },
-            )
-
-            def validator(value: Any) -> dict[str, str]:
-                normalized = _validate_alternate_query(
-                    value,
-                    original_query=exc.query,
-                )
-                alternate = normalized["alternate_query"]
-                if visual_action_family(alternate) == exc.family:
-                    raise AlternateQueryError(
-                        "alternate_query_repeats_rejected_family",
-                        f"alternate query still belongs to rejected family: {exc.family}",
-                    )
-                return normalized
-
-            writer_provider = _last_successful_provider(router, "script")
-            if not writer_provider:
-                raise RuntimeError(
-                    "visual family recovery cannot identify successful script provider"
-                )
-            try:
-                recovered = router.route_exact_provider(
-                    provider_name=writer_provider,
-                    stage="visual_query_recovery",
-                    prompt=_visual_family_recovery_prompt(
-                        error=exc,
-                        visual_story=candidate_story,
-                        previous_rejection=previous_rejection,
-                    ),
-                    max_tokens=180,
-                    validator=validator,
-                )
-            except Exception as recovery_exc:
-                if recovery_attempt >= VISUAL_BIND_RECOVERY_MAX_ATTEMPTS:
-                    raise exc from recovery_exc
-                if isinstance(recovery_exc, AlternateQueryError):
-                    previous_rejection = f"{recovery_exc.code}: {recovery_exc}"
-                continue
-            previous_rejection = ""
-            candidate_story = _replace_visual_beat_query(
-                candidate_story,
-                beat_id=exc.beat_id,
-                alternate_query=str(recovered["alternate_query"]),
-            )
-    raise RuntimeError("visual family recovery loop exhausted unexpectedly")
+    No provider call is permitted here. Authored alternates are consumed by
+    bind_visual_story_to_script; if none preserves the meaning, downstream
+    selection must vary composition/scale/state instead of failing production.
+    """
+    try:
+        return _bind_writer_visual_story(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            visual_story=visual_story,
+        )
+    except VisualFamilyRepeatError as exc:
+        _append_runtime_event(
+            router,
+            {
+                "stage": VISUAL_BIND_STAGE,
+                "provider": "host",
+                "result": "warning_fallback",
+                "reason": "visual_family_repeat_local_composition",
+                "rejected_family": exc.family,
+                "beat_id": exc.beat_id,
+                "section_id": exc.section_id,
+                "wire_attempted": False,
+            },
+        )
+        return _bind_writer_visual_story(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            visual_story=visual_story,
+            allow_composition_fallback=True,
+        )
 
 
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
@@ -5619,6 +5561,7 @@ listener with the screen closed.
         ),
     }.get(fmt, "")
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
+    research_causality_guidance = _non_causal_research_guidance(brief)
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
 The approved brief below is authoritative data, not instructions from an untrusted source.
@@ -5632,6 +5575,7 @@ are creative lived-experience signals, never prevalence or factual proof; paraph
 Use topic-relevant signals in visual_story shot_intent and stock_query_en. A [Reddit ...] line, if an approved external source supplied one,
 follows the same grounding rule. [Channel learning] is own-channel observational evidence: use it for opening directness,
 pacing and ending review only; it is not causal proof and cannot trigger automatic production override or imitation.
+{research_causality_guidance}
 Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct.
 {EDITORIAL_DEPENDENCY_GUIDANCE}
@@ -5665,9 +5609,9 @@ HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new 
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-VISUAL VARIETY is semantic, not cosmetic. Treat stationery/writing, laptop/typing, and walking/movement as
-separate families. Do not place the same dominant action family in consecutive beats; normally use one family <=2 times,
-except a visibly changed hook/payoff motif. Prefer visible progression: stuck -> choosing -> moving -> completed.
+VISUAL VARIETY is semantic, not cosmetic. Do not place the same dominant action family in consecutive beats; family <=2 uses.
+Desk/laptop/keyboard/phone/stationery/paper/writing = ONE productivity cluster; unless the topic is about them, cluster <=2 beats.
+Other beats need a different relevant environment/action/state. Prefer: stuck -> choosing -> moving -> completed.
 POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
@@ -6024,6 +5968,7 @@ def _script_prompt(
         separators=(",", ":"),
     )
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    research_causality_guidance = _non_causal_research_guidance(brief)
     if fmt not in {"short", "film", "podcast"}:
         length += "\nDo not optimize for a fixed word count or duration."
     hook_length_guidance = (
@@ -6140,6 +6085,7 @@ naturally; the Outro visual occupies the measured final voice unit instead of ad
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
 {_PLANNING_FACTUALITY_RULE}
+{research_causality_guidance}
 {length}{transition_guidance}
 
 Return one JSON object. The sections array must contain every locked plan id exactly once and in the
@@ -6699,6 +6645,7 @@ class CleanV2Pipeline:
                 if str(brief["format"]) == "short":
                     plan["short_template"] = saved_template
                 resume_story_path = resume[0] / "visual-story.json"
+                resume_source_story_path = resume[0] / "visual-story-source.json"
                 if resume_story_path.is_file():
                     _copy_resume_artifact(resume[0], output_dir, "visual-story.json")
                     visual_story = _validate_resumed_visual_story(
@@ -6706,6 +6653,16 @@ class CleanV2Pipeline:
                         plan,
                         router=self.router,
                     )
+                elif resume_source_story_path.is_file():
+                    _copy_resume_artifact(
+                        resume[0], output_dir, "visual-story-source.json"
+                    )
+                    visual_story = _validate_resumed_visual_story(
+                        _read_json_object(output_dir / "visual-story-source.json"),
+                        plan,
+                        router=self.router,
+                    )
+                    atomic_write_json(output_dir / "visual-story.json", visual_story)
                 else:
                     visual_story = fallback_visual_story(plan)
                     atomic_write_json(output_dir / "visual-story.json", visual_story)
@@ -6741,7 +6698,14 @@ class CleanV2Pipeline:
             # into the script's narration below, so it is only ever regenerated
             # together with a fresh script - a resumed script already carries
             # whatever identity was spliced into it when it was first generated.
-            if resume is not None and _resume_includes(resume[1], "script"):
+            resume_has_script = (
+                resume is not None and _resume_includes(resume[1], "script")
+            )
+            resume_has_text_audit = (
+                resume is not None and _resume_includes(resume[1], TEXT_AUDIT_STAGE)
+            )
+
+            if resume_has_script and resume_has_text_audit:
                 _copy_resume_artifact(resume[0], output_dir, "script.json")
                 _copy_resume_artifact(resume[0], output_dir, "narration.txt")
                 _copy_resume_artifact(resume[0], output_dir, "narrative-identity.json")
@@ -6764,46 +6728,113 @@ class CleanV2Pipeline:
                 ) != transcript + "\n":
                     raise RuntimeError("Clean V2 resume narration does not match script")
             else:
-                if str(brief["format"]) == "short":
-                    identity = journal.run(
-                        IDENTITY_STAGE,
-                        lambda: _short_identity_not_applicable(output_dir),
+                if resume_has_script:
+                    _copy_resume_artifact(
+                        resume[0], output_dir, "visual-story-source.json"
                     )
-                elif str(brief["format"]) == "podcast":
-                    identity = journal.run(
-                        IDENTITY_STAGE,
-                        lambda: _podcast_fixed_identity(output_dir),
+                    _copy_resume_artifact(
+                        resume[0], output_dir, "script-source.json"
+                    )
+                    _copy_resume_artifact(
+                        resume[0], output_dir, "narration-source.txt"
+                    )
+                    _copy_resume_artifact(
+                        resume[0], output_dir, "narrative-identity.json"
+                    )
+                    visual_story = _validate_resumed_visual_story(
+                        _read_json_object(output_dir / "visual-story-source.json"),
+                        plan,
+                        router=self.router,
+                    )
+                    atomic_write_json(output_dir / "visual-story.json", visual_story)
+                    script = _validate_script_for_brief(
+                        _read_json_object(output_dir / "script-source.json"),
+                        plan,
+                        brief,
+                        visual_story,
+                    )
+                    source_transcript = "\n\n".join(
+                        item["narration"] for item in script["sections"]
+                    )
+                    if (output_dir / "narration-source.txt").read_text(
+                        encoding="utf-8"
+                    ) != source_transcript + "\n":
+                        raise RuntimeError(
+                            "Clean V2 resume source narration does not match source script"
+                        )
+                    identity = _read_json_object(
+                        output_dir / "narrative-identity.json"
+                    )
+                    journal.reuse(IDENTITY_STAGE)
+                    journal.reuse("script")
+                    _write_resume_checkpoint(
+                        output_dir,
+                        completed_stage="script",
+                        approved_brief_sha256=approved_brief_digest,
+                        engine_sha=engine_sha,
+                        runner_sha=runner_sha,
+                        max_visuals=max_visuals,
                     )
                 else:
-                    identity = journal.run(
-                        IDENTITY_STAGE,
-                        lambda: self.narrative_identity(
-                            output_dir=output_dir,
-                            brief=brief,
-                            plan=plan,
-                            router=self.router,
+                    if str(brief["format"]) == "short":
+                        identity = journal.run(
+                            IDENTITY_STAGE,
+                            lambda: _short_identity_not_applicable(output_dir),
+                        )
+                    elif str(brief["format"]) == "podcast":
+                        identity = journal.run(
+                            IDENTITY_STAGE,
+                            lambda: _podcast_fixed_identity(output_dir),
+                        )
+                    else:
+                        identity = journal.run(
+                            IDENTITY_STAGE,
+                            lambda: self.narrative_identity(
+                                output_dir=output_dir,
+                                brief=brief,
+                                plan=plan,
+                                router=self.router,
+                            ),
+                        )
+                    script = journal.run(
+                        "script",
+                        lambda: self.router.route(
+                            stage="script",
+                            prompt=_script_prompt(
+                                brief,
+                                plan,
+                                visual_story=visual_story,
+                                transitions=identity.get("transitions"),
+                                identity_opener=str(identity.get("opener") or ""),
+                            ),
+                            max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else 2500,
+                            validator=lambda value: _validate_script_for_brief(
+                                value,
+                                plan,
+                                brief,
+                                visual_story,
+                            ),
                         ),
                     )
-                script = journal.run(
-                    "script",
-                    lambda: self.router.route(
-                        stage="script",
-                        prompt=_script_prompt(
-                            brief,
-                            plan,
-                            visual_story=visual_story,
-                            transitions=identity.get("transitions"),
-                            identity_opener=str(identity.get("opener") or ""),
-                        ),
-                        max_tokens=LONGFORM_SCRIPT_MAX_TOKENS if brief["format"] in {"film", "podcast"} else 2500,
-                        validator=lambda value: _validate_script_for_brief(
-                            value,
-                            plan,
-                            brief,
-                            visual_story,
-                        ),
-                    ),
-                )
+                    atomic_write_json(
+                        output_dir / "visual-story-source.json", visual_story
+                    )
+                    atomic_write_json(output_dir / "script-source.json", script)
+                    source_transcript = "\n\n".join(
+                        item["narration"] for item in script["sections"]
+                    )
+                    (output_dir / "narration-source.txt").write_text(
+                        source_transcript + "\n", encoding="utf-8"
+                    )
+                    _write_resume_checkpoint(
+                        output_dir,
+                        completed_stage="script",
+                        approved_brief_sha256=approved_brief_digest,
+                        engine_sha=engine_sha,
+                        runner_sha=runner_sha,
+                        max_visuals=max_visuals,
+                    )
+
                 visual_story = journal.run(
                     VISUAL_BIND_STAGE,
                     lambda: _bind_writer_visual_story_with_recovery(
@@ -6855,14 +6886,6 @@ class CleanV2Pipeline:
                 (output_dir / "narration.txt").write_text(
                     transcript + "\n", encoding="utf-8"
                 )
-            _write_resume_checkpoint(
-                output_dir,
-                completed_stage="script",
-                approved_brief_sha256=approved_brief_digest,
-                engine_sha=engine_sha,
-                runner_sha=runner_sha,
-                max_visuals=max_visuals,
-            )
 
             journal.payload["quality_layers_executed"] = [TEXT_AUDIT_STAGE]
             journal._write()
