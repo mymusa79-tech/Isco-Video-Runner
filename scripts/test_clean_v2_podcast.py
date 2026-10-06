@@ -18,9 +18,12 @@ from clean_v2.pipeline import (
     CleanV2Pipeline,
     PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS,
     PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS,
+    PODCAST_MIN_ESTIMATED_SECONDS,
+    _estimated_podcast_script_seconds,
     _factuality_repair_prompt,
     _isolate_podcast_promo_unit,
     _planning_prompt,
+    _route_script_with_single_podcast_length_repair,
     _run_podcast_derived_short_lite,
     _script_prompt,
     _select_podcast_promo_excerpt,
@@ -97,7 +100,8 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("Never invent first-person", script)
-        self.assertIn("10-30 minutes is a normal editorial range, never an acceptance gate", script)
+        self.assertIn("6-10 minutes is the normal editorial range", script)
+        self.assertIn("6-8 distinct reasoning beats", script)
         self.assertIn("actual synthesized voice owns the final duration completely", script)
         self.assertIn("audio alone", script)
         self.assertIn("article, lecture, news script", script)
@@ -136,6 +140,70 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("LONGFORM RETENTION PREFLIGHT", film_script)
         self.assertIn("hook_body_continuity=true", film_script)
         self.assertIn("payoff_resolves_hook=true", film_script)
+
+    def test_podcast_short_sized_script_gets_one_depth_rewrite_before_tts(self) -> None:
+        class FakeRouter:
+            def __init__(self, candidates):
+                self.candidates = list(candidates)
+                self.calls = []
+
+            def route(self, **kwargs):
+                self.calls.append(kwargs)
+                return kwargs["validator"](self.candidates.pop(0))
+
+        short_script = {
+            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 150)}]
+        }
+        deep_script = {
+            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 500)}]
+        }
+        self.assertLess(
+            _estimated_podcast_script_seconds(short_script),
+            PODCAST_MIN_ESTIMATED_SECONDS,
+        )
+        self.assertGreaterEqual(
+            _estimated_podcast_script_seconds(deep_script),
+            PODCAST_MIN_ESTIMATED_SECONDS,
+        )
+
+        router = FakeRouter([short_script, deep_script])
+        result = _route_script_with_single_podcast_length_repair(
+            router=router,
+            fmt="podcast",
+            prompt="BASE PODCAST PROMPT",
+            max_tokens=18000,
+            validator=lambda value: value,
+        )
+
+        self.assertIs(result, deep_script)
+        self.assertEqual(len(router.calls), 2)
+        self.assertEqual(router.calls[0]["stage"], "script")
+        self.assertEqual(router.calls[1]["stage"], "script")
+        self.assertIn("SINGLE PODCAST DEPTH REPAIR", router.calls[1]["prompt"])
+        self.assertIn("4-minute operational floor", router.calls[1]["prompt"])
+        self.assertIn("6-10", router.calls[1]["prompt"])
+
+    def test_podcast_length_floor_does_not_change_other_formats(self) -> None:
+        class FakeRouter:
+            def __init__(self, candidate):
+                self.candidate = candidate
+                self.calls = []
+
+            def route(self, **kwargs):
+                self.calls.append(kwargs)
+                return kwargs["validator"](self.candidate)
+
+        tiny_script = {"sections": [{"id": "s1", "narration": "نص قصير."}]}
+        router = FakeRouter(tiny_script)
+        result = _route_script_with_single_podcast_length_repair(
+            router=router,
+            fmt="film",
+            prompt="BASE FILM PROMPT",
+            max_tokens=18000,
+            validator=lambda value: value,
+        )
+        self.assertIs(result, tiny_script)
+        self.assertEqual(len(router.calls), 1)
 
     def test_narrative_format_fidelity_selfcheck_appears_for_film_and_podcast_only(self) -> None:
         # Run #47 (Telegram film) was blocked post-repair on "editorial_promise_continuity:

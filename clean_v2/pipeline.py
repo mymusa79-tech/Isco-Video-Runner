@@ -270,6 +270,9 @@ _PODCAST_FIXED_PROFILE = {
         "or objection they are likely holding right now; B answers as the established channel voice. A is never a host, "
         "interviewer or guest introducer. No greetings, names, thanks, agreement filler, fake banter, or repeated acknowledgments. "
         "Use A sparingly: one short natural question/challenge only when it unlocks the next layer; let B carry the substance. "
+        "Let the episode usually unfold through 6-8 distinct reasoning beats inside the existing locked sections: deepen the same "
+        "central question through a mechanism, concrete example, listener doubt/objection, useful distinction, consequence, and earned "
+        "resolution as naturally relevant. These are thinking beats, not extra schema fields or forced alternation. "
         "Every single A turn, including the opening question, MUST be 18 Arabic words or fewer - count it before writing B's answer. "
         "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
         "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
@@ -456,8 +459,8 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # A ceiling, not a target: the script prompt already tells the model to stop
 # once the topic is genuinely answered, so a short topic still produces a
 # short script and spends far fewer tokens than this. Raised from 7500 so a
-# podcast episode using the prompt's own stated 10-30 minute editorial range
-# does not truncate near the top of that range: 30 minutes of Arabic
+# podcast episode using the prompt's own stated 6-10 minute editorial range
+# does not truncate near the top of that range (and keeps historical headroom): 30 minutes of Arabic
 # narration is roughly 13,000-15,000 output tokens once JSON section
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
@@ -4631,6 +4634,11 @@ PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS = 18
 # normalize_podcast_listener_proxy_script always attempts a conservative local trim
 # back to PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS first (Run #26).
 PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS = 20
+# Cheap local estimate only: it prevents a structurally valid podcast from reaching
+# TTS when it is really a Short-sized script. The 4-minute value is a floor, not a
+# writing target; the Writer still aims for a naturally complete 6-10 minute episode.
+PODCAST_MIN_ESTIMATED_SECONDS = 4 * 60.0
+PODCAST_ESTIMATED_WORDS_PER_MINUTE = 105.0
 
 
 def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
@@ -5904,7 +5912,10 @@ def _script_prompt(
         )
     elif fmt == "podcast":
         length = (
-            "For podcast / خارج النص, 10-30 minutes is a normal editorial range, never an acceptance gate. "
+            "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
+            "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
+            "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
+            "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
             "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
             "a sound episode merely to hit that range. Write natural spoken Modern Standard Arabic for the fixed Gemini 3.8 "
             "main narrator. The idea may be carefully planned, but the prose must NOT sound "
@@ -6103,6 +6114,71 @@ same order:
   ]
 }}
 """.strip()))
+
+
+def _estimated_podcast_script_seconds(script: Mapping[str, Any]) -> float:
+    """Cheap pre-TTS estimate used only to catch Short-sized podcast scripts."""
+    word_count = 0
+    for item in script.get("sections") or []:
+        if not isinstance(item, Mapping):
+            continue
+        for token in str(item.get("narration") or "").split():
+            if token not in {"A:", "B:"}:
+                word_count += 1
+    return (word_count * 60.0) / PODCAST_ESTIMATED_WORDS_PER_MINUTE
+
+
+def _route_script_with_single_podcast_length_repair(
+    *,
+    router: Any,
+    fmt: str,
+    prompt: str,
+    max_tokens: int,
+    validator: Any,
+) -> dict[str, Any]:
+    """Use the existing Script route; add only one logical rewrite when Podcast is Short-sized."""
+    script = router.route(
+        stage="script",
+        prompt=prompt,
+        max_tokens=max_tokens,
+        validator=validator,
+    )
+    if fmt != "podcast":
+        return script
+
+    estimated_seconds = _estimated_podcast_script_seconds(script)
+    if estimated_seconds >= PODCAST_MIN_ESTIMATED_SECONDS:
+        return script
+
+    repair_prompt = (
+        prompt
+        + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
+        + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes, "
+        + "below the 4-minute operational floor. Rewrite the COMPLETE JSON once from the same locked brief, plan, "
+        + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
+        + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
+        + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
+        + "repetition, generic advice, extra CTAs, or new unsupported claims. Aim naturally for the existing 6-10 "
+        + "minute editorial range; the 4-minute value is only a floor, never a duration target."
+    )
+
+    def validate_repair(value: Any) -> dict[str, Any]:
+        repaired = validator(value)
+        repaired_seconds = _estimated_podcast_script_seconds(repaired)
+        if repaired_seconds < PODCAST_MIN_ESTIMATED_SECONDS:
+            raise RuntimeError(
+                "podcast_estimated_duration_too_short "
+                f"estimated_seconds={repaired_seconds:.1f} "
+                f"minimum={PODCAST_MIN_ESTIMATED_SECONDS:.1f}"
+            )
+        return repaired
+
+    return router.route(
+        stage="script",
+        prompt=repair_prompt,
+        max_tokens=max_tokens,
+        validator=validate_repair,
+    )
 
 
 def _narrative_identity_prompt(
@@ -6804,8 +6880,9 @@ class CleanV2Pipeline:
                         )
                     script = journal.run(
                         "script",
-                        lambda: self.router.route(
-                            stage="script",
+                        lambda: _route_script_with_single_podcast_length_repair(
+                            router=self.router,
+                            fmt=str(brief["format"]),
                             prompt=_script_prompt(
                                 brief,
                                 plan,
