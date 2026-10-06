@@ -427,6 +427,24 @@ def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] 
     return _parse_json_object(str(message.get("content") or ""), "groq")
 
 
+def _openrouter_404_with_diagnostic(exc: "ProviderWireFailure") -> "ProviderWireFailure":
+    """Keep reason_code 'http_404' but expose OpenRouter's own 404 body in str(exc).
+
+    Audit attempt details are built from str(exc) and otherwise only say "http_404",
+    which cannot tell "no endpoints found" from a policy/parameter 404. Words the
+    Engine's error classifier keys on are neutralised so this never changes how the
+    failure is classified.
+    """
+    snippet = " ".join(str(exc.error_detail or "").split())[:160]
+    for word in ("429", "quota", "rate limit", "timeout", "timed out", "connection", "network", "premature", "invalid json"):
+        snippet = snippet.replace(word, word[0] + "_" + word[1:].replace(" ", "_"))
+    wrapped = ProviderWireFailure(
+        exc.reason_code, http_status=exc.http_status, error_detail=exc.error_detail
+    )
+    wrapped.args = (f"{exc.reason_code} openrouter_body={snippet}",)
+    return wrapped
+
+
 def _openrouter_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
     key = _read_secret("OPENROUTER_API_KEY")
     if not key:
@@ -434,28 +452,33 @@ def _openrouter_call(prompt: str, max_tokens: int, *, response_schema: dict[str,
     model = str(os.environ.get("OPENROUTER_CONTENT_MODEL") or "google/gemma-4-26b-a4b-it:free").strip()
     if model != "google/gemma-4-26b-a4b-it:free":
         raise NoWireFailure("paid_or_unapproved_model")
-    body = _post_json(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {key}",
-            "HTTP-Referer": "https://github.com/mymusa79-tech/Isco-Video-Runner",
-            "X-Title": "Isco Clean V2",
-        },
-        payload={
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt + "\nReturn only one complete JSON object. No markdown.",
-                }
-            ],
-            "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
-            "provider": {"allow_fallbacks": True, **({"require_parameters": True} if response_schema is not None else {})},
-            "temperature": 0.3,
-            "max_tokens": int(max_tokens),
-        },
-        timeout=120,
-    )
+    try:
+        body = _post_json(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "HTTP-Referer": "https://github.com/mymusa79-tech/Isco-Video-Runner",
+                "X-Title": "Isco Clean V2",
+            },
+            payload={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt + "\nReturn only one complete JSON object. No markdown.",
+                    }
+                ],
+                "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
+                "provider": {"allow_fallbacks": True, **({"require_parameters": True} if response_schema is not None else {})},
+                "temperature": 0.3,
+                "max_tokens": int(max_tokens),
+            },
+            timeout=120,
+        )
+    except ProviderWireFailure as exc:
+        if exc.http_status == 404 and exc.error_detail:
+            raise _openrouter_404_with_diagnostic(exc) from None
+        raise
     choices = body.get("choices") or []
     if not choices or not isinstance(choices[0], dict):
         raise ProviderWireFailure("openrouter_no_choice")
