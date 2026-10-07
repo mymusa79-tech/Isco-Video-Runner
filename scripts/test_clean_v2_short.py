@@ -1942,7 +1942,7 @@ class ShortTimedTextTests(unittest.TestCase):
                 {
                     "start": 0.0,
                     "end": 2.0,
-                    "text": "هل\u200f تشعر □ 😀 بأنك استعدت طاقتك فعلًا؟",
+                    "text": "هل\u200f تشعر □ 😀\ufe0f بأنك استعدت طاقتك فعلًا؟",
                     "role": "hook",
                 }
             ]
@@ -1951,6 +1951,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertNotIn("\u200f", ass)
         self.assertNotIn("□", ass)
         self.assertNotIn("😀", ass)
+        self.assertNotIn("\ufe0f", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
