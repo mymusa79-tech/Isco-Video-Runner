@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "فن قول «لا» بذكاء ودون شعور بالذنب",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37485325737",
-  "result": "failure",
-  "updated_at": 1791299665
+  "topic": "لماذا نعرف النصيحة الصحيحة ولا يتغير سلوكنا رغم ذلك؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37596393838",
+  "result": "",
+  "updated_at": 1791363010
 }
