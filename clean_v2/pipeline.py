@@ -4463,17 +4463,16 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
     return destination
 
 
-def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
-    """Lock the Short house cut: three semantic hook shots + body + payoff.
+def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 7) -> dict[str, Any]:
+    """Lock the Short house cut: three hook shots + two body + two payoff-path shots.
 
-    This is an authored-beat requirement, not duration-driven shot fabrication.
-    Planning must supply all five meanings in its existing response, so runtime
-    adds no model call and never turns one weak image into a fake fast montage.
+    Planning authors all seven meanings in the same response. This adds no model
+    stage and prevents one body image from lingering across most of a Short.
     """
     result = copy.deepcopy(dict(story))
     beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
-    if int(max_beats) < 5:
-        raise ValueError("short visual story requires max_visuals >= 5")
+    if int(max_beats) < 7:
+        raise ValueError("short visual story requires max_visuals >= 7")
 
     by_section: dict[str, list[Mapping[str, Any]]] = {"s1": [], "s2": [], "s3": []}
     for beat in beats:
@@ -4481,15 +4480,15 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
         if section_id in by_section:
             by_section[section_id].append(beat)
 
-    if len(by_section["s1"]) < 3 or not by_section["s2"] or not by_section["s3"]:
+    if len(by_section["s1"]) < 3 or len(by_section["s2"]) < 2 or len(by_section["s3"]) < 2:
         raise ValueError(
-            "short visual story requires three authored s1 hook beats plus one s2 and one s3 beat"
+            "short visual story requires three authored s1 hook beats, two s2 beats, and two s3 beats"
         )
 
     selected = [
         *[copy.deepcopy(item) for item in by_section["s1"][:3]],
-        copy.deepcopy(by_section["s2"][0]),
-        copy.deepcopy(by_section["s3"][-1]),
+        *[copy.deepcopy(item) for item in by_section["s2"][:2]],
+        *[copy.deepcopy(item) for item in by_section["s3"][-2:]],
     ]
     hook_keys = {
         " ".join(
@@ -4507,7 +4506,7 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
         if index < 3:
             beat["role"] = "hook"
             beat["hold_reason"] = "hook_progression"
-        elif index == 4:
+        elif index == len(selected) - 1:
             beat["role"] = "payoff"
             beat["hold_reason"] = "payoff_landing"
         else:
@@ -4635,7 +4634,7 @@ def _validate_plan_for_brief(
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
-        visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+        visual_story = _bound_short_visual_story(visual_story, max_beats=7)
     visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
     plan["visual_story"] = visual_story
     return plan
@@ -5667,15 +5666,19 @@ POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/incre
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
 stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
-For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
+For Short specifically, return EXACTLY 7 semantic visual beats in this house cut:
 - beats 1-3 all belong to section_id=s1 and form the hook sequence;
-- beat 4 belongs to s2;
-- beat 5 belongs to s3.
+- beats 4-5 belong to s2 and must show two genuinely different visible states;
+- beats 6-7 belong to s3, with beat 7 as the payoff image.
 The three s1 hook beats must stay on the SAME precise tension while showing three genuinely different
 observable pieces of evidence (for example consequence -> triggering action/detail -> changed scale/context).
-They are a connected micro-sequence, never three unrelated attractive shots and never three angles of one prop.
-Give all three distinct stock_query_en/shot_intent wording and make each independently understandable with sound off.
-Runtime will fit these three authored beats inside the measured hook; do not add any other Short beats.
+Beat 1 must stop the scroll through a visible consequence, interruption, or unusual state; do not open
+with a passive phone-in-hand, calm portrait, generic desk, or lifestyle stock unless that exact object visibly
+proves the tension. They are a connected micro-sequence, never three unrelated attractive shots and never
+three angles of one prop. Give all seven distinct stock_query_en/shot_intent wording and make each independently
+understandable with sound off. If a person appears in any Short query, explicitly use hands only, back view,
+over-shoulder, silhouette, distant framing, or another composition with no clear identifiable face.
+Runtime fits the seven authored beats to measured voice time; do not add any other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
