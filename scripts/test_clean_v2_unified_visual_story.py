@@ -155,6 +155,55 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("stock_still when a still explains the idea more clearly", prompt)
                 self.assertIn("simple chart when directly relevant and readable", prompt)
                 self.assertIn("Do not force a still quota", prompt)
+                self.assertIn("semantic_must_have must NEVER require a face", prompt)
+                if fmt == "short":
+                    self.assertIn("any one dominant action family may appear at most twice", prompt)
+                    self.assertIn("Beat 7 must show the visible payoff/result AFTER the action", prompt)
+
+    def test_short_planning_removes_face_dependent_semantic_proof(self) -> None:
+        value = _planning_value("short")
+        beat = value["visual_story"]["beats"][5]
+        beat["semantic_must_have"] = [
+            "hands placing one selected object apart from surrounding clutter",
+            "وجه غير واضح مع تعبير رضا",
+        ]
+        planned = _validate_plan_for_brief(value, _brief("short"))
+        resolved = planned["visual_story"]["beats"][5]["semantic_must_have"]
+        self.assertTrue(any("hands placing" in cue for cue in resolved))
+        self.assertFalse(any("وجه" in cue or "تعبير" in cue for cue in resolved))
+        self.assertEqual(
+            planned["_visual_no_face_semantic_contract"],
+            "v1",
+        )
+
+    def test_short_planning_rejects_third_stationery_family_beat(self) -> None:
+        value = _planning_value("short")
+        for index, query in (
+            (2, "hands sorting paper task cards into one chosen stack"),
+            (3, "hands crossing out two paper options leaving one card"),
+        ):
+            beat = value["visual_story"]["beats"][index]
+            beat["shot_intent"] = query
+            beat["stock_query_en"] = query
+            beat["semantic_must_have"] = [query]
+        with self.assertRaisesRegex(
+            ValueError,
+            "Short visual family exceeds two beats: stationery",
+        ):
+            _validate_plan_for_brief(value, _brief("short"))
+
+    def test_short_payoff_rejects_another_writing_step_after_prior_stationery(self) -> None:
+        value = _planning_value("short")
+        payoff = value["visual_story"]["beats"][-1]
+        query = "hands writing next priority task in notebook after completion"
+        payoff["shot_intent"] = query
+        payoff["stock_query_en"] = query
+        payoff["semantic_must_have"] = [query]
+        with self.assertRaisesRegex(
+            ValueError,
+            "Short payoff must show the visible result/state",
+        ):
+            _validate_plan_for_brief(value, _brief("short"))
 
     def test_longform_writer_contract_keeps_one_explicit_spoken_cta_aligned_to_visual(self) -> None:
         for fmt in ("film", "podcast"):
