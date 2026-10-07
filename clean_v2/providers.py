@@ -764,6 +764,44 @@ def _mistral_short_hook_validator_retry_prompt(
     )
 
 
+def _mistral_podcast_question_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One bounded same-provider correction for a small Podcast A-turn overrun.
+
+    Run 97 reached a structurally useful Mistral podcast draft but one listener-proxy
+    question was 23 words against the unchanged 20-word rescue ceiling. Do not relax
+    that ceiling or rewrite narration locally: give Mistral one chance to shorten only
+    the offending A turn(s), then run the exact same validator again.
+    """
+    if type(exc).__name__ != "RuntimeError":
+        return None
+    match = re.fullmatch(
+        r"podcast_listener_proxy_question_too_long\s+words=(\d+)\s+maximum=(\d+)",
+        str(exc).strip(),
+    )
+    if not match:
+        return None
+    words = int(match.group(1))
+    maximum = int(match.group(2))
+    # Only spend the extra free-tier call on a small, mechanically correctable
+    # overrun. A much longer turn is malformed enough to fall through normally.
+    if maximum != 20 or not maximum < words <= maximum + 8:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_PODCAST_QUESTION_VALIDATOR_RETRY — previous output was rejected "
+        + f"because a listener-proxy A turn had {words} words while the unchanged rescue maximum is {maximum}. "
+        + "Return the COMPLETE podcast script JSON again with the same section ids/order and the same central reasoning. "
+        + "Rewrite ONLY any overlong A listener question so each A turn is a concise natural Arabic question of 12-18 words "
+        + "(hard rescue maximum 20). Move any necessary explanatory detail into the following B answer instead of deleting it. "
+        + "Keep the episode at or above the existing 4-minute/420-word floor, preserve the 6-10 minute editorial guidance, "
+        + "the bridge/prayer token contract, factual boundaries, CTA, payoff, and every other validator rule. "
+        + "Count every A turn by whitespace before returning JSON. Return JSON only."
+    )
+
+
 def _mistral_short_contract_validator_retry_prompt(
     prompt: str,
     exc: Exception,
@@ -1919,6 +1957,12 @@ class ProviderRouter:
                         )
                         if retry_prompt is not None:
                             retry_event_reason = "mistral_short_contract_validator_retry"
+                        else:
+                            retry_prompt = _mistral_podcast_question_validator_retry_prompt(
+                                provider_prompt, exc
+                            )
+                            if retry_prompt is not None:
+                                retry_event_reason = "mistral_podcast_question_validator_retry"
                 elif adapter.name == "mistral" and stage == "script_patch":
                     retry_prompt = _mistral_script_patch_validator_retry_prompt(
                         provider_prompt, exc
