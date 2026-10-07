@@ -378,7 +378,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("Do not force a still quota", prompt)
             self.assertIn("simple chart when directly relevant and readable", prompt)
             self.assertIn("normally at most one beat in a Short", prompt)
-            self.assertIn("AI images MUST be image-only", prompt)
+            self.assertIn("AI images MUST remain image-only", prompt)
             self.assertIn("display_text_ar must be a unique natural Arabic phrase", prompt)
             self.assertIn("stock_query_en remains a separate English retrieval fallback", prompt)
             self.assertIn("6-14 useful search words", prompt)
