@@ -146,7 +146,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("understood with sound off in the first frame", prompt)
                 self.assertIn("Avoid unrelated shock", prompt)
                 self.assertIn("VISUAL VARIETY is semantic, not cosmetic", prompt)
-                self.assertIn("Do not place the same dominant action family in consecutive beats", prompt)
+                self.assertIn("No consecutive same action family; family <=2 uses", prompt)
                 self.assertIn("stuck -> choosing -> moving -> completed", prompt)
                 self.assertIn("POST-HOOK VISUAL FLOOR", prompt)
                 self.assertIn("Person scrolling many tabs on a laptop", prompt)
