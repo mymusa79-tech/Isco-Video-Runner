@@ -79,6 +79,8 @@ def _planning_value(fmt: str = "film") -> dict:
             ("s1", "phone scrolling beside unfinished personal task hands only", "هاتف يزاحم المهمة الشخصية غير المكتملة"),
             ("s1", "two progress markers at visibly different starting positions", "نقطتا بداية مختلفتان بوضوح"),
             ("s2", "door opening into quiet workspace back view", "انتقال مرئي إلى مساحة أكثر وضوحًا"),
+            ("s2", "hands placing phone face down away from unfinished task", "إبعاد الهاتف عن المهمة غير المكتملة"),
+            ("s3", "hand choosing one next step object from surrounding clutter", "اختيار خطوة واحدة من بين المشتتات"),
             ("s3", "single completed progress marker beside next step object", "علامة تقدم مكتملة وخطوة تالية واضحة"),
         ]
     else:
