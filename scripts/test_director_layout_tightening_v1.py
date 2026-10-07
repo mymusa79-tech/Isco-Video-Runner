@@ -194,21 +194,30 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("Avoid:", context)
         self.assertIn("specific meaning before mood", context)
 
-    def test_rule_5_short_has_no_unspoken_social_cta_overlay(self) -> None:
+    def test_rule_5_short_visual_only_cta_is_clear_labeled_and_left_safe(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertEqual(events, [])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].mode, "comment")
+        self.assertEqual(events[0].x, cta_module.SHORT_CTA_X)
+        self.assertEqual(events[0].y, cta_module.SHORT_CTA_Y)
+        self.assertLess(events[0].x + cta_module.SHORT_CTA_CARD_WIDTH, 540)
+        self.assertLess(events[0].y + cta_module.SHORT_CTA_CARD_HEIGHT, text_module.CAPTION_Y)
+        self.assertGreater(cta_module.SHORT_CTA_ICON_SIZE, 150)
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["like"], "إعجاب")
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["comment"], "تعليق")
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["share"], "مشاركة")
         source = inspect.getsource(cta_module._render)
+        labeled_source = inspect.getsource(cta_module._render_short_labeled_icon)
         renderer_source = inspect.getsource(cta_module._render_arabic_subscribe_combo)
-        self.assertIn("red_offwhite_arabic_renderer_owned", inspect.getsource(cta_module.apply_visual_cta_assets))
-        self.assertNotIn("hue=h=38", source)
-        self.assertNotIn("SUBSCRIBED", renderer_source)
-        self.assertIn("اشترك", renderer_source)
+        self.assertIn("_render_short_labeled_icon", source)
+        self.assertIn("_SHORT_LABEL_BY_MODE", labeled_source)
         self.assertIn("Cairo", inspect.getsource(cta_module._cairo_bold_font_path))
+        self.assertNotIn("SUBSCRIBED", renderer_source)
 
     def test_rule_5a_cta_action_differs_from_current_scene_action(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -265,14 +274,18 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
             self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
-    def test_rule_5b_short_unspoken_cta_adds_no_icon_or_click_sfx(self) -> None:
+    def test_rule_5b_short_cta_remains_visual_only_and_above_captions(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertEqual(events, [])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].x, cta_module.SHORT_CTA_X)
+        self.assertEqual(events[0].y, cta_module.SHORT_CTA_Y)
+        self.assertLess(events[0].y + cta_module.SHORT_CTA_CARD_HEIGHT, text_module.CAPTION_Y)
+        self.assertLessEqual(events[0].end_seconds - events[0].start_seconds, 1.35)
 
     def test_rule_5c_film_and_podcast_use_horizontal_cta_above_key_text(self) -> None:
         film = cta_module._events(
