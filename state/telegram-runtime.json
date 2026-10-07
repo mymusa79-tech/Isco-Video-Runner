@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "متى تتحول الراحة إلى هروب؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37652160294",
-  "result": "success",
-  "updated_at": 1791390929
+  "topic": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37693297072",
+  "result": "",
+  "updated_at": 1791410439
 }
