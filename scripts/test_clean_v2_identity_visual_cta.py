@@ -104,29 +104,19 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertIn("[3:a]atrim", source)
         self.assertIn("[aout]", source)
 
-    def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
-        script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
-        events = _events(
-            fmt="short",
-            duration=36.0,
-            script=script,
-            authored_mode="none",
-        )
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].mode, "comment")
-        self.assertNotEqual(events[0].mode, "subscribe_combo")
-        self.assertGreaterEqual(events[0].start_seconds, 7.0)
-        self.assertLess(events[-1].end_seconds, 36.0)
-
-    def test_shorter_short_uses_only_one_cta(self) -> None:
-        events = _events(
-            fmt="short",
-            duration=24.0,
-            script={"title": "فكرة عملية"},
-            authored_mode="none",
-        )
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].mode, "like")
+    def test_short_has_no_unspoken_social_cta_overlay(self) -> None:
+        for duration, title in (
+            (36.0, "كيف تنهض عندما تفقد الدافع؟"),
+            (24.0, "فكرة عملية"),
+        ):
+            with self.subTest(duration=duration):
+                events = _events(
+                    fmt="short",
+                    duration=duration,
+                    script={"title": title},
+                    authored_mode="none",
+                )
+                self.assertEqual(events, [])
 
     def test_longform_fallback_uses_one_authored_action_only(self) -> None:
         for fmt in ("film", "podcast"):
