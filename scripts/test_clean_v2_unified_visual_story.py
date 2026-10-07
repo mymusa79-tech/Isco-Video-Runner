@@ -349,7 +349,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
                 story = validate_visual_story(planned["visual_story"], planned)
-                self.assertEqual(len(story["beats"]), 5)
+                self.assertEqual(len(story["beats"]), 7 if fmt == "short" else 5)
                 self.assertTrue(
                     all(
                         beat["source_preference"] in {"stock_motion", "stock_still", "ai_still"}
@@ -937,7 +937,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["role"] for beat in validated["beats"]],
-            ["hook", "body", "body", "body", "payoff"],
+            ["hook", "body", "body", "body", "body", "body", "payoff"],
         )
 
     def test_fresh_story_preserves_semantic_source_choice_across_all_roles(self) -> None:
@@ -948,7 +948,15 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["stock_motion", "ai_still", "stock_motion", "stock_motion", "stock_motion"],
+            [
+                "stock_motion",
+                "ai_still",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+            ],
         )
         self.assertEqual(
             [beat["display_text_ar"] for beat in validated["beats"]],
@@ -958,6 +966,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 "لحظة مختلفة 3",
                 "لحظة مختلفة 4",
                 "لحظة مختلفة 5",
+                "لحظة مختلفة 6",
+                "لحظة مختلفة 7",
             ],
         )
 
