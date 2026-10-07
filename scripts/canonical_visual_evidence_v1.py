@@ -114,7 +114,7 @@ Pass only if ALL are true:
 - It is visually natural and not visibly corrupted, synthetic-looking, broken or low-quality.
 - It passes the CULTURAL & ISLAMIC SUITABILITY GATE below (mandatory, judged separately and explicitly).
 - It is advertiser-safe in this context: no graphic violence, shocking imagery, hate/degrading imagery or dangerous acts.
-- If a specific real stranger is clearly recognizable (per the RIGHTS-SAFETY POLICY above), reject before considering sensitive-trait implications.
+- If a specific real stranger is clearly recognizable (per the NO-CLEAR-FACE POLICY above), reject before considering sensitive-trait implications.
 - There is no prominent third-party logo/brand/trademark that is unnecessary or could look like endorsement.
 - There is no misleading Arabic text, malformed religious symbol, or culturally embarrassing visual detail.
 - IMAGE-ONLY RULE: if the intended visual requires an image-only frame, ANY visible rendered/generated text,
