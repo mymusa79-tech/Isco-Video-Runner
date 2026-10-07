@@ -7500,9 +7500,40 @@
         "started_at": "2026-10-06T15:11:46Z",
         "finished_at": "2026-10-06T15:14:28Z"
       }
+    },
+    "req-d7d3c6529def": {
+      "schema_version": 1,
+      "request_id": "req-d7d3c6529def",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "podcast",
+      "approved_by_user": true,
+      "approved_topic": "لماذا نعرف النصيحة الصحيحة ولا يتغير سلوكنا رغم ذلك؟",
+      "research_pack": [
+        {
+          "source_title": "وهم الثقافة: لماذا لا تجعلك كثرة الكتب إنساناً أفضل؟",
+          "source_url": "https://youtu.be/RdTt5sOCLyQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "The Gap Between Knowing And Doing",
+          "source_url": "https://youtu.be/gi2hLLaDtxU",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "اللقاء 9: تكرار القرار الخاطئ رغم معرفتنا الفجوة بين المعرفة والسلوك",
+          "source_url": "https://youtu.be/RPEneD-UmlQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-e8c315d44a",
+      "selected_at": "2026-10-07T08:49:24Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "a3939afd1bfdac2b18d557a47bc4da9a421bf2d1eb1d6770975169789de148d8"
     }
   },
-  "current_request_id": "req-952ba81ce8b4",
+  "current_request_id": "req-d7d3c6529def",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7852,6 +7883,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-07T08:49:05Z",
+  "updated_at": "2026-10-07T08:49:25Z",
   "provider_cooldown_until": "2026-10-06T15:34:28.364417Z"
 }
