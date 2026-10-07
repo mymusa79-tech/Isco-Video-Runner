@@ -1075,7 +1075,7 @@ class VisualSafetyRegressionTests(unittest.TestCase):
             / "scripts"
             / "canonical_visual_evidence_v1.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("RIGHTS-SAFETY POLICY", source)
+        self.assertIn("NO-CLEAR-FACE POLICY", source)
         self.assertIn("identifiable_person=true", source)
         self.assertIn("CULTURAL & ISLAMIC SUITABILITY GATE", source)
         self.assertIn("advertiser-safe", source)
