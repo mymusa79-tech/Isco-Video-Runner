@@ -376,7 +376,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("Hook, body, and payoff all follow the same semantic-quality rule", prompt)
             self.assertIn("one simple concrete visual metaphor", prompt)
             self.assertIn("Do not force a still quota", prompt)
-        self.assertIn("simple chart when directly relevant and readable", prompt)
+            self.assertIn("simple chart when directly relevant and readable", prompt)
             self.assertIn("normally at most one beat in a Short", prompt)
             self.assertIn("AI images MUST be image-only", prompt)
             self.assertIn("display_text_ar must be a unique natural Arabic phrase", prompt)
