@@ -176,6 +176,9 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   practical-action sentence as part of the same semantic spine: it must directly operationalize the
   exact hook/payoff tension. A generic action that could close an unrelated productivity, procrastination,
   confidence, or motivation video is a content_depth:s3 defect even when its Arabic is grammatical.
+  When THE PRACTICAL ACTION ITSELF is the generic defect, use the stable prefix exactly
+  "content_depth:s3 practical_action_generic:" and then a concise explanation; this marker is what allows
+  the bounded repair to open that one host-owned field without unlocking other Planning decisions.
   Also block topic drift where the payoff suddenly switches mechanisms (for example from comparison to
   friction/procrastination) merely because the closing sentence sounds useful in isolation. For each
   concrete defect add one concise narrative_format_flags item prefixed exactly "content_depth:" and
