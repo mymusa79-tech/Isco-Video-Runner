@@ -194,17 +194,14 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("Avoid:", context)
         self.assertIn("specific meaning before mood", context)
 
-    def test_rule_5_short_subscribe_cta_is_at_most_three_seconds(self) -> None:
+    def test_rule_5_short_has_no_unspoken_social_cta_overlay(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertLessEqual(len(events), 1)
-        self.assertTrue(events)
-        self.assertNotIn("subscribe_combo", {item.mode for item in events})
-        self.assertIn(events[0].mode, {"like", "comment"})
+        self.assertEqual(events, [])
         source = inspect.getsource(cta_module._render)
         renderer_source = inspect.getsource(cta_module._render_arabic_subscribe_combo)
         self.assertIn("red_offwhite_arabic_renderer_owned", inspect.getsource(cta_module.apply_visual_cta_assets))
@@ -268,23 +265,14 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
             self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
-    def test_rule_5b_short_cta_sits_above_captions_and_sfx_between_voice_and_music(self) -> None:
+    def test_rule_5b_short_unspoken_cta_adds_no_icon_or_click_sfx(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertTrue(events)
-        self.assertTrue(all(item.y == cta_module.SHORT_CTA_Y for item in events))
-        self.assertTrue(all(item.x > 540 for item in events))
-        self.assertEqual(cta_module.SHORT_CTA_CENTER_X, 800)
-        self.assertEqual(cta_module.SHORT_CTA_CENTER_Y, 960)
-        self.assertLess(cta_module.SHORT_CTA_Y, text_module.CAPTION_Y)
-        self.assertEqual(cta_module.SFX_TARGET_REL_DB, -12.0)
-        self.assertGreater(cta_module.SFX_TARGET_REL_DB, -22.0)
-        self.assertGreaterEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MIN_REL_DB)
-        self.assertLessEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MAX_REL_DB)
+        self.assertEqual(events, [])
 
     def test_rule_5c_film_and_podcast_use_horizontal_cta_above_key_text(self) -> None:
         film = cta_module._events(
