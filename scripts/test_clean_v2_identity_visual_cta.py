@@ -104,29 +104,22 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertIn("[3:a]atrim", source)
         self.assertIn("[aout]", source)
 
-    def test_short_visual_cta_is_one_in_body_non_subscription(self) -> None:
-        script = {"title": "كيف تنهض عندما تفقد الدافع؟"}
-        events = _events(
-            fmt="short",
-            duration=36.0,
-            script=script,
-            authored_mode="none",
+    def test_short_keeps_one_visual_only_social_cta(self) -> None:
+        cases = (
+            (36.0, "كيف تنهض عندما تفقد الدافع؟", "comment"),
+            (24.0, "فكرة عملية", "like"),
         )
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].mode, "comment")
-        self.assertNotEqual(events[0].mode, "subscribe_combo")
-        self.assertGreaterEqual(events[0].start_seconds, 7.0)
-        self.assertLess(events[-1].end_seconds, 36.0)
-
-    def test_shorter_short_uses_only_one_cta(self) -> None:
-        events = _events(
-            fmt="short",
-            duration=24.0,
-            script={"title": "فكرة عملية"},
-            authored_mode="none",
-        )
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].mode, "like")
+        for duration, title, expected_mode in cases:
+            with self.subTest(duration=duration):
+                events = _events(
+                    fmt="short",
+                    duration=duration,
+                    script={"title": title},
+                    authored_mode="none",
+                )
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].mode, expected_mode)
+                self.assertLess(events[0].x, 540)
 
     def test_longform_fallback_uses_one_authored_action_only(self) -> None:
         for fmt in ("film", "podcast"):
@@ -172,6 +165,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
                 self.assertEqual(len(events), 1)
                 self.assertEqual(events[0].mode, expected)
                 self.assertEqual(events[0].start_seconds, 72.0)
+                self.assertLess(events[0].x, 960)
 
     def test_long_cta_count_is_exactly_one_when_authored(self) -> None:
         script = {"title": "حلقة طويلة"}

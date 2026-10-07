@@ -99,12 +99,11 @@ Intended visual concept:
 {intended_visual[:300]}
 
 Pass only if ALL are true:
-- RIGHTS-SAFETY POLICY: set identifiable_person=true only for a clear, sharp, close, front-facing shot of ONE
-  specific real stranger where a viewer could recognize that individual (a portrait-style framing). If true,
-  status MUST be block. Human presence and genuine human emotion (confusion, hesitation, tension, relief) are NOT
-  by themselves a reason to set identifiable_person=true or to block: a distant, angled, partial, turned-away, or
-  motion-blurred/out-of-focus face, a crowd, or a person shown via hands/posture/body language all set
-  identifiable_person=false - judge recognizability of that one person, not whether a face is present at all.
+- NO-CLEAR-FACE POLICY: set identifiable_person=true whenever ONE real stranger has a clear recognizable face,
+  including front-facing, profile, or angled views. If true, status MUST be block. Human presence and genuine
+  emotion are still allowed when identity is not readable: hands, posture, body language, back view, silhouette,
+  distant framing, a substantially blurred/out-of-focus face, or a crowd may set identifiable_person=false.
+  Judge whether a viewer can recognize the person's facial identity, not the camera angle.
 - The footage is semantically relevant enough to feel deliberately selected by a human editor.
 - Only evaluate against the specific meaning stated in narration_context or intended_visual. Do not introduce or require concepts not explicitly present in the section's actual content, even if similar concepts appear as examples in these instructions.
 - Examples in these instructions (including decision fatigue, repeated choices, causes, actions, or before/after contexts) illustrate possible kinds of specificity only. They are NEVER requirements unless that exact concept is present in narration_context or intended_visual.
@@ -115,13 +114,15 @@ Pass only if ALL are true:
 - It is visually natural and not visibly corrupted, synthetic-looking, broken or low-quality.
 - It passes the CULTURAL & ISLAMIC SUITABILITY GATE below (mandatory, judged separately and explicitly).
 - It is advertiser-safe in this context: no graphic violence, shocking imagery, hate/degrading imagery or dangerous acts.
-- If a specific real stranger is clearly recognizable (per the RIGHTS-SAFETY POLICY above), reject before considering sensitive-trait implications.
+- If a specific real stranger is clearly recognizable (per the NO-CLEAR-FACE POLICY above), reject before considering sensitive-trait implications.
 - There is no prominent third-party logo/brand/trademark that is unnecessary or could look like endorsement.
 - There is no misleading Arabic text, malformed religious symbol, or culturally embarrassing visual detail.
-- IMAGE-ONLY RULE: if the intended visual requires an image-only frame, ANY visible rendered/generated text,
-  pseudo-text, letter sequence, caption, button, CTA, SUBSCRIBE/LIKE graphic, UI element, logo, or watermark is
-  a hard failure. Set obvious_synthetic_or_visual_artifact=true and status=block even when the text is unreadable
-  or malformed. Do not excuse it because the scene is otherwise attractive or semantically relevant.
+- INFORMATIONAL-STILL / IMAGE-ONLY RULE: visible text, numbers, simple charts, signs, checklists, or screen/UI
+  details may pass ONLY when the intended visual explicitly needs them as semantic evidence and they are readable,
+  relevant, non-misleading, and free of unnecessary branding or private/sensitive information. Decorative or unrelated
+  text/UI, CTA/SUBSCRIBE/LIKE graphics, prominent logos and watermarks still block.
+  For generated/AI image-only compositions, ANY generated title, label, pseudo-text, chart text, UI copy, logo,
+  watermark, or malformed lettering is a hard failure: set obvious_synthetic_or_visual_artifact=true and status=block.
 
 CULTURAL & ISLAMIC SUITABILITY GATE - mandatory, fail closed if uncertain. This channel serves a broad Arab/Muslim audience. The standard is modesty and respect, NOT the absence of women or of ordinary life.
 Set cultural_islamic_suitability_risk=true and reject if the footage shows ANY of:

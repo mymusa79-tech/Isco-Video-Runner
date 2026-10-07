@@ -2266,7 +2266,25 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                             "source_preference": "stock_motion",
                         },
                         {
-                            "id": "b5", "section_id": "s3",
+                            "id": "b5", "section_id": "s2",
+                            "viewer_intent": "يرى إزالة المشتت",
+                            "meaning_target": "distraction is visibly moved away",
+                            "semantic_must_have": ["hands move phone away from unfinished task"],
+                            "shot_intent": "hands move phone away from unfinished task",
+                            "stock_query_en": "hands move phone away from unfinished task",
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b6", "section_id": "s3",
+                            "viewer_intent": "يرى اختيار خطوة واحدة",
+                            "meaning_target": "one next step is visibly selected",
+                            "semantic_must_have": ["hand selects one next step object from clutter"],
+                            "shot_intent": "hand selects one next step object from clutter",
+                            "stock_query_en": "hand selects one next step object from clutter",
+                            "source_preference": "stock_motion",
+                        },
+                        {
+                            "id": "b7", "section_id": "s3",
                             "viewer_intent": "يرى النتيجة",
                             "meaning_target": "earned visible outcome",
                             "semantic_must_have": [queries[2]],
@@ -2290,7 +2308,7 @@ class CleanV2ShortHistoryWiringTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "script stopped deliberately"):
                     pipeline.run(brief_path=path, approved_sha256=compute_brief_sha256(brief),
                         output_dir=root/name, engine_sha="a"*40, runner_sha="b"*40,
-                        max_visuals=5, narrative_history_path=history, resume_from=resume)
+                        max_visuals=7, narrative_history_path=history, resume_from=resume)
                 plan = json.loads((root/name/"plan.json").read_text())
                 report = json.loads((root/name/"short-contract.json").read_text())
                 self.assertEqual(plan["short_template"], report["template"])
@@ -6901,8 +6919,8 @@ class PlanningProviderSchemaRegressionTests(unittest.TestCase):
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
         self.assertIn(
             "stock_still",
             beats["items"]["properties"]["source_preference"]["enum"],
@@ -6913,16 +6931,16 @@ class PlanningProviderSchemaRegressionTests(unittest.TestCase):
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
 
     def test_gemini_planning_schema_carries_same_visual_story_contract(self) -> None:
         schema = providers_module._gemini_planning_response_schema(self._short_prompt())
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
 
         serialized = json.dumps(schema, ensure_ascii=True)
         for unsupported in ('"pattern"', '"minLength"', '"maxLength"', '"const"'):

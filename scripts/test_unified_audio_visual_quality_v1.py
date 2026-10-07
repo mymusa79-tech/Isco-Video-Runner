@@ -150,7 +150,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         self.assertEqual(target.mean_r, media.COLOR_TARGET_MEAN_R)
         self.assertEqual(target.mean_g, media.COLOR_TARGET_MEAN_G)
         self.assertEqual(target.mean_b, media.COLOR_TARGET_MEAN_B)
-        self.assertEqual(media.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertEqual(media.COLOR_MATCH_STRENGTH, 0.82)
         self.assertLess(media.MASTER_LOOK_SATURATION, 0.90)
         source = inspect.getsource(media._build_reference_color_plan)
         self.assertIn("fixed_channel_rgb_mean_std_target_v1", source)

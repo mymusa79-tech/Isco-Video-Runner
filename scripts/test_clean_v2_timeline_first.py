@@ -388,6 +388,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertIn("tpad=stop_mode=clone", filters)
         self.assertNotIn("ass='", filters)
         self.assertIn("[v1][prayer]overlay=0:0", filters)
+        self.assertIn("force_original_aspect_ratio=decrease", filters)
+        self.assertIn("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black", filters)
         self.assertIn("between(t,3.000,4.500)", filters)
         self.assertIn("[0:v][intro]overlay", filters)
         self.assertIn("[v2][outro]overlay", filters)

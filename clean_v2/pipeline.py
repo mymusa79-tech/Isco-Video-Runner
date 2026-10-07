@@ -4463,17 +4463,16 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
     return destination
 
 
-def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> dict[str, Any]:
-    """Lock the Short house cut: three semantic hook shots + body + payoff.
+def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 7) -> dict[str, Any]:
+    """Lock the Short house cut: three hook shots + two body + two payoff-path shots.
 
-    This is an authored-beat requirement, not duration-driven shot fabrication.
-    Planning must supply all five meanings in its existing response, so runtime
-    adds no model call and never turns one weak image into a fake fast montage.
+    Planning authors all seven meanings in the same response. This adds no model
+    stage and prevents one body image from lingering across most of a Short.
     """
     result = copy.deepcopy(dict(story))
     beats = [item for item in (result.get("beats") or []) if isinstance(item, Mapping)]
-    if int(max_beats) < 5:
-        raise ValueError("short visual story requires max_visuals >= 5")
+    if int(max_beats) < 7:
+        raise ValueError("short visual story requires max_visuals >= 7")
 
     by_section: dict[str, list[Mapping[str, Any]]] = {"s1": [], "s2": [], "s3": []}
     for beat in beats:
@@ -4481,15 +4480,15 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
         if section_id in by_section:
             by_section[section_id].append(beat)
 
-    if len(by_section["s1"]) < 3 or not by_section["s2"] or not by_section["s3"]:
+    if len(by_section["s1"]) < 3 or len(by_section["s2"]) < 2 or len(by_section["s3"]) < 2:
         raise ValueError(
-            "short visual story requires three authored s1 hook beats plus one s2 and one s3 beat"
+            "short visual story requires three authored s1 hook beats, two s2 beats, and two s3 beats"
         )
 
     selected = [
         *[copy.deepcopy(item) for item in by_section["s1"][:3]],
-        copy.deepcopy(by_section["s2"][0]),
-        copy.deepcopy(by_section["s3"][-1]),
+        *[copy.deepcopy(item) for item in by_section["s2"][:2]],
+        *[copy.deepcopy(item) for item in by_section["s3"][-2:]],
     ]
     hook_keys = {
         " ".join(
@@ -4507,7 +4506,7 @@ def _bound_short_visual_story(story: Mapping[str, Any], max_beats: int = 5) -> d
         if index < 3:
             beat["role"] = "hook"
             beat["hold_reason"] = "hook_progression"
-        elif index == 4:
+        elif index == len(selected) - 1:
             beat["role"] = "payoff"
             beat["hold_reason"] = "payoff_landing"
         else:
@@ -4635,7 +4634,7 @@ def _validate_plan_for_brief(
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
     visual_story = validate_visual_story(raw_story, plan)
     if fmt == "short":
-        visual_story = _bound_short_visual_story(visual_story, max_beats=5)
+        visual_story = _bound_short_visual_story(visual_story, max_beats=7)
     visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)
     plan["visual_story"] = visual_story
     return plan
@@ -5517,9 +5516,9 @@ listener with the screen closed.
         "section idea but show a different observable action, detail, consequence, or "
         "result so the next shot adds information instead of duplicate B-roll. Do not "
         "paraphrase the same search phrase. Human emotion is welcome when the beat needs it, but never write a "
-        "query for a clearly identifiable, close, front-facing portrait or selfie - that framing always fails "
-        "rights-safety review. Prefer hands, posture, body language, back view, from behind, or a distant/angled "
-        "figure to convey the same emotion without naming a recognizable face. "
+        "query that depends on any clear recognizable face - front, profile, or angled. That framing always fails "
+        "the channel no-clear-face review. Prefer hands, posture, body language, back view, from behind, silhouette, "
+        "or a distant/blurred figure to convey the same emotion without a recognizable face. "
         "If a primary query repeats the previous section's dominant action family (for example "
         "stationery/writing), its alternate MUST move to a genuinely different observable family "
         "so runtime has a real non-repeating fallback."
@@ -5667,15 +5666,14 @@ POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/incre
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
 stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
-For Short specifically, return EXACTLY 5 semantic visual beats in this house cut:
-- beats 1-3 all belong to section_id=s1 and form the hook sequence;
-- beat 4 belongs to s2;
-- beat 5 belongs to s3.
-The three s1 hook beats must stay on the SAME precise tension while showing three genuinely different
-observable pieces of evidence (for example consequence -> triggering action/detail -> changed scale/context).
-They are a connected micro-sequence, never three unrelated attractive shots and never three angles of one prop.
-Give all three distinct stock_query_en/shot_intent wording and make each independently understandable with sound off.
-Runtime will fit these three authored beats inside the measured hook; do not add any other Short beats.
+For Short specifically, return EXACTLY 7 semantic visual beats:
+- beats 1-3: s1 hook sequence on the SAME precise tension, each with different visible evidence/state;
+- beats 4-5: s2 with two genuinely different visible states;
+- beats 6-7: s3, with beat 7 as payoff.
+Beat 1 must show a topic-specific consequence/interruption, not passive phone/desk/lifestyle stock.
+Give all seven distinct stock_query_en/shot_intent wording and make each understandable with sound off.
+Any person must have no clear identifiable face: hands, back view, silhouette, distant or blurred framing.
+Do not add other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
@@ -5726,15 +5724,16 @@ short and searchable. Example: primary "person checking work messages late at ni
 "commuter reading job email on train". Runtime will try at most this one alternate, so do not create a query list.
 
 Hook, body, and payoff all follow the same semantic-quality rule.
-Choose source_preference by meaning, never role: exactly stock_motion when movement adds meaning,
-stock_still for a clearer photographic detail/frozen state, or ai_still for a better controlled,
-distinctive context-specific composition. For abstract psychological/cause-effect ideas, sparse ai_still
-may use one simple concrete visual metaphor from believable objects/environments or a before-to-after state,
-normally at most one beat in a Short and one or two in Film/Podcast, only when clearer than stock.
-Keep it cinematic, not an infographic: no
-chart, diagram labels, icons, split-screen, floating symbols or decorative complexity.
-AI images MUST be image-only: no title, caption, letters, words, UI, logo, watermark or generated Arabic
-text; display text is renderer-owned. Keep AI inside the same scene budget, never extra cuts:
+Choose source_preference by meaning, never role: stock_motion when movement adds meaning;
+stock_still when a still explains the idea more clearly, including a simple comparison, sign, screen,
+data point, checklist, before/after object state, or simple chart when directly relevant and readable;
+ai_still only for a controlled context-specific composition that stock cannot express well. Do not force
+a still quota: use informative stills only when they teach more than motion.
+For abstract psychological/cause-effect ideas, sparse ai_still may use one simple concrete visual metaphor
+from believable objects/environments or a before-to-after state, normally at most one beat in a Short and
+one or two in Film/Podcast, only when clearer than stock. AI images MUST remain image-only: never ask AI
+to generate titles, labels, charts, UI copy, logos, watermarks or Arabic text; display text is renderer-owned.
+Keep AI inside the same scene budget, never extra cuts:
 Short normally 0-1, at most 2 for a deliberate matched hook/payoff pair; Film stock-motion dominant,
 at most 2 abstract/causal anchors; Podcast normally 0-1, at most 2 when genuinely useful.
 All AI remains free-only and fails safely to quality-gated stock when unavailable. Do not reuse the same
@@ -6108,13 +6107,14 @@ so it adds the missing approved explanatory step before returning JSON.
 {short_payoff_guidance}
 
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA yourself.
-For Film and Podcast, runtime will insert the exact LOCKED_PLAN.cta once at a natural mid/late sentence
-boundary after value has been delivered, before Text Audit and TTS. The same CTA mode will drive the
-visual CTA in that same TOPIC window, so do not create another social request anywhere else in narration.
-The CTA is strictly forbidden in the hook, Intro, prayer, channel definition/identity, and Outro.
-Write every section so this one brief contextual aside can return immediately to the episode's thought;
-do not build a promotional setup or a second CTA. For short, social CTA remains visual-only: do not add
-subscribe/comment/share/like language anywhere in spoken narration.
+For Film and Podcast, the FINAL SPOKEN SCRIPT must explicitly contain the exact LOCKED_PLAN.cta once.
+Runtime inserts that exact sentence at a natural mid/late sentence boundary after value has been delivered,
+before Text Audit and TTS; write the surrounding section so the CTA feels like a direct contextual sentence
+inside the topic and the very next sentence returns naturally to the episode. The same CTA mode drives the
+visual CTA in that exact spoken TOPIC window, so voice and visual must appear together and no second social
+request may appear anywhere else. The CTA is strictly forbidden in the hook, Intro, prayer, channel
+definition/identity, and Outro. Do not build a promotional setup. For short, social CTA remains visual-only:
+do not add subscribe/comment/share/like language anywhere in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. The first sentence is the hook and must be the strongest
 natural entry into THIS exact episode, not merely an acceptable opening sentence. Write it as one

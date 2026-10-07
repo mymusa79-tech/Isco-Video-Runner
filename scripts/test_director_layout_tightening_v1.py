@@ -194,24 +194,30 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertIn("Avoid:", context)
         self.assertIn("specific meaning before mood", context)
 
-    def test_rule_5_short_subscribe_cta_is_at_most_three_seconds(self) -> None:
+    def test_rule_5_short_visual_only_cta_is_clear_labeled_and_left_safe(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertLessEqual(len(events), 1)
-        self.assertTrue(events)
-        self.assertNotIn("subscribe_combo", {item.mode for item in events})
-        self.assertIn(events[0].mode, {"like", "comment"})
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].mode, "comment")
+        self.assertEqual(events[0].x, cta_module.SHORT_CTA_X)
+        self.assertEqual(events[0].y, cta_module.SHORT_CTA_Y)
+        self.assertLess(events[0].x + cta_module.SHORT_CTA_CARD_WIDTH, 540)
+        self.assertLess(events[0].y + cta_module.SHORT_CTA_CARD_HEIGHT, text_module.CAPTION_Y)
+        self.assertGreater(cta_module.SHORT_CTA_ICON_SIZE, 150)
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["like"], "إعجاب")
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["comment"], "تعليق")
+        self.assertEqual(cta_module._SHORT_LABEL_BY_MODE["share"], "مشاركة")
         source = inspect.getsource(cta_module._render)
+        labeled_source = inspect.getsource(cta_module._render_short_labeled_icon)
         renderer_source = inspect.getsource(cta_module._render_arabic_subscribe_combo)
-        self.assertIn("red_offwhite_arabic_renderer_owned", inspect.getsource(cta_module.apply_visual_cta_assets))
-        self.assertNotIn("hue=h=38", source)
-        self.assertNotIn("SUBSCRIBED", renderer_source)
-        self.assertIn("اشترك", renderer_source)
+        self.assertIn("_render_short_labeled_icon", source)
+        self.assertIn("_SHORT_LABEL_BY_MODE", labeled_source)
         self.assertIn("Cairo", inspect.getsource(cta_module._cairo_bold_font_path))
+        self.assertNotIn("SUBSCRIBED", renderer_source)
 
     def test_rule_5a_cta_action_differs_from_current_scene_action(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -268,23 +274,18 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
             self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
             self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
-    def test_rule_5b_short_cta_sits_above_captions_and_sfx_between_voice_and_music(self) -> None:
+    def test_rule_5b_short_cta_remains_visual_only_and_above_captions(self) -> None:
         events = cta_module._events(
             fmt="short",
             duration=50.0,
             script={"title": "كيف تبدأ؟"},
             authored_mode="none",
         )
-        self.assertTrue(events)
-        self.assertTrue(all(item.y == cta_module.SHORT_CTA_Y for item in events))
-        self.assertTrue(all(item.x > 540 for item in events))
-        self.assertEqual(cta_module.SHORT_CTA_CENTER_X, 800)
-        self.assertEqual(cta_module.SHORT_CTA_CENTER_Y, 960)
-        self.assertLess(cta_module.SHORT_CTA_Y, text_module.CAPTION_Y)
-        self.assertEqual(cta_module.SFX_TARGET_REL_DB, -12.0)
-        self.assertGreater(cta_module.SFX_TARGET_REL_DB, -22.0)
-        self.assertGreaterEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MIN_REL_DB)
-        self.assertLessEqual(cta_module.SFX_TARGET_REL_DB, cta_module.SFX_MAX_REL_DB)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].x, cta_module.SHORT_CTA_X)
+        self.assertEqual(events[0].y, cta_module.SHORT_CTA_Y)
+        self.assertLess(events[0].y + cta_module.SHORT_CTA_CARD_HEIGHT, text_module.CAPTION_Y)
+        self.assertAlmostEqual(events[0].end_seconds - events[0].start_seconds, 1.35, places=6)
 
     def test_rule_5c_film_and_podcast_use_horizontal_cta_above_key_text(self) -> None:
         film = cta_module._events(
@@ -303,9 +304,9 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertTrue(podcast)
         self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in film))
         self.assertTrue(all(item.y == cta_module.HORIZONTAL_CTA_Y for item in podcast))
-        self.assertTrue(all(item.x > 960 for item in film))
-        self.assertTrue(all(item.x > 960 for item in podcast))
-        self.assertEqual(cta_module.HORIZONTAL_CTA_CENTER_X, 1570)
+        self.assertTrue(all(item.x < 960 for item in film))
+        self.assertTrue(all(item.x < 960 for item in podcast))
+        self.assertEqual(cta_module.HORIZONTAL_CTA_CENTER_X, 320)
         self.assertEqual(cta_module.HORIZONTAL_CTA_CENTER_Y, 540)
         self.assertLess(cta_module.HORIZONTAL_CTA_Y, cta_module.HORIZONTAL_KEY_TEXT_Y)
         self.assertLessEqual(len(podcast), 2)

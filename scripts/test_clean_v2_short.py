@@ -1936,6 +1936,35 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
+    def test_caption_sanitizes_hidden_controls_emoji_and_square_symbols(self) -> None:
+        ass = build_rich_ass(
+            [
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "هل\u200f تشعر □ 😀\ufe0f بأنك استعدت طاقتك فعلًا؟",
+                    "role": "hook",
+                },
+                {
+                    "start": 2.0,
+                    "end": 4.0,
+                    "text": "الراحة المؤقتة ليست استعادة للطاقة",
+                    "role": "beat",
+                },
+                {
+                    "start": 4.0,
+                    "end": 6.0,
+                    "text": "اختر خطوة واحدة تعيدك لما يهم",
+                    "role": "payoff",
+                },
+            ]
+        )
+        self.assertIn("هل تشعر بأنك استعدت طاقتك فعلًا؟", ass)
+        self.assertNotIn("\u200f", ass)
+        self.assertNotIn("□", ass)
+        self.assertNotIn("😀", ass)
+        self.assertNotIn("\ufe0f", ass)
+
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
             "sections": [
@@ -2459,7 +2488,7 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
         highlight = media_module._master_look_value(0.88, 0.88, 0.88)
         self.assertGreater(shadow[2], shadow[0])
         self.assertGreater(highlight[0], highlight[2])
-        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.82)
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.90)
 
     def test_single_clip_uses_fixed_channel_target_not_episode_stock_reference(self) -> None:
@@ -2494,10 +2523,10 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
             'if any(str(value or "").strip() for value in grade_filters.values())',
             source,
         )
-        self.assertIn("navy-gold-master-v5.cube", source)
+        self.assertIn("navy-gold-master-v6.cube", source)
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-navy-gold-depth-finish-v5",
+            "clean-v2-navy-gold-depth-finish-v6",
         )
 
 

@@ -79,6 +79,8 @@ def _planning_value(fmt: str = "film") -> dict:
             ("s1", "phone scrolling beside unfinished personal task hands only", "هاتف يزاحم المهمة الشخصية غير المكتملة"),
             ("s1", "two progress markers at visibly different starting positions", "نقطتا بداية مختلفتان بوضوح"),
             ("s2", "door opening into quiet workspace back view", "انتقال مرئي إلى مساحة أكثر وضوحًا"),
+            ("s2", "hands placing phone face down away from unfinished task", "إبعاد الهاتف عن المهمة غير المكتملة"),
+            ("s3", "hand choosing one next step object from surrounding clutter", "اختيار خطوة واحدة من بين المشتتات"),
             ("s3", "single completed progress marker beside next step object", "علامة تقدم مكتملة وخطوة تالية واضحة"),
         ]
     else:
@@ -150,6 +152,17 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("Person scrolling many tabs on a laptop", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+                self.assertIn("stock_still when a still explains the idea more clearly", prompt)
+                self.assertIn("simple chart when directly relevant and readable", prompt)
+                self.assertIn("Do not force a still quota", prompt)
+
+    def test_longform_writer_contract_keeps_one_explicit_spoken_cta_aligned_to_visual(self) -> None:
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt):
+                prompt = " ".join(_script_prompt(_brief(fmt), _planning_value(fmt)).split())
+                self.assertIn("FINAL SPOKEN SCRIPT must explicitly contain the exact LOCKED_PLAN.cta once", prompt)
+                self.assertIn("voice and visual must appear together", prompt)
+                self.assertIn("very next sentence returns naturally to the episode", prompt)
 
     def test_post_hook_visual_floor_prefers_stronger_alternate_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -249,7 +262,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         ):
             bind_visual_story_to_script(visual_story, planned, script)
 
-    def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
+    def test_short_visual_story_uses_seven_authored_beats_to_avoid_long_repetition(self) -> None:
         story = {
             "beats": [
                 {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "unequal starting marks wide shot"},
@@ -261,14 +274,16 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 {"id": "b7", "section_id": "s3", "role": "payoff", "stock_query_en": "completed personal progress marker"},
             ]
         }
-        bounded = _bound_short_visual_story(story, max_beats=5)
+        bounded = _bound_short_visual_story(story, max_beats=7)
         beats = bounded["beats"]
-        self.assertEqual(len(beats), 5)
+        self.assertEqual(len(beats), 7)
         self.assertEqual(beats[0]["id"], "b1")
         self.assertEqual(beats[-1]["id"], "b7")
         self.assertEqual(beats[0]["role"], "hook")
         self.assertEqual(beats[-1]["role"], "payoff")
         self.assertEqual({beat["section_id"] for beat in beats}, {"s1", "s2", "s3"})
+        self.assertEqual([beat["section_id"] for beat in beats], ["s1", "s1", "s1", "s2", "s2", "s3", "s3"])
+        self.assertTrue(all(beat["role"] == "hook" for beat in beats[:3]))
 
     def test_ai_stills_remain_sparse_inside_existing_scene_budget_for_all_formats(self) -> None:
         base = {
@@ -345,7 +360,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 planned = _validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
                 story = validate_visual_story(planned["visual_story"], planned)
-                self.assertEqual(len(story["beats"]), 5)
+                self.assertEqual(len(story["beats"]), 7 if fmt == "short" else 5)
                 self.assertTrue(
                     all(
                         beat["source_preference"] in {"stock_motion", "stock_still", "ai_still"}
@@ -360,9 +375,10 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             self.assertIn("NEVER invent extra beats to hit a", prompt)
             self.assertIn("Hook, body, and payoff all follow the same semantic-quality rule", prompt)
             self.assertIn("one simple concrete visual metaphor", prompt)
-            self.assertIn("not an infographic", prompt)
+            self.assertIn("Do not force a still quota", prompt)
+            self.assertIn("simple chart when directly relevant and readable", prompt)
             self.assertIn("normally at most one beat in a Short", prompt)
-            self.assertIn("AI images MUST be image-only", prompt)
+            self.assertIn("AI images MUST remain image-only", prompt)
             self.assertIn("display_text_ar must be a unique natural Arabic phrase", prompt)
             self.assertIn("stock_query_en remains a separate English retrieval fallback", prompt)
             self.assertIn("6-14 useful search words", prompt)
@@ -371,7 +387,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
-                self.assertIn("return EXACTLY 5 semantic visual beats", prompt)
+                self.assertIn("return EXACTLY 7 semantic visual beats", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
@@ -933,7 +949,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["role"] for beat in validated["beats"]],
-            ["hook", "body", "body", "body", "payoff"],
+            ["hook", "body", "body", "body", "body", "body", "payoff"],
         )
 
     def test_fresh_story_preserves_semantic_source_choice_across_all_roles(self) -> None:
@@ -944,7 +960,15 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         validated = validate_visual_story(planned["visual_story"], planned)
         self.assertEqual(
             [beat["source_preference"] for beat in validated["beats"]],
-            ["stock_motion", "ai_still", "stock_motion", "stock_motion", "stock_motion"],
+            [
+                "stock_motion",
+                "ai_still",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+                "stock_motion",
+            ],
         )
         self.assertEqual(
             [beat["display_text_ar"] for beat in validated["beats"]],
@@ -954,6 +978,8 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 "لحظة مختلفة 3",
                 "لحظة مختلفة 4",
                 "لحظة مختلفة 5",
+                "لحظة مختلفة 6",
+                "لحظة مختلفة 7",
             ],
         )
 
@@ -1071,7 +1097,7 @@ class VisualSafetyRegressionTests(unittest.TestCase):
             / "scripts"
             / "canonical_visual_evidence_v1.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("RIGHTS-SAFETY POLICY", source)
+        self.assertIn("NO-CLEAR-FACE POLICY", source)
         self.assertIn("identifiable_person=true", source)
         self.assertIn("CULTURAL & ISLAMIC SUITABILITY GATE", source)
         self.assertIn("advertiser-safe", source)
