@@ -6901,8 +6901,8 @@ class PlanningProviderSchemaRegressionTests(unittest.TestCase):
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
         self.assertIn(
             "stock_still",
             beats["items"]["properties"]["source_preference"]["enum"],
@@ -6913,16 +6913,16 @@ class PlanningProviderSchemaRegressionTests(unittest.TestCase):
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
 
     def test_gemini_planning_schema_carries_same_visual_story_contract(self) -> None:
         schema = providers_module._gemini_planning_response_schema(self._short_prompt())
         self.assertIn("visual_story", schema["properties"])
         self.assertIn("visual_story", schema["required"])
         beats = schema["properties"]["visual_story"]["properties"]["beats"]
-        self.assertEqual(beats["minItems"], 5)
-        self.assertEqual(beats["maxItems"], 5)
+        self.assertEqual(beats["minItems"], 7)
+        self.assertEqual(beats["maxItems"], 7)
 
         serialized = json.dumps(schema, ensure_ascii=True)
         for unsupported in ('"pattern"', '"minLength"', '"maxLength"', '"const"'):
