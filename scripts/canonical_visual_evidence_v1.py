@@ -117,10 +117,12 @@ Pass only if ALL are true:
 - If a specific real stranger is clearly recognizable (per the NO-CLEAR-FACE POLICY above), reject before considering sensitive-trait implications.
 - There is no prominent third-party logo/brand/trademark that is unnecessary or could look like endorsement.
 - There is no misleading Arabic text, malformed religious symbol, or culturally embarrassing visual detail.
-- IMAGE-ONLY RULE: if the intended visual requires an image-only frame, ANY visible rendered/generated text,
-  pseudo-text, letter sequence, caption, button, CTA, SUBSCRIBE/LIKE graphic, UI element, logo, or watermark is
-  a hard failure. Set obvious_synthetic_or_visual_artifact=true and status=block even when the text is unreadable
-  or malformed. Do not excuse it because the scene is otherwise attractive or semantically relevant.
+- INFORMATIONAL-STILL / IMAGE-ONLY RULE: visible text, numbers, simple charts, signs, checklists, or screen/UI
+  details may pass ONLY when the intended visual explicitly needs them as semantic evidence and they are readable,
+  relevant, non-misleading, and free of unnecessary branding or private/sensitive information. Decorative or unrelated
+  text/UI, CTA/SUBSCRIBE/LIKE graphics, prominent logos and watermarks still block.
+  For generated/AI image-only compositions, ANY generated title, label, pseudo-text, chart text, UI copy, logo,
+  watermark, or malformed lettering is a hard failure: set obvious_synthetic_or_visual_artifact=true and status=block.
 
 CULTURAL & ISLAMIC SUITABILITY GATE - mandatory, fail closed if uncertain. This channel serves a broad Arab/Muslim audience. The standard is modesty and respect, NOT the absence of women or of ordinary life.
 Set cultural_islamic_suitability_risk=true and reject if the footage shows ANY of:
