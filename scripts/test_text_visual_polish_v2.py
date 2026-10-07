@@ -241,7 +241,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             )
             self.assertNotEqual(revised[0].mode, "comment")
             self.assertIn(revised[0].mode, {"like", "share", "subscribe_combo"})
-            self.assertGreater(revised[0].x, 540)
+            self.assertLess(revised[0].x, 540)
             self.assertLess(revised[0].y, text_module.CAPTION_Y)
             self.assertTrue(decisions[0]["semantic_conflict_avoided"])
 
