@@ -104,11 +104,12 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertIn("[3:a]atrim", source)
         self.assertIn("[aout]", source)
 
-    def test_short_has_no_unspoken_social_cta_overlay(self) -> None:
-        for duration, title in (
-            (36.0, "كيف تنهض عندما تفقد الدافع؟"),
-            (24.0, "فكرة عملية"),
-        ):
+    def test_short_keeps_one_visual_only_social_cta(self) -> None:
+        cases = (
+            (36.0, "كيف تنهض عندما تفقد الدافع؟", "comment"),
+            (24.0, "فكرة عملية", "like"),
+        )
+        for duration, title, expected_mode in cases:
             with self.subTest(duration=duration):
                 events = _events(
                     fmt="short",
@@ -116,7 +117,9 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
                     script={"title": title},
                     authored_mode="none",
                 )
-                self.assertEqual(events, [])
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].mode, expected_mode)
+                self.assertLess(events[0].x, 540)
 
     def test_longform_fallback_uses_one_authored_action_only(self) -> None:
         for fmt in ("film", "podcast"):
