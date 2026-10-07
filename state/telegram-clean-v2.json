@@ -7584,9 +7584,40 @@
         "started_at": "2026-10-07T11:19:48Z",
         "finished_at": "2026-10-07T11:21:52Z"
       }
+    },
+    "req-601c21c771b3": {
+      "schema_version": 1,
+      "request_id": "req-601c21c771b3",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا نشعر أننا متأخرون عن الآخرين؟",
+      "research_pack": [
+        {
+          "source_title": "Your Life Is Not A Race: Why You’re Right Where You Need To Be",
+          "source_url": "https://youtu.be/h0_QVQbGN0M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "🚨 ¿COMPARARTE TE MOTIVA? PIÉNSALO. 👀💔 #mikaasmr #stream #vtuber #reflexion",
+          "source_url": "https://youtu.be/9YPzfEHib2s",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Why being 'behind' is a lie you tell yourself #mindset #motivation",
+          "source_url": "https://youtu.be/CawnKSeD-MI",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b6fd6e4fe9",
+      "selected_at": "2026-10-07T11:29:21Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "305dee7d717404a2338f8721f72e2c3da4c504b826a256a22278a0d16d396036"
     }
   },
-  "current_request_id": "req-e5c7f47856a0",
+  "current_request_id": "req-601c21c771b3",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7936,6 +7967,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-07T11:29:02Z",
+  "updated_at": "2026-10-07T11:29:21Z",
   "provider_cooldown_until": "2026-10-07T11:41:52.633599Z"
 }
