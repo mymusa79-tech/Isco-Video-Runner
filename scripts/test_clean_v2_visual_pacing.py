@@ -1477,7 +1477,7 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = media_module._write_master_look_lut(Path(root) / "look.cube")
             lines = path.read_text(encoding="ascii").splitlines()
-        self.assertEqual(lines[0], 'TITLE "Isco Navy Gold Depth v5"')
+        self.assertEqual(lines[0], 'TITLE "Isco Navy Gold Depth v6"')
         self.assertEqual(lines[1], f"LUT_3D_SIZE {media_module.MASTER_LOOK_LUT_SIZE}")
         self.assertEqual(
             len(lines),
@@ -1485,16 +1485,17 @@ class ReferenceColorMatchLiteTests(unittest.TestCase):
         )
 
     def test_wakeful_depth_reduces_ad_like_saturation_without_network(self) -> None:
-        self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.92)
+        self.assertLessEqual(media_module.MASTER_LOOK_SATURATION, 0.82)
+        self.assertGreaterEqual(media_module.COLOR_MATCH_STRENGTH, 0.80)
         self.assertGreater(media_module.MASTER_LOOK_CONTRAST, 1.035)
-        self.assertIn("saturation=0.93", media_module.CINEMATIC_FINISH_FILTER)
+        self.assertIn("saturation=0.91", media_module.CINEMATIC_FINISH_FILTER)
         self.assertIn("brightness=-0.026", media_module.CINEMATIC_FINISH_FILTER)
 
     def test_cinematic_finish_is_deterministic_and_provider_free(self) -> None:
         fragment = media_module.CINEMATIC_FINISH_FILTER
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-navy-gold-depth-finish-v5",
+            "clean-v2-navy-gold-depth-finish-v6",
         )
         self.assertIn("eq=contrast=", fragment)
         self.assertIn("unsharp=", fragment)
