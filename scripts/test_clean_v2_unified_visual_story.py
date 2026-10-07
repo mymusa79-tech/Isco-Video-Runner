@@ -156,6 +156,14 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("simple chart when directly relevant and readable", prompt)
                 self.assertIn("Do not force a still quota", prompt)
 
+    def test_longform_writer_contract_keeps_one_explicit_spoken_cta_aligned_to_visual(self) -> None:
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt):
+                prompt = " ".join(_script_prompt(_brief(fmt), _planning_value(fmt)).split())
+                self.assertIn("FINAL SPOKEN SCRIPT must explicitly contain the exact LOCKED_PLAN.cta once", prompt)
+                self.assertIn("voice and visual must appear together", prompt)
+                self.assertIn("very next sentence returns naturally to the episode", prompt)
+
     def test_post_hook_visual_floor_prefers_stronger_alternate_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
             with self.subTest(fmt=fmt):
