@@ -5724,15 +5724,16 @@ short and searchable. Example: primary "person checking work messages late at ni
 "commuter reading job email on train". Runtime will try at most this one alternate, so do not create a query list.
 
 Hook, body, and payoff all follow the same semantic-quality rule.
-Choose source_preference by meaning, never role: exactly stock_motion when movement adds meaning,
-stock_still for a clearer photographic detail/frozen state, or ai_still for a better controlled,
-distinctive context-specific composition. For abstract psychological/cause-effect ideas, sparse ai_still
-may use one simple concrete visual metaphor from believable objects/environments or a before-to-after state,
-normally at most one beat in a Short and one or two in Film/Podcast, only when clearer than stock.
-Keep it cinematic, not an infographic: no
-chart, diagram labels, icons, split-screen, floating symbols or decorative complexity.
-AI images MUST be image-only: no title, caption, letters, words, UI, logo, watermark or generated Arabic
-text; display text is renderer-owned. Keep AI inside the same scene budget, never extra cuts:
+Choose source_preference by meaning, never role: stock_motion when movement adds meaning;
+stock_still when a still explains the idea more clearly, including a simple comparison, sign, screen,
+data point, checklist, before/after object state, or simple chart when directly relevant and readable;
+ai_still only for a controlled context-specific composition that stock cannot express well. Do not force
+a still quota: use informative stills only when they teach more than motion.
+For abstract psychological/cause-effect ideas, sparse ai_still may use one simple concrete visual metaphor
+from believable objects/environments or a before-to-after state, normally at most one beat in a Short and
+one or two in Film/Podcast, only when clearer than stock. AI images MUST remain image-only: never ask AI
+to generate titles, labels, charts, UI copy, logos, watermarks or Arabic text; display text is renderer-owned.
+Keep AI inside the same scene budget, never extra cuts:
 Short normally 0-1, at most 2 for a deliberate matched hook/payoff pair; Film stock-motion dominant,
 at most 2 abstract/causal anchors; Podcast normally 0-1, at most 2 when genuinely useful.
 All AI remains free-only and fails safely to quality-gated stock when unavailable. Do not reuse the same
