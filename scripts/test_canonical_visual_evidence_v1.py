@@ -79,6 +79,8 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("original-source frames", prompt)
         self.assertIn("RIGHTS-SAFETY POLICY", prompt)
         self.assertIn("identifiable_person=true", prompt)
+        self.assertIn("front-facing, profile, or angled views", prompt)
+        self.assertIn("NO-CLEAR-FACE POLICY", prompt)
         self.assertIn("If true,\n  status MUST be block", prompt)
         self.assertIn("IMAGE-ONLY RULE", prompt)
         self.assertIn("SUBSCRIBE/LIKE graphic", prompt)
