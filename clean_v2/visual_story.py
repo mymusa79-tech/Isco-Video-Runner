@@ -984,7 +984,10 @@ def bind_visual_story_to_script(
     prior_action_family = ""
     family_uses: dict[str, int] = {}
     strict_diversity = (
-        str(plan.get("_visual_diversity_contract") or "") == "v2_fail_closed"
+        str(plan.get("_visual_diversity_contract") or "") in {
+            "v2_fail_closed",
+            "v3_short_fail_closed",
+        }
         or any(
             str(item.get("visual_query_alt_en") or "").strip()
             for item in plan_sections
