@@ -152,6 +152,9 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("Person scrolling many tabs on a laptop", prompt)
                 self.assertIn("shot_intent MUST be a concrete English visual description", prompt)
                 self.assertIn("specific enough to search directly", prompt)
+                self.assertIn("stock_still when a still explains the idea more clearly", prompt)
+                self.assertIn("simple chart when directly relevant and readable", prompt)
+                self.assertIn("Do not force a still quota", prompt)
 
     def test_post_hook_visual_floor_prefers_stronger_alternate_for_every_format(self) -> None:
         for fmt in ("short", "film", "podcast"):
