@@ -5634,7 +5634,7 @@ Use {section_requirement} for format
 Each visual query must be a concrete English stock-footage phrase. Prefer 6-14 useful search words and keep each
 query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues;
 never cut mid-thought. Prefer face-safe cues such as hands only, back view, or objects only; distant/angled figures are fine.
-semantic_must_have must NEVER require a face/facial expression; prove emotion via action, posture, objects, or before/after state.
+semantic_must_have must NEVER require face/facial expression; prove emotion via action, posture, or object state.
 Use natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
 ivory-neutral highlights, and warm gold only as a restrained accent. The mood is grounded upward movement.
 Use quiet premium darkness rather than gloom; avoid flat beige/washed-out warm-neutral stock and glossy, airy lifestyle-ad bright looks.
@@ -5662,11 +5662,11 @@ HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new 
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-VISUAL VARIETY is semantic, not cosmetic. Do not place the same dominant action family in consecutive beats; family <=2 uses.
-Productivity props (desk/laptop/phone/stationery/writing) share one cluster <=2 unless the topic requires them.
-Prefer: stuck -> choosing -> moving -> completed.
-POST-HOOK VISUAL FLOOR — Short, Film, Podcast: preserve/increase specificity. "Person scrolling many tabs on a laptop"
-is generic coverage; use a stronger different stock_query_alt_en for the SAME meaning.
+VISUAL VARIETY is semantic, not cosmetic. No consecutive same action family; family <=2 uses.
+Desk/laptop/phone/stationery/writing = ONE productivity cluster <=2 unless the topic requires it.
+Prefer stuck -> choosing -> moving -> completed.
+POST-HOOK VISUAL FLOOR — Short, Film, Podcast: preserve specificity. "Person scrolling many tabs on a laptop"
+is generic; use a stronger different stock_query_alt_en for the SAME meaning.
 For Short specifically, return EXACTLY 7 semantic visual beats:
 - beats 1-3: s1 hook sequence on the SAME precise tension, each with different visible evidence/state;
 - beats 4-5: s2 with two genuinely different visible states;
@@ -5674,8 +5674,7 @@ For Short specifically, return EXACTLY 7 semantic visual beats:
 Beat 1 must show a topic-specific consequence/interruption, not passive phone/desk/lifestyle stock.
 Give all seven distinct stock_query_en/shot_intent wording and make each understandable with sound off.
 Any person must have no clear identifiable face: hands, back view, silhouette, distant or blurred framing.
-Across seven beats, any one dominant action family may appear at most twice. Beat 7 must show the visible payoff/result AFTER the action,
-not another writing/planning/checklist/next-priority step when that family appeared earlier. Do not add other Short beats.
+Across seven beats, any action family <=2. Beat 7 must show the result after the action, not another writing/planning/checklist step if already used. Do not add other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
