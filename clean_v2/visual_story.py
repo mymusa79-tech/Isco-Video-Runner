@@ -867,7 +867,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
     # Fresh Short plans fail early when one action family dominates the story.
     # This keeps a provider from passing Planning with seven distinct query strings
     # that are still visually the same stationery/writing scene.
-    if str(plan.get("_visual_diversity_contract") or "") == "v3_short_fail_closed":
+    if str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
         family_uses: dict[str, int] = {}
         for beat in beats:
             family = _beat_action_family(beat)
@@ -984,10 +984,7 @@ def bind_visual_story_to_script(
     prior_action_family = ""
     family_uses: dict[str, int] = {}
     strict_diversity = (
-        str(plan.get("_visual_diversity_contract") or "") in {
-            "v2_fail_closed",
-            "v3_short_fail_closed",
-        }
+        str(plan.get("_visual_diversity_contract") or "") == "v2_fail_closed"
         or any(
             str(item.get("visual_query_alt_en") or "").strip()
             for item in plan_sections
