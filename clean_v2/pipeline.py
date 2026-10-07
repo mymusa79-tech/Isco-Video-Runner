@@ -5666,19 +5666,14 @@ POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/incre
 typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
 "Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
 stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
-For Short specifically, return EXACTLY 7 semantic visual beats in this house cut:
-- beats 1-3 all belong to section_id=s1 and form the hook sequence;
-- beats 4-5 belong to s2 and must show two genuinely different visible states;
-- beats 6-7 belong to s3, with beat 7 as the payoff image.
-The three s1 hook beats must stay on the SAME precise tension while showing three genuinely different
-observable pieces of evidence (for example consequence -> triggering action/detail -> changed scale/context).
-Beat 1 must stop the scroll through a visible consequence, interruption, or unusual state; do not open
-with a passive phone-in-hand, calm portrait, generic desk, or lifestyle stock unless that exact object visibly
-proves the tension. They are a connected micro-sequence, never three unrelated attractive shots and never
-three angles of one prop. Give all seven distinct stock_query_en/shot_intent wording and make each independently
-understandable with sound off. If a person appears in any Short query, explicitly use hands only, back view,
-over-shoulder, silhouette, distant framing, or another composition with no clear identifiable face.
-Runtime fits the seven authored beats to measured voice time; do not add any other Short beats.
+For Short specifically, return EXACTLY 7 semantic visual beats:
+- beats 1-3: s1 hook sequence on the SAME precise tension, each with different visible evidence/state;
+- beats 4-5: s2 with two genuinely different visible states;
+- beats 6-7: s3, with beat 7 as payoff.
+Beat 1 must show a topic-specific consequence/interruption, not passive phone/desk/lifestyle stock.
+Give all seven distinct stock_query_en/shot_intent wording and make each understandable with sound off.
+Any person must have no clear identifiable face: hands, back view, silhouette, distant or blurred framing.
+Do not add other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
