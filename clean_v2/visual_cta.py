@@ -339,23 +339,9 @@ def _events(
     authored_mode: str,
 ) -> list[VisualCtaEvent]:
     if fmt == "short":
-        # Preserve the existing Short visual-only behavior. The new spoken CTA
-        # contract intentionally does not apply to Short.
-        start = max(7.0, duration * 0.56)
-        mode = _short_first_mode(script)
-        if start >= duration - 3.0:
-            return []
-        x, y = _cta_position(mode=mode, fmt=fmt)
-        return [
-            VisualCtaEvent(
-                mode=mode,
-                start_seconds=round(start, 3),
-                end_seconds=round(min(duration - 2.0, start + 1.35), 3),
-                x=x,
-                y=y,
-                asset=_ICON_BY_MODE[mode].name,
-            )
-        ]
+        # Shorts use no social CTA overlay. A generic comment/like icon that is not
+        # spoken in the topic reads as an editing artifact and interrupts retention.
+        return []
 
     if fmt not in {"film", "podcast"}:
         return []
