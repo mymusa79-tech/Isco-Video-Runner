@@ -2511,10 +2511,10 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
             'if any(str(value or "").strip() for value in grade_filters.values())',
             source,
         )
-        self.assertIn("navy-gold-master-v5.cube", source)
+        self.assertIn("navy-gold-master-v6.cube", source)
         self.assertEqual(
             media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-navy-gold-depth-finish-v5",
+            "clean-v2-navy-gold-depth-finish-v6",
         )
 
 
