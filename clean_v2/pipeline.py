@@ -5913,6 +5913,7 @@ def _script_prompt(
     elif fmt == "podcast":
         length = (
             "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
+            + PODCAST_WORD_GUIDANCE + " "
             "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
             "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
             "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
@@ -6116,8 +6117,7 @@ same order:
 """.strip()))
 
 
-def _estimated_podcast_script_seconds(script: Mapping[str, Any]) -> float:
-    """Cheap pre-TTS estimate used only to catch Short-sized podcast scripts."""
+def _podcast_script_word_count(script: Mapping[str, Any]) -> int:
     word_count = 0
     for item in script.get("sections") or []:
         if not isinstance(item, Mapping):
@@ -6125,7 +6125,23 @@ def _estimated_podcast_script_seconds(script: Mapping[str, Any]) -> float:
         for token in str(item.get("narration") or "").split():
             if token not in {"A:", "B:"}:
                 word_count += 1
-    return (word_count * 60.0) / PODCAST_ESTIMATED_WORDS_PER_MINUTE
+    return word_count
+
+
+def _estimated_podcast_script_seconds(script: Mapping[str, Any]) -> float:
+    """Cheap pre-TTS estimate used only to catch Short-sized podcast scripts."""
+    return (_podcast_script_word_count(script) * 60.0) / PODCAST_ESTIMATED_WORDS_PER_MINUTE
+
+
+PODCAST_MIN_ESTIMATED_WORDS = int(PODCAST_MIN_ESTIMATED_SECONDS * PODCAST_ESTIMATED_WORDS_PER_MINUTE / 60.0)
+# Plain word guidance for the Writer: models cannot count minutes. The minimum is the
+# existing 4-minute floor expressed in words; the range is the existing 6-10 minute
+# editorial range. Neither is a padding target.
+PODCAST_WORD_GUIDANCE = (
+    f"In spoken words this normally means roughly 600-900 words of dialogue across the episode and at least about "
+    f"140 words in each planned section; the absolute floor for the whole episode is {PODCAST_MIN_ESTIMATED_WORDS} words. "
+    "Treat these as a sanity check against a too-short draft, never as a target to pad toward."
+)
 
 
 def _route_script_with_single_podcast_length_repair(
@@ -6149,12 +6165,14 @@ def _route_script_with_single_podcast_length_repair(
     estimated_seconds = _estimated_podcast_script_seconds(script)
     if estimated_seconds >= PODCAST_MIN_ESTIMATED_SECONDS:
         return script
+    previous_words = _podcast_script_word_count(script)
 
     repair_prompt = (
         prompt
         + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
-        + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes, "
-        + "below the 4-minute operational floor. Rewrite the COMPLETE JSON once from the same locked brief, plan, "
+        + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes "
+        + f"({previous_words} words), below the 4-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
+        + PODCAST_WORD_GUIDANCE + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
         + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
         + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
         + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
@@ -6169,7 +6187,9 @@ def _route_script_with_single_podcast_length_repair(
             raise RuntimeError(
                 "podcast_estimated_duration_too_short "
                 f"estimated_seconds={repaired_seconds:.1f} "
-                f"minimum={PODCAST_MIN_ESTIMATED_SECONDS:.1f}"
+                f"minimum={PODCAST_MIN_ESTIMATED_SECONDS:.1f} "
+                f"words={_podcast_script_word_count(repaired)} "
+                f"minimum_words={PODCAST_MIN_ESTIMATED_WORDS}"
             )
         return repaired
 

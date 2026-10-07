@@ -710,6 +710,9 @@ def _mistral_script_patch_validator_retry_prompt(
     )
 
 
+_SAFE_VALIDATOR_MEASURE_RE = re.compile(r"[a-z][a-z0-9_]{0,119}(?: [a-z][a-z_]{0,40}=[0-9]+(?:\.[0-9]+)?){0,6}")
+
+
 def _safe_validator_reason(exc: Exception) -> str:
     """Persist only a deterministic validator code, never rejected content."""
     base = f"invalid_output_{type(exc).__name__.lower()}"
@@ -2056,6 +2059,20 @@ class ProviderRouter:
                 reason = _safe_validator_reason(exc)
                 failures.append(f"{adapter.name}:{reason}")
                 validator_detail = None
+                if stage == "script":
+                    # Script validator messages can quote narration, so only a pure
+                    # deterministic code with numeric key=value measures is persisted
+                    # (e.g. podcast_estimated_duration_too_short words=312 minimum_words=420).
+                    safe_message = " ".join(str(exc).split()).strip()
+                    if _SAFE_VALIDATOR_MEASURE_RE.fullmatch(safe_message):
+                        validator_detail = json.dumps(
+                            {
+                                "validator_error_type": type(exc).__name__,
+                                "validator_error": safe_message,
+                            },
+                            ensure_ascii=True,
+                            separators=(",", ":"),
+                        )
                 if stage in {"planning", "script_patch"}:
                     message = " ".join(str(exc).split()).strip()[:500]
                     if message:
