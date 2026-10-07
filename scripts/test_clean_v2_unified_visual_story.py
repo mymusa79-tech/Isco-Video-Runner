@@ -249,7 +249,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
         ):
             bind_visual_story_to_script(visual_story, planned, script)
 
-    def test_short_visual_story_is_locally_bounded_to_five_real_beats(self) -> None:
+    def test_short_visual_story_uses_seven_authored_beats_to_avoid_long_repetition(self) -> None:
         story = {
             "beats": [
                 {"id": "b1", "section_id": "s1", "role": "hook", "stock_query_en": "unequal starting marks wide shot"},
@@ -261,14 +261,16 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 {"id": "b7", "section_id": "s3", "role": "payoff", "stock_query_en": "completed personal progress marker"},
             ]
         }
-        bounded = _bound_short_visual_story(story, max_beats=5)
+        bounded = _bound_short_visual_story(story, max_beats=7)
         beats = bounded["beats"]
-        self.assertEqual(len(beats), 5)
+        self.assertEqual(len(beats), 7)
         self.assertEqual(beats[0]["id"], "b1")
         self.assertEqual(beats[-1]["id"], "b7")
         self.assertEqual(beats[0]["role"], "hook")
         self.assertEqual(beats[-1]["role"], "payoff")
         self.assertEqual({beat["section_id"] for beat in beats}, {"s1", "s2", "s3"})
+        self.assertEqual([beat["section_id"] for beat in beats], ["s1", "s1", "s1", "s2", "s2", "s3", "s3"])
+        self.assertTrue(all(beat["role"] == "hook" for beat in beats[:3]))
 
     def test_ai_stills_remain_sparse_inside_existing_scene_budget_for_all_formats(self) -> None:
         base = {
@@ -371,7 +373,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn(
                     "payoff_answer must be a descriptive resolution", prompt
                 )
-                self.assertIn("return EXACTLY 5 semantic visual beats", prompt)
+                self.assertIn("return EXACTLY 7 semantic visual beats", prompt)
 
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
