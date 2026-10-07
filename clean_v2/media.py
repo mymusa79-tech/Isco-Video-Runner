@@ -3391,7 +3391,7 @@ COHESION_DISSOLVE_SECONDS = 0.36
 COLOR_SAMPLE_FPS = "1/4"
 COLOR_SAMPLE_WIDTH = 96
 COLOR_SAMPLE_MAX_FRAMES = 24
-COLOR_MATCH_STRENGTH = 0.70
+COLOR_MATCH_STRENGTH = 0.82
 COLOR_MATCH_SCALE_MIN = 0.94
 COLOR_MATCH_SCALE_MAX = 1.06
 COLOR_MATCH_OFFSET_MAX = 52.0
@@ -3403,7 +3403,7 @@ COLOR_TARGET_STD_G = 50.0
 COLOR_TARGET_STD_B = 52.0
 MASTER_LOOK_LUT_SIZE = 17
 MASTER_LOOK_CONTRAST = 1.10
-MASTER_LOOK_SATURATION = 0.86
+MASTER_LOOK_SATURATION = 0.82
 MASTER_LOOK_SHADOW_R = -0.030
 MASTER_LOOK_SHADOW_G = -0.016
 MASTER_LOOK_SHADOW_B = 0.024
@@ -3417,9 +3417,9 @@ MASTER_LOOK_HIGHLIGHT_SHOULDER = 0.74
 # One restrained local finishing pass after the shared split-tone LUT.
 # It uses only FFmpeg on the already-selected pixels: no provider/model/network
 # call, no timing change, and no second visual authority.
-CINEMATIC_FINISH_VERSION = "clean-v2-navy-gold-depth-finish-v5"
+CINEMATIC_FINISH_VERSION = "clean-v2-navy-gold-depth-finish-v6"
 CINEMATIC_FINISH_FILTER = (
-    "eq=contrast=1.055:brightness=-0.026:saturation=0.93:gamma=0.985,"
+    "eq=contrast=1.055:brightness=-0.026:saturation=0.91:gamma=0.985,"
     "unsharp=5:5:0.24:5:5:0.0,"
     "vignette=PI/15"
 )
@@ -3602,7 +3602,7 @@ def _build_reference_color_plan(
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
         "method": "fixed_channel_rgb_mean_std_target_v1",
         "match_strength": COLOR_MATCH_STRENGTH,
-        "master_look": "channel_navy_gold_split_tone_v5",
+        "master_look": "channel_navy_gold_split_tone_v6",
         "measured_clip_count": len(measured),
         "reference_file": None,
         "target_stats": target.as_dict(),
@@ -3730,7 +3730,7 @@ def _write_master_look_lut(path: Path) -> Path:
     if size < 2:
         raise ValueError("master look LUT size must be at least 2")
     lines = [
-        'TITLE "Isco Navy Gold Depth v5"',
+        'TITLE "Isco Navy Gold Depth v6"',
         f"LUT_3D_SIZE {size}",
         "DOMAIN_MIN 0.0 0.0 0.0",
         "DOMAIN_MAX 1.0 1.0 1.0",
@@ -4101,7 +4101,7 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v5.cube")
+        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
