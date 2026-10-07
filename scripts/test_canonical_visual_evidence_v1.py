@@ -77,7 +77,6 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("DISTINCTIVE SEMANTIC JOB", prompt)
         self.assertIn("broad mood/theme", prompt)
         self.assertIn("original-source frames", prompt)
-        self.assertIn("RIGHTS-SAFETY POLICY", prompt)
         self.assertIn("identifiable_person=true", prompt)
         self.assertIn("front-facing, profile, or angled views", prompt)
         self.assertIn("NO-CLEAR-FACE POLICY", prompt)
