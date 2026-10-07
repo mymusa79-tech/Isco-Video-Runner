@@ -1178,10 +1178,10 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     # Planning owns the unified visual story. The schema used to construct it
     # above must be part of the provider response contract; otherwise strict
     # providers are forced to omit visual_story and the local fallback cannot
-    # satisfy the five-beat Short house cut.
+    # satisfy the seven-beat Short house cut.
     if fmt == "short":
-        visual_story_schema["properties"]["beats"]["minItems"] = 5
-        visual_story_schema["properties"]["beats"]["maxItems"] = 5
+        visual_story_schema["properties"]["beats"]["minItems"] = 7
+        visual_story_schema["properties"]["beats"]["maxItems"] = 7
     plan_properties["visual_story"] = visual_story_schema
     plan_required.append("visual_story")
     if fmt == "short":
