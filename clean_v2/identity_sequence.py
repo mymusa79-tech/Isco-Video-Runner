@@ -12,6 +12,15 @@ SHORT_CHANNEL_DEFINITION = "هنا نداء اليقظة؛ وعيٌ أوضح ل�
 SHORT_CHANNEL_DEFINITION_LEGACY = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
 PODCAST_CHANNEL_DEFINITION = "بودكاست من نداء اليقظة"
+# Podcast only: the Writer authors a short, topic-specific bridge that leads into the
+# prayer ("B: <bridge>. [[PRAYER]] B: <answer...>"). The host owns the prayer text itself
+# and replaces this marker with it. Used only when it sits exactly where a bridge belongs;
+# otherwise the marker is stripped and a neutral fallback bridge is used instead.
+PODCAST_PRAYER_MARKER = "[[PRAYER]]"
+PODCAST_FALLBACK_BRIDGE = "سأجيبك على هذا، لكن أولاً."
+_PODCAST_MARKER_RE = re.compile(r"\s*\[\[PRAYER\]\]\s*")
+_PODCAST_BRIDGE_TURN_RE = re.compile(r"^B:\s*(?P<bridge>\S.*?)\s*$", re.S)
+_PODCAST_BRIDGE_MAX_WORDS = 14
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
@@ -275,6 +284,44 @@ def channel_definition(fmt: str, opener: str = "") -> str:
     return candidate or LONG_CHANNEL_DEFINITION
 
 
+def _podcast_marker_prayer_in_place(sections: list[dict[str, Any]]) -> bool:
+    """Validate the Writer's [[PRAYER]] marker placement; strip every marker if misplaced.
+
+    Well placed = exactly one marker in the whole script, in section 1, after the hook
+    sentence, preceded by one short B turn (the bridge) with no question mark. Any other
+    placement strips every marker and reports False so the caller falls back safely.
+    """
+    total = sum(str(item.get("narration") or "").count(PODCAST_PRAYER_MARKER) for item in sections)
+    placed = False
+    if total == 1:
+        first = " ".join(str(sections[0].get("narration") or "").split()).strip()
+        position = first.find(PODCAST_PRAYER_MARKER)
+        hook = _first_sentence(first)
+        if position >= len(hook) > 0:
+            between = first[len(hook):position].strip()
+            match = _PODCAST_BRIDGE_TURN_RE.match(between)
+            bridge = match.group("bridge") if match else ""
+            words = len(bridge.split())
+            if (
+                2 <= words <= _PODCAST_BRIDGE_MAX_WORDS
+                and "؟" not in bridge
+                and "?" not in bridge
+                and "A:" not in bridge
+                and "B:" not in bridge
+                and PRAYER_SENTENCE not in bridge
+                and bridge[-1:] in {".", "،", ":", "!", "…"}
+            ):
+                # Keep the marker for now: the generic strip loop in the caller removes any
+                # earlier prayer text, and the marker is swapped for the prayer after it.
+                placed = True
+    if not placed:
+        for item in sections:
+            item["narration"] = _PODCAST_MARKER_RE.sub(
+                " ", str(item.get("narration") or "")
+            ).strip()
+    return placed
+
+
 def inject_spoken_identity(
     sections: list[dict[str, Any]],
     *,
@@ -298,6 +345,11 @@ def inject_spoken_identity(
     )
     closer = " ".join(str(closer or "").split()).strip()
 
+    bridge_in_place = False
+    if fmt == "podcast":
+        # Marker first: it is not a phrase to strip, it carries the bridge placement.
+        bridge_in_place = _podcast_marker_prayer_in_place(sections)
+
     for section in sections:
         narration = " ".join(str(section.get("narration") or "").split()).strip()
         for phrase in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION, definition, closer):
@@ -309,7 +361,21 @@ def inject_spoken_identity(
     hook = _first_sentence(first)
     if not hook:
         raise RuntimeError("identity sequence requires a non-empty first-sentence hook")
+    if bridge_in_place:
+        # The Writer's bridge already leads into the marker; swap it for the host-owned
+        # prayer exactly once (the strip loop above removed any earlier prayer text).
+        if first.count(PODCAST_PRAYER_MARKER) != 1:
+            raise RuntimeError("podcast bridge placement lost its prayer marker")
+        sections[0]["narration"] = " ".join(
+            first.replace(PODCAST_PRAYER_MARKER, f" {PRAYER_SENTENCE} ").split()
+        ).strip()
+        _finish_closer(sections, fmt, closer)
+        return
     remainder = first[len(hook):].lstrip()
+    if fmt == "podcast" and remainder.startswith("B:"):
+        # No usable Writer bridge: keep a neutral spoken lead-in so the prayer never
+        # arrives abruptly right after the question.
+        identity_block = f"B: {PODCAST_FALLBACK_BRIDGE} {PRAYER_SENTENCE}"
     # Keep a hard sentence boundary before the host-owned prayer. Providers
     # sometimes return a valid hook without terminal punctuation; without this
     # boundary the prayer's final period becomes the first sentence terminator,
@@ -317,7 +383,10 @@ def inject_spoken_identity(
     if not _SENTENCE_END_RE.search(hook[-1:]):
         hook = f"{hook}."
     sections[0]["narration"] = f"{hook} {identity_block} {remainder}".strip()
+    _finish_closer(sections, fmt, closer)
 
+
+def _finish_closer(sections: list[dict[str, Any]], fmt: str, closer: str) -> None:
     if fmt in {"film", "podcast"} and closer:
         sections[-1]["narration"] = (
             f"{str(sections[-1].get('narration') or '').rstrip()} {closer}"

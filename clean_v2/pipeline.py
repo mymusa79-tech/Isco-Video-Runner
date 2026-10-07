@@ -19,6 +19,7 @@ from .deadline import StageDeadlineError, stage_deadline
 from .contextual_cta import ContextualCtaError
 from .identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
+    PODCAST_PRAYER_MARKER,
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     SHORT_CHANNEL_DEFINITION_LEGACY,
@@ -827,14 +828,23 @@ def _synthesize_sectioned_voice_pass(
                 # Outside the Text V8: A asks first, the branded intro plays,
                 # prayer follows, then B answers directly. The visual intro already
                 # says "بودكاست من نداء اليقظة", so no extra spoken brand sentence.
+                # A spoken bridge ("B: <short lead-in>.") may sit between the listener's
+                # question and the prayer. It belongs to Charon's prayer unit so the
+                # intro still follows the question alone: A asks -> intro -> bridge +
+                # prayer -> answer. Labels are kept so the split never changes narration.
+                bridge_split = re.match(r"^(A:\s*.*?)\s+(B:\s+\S.*)$", hook_text, re.S)
+                prayer_unit = PRAYER_SENTENCE
+                if bridge_split:
+                    hook_text = bridge_split.group(1).strip()
+                    prayer_unit = f"{bridge_split.group(2).strip()} {PRAYER_SENTENCE}"
                 after_prayer = _reattach_dialogue_speaker_label(
-                    hook_text,
+                    hook_text if not bridge_split else bridge_split.group(2).strip(),
                     section_text[prayer_pos + len(PRAYER_SENTENCE):].strip(),
                 )
                 voice_units.extend(
                     [
                         ("hook", hook_text),
-                        ("prayer", PRAYER_SENTENCE),
+                        ("prayer", prayer_unit),
                     ]
                 )
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
@@ -5914,6 +5924,7 @@ def _script_prompt(
         length = (
             "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
             + _podcast_word_guidance(len(plan.get("sections") or [])) + " "
+            + PODCAST_BRIDGE_GUIDANCE + " "
             "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
             "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
             "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
@@ -6123,7 +6134,7 @@ def _podcast_script_word_count(script: Mapping[str, Any]) -> int:
         if not isinstance(item, Mapping):
             continue
         for token in str(item.get("narration") or "").split():
-            if token not in {"A:", "B:"}:
+            if token not in {"A:", "B:", PODCAST_PRAYER_MARKER}:
                 word_count += 1
     return word_count
 
@@ -6137,6 +6148,14 @@ PODCAST_MIN_ESTIMATED_WORDS = int(PODCAST_MIN_ESTIMATED_SECONDS * PODCAST_ESTIMA
 # Plain word guidance for the Writer: models cannot count minutes. The minimum is the
 # existing 4-minute floor expressed in words; the range is the existing 6-10 minute
 # editorial range. Neither is a padding target.
+PODCAST_BRIDGE_GUIDANCE = (
+    "BRIDGE INTO THE PRAYER: right after the listener's hook question (turn A), Charon's first turn is one short natural "
+    "sentence of about 4-12 words that acknowledges THIS episode's question and says the answer comes after a brief pause "
+    "(in the spirit of: I will answer you, but first). Word it freshly for this topic and tone; never reuse a stock phrase "
+    "across episodes, never ask a question in it, and never start the actual answer inside it. Write it as `B: <bridge>.` and "
+    f"then put the exact token {PODCAST_PRAYER_MARKER} once, on its own, directly after it. Do NOT write the prayer or any "
+    "religious wording yourself; the host replaces the token. The real answer then starts in a new `B:` turn right after the token."
+)
 PODCAST_EDITORIAL_MIN_MINUTES = 6
 PODCAST_EDITORIAL_MAX_MINUTES = 10
 
