@@ -392,6 +392,42 @@ def _gemini_call_with_model(
     return _parse_json_object(raw, "gemini")
 
 
+def _groq_400_with_diagnostic(exc: "ProviderWireFailure") -> "ProviderWireFailure":
+    """Expose Groq's bounded 400 body to audit diagnostics without changing classification."""
+    snippet = " ".join(str(exc.error_detail or "").split())[:240]
+    for word in ("429", "quota", "rate limit", "timeout", "timed out", "connection", "network", "premature", "invalid json"):
+        snippet = snippet.replace(word, word[0] + "_" + word[1:].replace(" ", "_"))
+    wrapped = ProviderWireFailure(
+        exc.reason_code, http_status=exc.http_status, error_detail=exc.error_detail
+    )
+    wrapped.args = (f"{exc.reason_code} groq_body={snippet}",)
+    return wrapped
+
+
+def _groq_schema_fallback_allowed(exc: "ProviderWireFailure") -> bool:
+    """One bounded 400 recovery: drop provider-side strict schema, keep local validation.
+
+    Groq has previously accepted the same audit prompts but can reject a strict
+    response_format/schema combination with HTTP 400. Retrying as json_object
+    preserves the exact prompt and downstream validator while avoiding a
+    provider-specific structured-output incompatibility. Do not retry a 400
+    that clearly reports prompt/context/rate capacity instead.
+    """
+    if exc.http_status != 400:
+        return False
+    detail = str(exc.error_detail or "").casefold()
+    capacity_markers = (
+        "request too large",
+        "context length",
+        "context_length",
+        "tokens per minute",
+        "token limit",
+        "rate limit",
+        "quota",
+    )
+    return not any(marker in detail for marker in capacity_markers)
+
+
 def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
     key = _read_secret("GROQ_API_KEY")
     if not key:
@@ -399,24 +435,58 @@ def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] 
     model = str(os.environ.get("GROQ_CONTENT_MODEL") or "openai/gpt-oss-20b").strip()
     if not model:
         raise NoWireFailure("missing_model")
-    body = _post_json(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {key}"},
-        payload={
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt + "\nReturn only one complete JSON object. No markdown.",
-                }
-            ],
-            "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
-            "include_reasoning": False,
-            "temperature": 0.3,
-            "max_completion_tokens": int(max_tokens),
-        },
-        timeout=90,
-    )
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt + "\nReturn only one complete JSON object. No markdown.",
+            }
+        ],
+        "response_format": (
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            }
+            if response_schema is not None
+            else {"type": "json_object"}
+        ),
+        "include_reasoning": False,
+        "temperature": 0.3,
+        "max_completion_tokens": int(max_tokens),
+    }
+    try:
+        body = _post_json(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            payload=payload,
+            timeout=90,
+        )
+    except ProviderWireFailure as exc:
+        if response_schema is not None and _groq_schema_fallback_allowed(exc):
+            fallback_payload = dict(payload)
+            fallback_payload["response_format"] = {"type": "json_object"}
+            try:
+                body = _post_json(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    payload=fallback_payload,
+                    timeout=90,
+                )
+            except ProviderWireFailure as fallback_exc:
+                if fallback_exc.http_status == 400 and fallback_exc.error_detail:
+                    raise _groq_400_with_diagnostic(fallback_exc) from None
+                raise
+        else:
+            if exc.http_status == 400 and exc.error_detail:
+                raise _groq_400_with_diagnostic(exc) from None
+            raise
+
     choices = body.get("choices") or []
     if not choices or not isinstance(choices[0], dict):
         raise ProviderWireFailure("groq_no_choice")
@@ -425,7 +495,6 @@ def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] 
         raise ProviderWireFailure("groq_output_truncated")
     message = choices[0].get("message") or {}
     return _parse_json_object(str(message.get("content") or ""), "groq")
-
 
 def _openrouter_404_with_diagnostic(exc: "ProviderWireFailure") -> "ProviderWireFailure":
     """Keep reason_code 'http_404' but expose OpenRouter's own 404 body in str(exc).
@@ -469,7 +538,7 @@ def _openrouter_call(prompt: str, max_tokens: int, *, response_schema: dict[str,
                     }
                 ],
                 "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
-                "provider": {"allow_fallbacks": True, **({"require_parameters": True} if response_schema is not None else {})},
+                "provider": {"allow_fallbacks": True},
                 "temperature": 0.3,
                 "max_tokens": int(max_tokens),
             },
