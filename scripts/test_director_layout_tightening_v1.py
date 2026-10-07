@@ -285,7 +285,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(events[0].x, cta_module.SHORT_CTA_X)
         self.assertEqual(events[0].y, cta_module.SHORT_CTA_Y)
         self.assertLess(events[0].y + cta_module.SHORT_CTA_CARD_HEIGHT, text_module.CAPTION_Y)
-        self.assertLessEqual(events[0].end_seconds - events[0].start_seconds, 1.35)
+        self.assertAlmostEqual(events[0].end_seconds - events[0].start_seconds, 1.35, places=6)
 
     def test_rule_5c_film_and_podcast_use_horizontal_cta_above_key_text(self) -> None:
         film = cta_module._events(
