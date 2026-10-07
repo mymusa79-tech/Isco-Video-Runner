@@ -1,0 +1,118 @@
+name: One-shot Run100 Dispatch
+
+on:
+  push:
+    branches:
+      - ops/run100-dispatch-20261007
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: one-shot-run100-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_MAIN_SHA: 5d6a5ddfa7e3a4d45b2e46cf85d174d049dade59
+      STATE_BRANCH: clean-v2-telegram-state
+      STATE_FILE: state/telegram-clean-v2.json
+      REQUEST_ID: req-bcfed91fdaf6
+      REQUEST_SHA256: d2896fcc603581e7341f510009e7e59247562757ed23fe351f03bcc924f11baa
+      EXPECTED_TOPIC: "متى تتحول الراحة إلى هروب؟"
+
+    steps:
+      - name: Checkout one-shot dispatcher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Verify protected main is still the certified merge
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$EXPECTED_MAIN_SHA"
+
+      - name: Confirm exact fresh Short request in durable state
+        id: stage
+        run: |
+          set -euo pipefail
+          state_root="$RUNNER_TEMP/run100-state"
+          git fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"
+          git worktree add -B "$STATE_BRANCH" "$state_root" "origin/$STATE_BRANCH"
+          state="$state_root/$STATE_FILE"
+          test -s "$state"
+          STATE_PATH="$state" python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          path = Path(os.environ["STATE_PATH"])
+          state = json.loads(path.read_text(encoding="utf-8"))
+          rid = os.environ["REQUEST_ID"]
+          expected_sha = os.environ["REQUEST_SHA256"]
+          expected_topic = os.environ["EXPECTED_TOPIC"]
+          request = (state.get("requests") or {}).get(rid)
+          if not isinstance(request, dict):
+              raise SystemExit("Run100 request missing")
+          if request.get("request_sha256") != expected_sha:
+              raise SystemExit("Run100 request hash mismatch")
+          if request.get("scope") != "short":
+              raise SystemExit("Run100 request is not short")
+          if request.get("approved_topic") != expected_topic:
+              raise SystemExit("Run100 topic mismatch")
+          if isinstance(request.get("production"), dict) and request["production"].get("run_id"):
+              raise SystemExit("Run100 request already owns a production run")
+          status = str(request.get("status") or "")
+          if status == "dispatched":
+              print("Run100 request already dispatched; refusing duplicate")
+              raise SystemExit(3)
+          if status not in {"awaiting_confirmation", "confirmed_pending_dispatch"}:
+              raise SystemExit(f"Run100 request not dispatchable: {status}")
+          request["status"] = "confirmed_pending_dispatch"
+          request["confirmed_at"] = request.get("confirmed_at") or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          state["current_request_id"] = rid
+          state["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+          git -C "$state_root" config user.name "isco-run100-dispatch"
+          git -C "$state_root" config user.email "actions@users.noreply.github.com"
+          git -C "$state_root" add "$STATE_FILE"
+          if ! git -C "$state_root" diff --cached --quiet; then
+            git -C "$state_root" commit -m "state: confirm fresh Run100 Short"
+            git -C "$state_root" push origin "HEAD:$STATE_BRANCH"
+          fi
+          echo "state_root=$state_root" >> "$GITHUB_OUTPUT"
+          echo "dispatch=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch production on exact main
+        id: production
+        if: steps.stage.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -nc             --arg ref "main"             --arg request_id "$REQUEST_ID"             --arg request_sha256 "$REQUEST_SHA256"             '{ref:$ref,inputs:{request_id:$request_id,request_sha256:$request_sha256}}')"
+          code="$(curl --silent --show-error             --output "$RUNNER_TEMP/dispatch-response.txt"             --write-out '%{http_code}'             -X POST "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/clean-v2-telegram-production.yml/dispatches"             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -H "X-GitHub-Api-Version: 2022-11-28"             -H "Content-Type: application/json"             --data "$payload")"
+          if [ "$code" != "204" ]; then
+            cat "$RUNNER_TEMP/dispatch-response.txt" || true
+          fi
+          test "$code" = "204"
+          echo "accepted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark dispatch durable
+        if: steps.production.outputs.accepted == 'true'
+        env:
+          STATE_ROOT: ${{ steps.stage.outputs.state_root }}
+        run: |
+          set -euo pipefail
+          git -C "$STATE_ROOT" pull --ff-only origin "$STATE_BRANCH"
+          python scripts/telegram_clean_v2_control.py mark-dispatched             --state "$STATE_ROOT/$STATE_FILE"             --request-id "$REQUEST_ID"             --request-sha256 "$REQUEST_SHA256"
+          git -C "$STATE_ROOT" add "$STATE_FILE"
+          git -C "$STATE_ROOT" commit -m "state: mark Run100 Short dispatched"
+          git -C "$STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
