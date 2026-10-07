@@ -5,14 +5,15 @@ import math
 import os
 import re
 import subprocess
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 11
-RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-v11"
+SCHEMA_VERSION = 12
+RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v12"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Approved Caption Lite: Cairo Bold, large readable Arabic, warm off-white face,
@@ -117,7 +118,20 @@ def _seconds(value: object, field: str) -> float:
 
 
 def _clean(value: object) -> str:
-    return " ".join(str(value or "").replace("\n", " ").split()).strip()
+    """Keep readable caption text while dropping tofu-prone control/symbol glyphs."""
+    source = unicodedata.normalize("NFC", str(value or "").replace("\n", " "))
+    safe: list[str] = []
+    for char in source:
+        if char.isspace():
+            safe.append(" ")
+            continue
+        category = unicodedata.category(char)
+        # Arabic letters/marks, numbers and punctuation are retained. Format/control
+        # characters, private-use glyphs, emoji and decorative symbols are not caption
+        # content and are the main source of square/tofu boxes in libass fallback paths.
+        if category[:1] in {"L", "M", "N", "P"}:
+            safe.append(char)
+    return " ".join("".join(safe).split()).strip()
 
 
 def _sentences(text: object) -> list[str]:
@@ -926,7 +940,7 @@ def render_progressive_text(
         "word_highlight_count": 0,
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
-        "text_source_policy": "verbatim_final_audited_script_only",
+        "text_source_policy": "final_audited_script_with_render_safe_unicode_sanitation",
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
