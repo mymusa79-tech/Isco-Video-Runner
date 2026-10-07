@@ -5913,7 +5913,8 @@ def _script_prompt(
     elif fmt == "podcast":
         length = (
             "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
-            + PODCAST_WORD_GUIDANCE + " "
+            + _podcast_word_guidance(len(plan.get("sections") or [])) + " "
+            + PODCAST_DIRECT_ANSWER_GUIDANCE + " "
             "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
             "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
             "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
@@ -6137,11 +6138,32 @@ PODCAST_MIN_ESTIMATED_WORDS = int(PODCAST_MIN_ESTIMATED_SECONDS * PODCAST_ESTIMA
 # Plain word guidance for the Writer: models cannot count minutes. The minimum is the
 # existing 4-minute floor expressed in words; the range is the existing 6-10 minute
 # editorial range. Neither is a padding target.
-PODCAST_WORD_GUIDANCE = (
-    f"In spoken words this normally means roughly 600-900 words of dialogue across the episode and at least about "
-    f"140 words in each planned section; the absolute floor for the whole episode is {PODCAST_MIN_ESTIMATED_WORDS} words. "
-    "Treat these as a sanity check against a too-short draft, never as a target to pad toward."
+PODCAST_DIRECT_ANSWER_GUIDANCE = (
+    "DIRECT ANSWER: Charon's first turn starts the substance of the answer at once, in words specific to this episode's own "
+    "question. Do not announce that an answer is coming, postpone it, or spend the opening on setup or warm-up before the first "
+    "real claim."
 )
+PODCAST_EDITORIAL_MIN_MINUTES = 6
+PODCAST_EDITORIAL_MAX_MINUTES = 10
+
+
+def _podcast_word_guidance(section_count: int) -> str:
+    """Word guidance derived from the existing floor/range and THIS plan's section count.
+
+    Models cannot count minutes, so the existing 4-minute floor and 6-10 minute editorial
+    range are restated in words. Nothing here is a target: topic depth decides where an
+    episode lands inside the range, and the per-section share follows the plan's size.
+    """
+    sections = max(1, int(section_count))
+    low = int(PODCAST_EDITORIAL_MIN_MINUTES * PODCAST_ESTIMATED_WORDS_PER_MINUTE)
+    high = int(PODCAST_EDITORIAL_MAX_MINUTES * PODCAST_ESTIMATED_WORDS_PER_MINUTE)
+    per_section_floor = -(-PODCAST_MIN_ESTIMATED_WORDS // sections)
+    return (
+        f"In spoken words, the 6-10 minute range is about {low}-{high} words in total, and the absolute floor for the whole "
+        f"episode is {PODCAST_MIN_ESTIMATED_WORDS} words, which for this plan's {sections} section(s) is about "
+        f"{per_section_floor} words per section at the very least. Let the real depth of this topic decide where the episode "
+        "lands; use these only as a check against a too-short draft, never as a target to pad toward."
+    )
 
 
 def _route_script_with_single_podcast_length_repair(
@@ -6172,7 +6194,7 @@ def _route_script_with_single_podcast_length_repair(
         + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
         + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes "
         + f"({previous_words} words), below the 4-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
-        + PODCAST_WORD_GUIDANCE + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
+        + _podcast_word_guidance(len(script.get("sections") or [])) + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
         + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
         + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
         + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
