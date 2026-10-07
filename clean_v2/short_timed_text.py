@@ -119,11 +119,14 @@ def _seconds(value: object, field: str) -> float:
 
 def _clean(value: object) -> str:
     """Keep readable caption text while dropping tofu-prone control/symbol glyphs."""
-    source = unicodedata.normalize("NFC", str(value or "").replace("\n", " "))
+    source = unicodedata.normalize("NFKC", str(value or "").replace("\n", " "))
     safe: list[str] = []
     for char in source:
         if char.isspace():
             safe.append(" ")
+            continue
+        codepoint = ord(char)
+        if 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF:
             continue
         category = unicodedata.category(char)
         # Arabic letters/marks, numbers and punctuation are retained. Format/control
