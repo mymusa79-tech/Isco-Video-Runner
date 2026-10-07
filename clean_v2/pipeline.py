@@ -6107,13 +6107,14 @@ so it adds the missing approved explanatory step before returning JSON.
 {short_payoff_guidance}
 
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA yourself.
-For Film and Podcast, runtime will insert the exact LOCKED_PLAN.cta once at a natural mid/late sentence
-boundary after value has been delivered, before Text Audit and TTS. The same CTA mode will drive the
-visual CTA in that same TOPIC window, so do not create another social request anywhere else in narration.
-The CTA is strictly forbidden in the hook, Intro, prayer, channel definition/identity, and Outro.
-Write every section so this one brief contextual aside can return immediately to the episode's thought;
-do not build a promotional setup or a second CTA. For short, social CTA remains visual-only: do not add
-subscribe/comment/share/like language anywhere in spoken narration.
+For Film and Podcast, the FINAL SPOKEN SCRIPT must explicitly contain the exact LOCKED_PLAN.cta once.
+Runtime inserts that exact sentence at a natural mid/late sentence boundary after value has been delivered,
+before Text Audit and TTS; write the surrounding section so the CTA feels like a direct contextual sentence
+inside the topic and the very next sentence returns naturally to the episode. The same CTA mode drives the
+visual CTA in that exact spoken TOPIC window, so voice and visual must appear together and no second social
+request may appear anywhere else. The CTA is strictly forbidden in the hook, Intro, prayer, channel
+definition/identity, and Outro. Do not build a promotional setup. For short, social CTA remains visual-only:
+do not add subscribe/comment/share/like language anywhere in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. The first sentence is the hook and must be the strongest
 natural entry into THIS exact episode, not merely an acceptable opening sentence. Write it as one
