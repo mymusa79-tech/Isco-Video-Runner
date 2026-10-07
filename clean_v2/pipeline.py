@@ -66,6 +66,7 @@ from .short_format import (
     validate_short_hook_contract,
     normalize_short_practical_action,
     validate_short_practical_action,
+    validate_short_practical_action_specificity,
     validate_short_script,
     validate_short_visual_safety,
 )
@@ -2515,6 +2516,13 @@ def _short_locked_action_repair_allowed(
     note = " ".join(str(revision_note or "").split()).strip()
     if not action or not note:
         return False
+    # Run 99: the audit correctly identified the final Short action itself as
+    # generic relative to the hook/payoff, but did not quote its exact wording.
+    # That left the only bad field host-locked and made the one repair attempt
+    # structurally incapable of succeeding. A stable audit subtype opens ONLY
+    # this final action; every other host-owned lock keeps its existing rules.
+    if "content_depth:s3 practical_action_generic:" in note.casefold():
+        return True
     if action in note:
         return True
     # Partial opening requires an audit-verified quoted excerpt. The quote
@@ -3219,10 +3227,12 @@ def _tone_repair_prompt(
         else ""
     )
     short_locked_action_rule = (
-        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
-        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
-        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
-        "words, same topic/meaning; do not move it into s3_payoff or add another action."
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly identifies "
+        "LOCKED_PLAN.practical_action_ar as the defect. You MAY patch that final-section action once. "
+        "If the marker is content_depth:s3 practical_action_generic:, replace the whole action when "
+        "needed so its object/behavior directly operationalizes THIS hook/payoff; otherwise patch only "
+        "the smallest cited phrase. Keep one direct Arabic imperative, one practical action, <=18 "
+        "words, same approved topic/meaning; do not move it into s3_payoff or add another action."
         if allow_short_locked_action_repair
         else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff; never include it in patch.find or patch.replace and never touch the action; the host appends it exactly once."
     )
@@ -3532,10 +3542,10 @@ def _factuality_repair_prompt(
         else ""
     )
     short_locked_action_rule = (
-        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly cites wording inside "
-        "LOCKED_PLAN.practical_action_ar. You MAY patch only the smallest cited phrase inside that "
-        "same final-section action. Keep it one direct Arabic imperative, one practical action, <=18 "
-        "words, same topic/meaning and evidence boundary."
+        "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly identifies wording inside "
+        "LOCKED_PLAN.practical_action_ar. You MAY patch that final-section action once. Keep one "
+        "direct Arabic imperative, one practical action, <=18 words, same topic/meaning and evidence "
+        "boundary. If the action itself is marked generic, replace the whole action when necessary."
         if allow_short_locked_action_repair
         else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
     )
@@ -4596,9 +4606,26 @@ def _validate_plan_for_brief(
         fresh_practical_action = str(plan.get("practical_action_ar") or "").strip()
         practical_action = fresh_practical_action or "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
         normalized_practical_action = normalize_short_practical_action(practical_action)
-        plan["practical_action_ar"] = validate_short_practical_action(
+        validated_practical_action = validate_short_practical_action(
             normalized_practical_action
         )
+        if fresh_practical_action:
+            action_context = " ".join(
+                [
+                    str(brief.get("approved_topic") or ""),
+                    str(plan.get("promise") or ""),
+                    *[
+                        str(item.get("purpose") or "")
+                        for item in (plan.get("sections") or [])
+                        if isinstance(item, Mapping)
+                    ],
+                ]
+            )
+            validated_practical_action = validate_short_practical_action_specificity(
+                validated_practical_action,
+                topic_context=action_context,
+            )
+        plan["practical_action_ar"] = validated_practical_action
         plan["s3_locked_action"] = plan["practical_action_ar"]
         normalize_short_visual_queries(plan)
         validate_short_visual_safety(
