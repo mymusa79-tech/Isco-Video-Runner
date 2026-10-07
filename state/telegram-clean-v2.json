@@ -7615,9 +7615,30 @@
       "confirmed_at": "2026-10-07T11:30:06Z",
       "dispatched_at": null,
       "request_sha256": "305dee7d717404a2338f8721f72e2c3da4c504b826a256a22278a0d16d396036"
+    },
+    "req-bcfed91fdaf6": {
+      "schema_version": 1,
+      "request_id": "req-bcfed91fdaf6",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "متى تتحول الراحة إلى هروب؟",
+      "research_pack": [
+        {
+          "source_title": "ليست كل راحة راحة",
+          "source_url": "https://youtu.be/O4tMtYmDKmQ",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-7457800a57",
+      "selected_at": "2026-10-07T15:25:30Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "d2896fcc603581e7341f510009e7e59247562757ed23fe351f03bcc924f11baa"
     }
   },
-  "current_request_id": "req-601c21c771b3",
+  "current_request_id": "req-bcfed91fdaf6",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -7967,6 +7988,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-07T15:25:09Z",
+  "updated_at": "2026-10-07T15:25:31Z",
   "provider_cooldown_until": "2026-10-07T11:41:52.633599Z"
 }
