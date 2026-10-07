@@ -99,12 +99,11 @@ Intended visual concept:
 {intended_visual[:300]}
 
 Pass only if ALL are true:
-- RIGHTS-SAFETY POLICY: set identifiable_person=true only for a clear, sharp, close, front-facing shot of ONE
-  specific real stranger where a viewer could recognize that individual (a portrait-style framing). If true,
-  status MUST be block. Human presence and genuine human emotion (confusion, hesitation, tension, relief) are NOT
-  by themselves a reason to set identifiable_person=true or to block: a distant, angled, partial, turned-away, or
-  motion-blurred/out-of-focus face, a crowd, or a person shown via hands/posture/body language all set
-  identifiable_person=false - judge recognizability of that one person, not whether a face is present at all.
+- NO-CLEAR-FACE POLICY: set identifiable_person=true whenever ONE real stranger has a clear recognizable face,
+  including front-facing, profile, or angled views. If true, status MUST be block. Human presence and genuine
+  emotion are still allowed when identity is not readable: hands, posture, body language, back view, silhouette,
+  distant framing, a substantially blurred/out-of-focus face, or a crowd may set identifiable_person=false.
+  Judge whether a viewer can recognize the person's facial identity, not the camera angle.
 - The footage is semantically relevant enough to feel deliberately selected by a human editor.
 - Only evaluate against the specific meaning stated in narration_context or intended_visual. Do not introduce or require concepts not explicitly present in the section's actual content, even if similar concepts appear as examples in these instructions.
 - Examples in these instructions (including decision fatigue, repeated choices, causes, actions, or before/after contexts) illustrate possible kinds of specificity only. They are NEVER requirements unless that exact concept is present in narration_context or intended_visual.
