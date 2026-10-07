@@ -158,7 +158,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("semantic_must_have must NEVER require face/facial expression", prompt)
                 if fmt == "short":
                     self.assertIn("Across seven beats, any action family <=2", prompt)
-                    self.assertIn("Beat 7 must show the visible payoff/result AFTER the action", prompt)
+                    self.assertIn("Beat 7 must show the result after the action", prompt)
 
     def test_short_planning_removes_face_dependent_semantic_proof(self) -> None:
         value = _planning_value("short")
