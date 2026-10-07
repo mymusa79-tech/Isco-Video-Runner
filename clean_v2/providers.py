@@ -802,6 +802,49 @@ def _mistral_podcast_question_validator_retry_prompt(
     )
 
 
+def _mistral_podcast_length_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One bounded Mistral correction when the repaired Podcast is still Short-sized.
+
+    Run 42 showed the existing Podcast depth repair reaching Mistral, but Mistral
+    returned 300 words against the unchanged 420-word operational floor. Keep the
+    floor and all validators intact; spend one same-provider correction only when
+    the shortfall is bounded enough to be repaired by adding missing reasoning.
+    """
+    if type(exc).__name__ != "RuntimeError":
+        return None
+    match = re.fullmatch(
+        r"podcast_estimated_duration_too_short\s+"
+        r"estimated_seconds=([0-9]+(?:\.[0-9]+)?)\s+"
+        r"minimum=([0-9]+(?:\.[0-9]+)?)\s+"
+        r"words=(\d+)\s+minimum_words=(\d+)",
+        str(exc).strip(),
+    )
+    if not match:
+        return None
+    words = int(match.group(3))
+    minimum_words = int(match.group(4))
+    # Do not burn another free-tier call on a severely malformed tiny draft.
+    # Run 42 was 300/420; the bounded recovery window covers that class while
+    # still failing closed for scripts that are nowhere near Podcast length.
+    if minimum_words != 420 or not 280 <= words < minimum_words:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_PODCAST_LENGTH_VALIDATOR_RETRY — previous output was structurally valid "
+        + f"but only {words} spoken words, below the unchanged 420-word / 4-minute operational floor. "
+        + "Return the COMPLETE podcast script JSON again with the same section ids/order, central question, "
+        + "bridge/prayer contract, CTA, factual boundaries, and payoff. Keep every A listener turn concise "
+        + "(12-18 words; hard rescue maximum 20). Expand the B answers only through missing reasoning: explain "
+        + "the mechanism, add one concrete lived example where useful, address a genuine listener doubt or "
+        + "clarification, make a useful distinction or consequence, and earn the resolution. Do NOT pad with "
+        + "repetition, generic advice, invented facts, extra CTAs, or decorative wording. The returned complete "
+        + "episode must be at least 420 spoken words; aim naturally toward the existing 6-10 minute editorial "
+        + "range when the topic supports it. Count the full spoken script before returning JSON. Return JSON only."
+    )
+
 def _mistral_short_contract_validator_retry_prompt(
     prompt: str,
     exc: Exception,
@@ -1963,6 +2006,12 @@ class ProviderRouter:
                             )
                             if retry_prompt is not None:
                                 retry_event_reason = "mistral_podcast_question_validator_retry"
+                            else:
+                                retry_prompt = _mistral_podcast_length_validator_retry_prompt(
+                                    provider_prompt, exc
+                                )
+                                if retry_prompt is not None:
+                                    retry_event_reason = "mistral_podcast_length_validator_retry"
                 elif adapter.name == "mistral" and stage == "script_patch":
                     retry_prompt = _mistral_script_patch_validator_retry_prompt(
                         provider_prompt, exc
