@@ -21,7 +21,7 @@ SHORT_CTA_Y = 790
 SHORT_CTA_ICON_SIZE = 170
 SHORT_CTA_CARD_WIDTH = 220
 SHORT_CTA_CARD_HEIGHT = 250
-HORIZONTAL_CTA_CENTER_X = 1570
+HORIZONTAL_CTA_CENTER_X = 320
 HORIZONTAL_CTA_CENTER_Y = 540
 HORIZONTAL_CTA_Y = 488
 HORIZONTAL_KEY_TEXT_Y = 770
@@ -319,7 +319,7 @@ def _cta_conflicts_with_context(mode: str, context: str) -> bool:
 
 
 def _cta_position(*, mode: str, fmt: str) -> tuple[int, int]:
-    """Keep Short CTA in the left safe field and long-form CTA in the right field."""
+    """Keep CTA in a safe left-side field, away from captions and key text."""
     if fmt == "short":
         if mode == "subscribe_combo":
             return (
