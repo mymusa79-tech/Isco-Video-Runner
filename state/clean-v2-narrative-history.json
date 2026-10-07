@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "short": [
-    "inner_dialogue"
+    "inner_dialogue",
+    "why_reframe"
   ]
 }
