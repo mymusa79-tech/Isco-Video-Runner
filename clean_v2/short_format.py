@@ -1218,6 +1218,64 @@ _SAFE_S3_ACTION_PREFIX_KEYS = frozenset({
     )
 })
 
+# A fresh Planning-owned action must name an actual behavior/object, not an
+# abstract bucket the writer/auditor then has to reverse-engineer. Run 99
+# produced "ثلاث أشياء..." which was grammatically valid but semantically
+# generic, got locked, and made the single repair path impossible.
+_GENERIC_ACTION_PLACEHOLDER_KEYS = frozenset(
+    _semantic_key(item)
+    for item in ("شيء", "أشياء", "اشياء", "أمور", "امور")
+)
+_CONTEXTUAL_ACTION_STANDIN_KEYS = frozenset(
+    _semantic_key(item)
+    for item in ("مهمة", "هدف", "عادة", "خطوة")
+)
+_ACTION_CONTEXT_STOP_KEYS = frozenset(
+    _semantic_key(item)
+    for item in (
+        "اليوم", "الآن", "الان", "واحد", "واحدة", "هذا", "هذه", "ذلك", "تلك",
+        "لك", "عليك", "في", "من", "إلى", "الى", "على", "عن", "مع", "ثم", "و",
+    )
+)
+
+
+def _short_action_context_tokens(value: object) -> set[str]:
+    return {
+        token
+        for token in _semantic_key(value).split()
+        if len(token) >= 3
+        and token not in _ACTION_CONTEXT_STOP_KEYS
+        and token not in _CONTEXTUAL_ACTION_STANDIN_KEYS
+        and token not in {_semantic_key(item) for item in _PRACTICAL_ACTION_MARKERS}
+    }
+
+
+def validate_short_practical_action_specificity(
+    value: object,
+    *,
+    topic_context: object = "",
+) -> str:
+    """Reject only clearly-generic fresh Short actions before they become host locks.
+
+    The normal action validator remains the authority on grammar/shape. This
+    adds a deliberately narrow semantic floor: anonymous buckets such as
+    "أشياء/أمور" are never an acceptable action target, and the common
+    stand-ins مهمة/هدف/عادة/خطوة need at least one concrete word shared with
+    the approved topic/plan context. It does not try to solve Arabic semantics
+    locally or replace the downstream audit.
+    """
+    action = validate_short_practical_action(value)
+    tokens = set(_semantic_key(action).split())
+    if tokens & _GENERIC_ACTION_PLACEHOLDER_KEYS:
+        raise ShortFormatError("short_practical_action_generic_placeholder")
+
+    if tokens & _CONTEXTUAL_ACTION_STANDIN_KEYS:
+        action_context = _short_action_context_tokens(action)
+        approved_context = _short_action_context_tokens(topic_context)
+        if not (action_context & approved_context):
+            raise ShortFormatError("short_practical_action_too_generic_for_topic")
+    return action
+
 
 def normalize_short_practical_action(value: object) -> str:
     """Rescue only deterministic shape drift in the Planning-owned Short action.
@@ -1228,6 +1286,11 @@ def normalize_short_practical_action(value: object) -> str:
     Anything else remains fail-closed in validate_short_practical_action().
     """
     original = _clean(value)
+    if not original:
+        return original
+    # Provider prose occasionally leaves a decorative dash after the sentence
+    # (Run 99). Strip only terminal dash glyphs; never alter authored words.
+    original = re.sub(r"\s*[-–—]+\s*$", "", original).strip()
     if not original:
         return original
     try:
