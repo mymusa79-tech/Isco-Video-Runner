@@ -1936,6 +1936,22 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 
+    def test_caption_sanitizes_hidden_controls_emoji_and_square_symbols(self) -> None:
+        ass = build_rich_ass(
+            [
+                {
+                    "start": 0.0,
+                    "end": 2.0,
+                    "text": "هل\u200f تشعر □ 😀 بأنك استعدت طاقتك فعلًا؟",
+                    "role": "hook",
+                }
+            ]
+        )
+        self.assertIn("هل تشعر بأنك استعدت طاقتك فعلًا؟", ass)
+        self.assertNotIn("\u200f", ass)
+        self.assertNotIn("□", ass)
+        self.assertNotIn("😀", ass)
+
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
         script = {
             "sections": [
