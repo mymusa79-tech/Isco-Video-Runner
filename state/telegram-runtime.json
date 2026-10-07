@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "متى تتحول الراحة إلى هروب؟",
-  "stage": "⚡ الشورت · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37652160294",
-  "result": "",
-  "updated_at": 1791390918
+  "result": "success",
+  "updated_at": 1791390929
 }
