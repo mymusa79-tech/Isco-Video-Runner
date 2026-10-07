@@ -165,6 +165,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
                 self.assertEqual(len(events), 1)
                 self.assertEqual(events[0].mode, expected)
                 self.assertEqual(events[0].start_seconds, 72.0)
+                self.assertLess(events[0].x, 960)
 
     def test_long_cta_count_is_exactly_one_when_authored(self) -> None:
         script = {"title": "حلقة طويلة"}
