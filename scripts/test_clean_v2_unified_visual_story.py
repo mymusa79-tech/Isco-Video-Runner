@@ -155,7 +155,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 self.assertIn("stock_still when a still explains the idea more clearly", prompt)
                 self.assertIn("simple chart when directly relevant and readable", prompt)
                 self.assertIn("Do not force a still quota", prompt)
-                self.assertIn("semantic_must_have must NEVER require a face", prompt)
+                self.assertIn("semantic_must_have must NEVER require face/facial expression", prompt)
                 if fmt == "short":
                     self.assertIn("any one dominant action family may appear at most twice", prompt)
                     self.assertIn("Beat 7 must show the visible payoff/result AFTER the action", prompt)
