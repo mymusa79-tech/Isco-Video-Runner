@@ -710,6 +710,41 @@ def _mistral_script_patch_validator_retry_prompt(
     )
 
 
+def _mistral_podcast_question_validator_retry_prompt(
+    prompt: str,
+    exc: Exception,
+) -> str | None:
+    """One bounded same-provider correction for a slightly overlong Podcast A turn.
+
+    Run 97 produced a structurally useful Podcast draft from Mistral but one listener
+    question was 23 words against the 20-word rescue ceiling. Keep that ceiling and
+    every quality contract intact; give Mistral one chance to compress only the
+    offending listener question(s) instead of spending the next provider immediately.
+    """
+    if type(exc).__name__ != "RuntimeError":
+        return None
+    match = re.fullmatch(
+        r"podcast_listener_proxy_question_too_long\s+words=(\d+)\s+maximum=(\d+)",
+        str(exc).strip(),
+    )
+    if not match:
+        return None
+    words = int(match.group(1))
+    maximum = int(match.group(2))
+    if maximum != 20 or not 21 <= words <= 30:
+        return None
+    return (
+        prompt.rstrip()
+        + "\n\nMISTRAL_PODCAST_QUESTION_VALIDATOR_RETRY — previous output was rejected "
+        + f"because one listener A turn had {words} words while the rescue maximum is {maximum}. "
+        + "Return the COMPLETE Podcast script JSON again with the same section ids/order and the same "
+        + "meaning. Rewrite ONLY listener A: question turns that exceed the limit, making each a "
+        + "natural concise question of 18 words or fewer (20 is emergency headroom only). Preserve all "
+        + "B: answers, the topic-specific bridge, prayer marker/token, CTA, factual boundaries, and "
+        + "the episode's total depth; do not shorten the episode globally, add filler, or relax any "
+        + "other contract. Recount every A: turn by whitespace before returning JSON. Return JSON only."
+    )
+
 _SAFE_VALIDATOR_MEASURE_RE = re.compile(r"[a-z][a-z0-9_]{0,119}(?: [a-z][a-z_]{0,40}=[0-9]+(?:\.[0-9]+)?){0,6}")
 
 
@@ -1919,6 +1954,12 @@ class ProviderRouter:
                         )
                         if retry_prompt is not None:
                             retry_event_reason = "mistral_short_contract_validator_retry"
+                        else:
+                            retry_prompt = _mistral_podcast_question_validator_retry_prompt(
+                                provider_prompt, exc
+                            )
+                            if retry_prompt is not None:
+                                retry_event_reason = "mistral_podcast_question_validator_retry"
                 elif adapter.name == "mistral" and stage == "script_patch":
                     retry_prompt = _mistral_script_patch_validator_retry_prompt(
                         provider_prompt, exc
