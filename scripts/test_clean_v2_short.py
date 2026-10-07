@@ -1944,7 +1944,19 @@ class ShortTimedTextTests(unittest.TestCase):
                     "end": 2.0,
                     "text": "هل\u200f تشعر □ 😀\ufe0f بأنك استعدت طاقتك فعلًا؟",
                     "role": "hook",
-                }
+                },
+                {
+                    "start": 2.0,
+                    "end": 4.0,
+                    "text": "الراحة المؤقتة ليست استعادة للطاقة",
+                    "role": "beat",
+                },
+                {
+                    "start": 4.0,
+                    "end": 6.0,
+                    "text": "اختر خطوة واحدة تعيدك لما يهم",
+                    "role": "payoff",
+                },
             ]
         )
         self.assertIn("هل تشعر بأنك استعدت طاقتك فعلًا؟", ass)
@@ -2476,7 +2488,7 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
         highlight = media_module._master_look_value(0.88, 0.88, 0.88)
         self.assertGreater(shadow[2], shadow[0])
         self.assertGreater(highlight[0], highlight[2])
-        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.70)
+        self.assertEqual(media_module.COLOR_MATCH_STRENGTH, 0.82)
         self.assertLess(media_module.MASTER_LOOK_SATURATION, 0.90)
 
     def test_single_clip_uses_fixed_channel_target_not_episode_stock_reference(self) -> None:
