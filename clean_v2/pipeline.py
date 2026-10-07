@@ -5914,7 +5914,6 @@ def _script_prompt(
         length = (
             "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
             + _podcast_word_guidance(len(plan.get("sections") or [])) + " "
-            + PODCAST_DIRECT_ANSWER_GUIDANCE + " "
             "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
             "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
             "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
@@ -6138,11 +6137,6 @@ PODCAST_MIN_ESTIMATED_WORDS = int(PODCAST_MIN_ESTIMATED_SECONDS * PODCAST_ESTIMA
 # Plain word guidance for the Writer: models cannot count minutes. The minimum is the
 # existing 4-minute floor expressed in words; the range is the existing 6-10 minute
 # editorial range. Neither is a padding target.
-PODCAST_DIRECT_ANSWER_GUIDANCE = (
-    "DIRECT ANSWER: Charon's first turn starts the substance of the answer at once, in words specific to this episode's own "
-    "question. Do not announce that an answer is coming, postpone it, or spend the opening on setup or warm-up before the first "
-    "real claim."
-)
 PODCAST_EDITORIAL_MIN_MINUTES = 6
 PODCAST_EDITORIAL_MAX_MINUTES = 10
 

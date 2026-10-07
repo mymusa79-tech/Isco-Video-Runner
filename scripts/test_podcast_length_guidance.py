@@ -3,7 +3,6 @@ import unittest
 from clean_v2 import providers
 from clean_v2.pipeline import (
     PODCAST_MIN_ESTIMATED_WORDS,
-    PODCAST_DIRECT_ANSWER_GUIDANCE,
     _podcast_word_guidance,
     _route_script_with_single_podcast_length_repair,
     _script_prompt,
@@ -35,14 +34,12 @@ class PodcastWordGuidanceTests(unittest.TestCase):
         podcast = _script_prompt(_brief("podcast"), _plan())
         self.assertIn(_podcast_word_guidance(3), podcast)
         self.assertIn("never as a target to pad toward", podcast)
-        self.assertIn(PODCAST_DIRECT_ANSWER_GUIDANCE, podcast)
         for fmt in ("film", "short"):
             try:
                 other = _script_prompt(_brief(fmt), _plan())
             except Exception:
                 continue
             self.assertNotIn(_podcast_word_guidance(3), other)
-            self.assertNotIn(PODCAST_DIRECT_ANSWER_GUIDANCE, other)
 
     def test_guidance_follows_the_plan_not_fixed_numbers(self):
         three, five = _podcast_word_guidance(3), _podcast_word_guidance(5)
@@ -52,14 +49,6 @@ class PodcastWordGuidanceTests(unittest.TestCase):
         plan5 = _plan()
         plan5["sections"] = plan5["sections"] + [dict(plan5["sections"][0], id="s4"), dict(plan5["sections"][0], id="s5")]
         self.assertIn(_podcast_word_guidance(5), _script_prompt(_brief("podcast"), plan5))
-
-    def test_direct_answer_guidance_is_abstract_and_never_mentions_prayer(self):
-        text = PODCAST_DIRECT_ANSWER_GUIDANCE
-        self.assertNotIn("prayer", text.lower())
-        self.assertNotIn("channel", text.lower())
-        self.assertNotIn("سأجيبك", text)
-        self.assertNotIn("لكن أولا", text)
-        self.assertNotIn("اللهم", text)
 
     def test_repair_prompt_reports_word_counts_and_floor(self):
         class R:
