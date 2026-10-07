@@ -14,9 +14,13 @@ _CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
 SFX_TARGET_REL_DB = -12.0
 SFX_MIN_REL_DB = -16.0
 SFX_MAX_REL_DB = -9.0
-SHORT_CTA_CENTER_X = 800
-SHORT_CTA_CENTER_Y = 960
-SHORT_CTA_Y = 885
+SHORT_CTA_CENTER_X = 180
+SHORT_CTA_CENTER_Y = 910
+SHORT_CTA_X = 72
+SHORT_CTA_Y = 790
+SHORT_CTA_ICON_SIZE = 170
+SHORT_CTA_CARD_WIDTH = 220
+SHORT_CTA_CARD_HEIGHT = 250
 HORIZONTAL_CTA_CENTER_X = 1570
 HORIZONTAL_CTA_CENTER_Y = 540
 HORIZONTAL_CTA_Y = 488
@@ -28,6 +32,12 @@ _ICON_BY_MODE = {
     "comment": _ASSET_DIR / "comment_ORIGINAL.png",
     "share": _ASSET_DIR / "share_ORIGINAL.png",
     "bell": _ASSET_DIR / "bell_ORIGINAL.png",
+}
+_SHORT_LABEL_BY_MODE = {
+    "like": "إعجاب",
+    "comment": "تعليق",
+    "share": "مشاركة",
+    "bell": "تنبيهات",
 }
 
 _CTA_SEMANTIC_FAMILIES = {
@@ -167,6 +177,51 @@ def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
     return destination
 
 
+def _render_short_labeled_icon(destination: Path, *, mode: str) -> Path:
+    """Render one visual-only Short CTA icon with its Arabic action label below it."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise RuntimeError("pillow_missing_for_cta") from exc
+
+    if mode not in _SHORT_LABEL_BY_MODE or mode not in _ICON_BY_MODE:
+        raise ValueError(f"unsupported short CTA mode: {mode}")
+
+    canvas = Image.new(
+        "RGBA",
+        (SHORT_CTA_CARD_WIDTH, SHORT_CTA_CARD_HEIGHT),
+        (0, 0, 0, 0),
+    )
+    icon = Image.open(_ICON_BY_MODE[mode]).convert("RGBA")
+    icon.thumbnail((SHORT_CTA_ICON_SIZE, SHORT_CTA_ICON_SIZE), Image.Resampling.LANCZOS)
+    ix = (SHORT_CTA_CARD_WIDTH - icon.width) // 2
+    iy = 8
+    canvas.alpha_composite(icon, (ix, iy))
+
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.truetype(
+        str(_cairo_bold_font_path()),
+        42,
+        layout_engine=ImageFont.Layout.RAQM,
+    )
+    draw.text(
+        (SHORT_CTA_CARD_WIDTH // 2, SHORT_CTA_ICON_SIZE + 52),
+        _SHORT_LABEL_BY_MODE[mode],
+        font=font,
+        anchor="mm",
+        direction="rtl",
+        language="ar",
+        fill=(246, 243, 237, 255),
+        stroke_width=3,
+        stroke_fill=(18, 22, 28, 220),
+    )
+
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, "PNG")
+    return destination
+
+
 def _mean_db(path: Path) -> float:
     proc = subprocess.run(
         [
@@ -264,14 +319,14 @@ def _cta_conflicts_with_context(mode: str, context: str) -> bool:
 
 
 def _cta_position(*, mode: str, fmt: str) -> tuple[int, int]:
-    """Anchor every CTA in the right-middle field, away from captions."""
+    """Keep Short CTA in the left safe field and long-form CTA in the right field."""
     if fmt == "short":
         if mode == "subscribe_combo":
             return (
                 max(40, min(1080 - SHORT_COMBO_WIDTH - 20, SHORT_CTA_CENTER_X - SHORT_COMBO_WIDTH // 2)),
                 SHORT_CTA_CENTER_Y - 88,
             )
-        return (SHORT_CTA_CENTER_X - 75, SHORT_CTA_Y)
+        return (SHORT_CTA_X, SHORT_CTA_Y)
     if mode == "subscribe_combo":
         return (
             max(40, min(1920 - HORIZONTAL_COMBO_WIDTH - 40, HORIZONTAL_CTA_CENTER_X - HORIZONTAL_COMBO_WIDTH // 2)),
@@ -339,9 +394,22 @@ def _events(
     authored_mode: str,
 ) -> list[VisualCtaEvent]:
     if fmt == "short":
-        # Shorts use no social CTA overlay. A generic comment/like icon that is not
-        # spoken in the topic reads as an editing artifact and interrupts retention.
-        return []
+        # Short CTA is intentionally visual-only: one quiet social cue, never spoken.
+        start = max(7.0, duration * 0.56)
+        mode = _short_first_mode(script)
+        if start >= duration - 3.0:
+            return []
+        x, y = _cta_position(mode=mode, fmt=fmt)
+        return [
+            VisualCtaEvent(
+                mode=mode,
+                start_seconds=round(start, 3),
+                end_seconds=round(min(duration - 2.0, start + 1.35), 3),
+                x=x,
+                y=y,
+                asset=_ICON_BY_MODE[mode].name,
+            )
+        ]
 
     if fmt not in {"film", "podcast"}:
         return []
@@ -443,6 +511,15 @@ def _render(
     if any(event.mode == "subscribe_combo" for event in events):
         _render_arabic_subscribe_combo(combo_path, fmt=fmt)
 
+    short_labeled_paths: dict[str, Path] = {}
+    if fmt == "short":
+        for event in events:
+            if event.mode == "subscribe_combo":
+                continue
+            labeled = dest.parent / f".short-cta-{event.mode}.png"
+            _render_short_labeled_icon(labeled, mode=event.mode)
+            short_labeled_paths[event.mode] = labeled
+
     input_specs: list[tuple[str, int, VisualCtaEvent]] = []
     next_index = 1
     for event in events:
@@ -450,7 +527,8 @@ def _render(
             command.extend(["-loop", "1", "-framerate", "30", "-i", str(combo_path)])
             input_specs.append(("combo", next_index, event))
         else:
-            command.extend(["-loop", "1", "-framerate", "30", "-i", str(_ICON_BY_MODE[event.mode])])
+            asset = short_labeled_paths.get(event.mode, _ICON_BY_MODE[event.mode])
+            command.extend(["-loop", "1", "-framerate", "30", "-i", str(asset)])
             input_specs.append(("icon", next_index, event))
         next_index += 1
 
@@ -475,8 +553,13 @@ def _render(
         if kind == "icon":
             duration = max(0.5, event.end_seconds - event.start_seconds)
             fade_out = max(0.2, duration - 0.18)
+            scale_filter = (
+                f"scale={SHORT_CTA_CARD_WIDTH}:{SHORT_CTA_CARD_HEIGHT},"
+                if fmt == "short"
+                else f"scale={icon_size}:{icon_size},"
+            )
             filters.append(
-                f"[{input_index}:v]scale={icon_size}:{icon_size},format=rgba,"
+                f"[{input_index}:v]{scale_filter}format=rgba,"
                 f"fade=t=in:st=0:d=0.12:alpha=1,"
                 f"fade=t=out:st={fade_out:.3f}:d=0.18:alpha=1,"
                 f"trim=duration={duration:.3f},setpts=PTS-STARTPTS+{event.start_seconds:.3f}/TB[{label}]"
@@ -525,6 +608,8 @@ def _render(
         _run(command)
     finally:
         combo_path.unlink(missing_ok=True)
+        for path in short_labeled_paths.values():
+            path.unlink(missing_ok=True)
 
 
 def apply_visual_cta_assets(
