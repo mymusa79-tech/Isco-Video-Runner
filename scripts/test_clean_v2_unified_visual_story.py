@@ -175,6 +175,10 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             planned["_visual_no_face_semantic_contract"],
             "v1",
         )
+        self.assertEqual(
+            planned["_short_visual_diversity_contract"],
+            "v1_max2",
+        )
 
     def test_short_planning_rejects_third_stationery_family_beat(self) -> None:
         value = _planning_value("short")
@@ -195,7 +199,7 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
     def test_short_payoff_rejects_another_writing_step_after_prior_stationery(self) -> None:
         value = _planning_value("short")
         payoff = value["visual_story"]["beats"][-1]
-        query = "hands writing next priority task in notebook after completion"
+        query = "hands selecting one priority card then writing next priority in notebook"
         payoff["shot_intent"] = query
         payoff["stock_query_en"] = query
         payoff["semantic_must_have"] = [query]
