@@ -471,7 +471,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "sentence-length variation; no fragments, abstract diagnosis, translated/essay filler or "
             "motivational slogans. Check agreement, references and sentence completeness.\n"
             f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
-            "Vary actions/states across s1/s2/s3. s1 needs a template-specific "
+            "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
             "scroll-stop beat: instantly readable, never flat. "
             "FIRST-SHOT GATE: s1 names a visible "
             "action/event AND tension/consequence, not quiet thinking, generic desk, static person or "
