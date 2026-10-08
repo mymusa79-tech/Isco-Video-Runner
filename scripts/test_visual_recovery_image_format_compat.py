@@ -11,10 +11,10 @@ from clean_v2 import media, visual_qa
 class Run187VisualRecoveryFormatTests(unittest.TestCase):
     def test_still_renderer_handles_qa_story_and_all_production_formats(self):
         for fmt, dimensions in (
-            ("story", "1080:1920"),  # Run187: QA's name for Short
-            ("short", "1080:1920"),
-            ("film", "1920:1080"),
-            ("podcast", "1920:1080"),
+            ("story", "1080x1920"),  # QA's name for Short
+            ("short", "1080x1920"),
+            ("film", "1920x1080"),
+            ("podcast", "1920x1080"),
         ):
             with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
