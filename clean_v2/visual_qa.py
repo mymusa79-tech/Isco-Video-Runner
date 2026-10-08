@@ -39,6 +39,30 @@ class CleanV2VisualQAInfrastructure(RuntimeError):
     pass
 
 
+def _recovery_candidate_diagnostics(events: Any) -> dict[str, Any]:
+    """Distinguish an empty search from candidates rejected before visual review."""
+    rejected = []
+    if not isinstance(events, list):
+        events = []
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        status = str(event.get("result") or "")
+        if status not in {"recovery_failed", "recovery_security_blocked"}:
+            continue
+        rejected.append({
+            "provider": str(event.get("provider") or "")[:40],
+            "result": status,
+            "detail": str(event.get("reason") or "")[:100],
+        })
+    if rejected:
+        return {
+            "reason": "alternate_candidates_rejected_before_visual_qa",
+            "candidate_failures": rejected[:6],
+        }
+    return {"reason": "alternate_search_returned_no_admitted_candidate"}
+
+
 def _apply_observed_visual_proof(audit: Mapping[str, Any]) -> dict[str, Any]:
     """Align PASS with the same Vision call's explicit observed proof and face facts.
 
@@ -1081,6 +1105,7 @@ def run_final_cut_visual_qa(
                         for item in rights
                         if isinstance(item, dict)
                     ]
+                    visual_event_start = len(getattr(visual_source, "events", []))
                     try:
                         acquire_many = getattr(
                             visual_source,
@@ -1143,9 +1168,13 @@ def run_final_cut_visual_qa(
                         recovery_record.update(
                             {
                                 "status": "no_candidate",
-                                "reason": "alternate_search_returned_no_admitted_candidate",
                                 "candidate_pool_size": 0,
                             }
+                        )
+                        recovery_record.update(
+                            _recovery_candidate_diagnostics(
+                                list(getattr(visual_source, "events", []))[visual_event_start:]
+                            )
                         )
                         _write_json(output_dir / "visual-query-recovery.json", recovery_records)
                         raise CleanV2VisualQABlock(
