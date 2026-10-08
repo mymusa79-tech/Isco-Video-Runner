@@ -46,6 +46,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_state_persistence_strict",
     ),
     "P1": (
+        "scripts.test_run78_visual_recovery_contract",
         "scripts.test_planner_quality_guard",
         "scripts.test_planning_provider_reliability_v2",
         "scripts.test_bounded_output_recovery",
