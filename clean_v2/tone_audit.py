@@ -262,10 +262,6 @@ _ASSERTED_ARABIC_PREFIX = re.compile(
     r"(?:a\s+conjunction\s*)?\(?\s*['\"«](و|حين|عندما|مما|إذا)['\"»]",
     re.I,
 )
-_BARE_FRAGMENT_PREFIX_ASSERTION = re.compile(
-    r"s[1-5]:\s*fragment starting with ['\"«](حين|عندما|مما|إذا)['\"»] "
-    r"lacking (?:a )?main verb[.!]?\s*", re.I,
-)
 
 
 def _ground_syntax_flags(result: dict[str, Any], sections: dict[str, str]) -> dict[str, Any]:
@@ -292,15 +288,6 @@ def _ground_syntax_flags(result: dict[str, Any], sections: dict[str, str]) -> di
             prefix = assertion.group(1)
             starts = (prefix, "و" + prefix, "ف" + prefix) if prefix != "و" else (prefix,)
             if not actual.startswith(starts):
-                removed.append(flag)
-                continue
-        elif text and _BARE_FRAGMENT_PREFIX_ASSERTION.fullmatch(flag):
-            # Run 181 quoted only an invented prefix, without a draft excerpt.
-            # Drop this isolated assertion only if that word is absent everywhere
-            # in the located section; a real middle fragment must still block.
-            prefix = assertion.group(1)
-            actual = re.sub(r"[\u064b-\u065f\u0670]", "", text)
-            if not re.search(r"(?<![\w])[وف]?" + re.escape(prefix) + r"(?![\w])", actual):
                 removed.append(flag)
                 continue
         kept.append(raw)

@@ -93,22 +93,26 @@ for _fmt, _templates in (("short", TEMPLATE_ORDER),
 
 
 class Run103RegressionTests(unittest.TestCase):
-    def test_run181_bare_invented_prefix_is_grounded_without_hiding_real_fragments(self):
-        flag = "s3: fragment starting with 'عندما' lacking main verb."
+    def test_run181_real_initial_fragment_stays_blocked_after_grounding(self):
+        initial = "عندما تدرك أن المهمة ليست في الإنجاز الكامل."
+        first_flag = "s3: fragment starting with 'عندما' lacking main verb."
+        initial_result = tone_audit._validate_tone_result(
+            tone_audit._ground_syntax_flags(payload(flags=[first_flag]), {"s3": initial})
+        )
+        self.assertEqual(initial_result["status"], "block")
         narration = "تتحرر من ضغط الإنجاز الكامل حين تدرك أن المهمة ليست في اكتمالها."
+        flag = f"s3: '{narration}' — Dangling fragment starting with a conjunction ('حين') attached to a verbal noun ('تدرك') without a finite verb in the sentence."
         result = tone_audit._validate_tone_result(
             tone_audit._ground_syntax_flags(payload(flags=[flag]), {"s3": narration})
         )
         self.assertEqual(result["status"], "pass")
-        for actual, claimed in (
-            ("هذا واضح. عندما يتحرك القلم.", flag),
-            (narration, flag + " It also has incorrect agreement."),
-        ):
-            with self.subTest(actual=actual, claimed=claimed):
-                blocked = tone_audit._validate_tone_result(
-                    tone_audit._ground_syntax_flags(payload(flags=[claimed]), {"s3": actual})
-                )
-                self.assertEqual(blocked["status"], "block")
+        real_semantic_block = payload(flags=[flag])
+        real_semantic_block["narrative_format_flags"] = ["content_depth:s3 practical_action_generic: payoff does not resolve the concrete hook"]
+        remaining = tone_audit._validate_tone_result(
+            tone_audit._ground_syntax_flags(real_semantic_block, {"s3": narration})
+        )
+        self.assertEqual(remaining["status"], "block")
+        self.assertEqual(remaining["naturalness_flags"], [])
 
     def test_podcast_depth_repair_carries_actual_draft_with_one_unchanged_floor(self):
         before = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 258}]}
