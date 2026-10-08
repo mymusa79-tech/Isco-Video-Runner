@@ -2198,22 +2198,69 @@ def _tone_repair_issue_notes(
     return "\n".join(lines)
 
 
-def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
-    """Add a deterministic template-specific repair contract only for blocked Shorts."""
+def _short_template_tone_repair_issue_notes(
+    brief: Mapping[str, Any],
+    report: Mapping[str, Any] | None = None,
+) -> str:
+    """Add template repair guidance only when the audit actually flags a mismatch.
+
+    Run 102 selected micro_story in Planning, but the generated narration came back
+    as a compact analytical essay. The audit correctly named the template mismatch,
+    yet the bounded repair only had inner_dialogue guidance, so the one repair attempt
+    could not close the script-wide defect. Keep this fail-closed and cheap: no new
+    provider call, and no template repair surface unless the validated audit itself
+    names the selected template inside narrative_format_flags.
+    """
     if str(brief.get("format") or "").strip().casefold() != "short":
         return ""
     selection = select_short_template(brief)
-    if str(selection.get("template") or "") != "inner_dialogue":
+    template = str(selection.get("template") or "").strip()
+    if not template:
         return ""
+    flags = []
+    if isinstance(report, Mapping):
+        raw_flags = report.get("narrative_format_flags") or []
+        if isinstance(raw_flags, list):
+            flags = [" ".join(str(item or "").split()).strip() for item in raw_flags]
+    mismatch_flag = next(
+        (
+            flag
+            for flag in flags
+            if template.casefold() in flag.casefold()
+            and (
+                "narrative_format:" in flag.casefold()
+                or "template" in flag.casefold()
+                or "القالب" in flag
+            )
+        ),
+        "",
+    )
+    if not mismatch_flag:
+        return ""
+
     lines = [
-        "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
-        "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
-        "a narrator giving instructions."
+        f"- [tone-template:{template}] The validated audit says the current draft does not actually "
+        f"perform the selected {template} format. Repair the affected body/payoff wording so the "
+        "three Short sections follow the selected template as one coherent miniature arc while "
+        "preserving the locked first hook sentence."
     ]
-    lines.extend(f"- [tone-template:inner_dialogue] {rule}" for rule in INNER_DIALOGUE_VOICE_RULES)
+    directive = str(TEMPLATE_WRITING_DIRECTIVES.get(template) or "").strip()
+    if directive:
+        lines.append(f"- [tone-template:{template}] {directive}")
+    if template == "inner_dialogue":
+        lines.extend(
+            f"- [tone-template:inner_dialogue] {rule}"
+            for rule in INNER_DIALOGUE_VOICE_RULES
+        )
+    elif template == "micro_story":
+        lines.append(
+            "- [tone-template:micro_story] Keep one concrete situation across the body: "
+            "observable moment -> development/turn -> earned meaning/payoff. Do not replace it "
+            "with abstract analysis or a list of general claims."
+        )
     lines.append(
-        "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
-        "genuinely advance it instead of restating it."
+        f"- [tone-template:{template}] Preserve the locked hook exactly; change only the "
+        "minimum unlocked narration needed to make the selected template real."
     )
     return "\n".join(lines)
 
@@ -3394,7 +3441,9 @@ def _run_one_bounded_tone_repair(
 ) -> dict[str, Any]:
     tone_issue_notes = _tone_repair_issue_notes(blocked_report, script)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
-    template_issue_notes = _short_template_tone_repair_issue_notes(brief)
+    template_issue_notes = _short_template_tone_repair_issue_notes(
+        brief, blocked_report
+    )
     issue_notes = "\n".join(
         item
         for item in (tone_issue_notes, structural_issue_notes, template_issue_notes)
@@ -3412,6 +3461,16 @@ def _run_one_bounded_tone_repair(
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
     target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if template_issue_notes:
+        ordered_ids = tuple(
+            str(item.get("id") or "")
+            for item in (script.get("sections") or [])
+            if isinstance(item, Mapping) and str(item.get("id") or "")
+        )
+        # A validated template mismatch is script-wide by definition. Let the same
+        # one bounded repair touch any Short section it needs, while the existing
+        # hook/prayer/identity/action locks still constrain what can actually change.
+        target_ids = ordered_ids
     if not target_ids:
         raise RuntimeError(
             "Tone/Naturalness repair has no deterministic target section"
