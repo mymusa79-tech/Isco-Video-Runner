@@ -28,6 +28,7 @@ SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4
+SHORT_BEAT_SECTION_IDS = ("s1", "s1", "s1", "s2", "s2", "s3", "s3")
 
 # Three tiny semantic signals let the existing renderer behave more like a human
 # editor without becoming a second creative authority. They never add duration,
@@ -608,6 +609,7 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
     sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
     section_order = {str(item.get("id") or ""): index for index, item in enumerate(sections)}
     section_by_id = {str(item.get("id") or ""): item for item in sections}
+    section_beats: dict[str, list[str]] = {section_id: [] for section_id in section_order}
     family_ids: dict[str, list[str]] = {}
     weak_ids: list[str] = []
     neighbors: list[list[str]] = []
@@ -648,7 +650,9 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
                 shot = query = stronger
             else:
                 weak_ids.append(beat_id)
-        beat = {"id": beat_id, "shot_intent": shot, "stock_query_en": query}
+        if section_id in section_beats:
+            section_beats[section_id].append(beat_id)
+        beat = {"id": beat_id, "section_id": section_id, "shot_intent": shot, "stock_query_en": query}
         resolved.append(beat)
         family = _beat_action_family(beat)
         if family:
@@ -657,6 +661,27 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
                 neighbors.append([prior_id, beat_id])
         prior_family, prior_id = family, beat_id
     context: dict[str, Any] = {}
+    if any(not ids or len(ids) > MAX_BEATS_PER_SECTION for ids in section_beats.values()):
+        context["section_beat_ids"] = section_beats
+        context["section_beat_limit"] = MAX_BEATS_PER_SECTION
+    short_contract = str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2"
+    if (
+        short_contract
+        and tuple(section_order) == ("s1", "s2", "s3")
+        and len(value["beats"]) == len(resolved) == len(SHORT_BEAT_SECTION_IDS)
+        and len({beat["id"] for beat in resolved}) == len(resolved)
+    ):
+        expected = {
+            beat["id"]: section_id
+            for beat, section_id in zip(resolved, SHORT_BEAT_SECTION_IDS)
+        }
+        misplaced = {
+            beat["id"]: expected[beat["id"]] for beat in resolved
+            if beat["section_id"] != expected[beat["id"]]
+        }
+        if misplaced:
+            context["short_beat_section_ids"] = expected
+            context["misplaced_section_beat_ids"] = misplaced
     if non_english_queries:
         context["non_english_query_beat_ids"] = non_english_queries
     if duplicate_intents:
@@ -667,7 +692,7 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
         context["family_beat_ids"] = family_ids
     if neighbors:
         context["same_family_neighbors"] = neighbors
-    if str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
+    if short_contract:
         context["visual_family_limit"] = _ACTION_FAMILY_MAX_USES
         overused = [family for family, ids in family_ids.items() if len(ids) > _ACTION_FAMILY_MAX_USES]
         if overused:
@@ -679,6 +704,25 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
             and _short_payoff_repeats_process_action(resolved[-1]["shot_intent"] or resolved[-1]["stock_query_en"])
         ):
             context["payoff_process_beat_id"] = resolved[-1]["id"]
+    # Keep the earliest permitted nonadjacent uses and name scenes to replace.
+    # This is feedback only: no authored meaning, query or section is mutated.
+    replacements: dict[str, list[str]] = {}
+    kept: dict[str, list[int]] = {}
+    for index, beat in enumerate(resolved):
+        family = _beat_action_family(beat)
+        if not family:
+            continue
+        indexes = kept.setdefault(family, [])
+        if (
+            (short_contract and len(indexes) >= _ACTION_FAMILY_MAX_USES)
+            or (indexes and indexes[-1] == index - 1)
+            or beat["id"] == context.get("payoff_process_beat_id")
+        ):
+            replacements.setdefault(family, []).append(beat["id"])
+        else:
+            indexes.append(index)
+    if replacements:
+        context["family_replacement_beat_ids"] = replacements
     return context
 
 
