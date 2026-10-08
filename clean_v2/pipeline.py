@@ -5541,6 +5541,8 @@ listener with the screen closed.
         "For short only: payoff_answer must be a descriptive resolution or observable "
         "outcome, never an instruction. Planning must also return top-level practical_action_ar: "
         "one concise Arabic imperative sentence containing exactly one practical action. "
+        "Its concrete object/behavior MUST operationalize the EXACT s1 lived blockage and the earned s3 result; "
+        "reject interchangeable tasks (such as writing any sentence regardless of topic) that could close an unrelated video. "
         "This sentence becomes host-owned after Planning; Script must not author another action."
         if fmt == "short"
         else ""
@@ -5993,7 +5995,12 @@ def _script_prompt(
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
+            "understood on first listen. SHORT SEMANTIC SPINE: s1 opens one exact observable blockage; "
+            "s2 adds a specific why/how or useful distinction that EXPLAINS this s1 blockage, not merely renames it; "
+            "s3 states the resulting change in that same scene before the separate locked action. "
+            "Do not repeat s2 as a generic payoff, claim an unsupported hidden psychological cause, "
+            "or leave s3 as a dangling عندما/حين clause. Read all three sections together before returning. "
+            "Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
             "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists.\n"
             + CONTENT_DEPTH_GUIDANCE + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
