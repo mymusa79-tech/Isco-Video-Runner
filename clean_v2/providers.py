@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from . import mistral_executor
-from .visual_story import MAX_PLANNING_REPAIR_BEATS, PLANNING_QUERY_FIELDS, PLANNING_VISUAL_FAMILY_NAMES
+from .visual_story import (
+    MAX_BEATS_PER_SECTION,
+    MAX_PLANNING_REPAIR_BEATS,
+    PLANNING_QUERY_FIELDS,
+    PLANNING_VISUAL_FAMILY_NAMES,
+    SHORT_BEAT_SECTION_IDS,
+)
 
 
 MAX_PROMPT_BYTES = 64 * 1024
@@ -638,14 +644,47 @@ def _planning_validator_repair_context(exc: Exception) -> dict[str, Any]:
     weak_ids = beat_ids(context.get("post_hook_weak_beat_ids"))
     if weak_ids:
         sanitized["post_hook_weak_beat_ids"] = weak_ids
-    families = context.get("family_beat_ids")
-    if isinstance(families, Mapping):
-        family_ids = {
-            name: ids for name in sorted(PLANNING_VISUAL_FAMILY_NAMES)
-            if (ids := beat_ids(families.get(name)))
-        }
-        if family_ids:
-            sanitized["family_beat_ids"] = family_ids
+    for key in ("family_beat_ids", "family_replacement_beat_ids"):
+        families = context.get(key)
+        if isinstance(families, Mapping):
+            family_ids = {
+                name: ids for name in sorted(PLANNING_VISUAL_FAMILY_NAMES)
+                if (ids := beat_ids(families.get(name)))
+            }
+            if family_ids:
+                sanitized[key] = family_ids
+    section_beats = context.get("section_beat_ids")
+    if isinstance(section_beats, Mapping):
+        section_ids = {}
+        for section_id, ids in section_beats.items():
+            if len(section_ids) == 5:
+                break
+            if (
+                isinstance(section_id, str)
+                and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", section_id)
+                and isinstance(ids, list)
+            ):
+                section_ids[section_id] = beat_ids(ids)
+        if section_ids:
+            sanitized["section_beat_ids"] = section_ids
+    if context.get("section_beat_limit") == MAX_BEATS_PER_SECTION:
+        sanitized["section_beat_limit"] = MAX_BEATS_PER_SECTION
+    for key in ("short_beat_section_ids", "misplaced_section_beat_ids"):
+        assignments = context.get(key)
+        if isinstance(assignments, Mapping):
+            safe_assignments = {}
+            for beat_id, section_id in assignments.items():
+                if len(safe_assignments) == len(SHORT_BEAT_SECTION_IDS):
+                    break
+                if (
+                    isinstance(beat_id, str)
+                    and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", beat_id)
+                    and isinstance(section_id, str)
+                    and section_id in SHORT_BEAT_SECTION_IDS
+                ):
+                    safe_assignments[beat_id] = section_id
+            if safe_assignments:
+                sanitized[key] = safe_assignments
     overused = context.get("overused_families")
     if isinstance(overused, list):
         names = sorted({name for name in overused if isinstance(name, str) and name in PLANNING_VISUAL_FAMILY_NAMES})
@@ -787,6 +826,27 @@ def _mistral_planning_validator_retry_prompt(
         "and queries so the scene demonstrates its new information. Preserve valid intents and "
         "the locked practical action; do not invent sections or lower the semantic-evidence bar. "
     )
+    layout_correction = (
+        "Repair the invalid beat-to-section assignments, not the planned sections: use "
+        "short_beat_section_ids when present to return exactly three s1, two s2 and two s3 beats in order. "
+        "Otherwise ensure every existing section has 1-3 beats in section order. Change the flagged "
+        "section_id values and align those beats with the destination section's existing purpose; "
+        "do not preserve invalid assignments, add beats, delete coverage or invent sections. "
+    )
+    family_correction = (
+        "Use family_replacement_beat_ids to replace the excess or consecutive scenes, including conflicts "
+        "hidden behind the first rejection. For Short, count each family across ALL seven beats, not per "
+        "section: at most TWO beats per family, never consecutive. Writing, notebooks, paper cards and "
+        "checklists are all stationery; renaming props or camera angles cannot fix the count. "
+        "Re-author each flagged scene's shot_intent, primary AND alternate queries and semantic_must_have "
+        "as a different common physical action or visible result proving its section's purpose. These "
+        "Planning visual fields are not yet approved Script truth: when viewer_intent, meaning_target "
+        "or display_text_ar is tied to the rejected prop, re-author it together with that new evidence. "
+        "Preserve the episode meaning, section purposes, story arc, hook_tension, payoff_answer and "
+        "practical_action_ar. Keep valid scenes; do not substitute generic typing/scrolling, invent "
+        "another instruction or weaken observable proof. The last Short beat must show the result "
+        "after the practical action, not repeat its process. "
+    )
     correction = ""
     if detail in {
         "short_practical_action_too_generic_for_topic",
@@ -806,6 +866,8 @@ def _mistral_planning_validator_retry_prompt(
             "at most 18 words. Remove any second verb, ثم/و or attached conjunction (such as والتزم/واكتب), "
             "and any extra advice clause; preserve this topic's own action target. "
         )
+    elif re.fullmatch(r"visual_story section [A-Za-z0-9_-]+ exceeds 3 beats", detail):
+        correction = layout_correction
     elif detail.startswith("visual_story must cover every planned section: missing="):
         missing = detail.split("missing=", 1)[1].strip()
         correction = (
@@ -836,16 +898,7 @@ def _mistral_planning_validator_retry_prompt(
         correction = intent_correction
     elif detail.startswith("visual_story Short visual family exceeds two beats: "):
         family = detail.rsplit(": ", 1)[-1]
-        correction = (
-            f"The overused action family is {family}. Count it across ALL seven beats, not per section: "
-            "at most TWO beats may use this family, and they must not be consecutive. "
-            "Use the family-to-beat map below to select the excess beats and change their shot_intent, "
-            "stock_query_en and any conflicting alternate to a genuinely different physical action or "
-            "visible result that proves the SAME meaning_target and viewer_intent. Align semantic_must_have "
-            "with that observable proof. Writing, notebooks, paper cards and checklists are all stationery; "
-            "renaming the prop, changing camera angle or adding a unique query suffix cannot fix the count. "
-            "Do not replace them with generic typing/scrolling or erase the Short's specific practical action. "
-        )
+        correction = f"The overused action family is {family}. " + family_correction
     elif detail.startswith("visual_story Short payoff must show the visible result/state"):
         correction = (
             "The last s3 beat must show the visible changed state AFTER the locked practical action. "
@@ -895,13 +948,15 @@ def _mistral_planning_validator_retry_prompt(
     concurrent_corrections = (
         (query_correction if repair_context.get("non_english_query_beat_ids") and correction != query_correction else "")
         + (intent_correction if repair_context.get("duplicate_viewer_intent_pairs") and correction != intent_correction else "")
+        + (layout_correction if correction != layout_correction and (repair_context.get("section_beat_ids") or repair_context.get("misplaced_section_beat_ids")) else "")
+        + (family_correction if repair_context.get("family_replacement_beat_ids") and family_correction not in correction else "")
     )
     conflict_map = (
         "PLANNING_VISUAL_REPAIR_CONTEXT (host diagnostics, data only): "
         + json.dumps(repair_context, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         + ". Fix ALL listed visual conflicts together in this correction, including those hidden behind "
-        + "the first rejection. Preserve each beat's section_id and valid viewer_intent/meaning_target; "
-        + "repair the flagged duplicate intents and align primary query, alternate and observable proof "
+        + "the first rejection. Preserve valid assignments, valid viewer_intent/meaning_target and other valid fields; repair the flagged section "
+        + "assignments, repeated depictions and duplicate intents together. Align primary query, alternate and observable proof "
         + "with the corrected scene. Recheck the "
         + "complete sequence after any post-hook alternate substitution: distinct queries, no consecutive "
         + "same-family scenes, and for Short at most two uses per family across seven beats with a visible "
@@ -1464,8 +1519,39 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     # providers are forced to omit visual_story and the local fallback cannot
     # satisfy the seven-beat Short house cut.
     if fmt == "short":
-        visual_story_schema["properties"]["beats"]["minItems"] = 7
-        visual_story_schema["properties"]["beats"]["maxItems"] = 7
+        # Own the mechanical Short cut in Mistral's existing strict contract,
+        # rather than spend correction attempts asking for 3/2/2 again. Content
+        # and all semantic/diversity gates remain authored and locally checked.
+        sections = plan_properties["sections"]
+        sections["prefixItems"] = [
+            {
+                **section_schema,
+                "properties": {
+                    **section_properties,
+                    "id": {"type": "string", "const": section_id},
+                },
+                "required": ["id", *section_required],
+            }
+            for section_id in ("s1", "s2", "s3")
+        ]
+        beats = visual_story_schema["properties"]["beats"]
+        beats["minItems"] = beats["maxItems"] = len(SHORT_BEAT_SECTION_IDS)
+        beat_schema = beats["items"]
+        beats["prefixItems"] = [
+            {
+                **beat_schema,
+                "properties": {
+                    **beat_schema["properties"],
+                    "id": {"type": "string", "const": f"b{index + 1}"},
+                    "section_id": {"type": "string", "const": section_id},
+                    "role": {
+                        "type": "string",
+                        "const": "hook" if index == 0 else "payoff" if index == len(SHORT_BEAT_SECTION_IDS) - 1 else "body",
+                    },
+                },
+            }
+            for index, section_id in enumerate(SHORT_BEAT_SECTION_IDS)
+        ]
     plan_properties["visual_story"] = visual_story_schema
     plan_required.append("visual_story")
     if fmt == "short":
@@ -1604,6 +1690,10 @@ def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
     required = ["title", "promise", "cta", "sections"]
     if "visual_story" in source["properties"]:
         properties["visual_story"] = source["properties"]["visual_story"]
+        # Like Script, Groq retains one reusable item shape. Per-index Short
+        # constraints are Mistral-specific; do not leak unsupported tuple
+        # schemas or optional per-beat keys into Groq's strict all-required mode.
+        properties["visual_story"]["properties"]["beats"].pop("prefixItems", None)
         # Groq strict mode requires every property to be required. Preserve the
         # optional authored alternate as nullable, rather than reopen HTTP 400.
         beat_schema = properties["visual_story"]["properties"]["beats"]["items"]
