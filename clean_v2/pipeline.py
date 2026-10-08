@@ -4587,8 +4587,10 @@ def _validate_plan_for_brief(
         )
     # Local production contract: every fresh Short/Film/Podcast plan must fail
     # closed on adjacent/repeated visual families before any media retrieval.
-    # Stored in plan.json so resume cannot silently downgrade to prompt-only behavior.
     plan["_visual_diversity_contract"] = "v2_fail_closed"
+    if fmt == "short":
+        plan["_short_visual_diversity_contract"] = "v1_max2"
+    plan["_visual_no_face_semantic_contract"] = "v1"
     # Shared quality floor: after the opening section, generic productivity
     # props cannot become the visual default unless their visible action itself
     # proves the idea. Persist the contract so resume uses the same rule.
@@ -5632,6 +5634,7 @@ Use {section_requirement} for format
 Each visual query must be a concrete English stock-footage phrase. Prefer 6-14 useful search words and keep each
 query at most 260 characters: one observable action/setting plus only retrieval-relevant composition/light cues;
 never cut mid-thought. Prefer face-safe cues such as hands only, back view, or objects only; distant/angled figures are fine.
+semantic_must_have must NEVER require face/facial expression; prove emotion via action, posture, or object state.
 Use natural practical light, moderate-to-deep exposure, soft directional contrast, dark navy/charcoal shadow depth,
 ivory-neutral highlights, and warm gold only as a restrained accent. The mood is grounded upward movement.
 Use quiet premium darkness rather than gloom; avoid flat beige/washed-out warm-neutral stock and glossy, airy lifestyle-ad bright looks.
@@ -5659,13 +5662,11 @@ HOOK COVERAGE CONTRACT applies to Short, Film, and Podcast without adding a new 
 the SAME unresolved tension through a different action/environment/scale/state. The first body beat must not repeat the hook's dominant scene/action family.
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
-VISUAL VARIETY is semantic, not cosmetic. Do not place the same dominant action family in consecutive beats; family <=2 uses.
-Desk/laptop/keyboard/phone/stationery/paper/writing = ONE productivity cluster; unless the topic is about them, cluster <=2 beats.
-Other beats need a different relevant environment/action/state. Prefer: stuck -> choosing -> moving -> completed.
-POST-HOOK VISUAL FLOOR — Short, Film, Podcast: later beats must preserve/increase specificity. Devices/desks/
-typing/scrolling/sitting/"working" are insufficient unless a visible relation/action proves the idea.
-"Person scrolling many tabs on a laptop" is generic coverage. Otherwise provide a stronger, different
-stock_query_alt_en for the SAME meaning; it must never be weaker than the hook.
+VISUAL VARIETY is semantic, not cosmetic. No consecutive same action family; family <=2 uses.
+Desk/laptop/phone/stationery/writing = ONE productivity cluster <=2 unless the topic requires it.
+Prefer stuck -> choosing -> moving -> completed.
+POST-HOOK VISUAL FLOOR — Short, Film, Podcast: preserve specificity. "Person scrolling many tabs on a laptop"
+is generic; use a stronger different stock_query_alt_en for the SAME meaning.
 For Short specifically, return EXACTLY 7 semantic visual beats:
 - beats 1-3: s1 hook sequence on the SAME precise tension, each with different visible evidence/state;
 - beats 4-5: s2 with two genuinely different visible states;
@@ -5673,7 +5674,7 @@ For Short specifically, return EXACTLY 7 semantic visual beats:
 Beat 1 must show a topic-specific consequence/interruption, not passive phone/desk/lifestyle stock.
 Give all seven distinct stock_query_en/shot_intent wording and make each understandable with sound off.
 Any person must have no clear identifiable face: hands, back view, silhouette, distant or blurred framing.
-Do not add other Short beats.
+Across seven beats, any action family <=2. Beat 7 must show the result after the action, not another writing/planning/checklist step if already used. Do not add other Short beats.
 
 Add one retention_thread
 that the script and final visuals must repay: hook_tension is the precise unresolved tension opened
@@ -6805,6 +6806,10 @@ class CleanV2Pipeline:
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
                 plan = validate_plan(saved_plan, brief)
                 plan["_visual_diversity_contract"] = "v2_fail_closed"
+                if str(brief["format"]) == "short":
+                    plan["_short_visual_diversity_contract"] = "v1_max2"
+                plan["_visual_no_face_semantic_contract"] = "v1"
+                plan["_visual_semantic_strength_contract"] = "v1_post_hook"
                 plan["_visual_identity_contract"] = "navy_gold_v1"
                 if str(brief["format"]) == "short":
                     plan["short_template"] = saved_template

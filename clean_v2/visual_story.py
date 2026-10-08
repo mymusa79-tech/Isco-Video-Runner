@@ -90,6 +90,16 @@ _ACTION_FAMILY_TERMS = {
 }
 _ACTION_FAMILY_MAX_USES = 2
 
+_FACE_DEPENDENT_SEMANTIC_RE = re.compile(
+    r"\b(?:face|facial|expression|expressions)\b|(?:وجه|ملامح|تعبير(?:ات)?)",
+    re.IGNORECASE,
+)
+_SHORT_PAYOFF_PROCESS_RE = re.compile(
+    r"\b(?:write|writing|mark|marking|checklist|to-?do|task\s+list|"
+    r"plan|planning|start(?:ing)?\s+to\s+write|next\s+priority)\b",
+    re.IGNORECASE,
+)
+
 # A strong opening should not collapse into generic productivity B-roll once the
 # episode moves into explanation. These props are allowed when the visible action
 # itself proves the idea, but not when they merely host weak scrolling/typing/using.
@@ -253,6 +263,16 @@ def _is_weak_generic_productivity_scene(value: object) -> bool:
     # A generic prop with either a weak stock action or no meaningful action at
     # all is exactly the post-hook drop seen in Run 58 ("scrolling many tabs").
     return bool(tokens & _WEAK_GENERIC_ACTION_TERMS) or len(tokens) <= 10
+
+
+def _is_face_dependent_semantic_cue(value: object) -> bool:
+    """True when a must-have asks QA to prove meaning from a face/expression."""
+    return bool(_FACE_DEPENDENT_SEMANTIC_RE.search(str(value or "")))
+
+
+def _short_payoff_repeats_process_action(value: object) -> bool:
+    """Keep a Short payoff on the visible result, not another planning/writing step."""
+    return bool(_SHORT_PAYOFF_PROCESS_RE.search(str(value or "")))
 
 
 def _has_semantic_proof(cues: list[str]) -> bool:
@@ -620,6 +640,11 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             for item in (raw.get("semantic_must_have") or [])
             if " ".join(str(item).split()).strip()
         ][:4]
+        if str(plan.get("_visual_no_face_semantic_contract") or "") == "v1":
+            semantic_must_have = [
+                cue for cue in semantic_must_have
+                if not _is_face_dependent_semantic_cue(cue)
+            ]
         semantic_should_avoid = [
             " ".join(str(item).split()).strip()[:120]
             for item in (raw.get("semantic_should_avoid") or [])
@@ -839,7 +864,40 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             "visual_story must cover every planned section: missing=" + ",".join(missing)
         )
 
-    # Visual-family repetition is enforced after Writer binding, immediately
+    # Fresh Short plans fail early when one action family dominates the story.
+    # This keeps a provider from passing Planning with seven distinct query strings
+    # that are still visually the same stationery/writing scene.
+    if str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
+        family_uses: dict[str, int] = {}
+        for beat in beats:
+            family = _beat_action_family(beat)
+            if family:
+                family_uses[family] = family_uses.get(family, 0) + 1
+                if family_uses[family] > _ACTION_FAMILY_MAX_USES:
+                    raise ValueError(
+                        "visual_story Short visual family exceeds two beats: "
+                        f"{family}"
+                    )
+
+        payoff = beats[-1] if beats else {}
+        payoff_family = _beat_action_family(payoff)
+        earlier_same_family = any(
+            _beat_action_family(beat) == payoff_family
+            for beat in beats[:-1]
+        ) if payoff_family else False
+        if (
+            payoff_family == "stationery"
+            and earlier_same_family
+            and _short_payoff_repeats_process_action(
+                payoff.get("shot_intent") or payoff.get("stock_query_en")
+            )
+        ):
+            raise ValueError(
+                "visual_story Short payoff must show the visible result/state, "
+                "not another writing/planning/checklist action"
+            )
+
+    # Visual-family repetition is also enforced after Writer binding, immediately
     # before retrieval, so legacy/compatibility stories can still be normalized
     # without weakening the production gate.
     ai_still_count = sum(
@@ -1045,7 +1103,11 @@ def bind_visual_story_to_script(
                     _strip_embedded_text_request(item)
                     for item in (beat.get("semantic_must_have") or [])
                 )
-                if cue and not _EMBEDDED_TEXT_REQUEST_RE.search(cue)
+                if (
+                    cue
+                    and not _EMBEDDED_TEXT_REQUEST_RE.search(cue)
+                    and not _is_face_dependent_semantic_cue(cue)
+                )
             ][:4]
             avoids = [
                 str(item).strip()
