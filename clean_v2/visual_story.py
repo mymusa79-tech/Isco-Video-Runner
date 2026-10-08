@@ -622,7 +622,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
 
     beats: list[dict[str, str]] = []
     seen_ids: set[str] = set()
-    seen_queries: set[str] = set()
+    seen_queries: dict[str, str] = {}
     seen_intents: set[str] = set()
     per_section = {section_id: 0 for section_id in section_ids}
     prior_section_index = -1
@@ -826,14 +826,19 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
                     stock_query_en = fallback_query
                     query_key = fallback_key
             if not query_key or query_key in seen_queries:
-                raise ValueError(
+                error = ValueError(
                     "visual_story stock_query_en values must be distinct per beat"
                 )
+                error.planning_repair_context = {
+                    "beat_id": beat_id,
+                    "conflicting_beat_id": seen_queries.get(query_key, ""),
+                }
+                raise error
             if intent_key in seen_intents:
                 raise ValueError(
                     "visual_story viewer_intent values must add new information per beat"
                 )
-        seen_queries.add(query_key)
+        seen_queries[query_key] = beat_id
         seen_intents.add(intent_key)
         beats.append(
             {
