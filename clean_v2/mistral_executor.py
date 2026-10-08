@@ -13,8 +13,6 @@ import hashlib
 import json
 import os
 import socket
-import threading
-import time
 import urllib.error
 import urllib.request
 from contextvars import ContextVar
@@ -28,24 +26,6 @@ MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_TIMEOUT_SECONDS = 120
 MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "narrative_identity", "script", "script_patch", "visual_query_recovery", "text_audit"})
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
-
-# Mistral's free tier admits roughly one request per second. Run 188 sent the planning
-# validator-retry 0.46 s after the first planning call and got an HTTP 429 with no
-# Retry-After header; the router then treated Mistral as exhausted for the whole run and
-# the repair it was built for never happened. Space consecutive requests by a little more
-# than one second. This adds no calls; it only delays one that would otherwise be refused.
-MISTRAL_MIN_REQUEST_INTERVAL_SECONDS = 1.2
-_PACE_LOCK = threading.Lock()
-_LAST_REQUEST_AT: list[float] = [0.0]
-
-
-def _pace_request() -> None:
-    with _PACE_LOCK:
-        wait = _LAST_REQUEST_AT[0] + MISTRAL_MIN_REQUEST_INTERVAL_SECONDS - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        _LAST_REQUEST_AT[0] = time.monotonic()
-
 
 _TELEMETRY: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "isco_clean_v2_mistral_executor_telemetry",
@@ -159,6 +139,20 @@ def _usage(body: object) -> dict[str, Any] | None:
     return usage or None
 
 
+def _error_diagnostic(body: object) -> dict[str, str] | None:
+    """Bounded provider error fields for non-2xx replies (never request content)."""
+    if not isinstance(body, dict):
+        return None
+    fields: dict[str, str] = {}
+    for name in ("type", "code", "message"):
+        value = body.get(name)
+        if value is None and isinstance(body.get("error"), dict):
+            value = body["error"].get(name)
+        if isinstance(value, (str, int)) and str(value).strip():
+            fields[name] = " ".join(str(value).split())[:300]
+    return fields or None
+
+
 def _record_telemetry(
     *,
     task_kind: str,
@@ -178,6 +172,10 @@ def _record_telemetry(
         "rate_limit_headers": _rate_limit_headers(headers),
         "usage": _usage(body),
     }
+    if int(http_status) >= 400:
+        diagnostic = _error_diagnostic(body)
+        if diagnostic:
+            entry["error"] = diagnostic
     _TELEMETRY.set((*_TELEMETRY.get(), entry))
     print(
         "Mistral Clean V2 executor telemetry: "
@@ -258,7 +256,6 @@ def mistral_executor_json(
             "User-Agent": "Isco-Clean-V2-Mistral-Executor/1",
         },
     )
-    _pace_request()
     try:
         with urllib.request.urlopen(
             request,
