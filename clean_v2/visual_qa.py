@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -79,6 +80,35 @@ def _recovery_source_preference(beat: Mapping[str, Any], query: str) -> str:
     ):
         return "stock_still"
     return "stock_motion"
+
+
+def _review_display_durations(output_dir: Path, rights: list[dict[str, Any]], fmt: str) -> dict[str, float]:
+    """Reuse the renderer's measured allocation; do not create another timeline.
+
+    Legacy fixtures without a measured Timeline First keep whole-source sampling.
+    Every primary and replacement in one slot uses the same display window.
+    """
+    if not (output_dir / "visual-story.json").is_file():
+        return {}
+    try:
+        timeline = json.loads((output_dir / "timeline-first.json").read_text(encoding="utf-8"))
+        seconds = float(timeline.get("voice_seconds_measured") or 0.0)
+    except (OSError, ValueError, AttributeError):
+        return {}
+    if timeline.get("status") != "pass" or not math.isfinite(seconds) or seconds <= 0:
+        return {}
+    from clean_v2.media import (
+        _section_slot_durations, _pacing_section_ids,
+        _enforce_short_hook_shot_cap, _timeline_hook_end_seconds,
+    )
+    paths = [output_dir / "visuals" / str(row.get("local_file") or "") for row in rights]
+    durations = _section_slot_durations(output_dir, paths, seconds)
+    if fmt == "short":
+        paths, durations = _enforce_short_hook_shot_cap(
+            paths, durations, _pacing_section_ids(output_dir, paths),
+            hook_seconds=_timeline_hook_end_seconds(output_dir),
+        )
+    return {path.name: value for path, value in zip(paths, durations) if math.isfinite(value) and value > 0}
 
 
 def _can_retain_safe_best_available_primary(
@@ -680,6 +710,7 @@ def run_final_cut_visual_qa(
     audited_selected_clip_count = 0
     hook_floor: float | None = None
     previous_observation = ""
+    display_durations = _review_display_durations(output_dir, rights, fmt)
 
     def review_clip(
         *,
@@ -707,11 +738,18 @@ def run_final_cut_visual_qa(
                 "letters, captions, buttons, CTA, SUBSCRIBE/LIKE graphics, UI, logos, "
                 "or watermarks may appear anywhere in the frame."
             ).strip()
+        evidence_options: dict[str, Any] = {}
+        if fmt in {"short", "film", "podcast"}:
+            evidence_options["display_aspect_ratio"] = (9, 16) if fmt == "short" else (16, 9)
+        display_seconds = display_durations.get(str(row.get("local_file") or ""))
+        if display_seconds is not None:
+            evidence_options["duration_limit_seconds"] = display_seconds
         canonical_evidence = build_canonical_visual_evidence(
             clip,
             evidence_root / f"{index:02d}-{section_id}-c{clip_position:02d}{suffix}",
             narration_context=narration_context,
             intended_visual=review_intended_visual,
+            **evidence_options,
         )
         task_suffix = (
             f"_RECOVERY_{max(1, int(recovery_candidate_index or 1)):02d}"
@@ -809,6 +847,8 @@ def run_final_cut_visual_qa(
                 "candidate_id": row.get("asset_id"),
                 "from_cache": False,
                 "intended_visual": review_intended_visual,
+                "review_duration_limit_seconds": display_seconds,
+                "review_display_aspect_ratio": evidence_options.get("display_aspect_ratio"),
                 "fit_score_10": round(floor * 10.0, 3),
                 "review_origin": (
                     "clean_v2_semantic_recovery_cloud_visual_qa"

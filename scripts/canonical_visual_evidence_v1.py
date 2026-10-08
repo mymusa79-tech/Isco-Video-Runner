@@ -10,6 +10,7 @@ by every Vision provider. No provider is allowed to resample a compressed review
 import base64
 import hashlib
 import json
+import math
 import os
 import subprocess
 from dataclasses import dataclass
@@ -182,7 +183,22 @@ def _duration(path: Path) -> float:
     return duration
 
 
-def _extract_frame(source: Path, dest: Path, timestamp: float) -> None:
+def _extract_frame(
+    source: Path, dest: Path, timestamp: float,
+    *, display_aspect_ratio: tuple[int, int] | None = None,
+) -> None:
+    filters = []
+    if display_aspect_ratio is not None:
+        width, height = display_aspect_ratio
+        if width <= 0 or height <= 0:
+            raise ValueError("Visual evidence display ratio must be positive")
+        # The renderer scales to fill then center-crops. Crop the same visible
+        # rectangle in original pixels before transport scaling, without grading.
+        filters.append(
+            f"crop=w=trunc(min(iw\\,ih*{width}/{height})/2)*2:"
+            f"h=trunc(min(ih\\,iw*{height}/{width})/2)*2"
+        )
+    filters.append(f"scale=min({MAX_FRAME_WIDTH}\\,iw):-2:force_original_aspect_ratio=decrease")
     subprocess.run(
         [
             "ffmpeg",
@@ -196,7 +212,7 @@ def _extract_frame(source: Path, dest: Path, timestamp: float) -> None:
             "-frames:v",
             "1",
             "-vf",
-            f"scale=min({MAX_FRAME_WIDTH}\\,iw):-2:force_original_aspect_ratio=decrease",
+            ",".join(filters),
             "-q:v",
             str(JPEG_QUALITY),
             "-map_metadata",
@@ -222,6 +238,8 @@ def build_canonical_visual_evidence(
     *,
     narration_context: str,
     intended_visual: str,
+    duration_limit_seconds: float | None = None,
+    display_aspect_ratio: tuple[int, int] | None = None,
 ) -> CanonicalVisualEvidence:
     source = Path(source)
     bundle_dir = Path(bundle_dir)
@@ -230,12 +248,23 @@ def build_canonical_visual_evidence(
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
     duration = _duration(source)
+    window_seconds = duration
+    if duration_limit_seconds is not None:
+        limit = float(duration_limit_seconds)
+        if not math.isfinite(limit) or limit <= 0:
+            raise ValueError("Visual evidence duration limit must be finite and positive")
+        window_seconds = min(duration, limit)
     frame_paths: list[Path] = []
     frame_hashes: list[str] = []
+    timestamps: list[float] = []
     for index, fraction in enumerate(FRAME_POSITIONS, start=1):
-        timestamp = min(max(0.0, duration * fraction), max(0.0, duration - 0.001))
+        timestamp = min(max(0.0, window_seconds * fraction), max(0.0, duration - 0.001))
         frame_path = bundle_dir / f"frame-{index:02d}.jpg"
-        _extract_frame(source, frame_path, timestamp)
+        if display_aspect_ratio is None:
+            _extract_frame(source, frame_path, timestamp)
+        else:
+            _extract_frame(source, frame_path, timestamp, display_aspect_ratio=display_aspect_ratio)
+        timestamps.append(timestamp)
         frame_paths.append(frame_path)
         frame_hashes.append(_sha256_file(frame_path))
 
@@ -257,6 +286,10 @@ def build_canonical_visual_evidence(
         "evidence_version": EVIDENCE_VERSION,
         "source_sha256": evidence.source_sha256,
         "frame_positions": list(FRAME_POSITIONS),
+        "frame_timestamps_seconds": timestamps,
+        "sampling_window_seconds": window_seconds,
+        "source_duration_seconds": duration,
+        "display_aspect_ratio": list(display_aspect_ratio) if display_aspect_ratio else None,
         "frame_sha256": list(evidence.frame_sha256),
         "prompt_hash": evidence.prompt_hash,
         "input_hash": evidence.input_hash(),

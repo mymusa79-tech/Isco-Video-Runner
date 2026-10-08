@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import copy
+import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 import urllib.parse
@@ -251,6 +254,85 @@ class VisualProofContextTests(unittest.TestCase):
         self.assertEqual(outcome["intended_visual_calls"][0], outcome["intended_visual_calls"][1])
         self.assertIn(qa_fixtures.VisualQASemanticRecoveryTests.ORIGINAL_QUERY, outcome["intended_visual_calls"][1])
         self.assertNotIn(qa_fixtures.VisualQASemanticRecoveryTests.ALTERNATE_QUERY, outcome["intended_visual_calls"][1])
+
+
+class DisplayWindowEvidenceTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+    def test_actual_frames_match_visible_prefix_and_center_crop_not_unused_later_action(self):
+        # The source has red at its left edge and turns green AFTER the two
+        # seconds shown. Neither can be used as proof in this portrait slot.
+        def rgb_mean(path):
+            raw = subprocess.check_output(["ffmpeg", "-v", "error", "-i", str(path), "-frames:v", "1",
+                                           "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
+            return tuple(sum(raw[channel::3]) / len(raw[channel::3]) for channel in range(3))
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            source = root / "source.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=640x360:r=10:d=2",
+                            "-f", "lavfi", "-i", "color=c=green:s=640x360:r=10:d=4", "-filter_complex",
+                            "[0:v]drawbox=x=0:y=0:w=100:h=360:color=red:t=fill[a];[a][1:v]concat=n=2:v=1:a=0[v]",
+                            "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(source)],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            bundle = evidence.build_canonical_visual_evidence(source, root / "bundle", narration_context="ctx", intended_visual="blue scene",
+                                                               duration_limit_seconds=2.0, display_aspect_ratio=(9, 16))
+            manifest = json.loads((root / "bundle" / "evidence.json").read_text())
+            self.assertEqual(manifest["sampling_window_seconds"], 2.0)
+            self.assertEqual(manifest["frame_timestamps_seconds"], [.36, 1.0, 1.64])
+            self.assertEqual(manifest["display_aspect_ratio"], [9, 16])
+            self.assertEqual(len(bundle.frame_sha256), 3)
+            for frame in bundle.frame_paths:
+                red, green, blue = rgb_mean(frame)
+                self.assertLess(red, 10)
+                self.assertLess(green, 10)
+                self.assertGreater(blue, 230)
+            rendered = media._trim_and_grade_clip(source, root / "rendered.mp4", width=90, height=160, seconds=2.0, grade_filter="")
+            evidence._extract_frame(rendered, root / "rendered.jpg", 1.0)
+            self.assertTrue(all(abs(a - b) < 4 for a, b in zip(rgb_mean(bundle.frame_paths[1]), rgb_mean(root / "rendered.jpg"))))
+
+    def test_shorter_source_never_extrapolates_beyond_real_pixels(self):
+        def extract(source, dest, timestamp):
+            Path(dest).write_bytes(str(timestamp).encode())
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "clip.mp4"
+            source.write_bytes(b"clip")
+            with mock.patch.object(evidence, "_duration", return_value=2.0), mock.patch.object(evidence, "_extract_frame", side_effect=extract) as frames:
+                evidence.build_canonical_visual_evidence(source, Path(root) / "bundle", narration_context="ctx", intended_visual="intent", duration_limit_seconds=10.0)
+            self.assertEqual([c.args[2] for c in frames.call_args_list], [.36, 1.0, 1.64])
+
+    def test_invalid_window_cannot_create_visual_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "clip.mp4"
+            source.write_bytes(b"clip")
+            with mock.patch.object(evidence, "_duration", return_value=6.0), mock.patch.object(evidence, "_extract_frame") as frames:
+                for limit in (0, -1, float("nan"), float("inf")):
+                    with self.subTest(limit=limit), self.assertRaises(ValueError):
+                        evidence.build_canonical_visual_evidence(source, Path(root) / "bundle", narration_context="ctx", intended_visual="intent", duration_limit_seconds=limit)
+                frames.assert_not_called()
+
+    def test_measured_short_window_reuses_renderer_weights_and_hook_cap(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            (root / "visual-story.json").write_text("{}")
+            rights = [{"local_file": f"v{i}.mp4", "section_id": "s1" if i < 4 else "s2"} for i in range(1, 6)]
+            (root / "rights-manifest.json").write_text(json.dumps({"assets": rights}))
+            (root / "timeline-first.json").write_text(json.dumps({"status": "pass", "voice_seconds_measured": 30,
+                "section_events": [{"section_id": "s1", "start": 0, "end": 18}, {"section_id": "s2", "start": 18, "end": 30}],
+                "identity_events": [{"kind": "hook", "start": 0, "end": 6}]}))
+            windows = visual_qa._review_display_durations(root, rights, "short")
+            self.assertAlmostEqual(windows["v1.mp4"], 2.0)
+            self.assertAlmostEqual(windows["v2.mp4"], 2.0)
+            self.assertAlmostEqual(windows["v3.mp4"], 14.36)
+            self.assertAlmostEqual(windows["v4.mp4"], 6.12)
+            for fmt in ("film", "podcast"):
+                windows = visual_qa._review_display_durations(root, rights, fmt)
+                self.assertAlmostEqual(windows["v1.mp4"], 6.12)
+                self.assertAlmostEqual(windows["v5.mp4"], 6.12)
+
+    def test_primary_and_replacement_keep_same_slot_window(self):
+        with mock.patch.object(visual_qa, "_review_display_durations", return_value={"visual-03.mp4": 2.0}):
+            outcome = qa_fixtures.VisualQASemanticRecoveryTests()._run_case(recovery_relevance=.92)
+        self.assertEqual([a["review_duration_limit_seconds"] for a in outcome["audits"]], [2.0, 2.0])
+        self.assertEqual([a["review_display_aspect_ratio"] for a in outcome["audits"]], [[16, 9], [16, 9]])
 
 
 class AllTemplatesVisualEvidenceTests(unittest.TestCase):
