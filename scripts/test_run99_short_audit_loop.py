@@ -4,7 +4,13 @@ import unittest
 from unittest import mock
 
 from clean_v2 import providers
-from clean_v2.pipeline import (\n    _short_locked_action_repair_allowed,\n    _tone_repair_issue_notes,\n    _repair_target_section_ids,\n    _required_semantic_repair_section_ids,\n)\nfrom clean_v2.short_format import (
+from clean_v2.pipeline import (
+    _short_locked_action_repair_allowed,
+    _tone_repair_issue_notes,
+    _repair_target_section_ids,
+    _required_semantic_repair_section_ids,
+)
+from clean_v2.short_format import (
     ShortFormatError,
     normalize_short_practical_action,
     validate_short_practical_action_specificity,
