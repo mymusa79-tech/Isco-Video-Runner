@@ -611,6 +611,77 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             getattr(caught.exception, "terminal_provider_fallback", False)
         )
 
+    def test_run102_authorized_wide_s3_patch_is_non_terminal_and_later_patches_survive(self):
+        action = "حدد خيارًا واحدًا الآن."
+        plan = {
+            "title": "اختبار",
+            "practical_action_ar": action,
+            "s3_locked_action": action,
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "store"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "tabs"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "choice"},
+            ],
+        }
+        payoff = "ستجد أن الحسم أصبح أسهل وأكثر راحة."
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "لماذا تتوقف عن الاختيار كلما زادت البدائل أمامك؟"},
+                {"id": "s2", "narration": "المقارنة المستمرة تجعل كل بديل يبدو كخسارة محتملة لبديل آخر."},
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+        revision = (
+            "- [tone] content_dependency:s3 الخاتمة منفصلة عن مبدأ الاكتفاء بخيار مناسب.\n"
+            "- [tone] content_depth:s3 practical_action_generic: الإجراء عام ولا يكبح البحث عن الخيار المثالي."
+        )
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        # Malformed provider patch spanning payoff + locked action:
+                        # authorized action repair must reject it locally, not abort
+                        # the whole provider candidate as a terminal route failure.
+                        "section_id": "s3",
+                        "find": f"{payoff} {action}",
+                        "replace": "حين تقبل خيارًا مناسبًا بدل مطاردة المثالي، يصبح القرار أخف. اختر البديل الذي يفي بحاجتك الآن.",
+                    },
+                    {
+                        "section_id": "s3",
+                        "find": payoff,
+                        "replace": "معيار الكفاية بدل الكمال يخفف ثقل الحسم ويزيد وضوحه.",
+                    },
+                    {
+                        "section_id": "s3",
+                        "find": action,
+                        "replace": "اختر بديلًا واحدًا يفي بحاجتك الآن.",
+                    },
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+            allowed_section_ids=("s3",),
+            is_short_format=True,
+            allow_short_locked_action_repair=True,
+            required_changed_section_ids=("s3",),
+        )
+        closing = repaired["sections"][2]
+        self.assertIn("معيار الكفاية بدل الكمال", closing["s3_payoff"])
+        self.assertEqual(
+            closing["s3_locked_action"],
+            "اختر بديلًا واحدًا يفي بحاجتك الآن.",
+        )
+        self.assertTrue(closing["narration"].endswith(closing["s3_locked_action"]))
+
     def test_run37_harmless_short_s3_payoff_patch_still_passes(self):
         # No false positive: a repair that leaves the action sentence intact
         # and only rewords the payoff clause must still be accepted.

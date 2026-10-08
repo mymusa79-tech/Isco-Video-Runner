@@ -2826,7 +2826,17 @@ def _validate_and_apply_script_patches(
             ):
                 if locked_text and locked_text in find and replace.count(locked_text) != 1:
                     raise ValueError(f"script patch changed locked {locked_name}")
-        except _ShortLockedActionPatchRejected:
+        except _ShortLockedActionPatchRejected as exc:
+            # If the audit explicitly opened the Planning-owned Short action,
+            # a provider can still return an over-broad s3 patch that crosses
+            # the payoff/action seam. That is a malformed patch, not a reason
+            # to make the entire repair route terminal: keep any other valid
+            # bounded patches in the same response and let provider fallback
+            # try again when none survive. The lock remains terminal when the
+            # audit did NOT authorize action repair.
+            if allow_short_locked_action_repair:
+                failure_reasons.append(str(exc))
+                continue
             raise
         except ValueError as exc:
             failure_reasons.append(str(exc))
