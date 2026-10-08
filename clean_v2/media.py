@@ -870,7 +870,9 @@ def _render_local_short_ai_still(source: Path, destination: Path) -> Path:
 
 def _render_ai_still(source: Path, destination: Path, *, fmt: str) -> Path:
     """Turn one generated still into a restrained clip for the shared renderer."""
-    if fmt == "short":
+    # final_cut_visual_qa uses the legacy "story" label for Short clips.
+    # Acquisition and generated-still paths use "short". Both are portrait.
+    if fmt in {"short", "story"}:
         width, height = 1080, 1920
     elif fmt in {"film", "podcast"}:
         width, height = 1920, 1080
