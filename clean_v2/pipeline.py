@@ -54,6 +54,7 @@ from .short_format import (
     COLD_OPEN_AS_SCENE,
     HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
+    TEMPLATE_WRITING_DIRECTIVES,
     normalize_short_script_candidate,
     materialize_short_s3,
     normalize_short_visual_queries,
@@ -2235,8 +2236,27 @@ def _short_template_tone_repair_issue_notes(
         ),
         "",
     )
-    if not mismatch_flag:
+    # Preserve the existing inner_dialogue repair contract for any blocked
+    # inner-dialogue Short. Other templates only widen repair scope when the
+    # validated audit explicitly identifies a template mismatch.
+    if not mismatch_flag and template != "inner_dialogue":
         return ""
+
+    if template == "inner_dialogue" and not mismatch_flag:
+        lines = [
+            "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
+            "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
+            "a narrator giving instructions."
+        ]
+        lines.extend(
+            f"- [tone-template:inner_dialogue] {rule}"
+            for rule in INNER_DIALOGUE_VOICE_RULES
+        )
+        lines.append(
+            "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
+            "genuinely advance it instead of restating it."
+        )
+        return "\n".join(lines)
 
     lines = [
         f"- [tone-template:{template}] The validated audit says the current draft does not actually "
