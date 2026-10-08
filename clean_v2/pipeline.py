@@ -54,6 +54,7 @@ from .short_format import (
     COLD_OPEN_AS_SCENE,
     HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
+    TEMPLATE_WRITING_DIRECTIVES,
     normalize_short_script_candidate,
     materialize_short_s3,
     normalize_short_visual_queries,
@@ -1477,10 +1478,93 @@ def _audit_narrative_format_for_brief(
 ) -> str:
     """Bind legacy tone QA to the narrative shape Clean V2 actually selected."""
     if str(brief.get("format") or "") == "short":
-        template = str(select_short_template(brief)["template"])
+        template = str((plan or {}).get("short_template") or "")
+        if template not in TEMPLATE_WRITING_DIRECTIVES:
+            template = str(select_short_template(brief)["template"])
         return _AUDIT_NARRATIVE_FORMAT_OVERRIDES.get(template, template)
     selected = str((plan or {}).get("narrative_format") or "direct_cinematic").strip()
     return _AUDIT_NARRATIVE_FORMAT_OVERRIDES.get(selected, selected)
+
+
+def _editorial_shape_contract_context(
+    brief: Mapping[str, Any], plan: Mapping[str, Any]
+) -> str:
+    """Give the existing judge and repair the same locked writing shape.
+
+    The Engine sees Podcast as Film for legacy compatibility. Supplying the
+    actual product format and ordered section ids prevents that adapter from
+    changing the Podcast house style or treating Film s3 as the ending.
+    """
+    fmt = str(brief.get("format") or "")
+    if fmt == "short":
+        selected = str(plan.get("short_template") or "")
+        if selected not in TEMPLATE_WRITING_DIRECTIVES:
+            selected = (
+                str(select_short_template(brief)["template"])
+                if brief.get("approved_topic") else ""
+            )
+        writing = TEMPLATE_WRITING_DIRECTIVES.get(selected, "")
+    elif fmt == "podcast":
+        selected = "dialogue_qa"
+        writing = _PODCAST_FIXED_PROFILE["writing"]
+    else:
+        selected = str(plan.get("narrative_format") or "direct_cinematic")
+        profile = _LONGFORM_PROFILES.get(selected, _LONGFORM_PROFILES["direct_cinematic"])
+        writing = profile["writing"]
+    sections = [
+        {"id": str(item.get("id") or ""), "role": str(item.get("purpose") or "")}
+        for item in (plan.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    context = {
+        "product_format": fmt,
+        "selected_template": selected,
+        "writing_shape": writing,
+        "ordered_sections": sections,
+        "closing_section_id": sections[-1]["id"] if sections else "",
+        "practical_action": (
+            str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "")
+            if fmt == "short" else ""
+        ),
+    }
+    encoded = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    return "[LOCKED_EDITORIAL_SHAPE]\n" + encoded + "\n" + (
+        "Apply this SAME shape in writing, audit and repair. Assess every actual section; "
+        "the last listed section owns the ending. s3 is the ending only when it is last. "
+        "For Short, inspect the complete final practical action separately from its descriptive payoff. "
+        "For Film/Podcast, do not impose a Short action or a three-section story structure. "
+        "Keep the selected shape; do not replace it with another template.\n[/LOCKED_EDITORIAL_SHAPE]"
+    )
+
+
+def _tone_reaudit_context(
+    report: Mapping[str, Any], before: Mapping[str, Any], after: Mapping[str, Any]
+) -> str:
+    """Carry the first verdict across a technical provider handoff, in one call."""
+    old = {
+        str(s.get("id") or ""): str(s.get("narration") or "")
+        for s in (before.get("sections") or []) if isinstance(s, Mapping)
+    }
+    new = {
+        str(s.get("id") or ""): str(s.get("narration") or "")
+        for s in (after.get("sections") or []) if isinstance(s, Mapping)
+    }
+    payload = {
+        "original_provider": str(report.get("provider") or ""),
+        "original_flags": {
+            field: list(report.get(field) or []) for field in _TONE_REPAIR_FLAG_FIELDS
+        },
+        "changed_section_ids": [sid for sid in new if old.get(sid) != new[sid]],
+        "unchanged_section_ids": [sid for sid in new if old.get(sid) == new[sid]],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return "[REPAIR_VERIFICATION_CONTEXT]\n" + encoded + "\n" + (
+        "Verify that every original defect is resolved and changed wording introduces no new defect. "
+        "The original verdict is context, never a waiver: block any real evidenced remaining or new flaw. "
+        "Apply the SAME locked requirements after a provider handoff. Do not invent a new template "
+        "requirement or a word/prefix absent from the actual narration. Cite the current exact excerpt "
+        "and section for every blocking flaw, including any newly identified flaw in unchanged text.\n"
+        "[/REPAIR_VERIFICATION_CONTEXT]"
+    )
 
 
 def _build_production_plan_for_audit(
@@ -1893,6 +1977,7 @@ def _run_legacy_tone_naturalness_audit(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
     preferred_provider: str = "",
+    repair_verification_context: str = "",
 ) -> dict[str, Any]:
     # Reuse the frozen Engine's tone/naturalness prompt, semantic rules,
     # normalization, fail-closed behavior, and Approval Shopping guard.
@@ -1938,6 +2023,8 @@ def _run_legacy_tone_naturalness_audit(
         model,
         research_boundaries=_research_boundaries_context(brief),
         preferred_provider=preferred_provider,
+        editorial_shape_context=_editorial_shape_contract_context(brief, plan),
+        repair_verification_context=repair_verification_context,
     )
     validation = str(result.get("validation") or "")
     if validation != "valid":
@@ -2203,8 +2290,12 @@ def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
     if str(brief.get("format") or "").strip().casefold() != "short":
         return ""
     selection = select_short_template(brief)
-    if str(selection.get("template") or "") != "inner_dialogue":
-        return ""
+    template = str(selection.get("template") or "")
+    if template != "inner_dialogue":
+        return (
+            f"- [tone-template:{template}] Preserve the selected writing shape while "
+            f"repairing the cited defects: {TEMPLATE_WRITING_DIRECTIVES[template]}"
+        )
     lines = [
         "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
         "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
@@ -2439,11 +2530,14 @@ def _required_semantic_repair_section_ids(
     # prose diagnostics often mention a healthy context section before naming
     # the actual defect (for example "s1 hook ... but s2 pivots"). Treating
     # every sN token as a repair target broke valid bounded repairs. Clean V2's
-    # current judge already emits compact target prefixes such as
-    # content_depth:s3 and content_dependency:s2; those are unambiguous.
+    # current judge emits compact target prefixes such as content_depth:s3.
+    # Also accept whitespace around an explicit multi-section or typed target,
+    # without treating legacy prose such as "s1 hook ... but s2 pivots" as a
+    # machine-declared list of sections that must all change.
     targeted_marker = re.compile(
         r"\b(?:editorial_promise_continuity|viewer_retention_continuity|"
-        r"content_depth|content_dependency):s([1-5])\b",
+        r"content_depth|content_dependency):(?P<spacing>\s*)"
+        r"(?P<section_ids>s[1-5](?:\s*/\s*s[1-5])*)\b",
         flags=re.I,
     )
     for raw_line in str(revision_note or "").splitlines():
@@ -2451,9 +2545,18 @@ def _required_semantic_repair_section_ids(
         if not any(marker in line for marker in _SEMANTIC_TONE_REPAIR_MARKERS):
             continue
         for match in targeted_marker.finditer(line):
-            candidate = "s" + match.group(1)
-            if candidate in ordered_ids:
-                required.add(candidate)
+            ids = match.group("section_ids")
+            tail = line[match.end():]
+            if (
+                match.group("spacing")
+                and "/" not in ids
+                and tail.strip()
+                and not re.match(r"\s+[a-z_]+:", tail)
+            ):
+                continue
+            for candidate in re.findall(r"s[1-5]", ids):
+                if candidate in ordered_ids:
+                    required.add(candidate)
         if "hook_quality:" in line and any(
             field in line for field in _HOOK_OWN_TEXT_DEFECT_FIELDS
         ):
@@ -2521,7 +2624,10 @@ def _short_locked_action_repair_allowed(
     # That left the only bad field host-locked and made the one repair attempt
     # structurally incapable of succeeding. A stable audit subtype opens ONLY
     # this final action; every other host-owned lock keeps its existing rules.
-    if "content_depth:s3 practical_action_generic:" in note.casefold():
+    if re.search(
+        r"\b(?:content_depth|editorial_promise_continuity|viewer_retention_continuity):\s*s3\s+practical_action_generic:",
+        note, flags=re.I,
+    ):
         return True
     if action in note:
         return True
@@ -3255,6 +3361,8 @@ LOCKED_PLAN:
 
 The approved brief and locked plan are authoritative.
 
+{_editorial_shape_contract_context(brief, plan)}
+
 PRODUCTION_CONTEXT:
 {payload}
 
@@ -3568,6 +3676,8 @@ LOCKED_PLAN:
 
 The approved brief and locked plan are authoritative.
 
+{_editorial_shape_contract_context(brief, plan)}
+
 PRODUCTION_CONTEXT:
 {payload}
 
@@ -3862,6 +3972,7 @@ def _run_text_audit_repair_pass(
         )
         return final_report
     except CleanV2ToneContentBlock as blocked:
+        script_before_repair = copy.deepcopy(script)
         try:
             repair_report = _run_one_bounded_tone_repair(
                 output_dir=output_dir,
@@ -3908,6 +4019,9 @@ def _run_text_audit_repair_pass(
                     plan=plan,
                     script=script,
                     preferred_provider=preferred_tone_provider,
+                    repair_verification_context=_tone_reaudit_context(
+                        blocked.report, script_before_repair, script
+                    ),
                 )
                 post_factuality = _run_legacy_factuality_audit(
                     output_dir=output_dir,
@@ -5991,13 +6105,25 @@ def _script_prompt(
             "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE + "\n" + PODCAST_GEMINI_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
+        short_template = str(plan.get("short_template") or "")
+        if short_template not in TEMPLATE_WRITING_DIRECTIVES:
+            short_template = str(select_short_template(brief)["template"])
+        scene_progression = (
+            "For this scene-based template, s3 states the resulting change in that same scene; "
+            "inner_dialogue expresses that change as a discovered inner turn, not a narrator's lecture. "
+            if short_template in {"inner_dialogue", "micro_story"}
+            else ""
+        )
         length = (
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. SHORT SEMANTIC SPINE: s1 opens one exact observable blockage; "
-            "s2 adds a specific why/how or useful distinction that EXPLAINS this s1 blockage, not merely renames it; "
-            "s3 states the resulting change in that same scene before the separate locked action. "
+            "understood on first listen. SHORT SEMANTIC SPINE: follow the selected template's writing_shape: "
+            "s1 opens its exact topic-specific tension; s2 adds a specific why/how, event or interpretation "
+            "required by that template's next beat rather than merely renaming s1; "
+            "s3 earns the selected template's payoff before the separate locked action. "
+            + scene_progression +
+            "Do not impose a scene/event on why_reframe or quote_reflection, or turn micro_story into a general lecture. "
             "Do not repeat s2 as a generic payoff, claim an unsupported hidden psychological cause, "
             "or leave s3 as a dangling عندما/حين clause. Read all three sections together before returning. "
             "Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
@@ -6220,7 +6346,10 @@ def _podcast_word_guidance(section_count: int) -> str:
         f"In spoken words, the 6-10 minute range is about {low}-{high} words in total, and the absolute floor for the whole "
         f"episode is {PODCAST_MIN_ESTIMATED_WORDS} words, which for this plan's {sections} section(s) is about "
         f"{per_section_floor} words per section at the very least. Let the real depth of this topic decide where the episode "
-        "lands; use these only as a check against a too-short draft, never as a target to pad toward."
+        "lands; use these only as a check against a too-short draft, never as a target to pad toward. "
+        "Before returning, count the COMPLETE spoken episode by whitespace, excluding A:/B: speaker labels "
+        f"and {PODCAST_PRAYER_MARKER}. If below the existing floor, develop missing reasoning in B answers "
+        "inside this same response; keep A questions concise. Do not return a condensed summary as the full episode."
     )
 
 
@@ -6246,18 +6375,24 @@ def _route_script_with_single_podcast_length_repair(
     if estimated_seconds >= PODCAST_MIN_ESTIMATED_SECONDS:
         return script
     previous_words = _podcast_script_word_count(script)
+    previous_script_json = json.dumps(script, ensure_ascii=False, separators=(",", ":"))
 
     repair_prompt = (
         prompt
         + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
         + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes "
         + f"({previous_words} words), below the 4-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
+        + f"Its minimum depth deficit is {PODCAST_MIN_ESTIMATED_WORDS - previous_words} spoken words. "
         + _podcast_word_guidance(len(script.get("sections") or [])) + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
         + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
         + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
         + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
         + "repetition, generic advice, extra CTAs, or new unsupported claims. Aim naturally for the existing 6-10 "
-        + "minute editorial range; the 4-minute value is only a floor, never a duration target."
+        + "minute editorial range; the 4-minute value is only a floor, never a duration target. "
+        + "The exact current draft is attached below: preserve its valid reasoning and expand the B answers "
+        + "where reasoning is missing; do not regenerate another condensed summary from the plan alone. "
+        + "Return the complete corrected script JSON, not a patch or a summary.\n"
+        + "[CURRENT_PODCAST_SCRIPT]\n" + previous_script_json + "\n[/CURRENT_PODCAST_SCRIPT]"
     )
 
     def validate_repair(value: Any) -> dict[str, Any]:
