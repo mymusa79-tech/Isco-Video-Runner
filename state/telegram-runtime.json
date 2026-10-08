@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37693297072",
-  "result": "failure",
-  "updated_at": 1791410924
+  "topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37706855179",
+  "result": "",
+  "updated_at": 1791418584
 }
