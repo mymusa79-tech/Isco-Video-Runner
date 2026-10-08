@@ -9,6 +9,7 @@ from clean_v2.short_format import (
     ShortFormatError,
     normalize_short_practical_action,
     validate_short_practical_action_specificity,
+    validate_short_s3_contract,
 )
 from clean_v2.tone_audit import (
     _LEGACY_RELIGIOUS_QUOTE_RULE,
@@ -49,6 +50,22 @@ class Run99ShortActionTests(unittest.TestCase):
             validate_short_practical_action_specificity(
                 "اختر خطوة واحدة واضحة اليوم.",
                 topic_context="متى تتحول الراحة إلى هروب؟",
+            )
+
+    def test_run102_descriptive_choice_noun_is_not_hidden_action(self):
+        report = validate_short_s3_contract(
+            "حين يهدأ البحث عن المثالي، يصبح الاختيار أسهل وأوضح.",
+            "حدد معيارًا واحدًا يكفيك قبل مقارنة الخيارات.",
+        )
+        self.assertIn("الاختيار", report["s3_payoff"])
+
+    def test_run102_choice_imperative_remains_forbidden_in_payoff(self):
+        with self.assertRaisesRegex(
+            ShortFormatError, "short_s3_payoff_contains_forbidden_action_family"
+        ):
+            validate_short_s3_contract(
+                "اختر ما يكفيك ثم تجاهل الباقي.",
+                "حدد معيارًا واحدًا يكفيك قبل مقارنة الخيارات.",
             )
 
 
