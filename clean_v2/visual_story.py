@@ -1374,3 +1374,54 @@ def contextual_intent(
             essential.append("Repeat:changed-state")
         head = ". ".join(essential) + "."
     return head[:head_limit].rstrip() + tail
+
+
+def visual_review_context(
+    visual_story: Mapping[str, Any],
+    beat_id: str,
+    fallback_intent: str,
+    *,
+    previous_observation: str = "",
+) -> str:
+    """Keep the real action/proof intact inside the existing cloud review call.
+
+    The legacy 300-character synopsis remains available for Engine compatibility.
+    Canonical evidence has its own prompt and can preserve one bounded full beat.
+    Retrieval queries never replace the immutable editorial meaning.
+    """
+    beats = [b for b in visual_story.get("beats", []) if isinstance(b, Mapping)]
+    index = next((i for i, b in enumerate(beats) if str(b.get("id") or "") == beat_id), None)
+    if index is None:
+        return str(fallback_intent or "").strip()[:300]
+    beat = beats[index]
+    core = [
+        "Visual proof contract v2",
+        f"Role:{_context_fragment(beat.get('role'), 'body', 12)}",
+        f"Current: {_context_fragment(beat.get('shot_intent') or fallback_intent, 'visible action', 220)}",
+        f"Meaning:{_context_fragment(beat.get('meaning_target') or beat.get('viewer_intent'), 'specific meaning', 180)}",
+        "Must show:" + ", ".join(
+            _context_fragment(cue, "", 110)
+            for cue in list(beat.get("semantic_must_have") or [])[:4]
+        ),
+        "Avoid:" + ", ".join(
+            _context_fragment(cue, "", 65)
+            for cue in list(beat.get("semantic_should_avoid") or [])[:4]
+        ),
+    ]
+    if previous_observation:
+        # This comes from the SAME already-completed Vision verdict, not the Plan's
+        # guessed family. Replacements must not resurrect an adjacent old family.
+        core.append("Previous accepted observation: " + _context_fragment(previous_observation, "", 190))
+    elif index > 0:
+        core.append("Previous: " + _context_fragment(beats[index - 1].get("shot_intent"), "", 100))
+    else:
+        core.append("Previous: story opening")
+    if index + 1 < len(beats):
+        core.append("Next: " + _context_fragment(beats[index + 1].get("shot_intent"), "", 100))
+    else:
+        core.append("Next: story arrival")
+    core.append("Same hook-to-payoff arc: judge continuity")
+    core.append("Judge specific meaning before mood; repeated actual family requires visible state change.")
+    # Limits above keep every cue before optional continuity text, with room for
+    # the AI image-only policy appended by the caller.
+    return ". ".join(core)[:1600]
