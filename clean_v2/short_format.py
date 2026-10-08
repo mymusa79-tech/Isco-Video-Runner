@@ -1288,6 +1288,9 @@ def normalize_short_practical_action(value: object) -> str:
     original = _clean(value)
     if not original:
         return original
+    # Run 103: repair this unambiguous agreement error before the action is
+    # host-locked. This changes neither its meaning nor its one-action shape.
+    original = re.sub(r"(?<![\w])هذه\s+الأسبوع(?![\w])", "هذا الأسبوع", original)
     # Provider prose occasionally leaves a decorative dash after the sentence
     # (Run 99). Strip only terminal dash glyphs; never alter authored words.
     original = re.sub(r"\s*[-–—]+\s*$", "", original).strip()
@@ -2131,3 +2134,4 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "narrative_identity": "not_applicable",
         "opening_director": "not_applicable",
     }
+

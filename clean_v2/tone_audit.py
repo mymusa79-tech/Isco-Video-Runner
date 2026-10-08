@@ -92,6 +92,23 @@ _RELIGIOUS_QUOTE_SCOPE_CLARIFICATION = (
     "religious authority/content that requires source verification."
 )
 
+_LEGACY_FRAGMENT_RULE = (
+    "   Pay special attention to the closing/payoff line (s3/final section): flag any sentence that opens with a\n"
+    "   conjunction (e.g. \"و\") directly attached to a verbal noun/gerund (masdar) with no independent verb anywhere in the\n"
+    "   sentence - e.g. \"وتقليل الخيارات إلى ما هو مهم فعلاً\" is a dangling fragment, not a complete sentence, even though\n"
+    "   it reads fluently at a glance. A correct version uses an actual verb or imperative, e.g.\n"
+    "   \"فقلّل الخيارات إلى ما هو مهم فعلاً\". This exact failure mode has shipped to production before (Telegram Run #74)\n"
+    "   and must not pass silently."
+)
+_ARABIC_SENTENCE_RULE = (
+    "   Inspect sentence completeness, including the actual final section. A complete Arabic nominal sentence\n"
+    "   needs a subject and predicate, not a finite verb. For example «وتدوين خطواتك الشخصية هو وسيلة لتقدير تقدمك»\n"
+    "   is a complete nominal sentence; assess any separate overclaim on its own merits. A bare masdar phrase such as\n"
+    "   «وتقليل الخيارات إلى ما هو مهم فعلاً» without a predicate or completing clause is a real fragment.\n"
+    "   Flag only the actual incomplete construction and quote it exactly. Never assume an implied opening «و»\n"
+    "   or another word absent from the draft. Keep real grammar, agreement and completeness defects blocking."
+)
+
 
 def _scope_religious_quote_prompt(prompt: str) -> str:
     """Clarify quotation scope without weakening the legacy verified-source rule."""
@@ -108,9 +125,13 @@ def _scope_clean_v2_tone_prompt(
     prompt: str,
     *,
     research_boundaries: str = "",
+    editorial_shape_context: str = "",
+    repair_verification_context: str = "",
 ) -> str:
     """Keep the semantic judge strict while respecting the approved evidence ceiling."""
-    scoped = _scope_religious_quote_prompt(prompt)
+    scoped = _scope_religious_quote_prompt(prompt).replace(
+        _LEGACY_FRAGMENT_RULE, _ARABIC_SENTENCE_RULE, 1
+    )
     evidence_scope = ""
     if research_boundaries.strip():
         evidence_scope = """
@@ -135,8 +156,8 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   naturally inside its existing anchor section.
 - The narrative identity opener/closer are host-owned exact phrases. Do not request
   rewriting them; judge only the surrounding spoken transition.
-- ONE-PASS COMPLETE DEFECT INVENTORY — before the FIRST verdict, examine s1 hook, s2 explanatory
-  advance, s3 payoff AND the host-owned final practical action independently. Do not stop after
+- ONE-PASS COMPLETE DEFECT INVENTORY — before the FIRST verdict, examine the opening hook, EVERY actual
+  body section, and the actual final payoff independently; for Short also inspect the final practical action. Do not stop after
   spotting one grammar defect: report every independently supported blocking flaw at once, with
   its correct section id and stable marker (content_depth:s2, content_depth:s3
   practical_action_generic:, hook_quality:, or content_dependency:s2/s3 as applicable). The
@@ -153,6 +174,8 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   «تتحرر من الضغط حين تدرك السبب» is grammatical; do not call it a dangling
   «حين» fragment merely because it contains a subordinate clause. Judge the actual Arabic syntax,
   not the surface prefix.
+  A complete Arabic nominal sentence can have a subject and predicate without a finite verb.
+  Do not invent an implied conjunction, verb or prefix absent from the quoted draft.
   For every such defect, add one naturalness_flags item that includes the affected section id
   (s1/s2/...) and a short exact excerpt from the draft. Do not flag stylistic preference as grammar.
   Never emit a correction whose proposed replacement is textually identical to the quoted original
@@ -227,7 +250,57 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   * Add these three fields to the SAME JSON object: "filler_flags" (array of
     strings), "payoff_earned" (boolean), "cold_open_story_violation" (boolean).
 [/CLEAN_V2_TONE_SCOPE]
-""".strip() + ("\n\n" + evidence_scope if evidence_scope else "")
+""".strip() + "\n\n" + _ARABIC_SENTENCE_RULE + (
+        "\n\n" + evidence_scope if evidence_scope else ""
+    ) + ("\n\n" + editorial_shape_context if editorial_shape_context else "") + (
+        "\n\n" + repair_verification_context if repair_verification_context else ""
+    )
+
+
+_ASSERTED_ARABIC_PREFIX = re.compile(
+    r"(?:starts? with|starting with|begins? with|beginning with)\s+"
+    r"(?:a\s+conjunction\s*)?\(?\s*['\"«](و|حين|عندما|مما|إذا)['\"»]",
+    re.I,
+)
+
+
+def _ground_syntax_flags(result: dict[str, Any], sections: dict[str, str]) -> dict[str, Any]:
+    """Discard only a provably false claim about an exact excerpt's prefix.
+
+    This is not a grammar checker or a semantic override. Unlocated flags,
+    real fragments, other grammar errors and every other quality dimension
+    retain the existing blocking behavior.
+    """
+    flags = result.get("naturalness_flags")
+    if not isinstance(flags, list) or not sections:
+        return result
+    kept, removed = [], []
+    for raw in flags:
+        flag = str(raw)
+        assertion = _ASSERTED_ARABIC_PREFIX.search(flag)
+        sid = re.search(r"\bs[1-5]\b", flag)
+        text = sections.get(sid.group(0), "") if sid else ""
+        quotes = re.findall(r"['\"«]([^'\"»]{8,500})['\"»]", flag)
+        surface = re.sub(r"^\s*[AB]:\s*", "", text).lstrip()
+        excerpt = next((q for q in quotes if surface.startswith(q)), "")
+        if assertion and excerpt:
+            actual = re.sub(r"[\u064b-\u065f\u0670]", "", excerpt.lstrip())
+            prefix = assertion.group(1)
+            starts = (prefix, "و" + prefix, "ف" + prefix) if prefix != "و" else (prefix,)
+            if not actual.startswith(starts):
+                removed.append(flag)
+                continue
+        kept.append(raw)
+    if not removed:
+        return result
+    grounded = dict(result)
+    grounded["naturalness_flags"] = kept
+    grounded["notes"] = list(result.get("notes") or []) + [
+        "Discarded false quoted-prefix claim: " + flag for flag in removed
+    ]
+    if not any(grounded.get(field) for field in _REQUIRED_ARRAYS if field != "notes"):
+        grounded["status"] = "pass"
+    return grounded
 
 
 def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
@@ -393,11 +466,17 @@ def audit_tone_and_naturalness_with_mistral(
     *,
     research_boundaries: str = "",
     preferred_provider: str = "",
+    editorial_shape_context: str = "",
+    repair_verification_context: str = "",
 ) -> dict[str, Any]:
     """Keep frozen audit semantics with the bounded Clean V2 HTTP provider route."""
     del api_key, model
     from isco_video_agent import text_audit_router, tone_quality
     from clean_v2 import providers as clean_providers
+    authored_sections = {
+        str(section.id): str(section.narration)
+        for section in getattr(plan, "sections", ())
+    }
 
     with _AUDIT_ROUTE_LOCK:
         original_route = tone_quality.route_text_audit
@@ -416,36 +495,43 @@ def audit_tone_and_naturalness_with_mistral(
 
             def gemini_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
-                    clean_providers._gemini_call(
+                    _ground_syntax_flags(clean_providers._gemini_call(
                         value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
-                    )
+                    ), authored_sections)
                 )
 
             def groq_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
-                    clean_providers._groq_call(
+                    _ground_syntax_flags(clean_providers._groq_call(
                         value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
                         schema_name="clean_v2_tone_naturalness_audit_v2",
-                    )
+                    ), authored_sections)
                 )
 
             def openrouter_call(value: str) -> dict[str, Any]:
                 return _validate_tone_result(
-                    clean_providers._openrouter_call(
+                    _ground_syntax_flags(clean_providers._openrouter_call(
                         value, 2600, response_schema=TONE_AUDIT_HTTP_SCHEMA,
                         schema_name="clean_v2_tone_naturalness_audit_v2",
-                    )
+                    ), authored_sections)
+                )
+
+            def mistral_call(value: str) -> dict[str, Any]:
+                return _validate_tone_result(
+                    _ground_syntax_flags(_mistral_tone_call(value), authored_sections)
                 )
 
             scoped_prompt = _scope_clean_v2_tone_prompt(
                 prompt,
                 research_boundaries=research_boundaries,
+                editorial_shape_context=editorial_shape_context,
+                repair_verification_context=repair_verification_context,
             )
             extended = [
                 ("gemini", gemini_call),
                 ("groq", groq_call),
                 ("openrouter", openrouter_call),
-                ("mistral", _mistral_tone_call),
+                ("mistral", mistral_call),
             ]
             # Run 90: the first Tone verdict came from Groq and found one local
             # grammar defect. The repair fixed that defect, but the composite
@@ -492,3 +578,4 @@ def audit_tone_and_naturalness_with_mistral(
             return _normalize_editorial_voice_advisory(result)
         finally:
             tone_quality.route_text_audit = original_route
+
