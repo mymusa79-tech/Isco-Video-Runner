@@ -655,7 +655,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                     {
                         "section_id": "s3",
                         "find": payoff,
-                        "replace": "حين تتوقف عن مطاردة الخيار المثالي، يصبح الحسم أخف وأكثر وضوحًا.",
+                        "replace": "معيار الكفاية بدل الكمال يجعل الحسم أخف وأكثر وضوحًا.",
                     },
                     {
                         "section_id": "s3",
@@ -675,7 +675,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             required_changed_section_ids=("s3",),
         )
         closing = repaired["sections"][2]
-        self.assertIn("مطاردة الخيار المثالي", closing["s3_payoff"])
+        self.assertIn("معيار الكفاية بدل الكمال", closing["s3_payoff"])
         self.assertEqual(
             closing["s3_locked_action"],
             "اختر بديلًا واحدًا يفي بحاجتك الآن.",
