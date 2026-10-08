@@ -4,7 +4,11 @@ import unittest
 from unittest import mock
 
 from clean_v2 import providers
-from clean_v2.pipeline import _short_locked_action_repair_allowed
+from clean_v2.pipeline import (
+    _ShortLockedActionPatchRejected,
+    _short_locked_action_repair_allowed,
+    _tone_repair_prompt,
+)
 from clean_v2.short_format import (
     ShortFormatError,
     normalize_short_practical_action,
@@ -69,6 +73,39 @@ class Run99LockedActionRepairTests(unittest.TestCase):
     def test_untyped_content_depth_objection_does_not_unlock_host_action(self):
         note = "- [tone] content_depth:s3 الخاتمة تحتاج عمقًا أكبر."
         self.assertFalse(_short_locked_action_repair_allowed(self.plan, note))
+
+    def test_run102_locked_action_candidate_rejection_allows_provider_fallback(self):
+        self.assertFalse(_ShortLockedActionPatchRejected.terminal_provider_fallback)
+
+    def test_run102_tone_prompt_requires_separate_payoff_and_action_patches(self):
+        note = (
+            "- [tone] content_depth:s3 practical_action_generic: "
+            "الخطوة عامة ولا تشغّل التوتر المحدد في الهوك."
+        )
+        brief = {"format": "short", "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟"}
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "هوك محدد."},
+                {"id": "s2", "narration": "شرح مترابط."},
+                {
+                    "id": "s3",
+                    "narration": "نتيجة واضحة. " + self.plan["s3_locked_action"],
+                    "s3_payoff": "نتيجة واضحة.",
+                    "s3_locked_action": self.plan["s3_locked_action"],
+                },
+            ],
+        }
+        prompt = _tone_repair_prompt(
+            brief=brief,
+            plan=self.plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note=note,
+        )
+        self.assertIn("SEPARATE patch", prompt)
+        self.assertIn("never make one find/replace span cross", prompt)
 
     def test_tone_prompt_requires_stable_generic_action_marker(self):
         scoped = _scope_clean_v2_tone_prompt(_LEGACY_RELIGIOUS_QUOTE_RULE)

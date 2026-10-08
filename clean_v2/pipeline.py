@@ -2557,9 +2557,14 @@ def _normalize_tanween_fath_orthography(text: str) -> str:
 
 
 class _ShortLockedActionPatchRejected(ValueError):
-    """Terminal local rejection: a provider patch tried to touch Planning-owned action."""
+    """Local rejection: a provider patch crossed a Planning-owned Short action lock.
 
-    terminal_provider_fallback = True
+    This is candidate-shape failure, not provider-availability failure. Let the
+    existing provider cascade try another bounded patch instead of terminating
+    the whole repair path on one provider's unsafe span.
+    """
+
+    terminal_provider_fallback = False
 
 
 def _validate_and_apply_script_patches(
@@ -3545,7 +3550,9 @@ def _factuality_repair_prompt(
         "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly identifies wording inside "
         "LOCKED_PLAN.practical_action_ar. You MAY patch that final-section action once. Keep one "
         "direct Arabic imperative, one practical action, <=18 words, same topic/meaning and evidence "
-        "boundary. If the action itself is marked generic, replace the whole action when necessary."
+        "boundary. If the action itself is marked generic, replace the whole action when necessary. "
+        "If s3_payoff also needs repair, return it as a SEPARATE patch: never make one find/replace "
+        "span cross the s3_payoff -> practical_action_ar boundary."
         if allow_short_locked_action_repair
         else "- For Short s3, practical_action_ar remains fully locked: patch only s3_payoff and never touch the action."
     )
