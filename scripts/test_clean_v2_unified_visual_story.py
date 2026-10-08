@@ -442,6 +442,19 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
                 )
                 self.assertIn("return EXACTLY 7 semantic visual beats", prompt)
 
+    def test_run181_short_planning_and_script_repay_exact_lived_hook(self) -> None:
+        brief = _brief("short")
+        plan_prompt = " ".join(_planning_prompt(brief).split())
+        self.assertIn("concrete object/behavior MUST operationalize the EXACT s1 lived blockage", plan_prompt)
+        self.assertIn("interchangeable tasks", plan_prompt)
+        self.assertIn("one practical action", plan_prompt)
+        script_prompt = " ".join(_script_prompt(brief, _planning_value("short")).split())
+        self.assertIn("SHORT SEMANTIC SPINE", script_prompt)
+        self.assertIn("s2 adds a specific why/how", script_prompt)
+        self.assertIn("s3 states the resulting change in that same scene", script_prompt)
+        self.assertIn("unsupported hidden psychological cause", script_prompt)
+        self.assertIn("LOCKED_PLAN.practical_action_ar is already final and host-owned", script_prompt)
+
     def test_writer_binds_final_narration_into_visual_story_without_new_stage(self) -> None:
         for fmt in ("short", "film", "podcast"):
             with self.subTest(fmt=fmt):
