@@ -148,6 +148,82 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         self.assertIn("EVERY named missing section", prompt)
         self.assertIn("section_id exactly matches", prompt)
 
+    def test_run180_repeated_short_intents_get_seven_beat_correction(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError(
+                "visual_story viewer_intent values must add new information per beat"
+            ),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("NEW observable fact or changed state", prompt)
+        self.assertIn("three s1 hook, two s2 body, two s3 payoff-path", prompt)
+        self.assertIn("same unresolved tension", prompt.lower())
+        self.assertIn("7-beat house cut", prompt)
+        self.assertNotIn("5-beat house cut", prompt)
+        self.assertIn("keep the social CTA empty", prompt)
+
+    def test_run180_mood_only_visual_proof_gets_beat_specific_correction(self) -> None:
+        prompt = _mistral_planning_validator_retry_prompt(
+            "BASE",
+            ValueError(
+                "visual_story beat b4 semantic_must_have must contain observable "
+                "semantic evidence, not only mood/lighting/composition"
+            ),
+        )
+        self.assertIsNotNone(prompt)
+        self.assertIn("For b4", prompt)
+        self.assertIn("CONCRETE observable proof cues", prompt)
+        self.assertIn("Align its shot_intent and stock_query_en", prompt)
+        self.assertIn("not a fix", prompt)
+        self.assertIn("7-beat house cut", prompt)
+        self.assertNotIn("5-beat house cut", prompt)
+
+    def test_run180_sequential_visual_rejections_keep_retry_budget(self) -> None:
+        calls: list[str] = []
+        errors = [
+            "visual_story viewer_intent values must add new information per beat",
+            (
+                "visual_story beat b4 semantic_must_have must contain observable "
+                "semantic evidence, not only mood/lighting/composition"
+            ),
+        ]
+
+        def fake_call(prompt: str, max_tokens: int, stage: str) -> dict:
+            self.assertEqual(stage, "planning")
+            calls.append(prompt)
+            return {"attempt": len(calls)}
+
+        def validator(candidate: dict) -> dict:
+            attempt = candidate["attempt"]
+            if attempt <= len(errors):
+                raise ValueError(errors[attempt - 1])
+            return {"status": "pass"}
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    fake_call,
+                    stages=frozenset({"planning"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        result = router.route(
+            stage="planning", prompt="BASE", max_tokens=3000, validator=validator
+        )
+        self.assertEqual(result, {"status": "pass"})
+        self.assertEqual(len(calls), 3)  # original plus existing two retries
+        self.assertIn("NEW observable fact", calls[1])
+        self.assertIn("For b4", calls[2])
+        self.assertTrue(all("7-beat house cut" in prompt for prompt in calls[1:]))
+        self.assertTrue(all("5-beat house cut" not in prompt for prompt in calls[1:]))
+        self.assertEqual(
+            [event["result"] for event in router.events],
+            ["retrying", "retrying", "success"],
+        )
+
     def test_run85_script_patch_gets_one_semantic_coverage_retry(self) -> None:
         calls: list[str] = []
 
@@ -277,11 +353,11 @@ class Run61PlanningValidatorRecoveryTests(unittest.TestCase):
         )
         diagnostic = _safe_mistral_planning_raw_diagnostic(
             raw,
-            ValueError("short visual story requires five beats"),
+            ValueError("short visual story requires seven beats"),
         )
         encoded = json.dumps(diagnostic, ensure_ascii=False)
 
-        self.assertIn("short visual story requires five beats", encoded)
+        self.assertIn("short visual story requires seven beats", encoded)
         self.assertIn('"sections_count": 1', encoded)
         self.assertIn('"beats_count": 1', encoded)
         for secret in (
