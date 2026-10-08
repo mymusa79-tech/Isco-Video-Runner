@@ -251,6 +251,22 @@ def _tts_retry_after_body_seconds(raw: bytes) -> float | None:
     return None
 
 
+def _tts_quota_detail(raw: bytes) -> str | None:
+    """Bounded quota identifiers from a Google error body (no request content, no keys)."""
+    if not raw:
+        return None
+    text = raw[: 64 * 1024].decode("utf-8", errors="replace")
+    parts: list[str] = []
+    for name in ("quotaMetric", "quotaId", "quotaValue", "quota_metric", "quota_id", "quota_value"):
+        match = re.search(r'"%s"\s*:\s*"?([^",}\s]{1,120})' % name, text)
+        if match:
+            parts.append(f"{name}={match.group(1)}")
+    message = re.search(r'"message"\s*:\s*"([^"]{1,200})', text)
+    if message:
+        parts.append("message=" + " ".join(message.group(1).split()))
+    return " ".join(parts)[:400] or None
+
+
 def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
     """Return a safe same-provider delay, or None when retrying would violate evidence."""
     status = _tts_http_status(exc)
@@ -468,15 +484,18 @@ def _gemini38_synthesize(
             body = response.read((MAX_TTS_AUDIO_BYTES * 2) + 1024 * 1024)
     except urllib.error.HTTPError as exc:
         retry_after_seconds = _tts_retry_after_seconds(exc)
+        raw_error = b""
+        try:
+            raw_error = exc.read(64 * 1024)
+        except (OSError, ValueError, AttributeError):
+            raw_error = b""
         if retry_after_seconds is None:
-            try:
-                retry_after_seconds = _tts_retry_after_body_seconds(exc.read(64 * 1024))
-            except (OSError, ValueError, AttributeError):
-                retry_after_seconds = None
+            retry_after_seconds = _tts_retry_after_body_seconds(raw_error)
         raise TtsProviderError(
             f"gemini_3_8_http_{int(exc.code)}",
             http_status=int(exc.code),
             retry_after_seconds=retry_after_seconds,
+            quota_detail=_tts_quota_detail(raw_error) if int(exc.code) == 429 else None,
         ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise TtsProviderError(
@@ -546,10 +565,12 @@ class TtsProviderError(RuntimeError):
         *,
         http_status: int | None = None,
         retry_after_seconds: float | None = None,
+        quota_detail: str | None = None,
     ) -> None:
         self.reason = str(reason or "tts_provider_error")
         self.http_status = http_status
         self.retry_after_seconds = retry_after_seconds
+        self.quota_detail = quota_detail
         super().__init__(self.reason)
 
 
@@ -564,7 +585,9 @@ class VoiceInfrastructureError(RuntimeError):
         provider: str = GEMINI38_PROVIDER,
         secondary_reason: str = "gemini_3_8_only_fail_closed_no_fallback",
         retry_after_seconds: float | None = None,
+        quota_detail: str | None = None,
     ) -> None:
+        self.quota_detail = quota_detail
         self.charon_attempts = int(charon_attempts)
         self.charon_reason = str(charon_reason or "unknown")
         self.provider = str(provider or GEMINI38_PROVIDER)
@@ -734,6 +757,7 @@ class GeminiOnlyVoiceSynthesizer:
                 if last_error is not None
                 else None
             ),
+            quota_detail=getattr(last_error, "quota_detail", None),
         )
 
 
