@@ -54,6 +54,7 @@ from .short_format import (
     COLD_OPEN_AS_SCENE,
     HUMAN_VOICE_NO_FILLER,
     INNER_DIALOGUE_VOICE_RULES,
+    TEMPLATE_WRITING_DIRECTIVES,
     normalize_short_script_candidate,
     materialize_short_s3,
     normalize_short_visual_queries,
@@ -2198,22 +2199,88 @@ def _tone_repair_issue_notes(
     return "\n".join(lines)
 
 
-def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
-    """Add a deterministic template-specific repair contract only for blocked Shorts."""
+def _short_template_tone_repair_issue_notes(
+    brief: Mapping[str, Any],
+    report: Mapping[str, Any] | None = None,
+) -> str:
+    """Add template repair guidance only when the audit actually flags a mismatch.
+
+    Run 102 selected micro_story in Planning, but the generated narration came back
+    as a compact analytical essay. The audit correctly named the template mismatch,
+    yet the bounded repair only had inner_dialogue guidance, so the one repair attempt
+    could not close the script-wide defect. Keep this fail-closed and cheap: no new
+    provider call, and no template repair surface unless the validated audit itself
+    names the selected template inside narrative_format_flags.
+    """
     if str(brief.get("format") or "").strip().casefold() != "short":
         return ""
     selection = select_short_template(brief)
-    if str(selection.get("template") or "") != "inner_dialogue":
+    template = str(selection.get("template") or "").strip()
+    if not template:
         return ""
+    flags = []
+    if isinstance(report, Mapping):
+        raw_flags = report.get("narrative_format_flags") or []
+        if isinstance(raw_flags, list):
+            flags = [" ".join(str(item or "").split()).strip() for item in raw_flags]
+    mismatch_flag = next(
+        (
+            flag
+            for flag in flags
+            if template.casefold() in flag.casefold()
+            and (
+                "narrative_format:" in flag.casefold()
+                or "template" in flag.casefold()
+                or "القالب" in flag
+            )
+        ),
+        "",
+    )
+    # Preserve the existing inner_dialogue repair contract for any blocked
+    # inner-dialogue Short. Other templates only widen repair scope when the
+    # validated audit explicitly identifies a template mismatch.
+    if not mismatch_flag and template != "inner_dialogue":
+        return ""
+
+    if template == "inner_dialogue" and not mismatch_flag:
+        lines = [
+            "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
+            "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
+            "a narrator giving instructions."
+        ]
+        lines.extend(
+            f"- [tone-template:inner_dialogue] {rule}"
+            for rule in INNER_DIALOGUE_VOICE_RULES
+        )
+        lines.append(
+            "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
+            "genuinely advance it instead of restating it."
+        )
+        return "\n".join(lines)
+
     lines = [
-        "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
-        "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
-        "a narrator giving instructions."
+        f"- [tone-template:{template}] The validated audit says the current draft does not actually "
+        f"perform the selected {template} format. Repair the affected body/payoff wording so the "
+        "three Short sections follow the selected template as one coherent miniature arc while "
+        "preserving the locked first hook sentence."
     ]
-    lines.extend(f"- [tone-template:inner_dialogue] {rule}" for rule in INNER_DIALOGUE_VOICE_RULES)
+    directive = str(TEMPLATE_WRITING_DIRECTIVES.get(template) or "").strip()
+    if directive:
+        lines.append(f"- [tone-template:{template}] {directive}")
+    if template == "inner_dialogue":
+        lines.extend(
+            f"- [tone-template:inner_dialogue] {rule}"
+            for rule in INNER_DIALOGUE_VOICE_RULES
+        )
+    elif template == "micro_story":
+        lines.append(
+            "- [tone-template:micro_story] Keep one concrete situation across the body: "
+            "observable moment -> development/turn -> earned meaning/payoff. Do not replace it "
+            "with abstract analysis or a list of general claims."
+        )
     lines.append(
-        "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
-        "genuinely advance it instead of restating it."
+        f"- [tone-template:{template}] Preserve the locked hook exactly; change only the "
+        "minimum unlocked narration needed to make the selected template real."
     )
     return "\n".join(lines)
 
@@ -2668,7 +2735,9 @@ def _validate_and_apply_script_patches(
             narration = str(item.get("narration") or "")
             patch_surface = narration
             action_patch_this_patch = False
+            seam_patch_this_patch = False
             pending_locked_action = ""
+            pending_payoff = ""
             if is_short_format and section_id == str(sections[-1].get("id") or ""):
                 locked_action = candidate_locked_action
                 if locked_action:
@@ -2677,9 +2746,50 @@ def _validate_and_apply_script_patches(
                         payoff_surface = narration[: -len(locked_action)].strip()
                     if not payoff_surface:
                         raise ValueError("short s3 patch requires structured s3_payoff")
+                    # Run 102: a provider may return one bounded replacement for the
+                    # complete structured s3 (payoff + Planning-owned action) even when the
+                    # audit explicitly opened the action for repair. Treat that exact full-s3
+                    # seam as a structured candidate instead of a terminal host-lock violation.
+                    # The last replacement sentence must independently pass the existing Short
+                    # practical-action validator; everything before it remains s3_payoff.
+                    full_s3_patch = (
+                        allow_short_locked_action_repair
+                        and narration.count(find) == 1
+                        and " ".join(find.split()).strip()
+                        == " ".join(narration.split()).strip()
+                    )
+                    if full_s3_patch:
+                        replacement_text = " ".join(replace.split()).strip()
+                        replacement_sentences = [
+                            item.strip()
+                            for item in re.split(r"(?<=[.!؟!])\s+", replacement_text)
+                            if item.strip()
+                        ]
+                        if len(replacement_sentences) < 2:
+                            raise ValueError(
+                                "audited Short full-s3 repair must keep separate payoff and action sentences"
+                            )
+                        proposed_action = validate_short_practical_action(
+                            replacement_sentences[-1]
+                        )
+                        proposed_payoff = " ".join(replacement_sentences[:-1]).strip()
+                        if not proposed_payoff:
+                            raise ValueError(
+                                "audited Short full-s3 repair requires a non-empty payoff"
+                            )
+                        pending_payoff = proposed_payoff
+                        pending_locked_action = proposed_action
+                        seam_patch_this_patch = True
+                        action_patch_this_patch = proposed_action != locked_action
+                        if action_patch_this_patch and locked_action_patch_used:
+                            raise ValueError(
+                                "script patch may repair the audited locked action only once"
+                            )
                     action_find_count = locked_action.count(find)
                     touches_locked_action = action_find_count > 0
-                    if touches_locked_action:
+                    if seam_patch_this_patch:
+                        pass
+                    elif touches_locked_action:
                         if not allow_short_locked_action_repair:
                             raise _ShortLockedActionPatchRejected(
                                 "script patch cannot change Planning-owned practical_action_ar"
@@ -2709,12 +2819,24 @@ def _validate_and_apply_script_patches(
                             locked_action in replace
                             or (find in narration and find not in payoff_surface)
                         ):
+                            if allow_short_locked_action_repair:
+                                # The audit opened the action, so a malformed seam-crossing
+                                # provider response is retryable provider output, not a terminal
+                                # policy violation. Another provider may still return the required
+                                # separated payoff/action patch shape.
+                                raise ValueError(
+                                    "audited Short action repair must patch the action alone or replace the complete structured s3"
+                                )
                             raise _ShortLockedActionPatchRejected(
                                 "script patch cannot change Planning-owned practical_action_ar"
                             )
                         patch_surface = payoff_surface
 
-            if not action_patch_this_patch and patch_surface.count(find) != 1:
+            if (
+                not action_patch_this_patch
+                and not seam_patch_this_patch
+                and patch_surface.count(find) != 1
+            ):
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
@@ -2838,7 +2960,16 @@ def _validate_and_apply_script_patches(
             hook_quality_fix_used = True
         elif hook_fix_this_patch:
             hook_word_fix_used = True
-        if action_patch_this_patch:
+        if seam_patch_this_patch:
+            item["s3_payoff"] = pending_payoff
+            item["narration"] = pending_payoff
+            if action_patch_this_patch:
+                candidate_locked_action = pending_locked_action
+                candidate_plan["practical_action_ar"] = candidate_locked_action
+                candidate_plan["s3_locked_action"] = candidate_locked_action
+                item["s3_locked_action"] = candidate_locked_action
+                locked_action_patch_used = True
+        elif action_patch_this_patch:
             candidate_locked_action = pending_locked_action
             candidate_plan["practical_action_ar"] = candidate_locked_action
             candidate_plan["s3_locked_action"] = candidate_locked_action
@@ -3394,7 +3525,9 @@ def _run_one_bounded_tone_repair(
 ) -> dict[str, Any]:
     tone_issue_notes = _tone_repair_issue_notes(blocked_report, script)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
-    template_issue_notes = _short_template_tone_repair_issue_notes(brief)
+    template_issue_notes = _short_template_tone_repair_issue_notes(
+        brief, blocked_report
+    )
     issue_notes = "\n".join(
         item
         for item in (tone_issue_notes, structural_issue_notes, template_issue_notes)
@@ -3412,6 +3545,16 @@ def _run_one_bounded_tone_repair(
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
     target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if template_issue_notes:
+        ordered_ids = tuple(
+            str(item.get("id") or "")
+            for item in (script.get("sections") or [])
+            if isinstance(item, Mapping) and str(item.get("id") or "")
+        )
+        # A validated template mismatch is script-wide by definition. Let the same
+        # one bounded repair touch any Short section it needs, while the existing
+        # hook/prayer/identity/action locks still constrain what can actually change.
+        target_ids = ordered_ids
     if not target_ids:
         raise RuntimeError(
             "Tone/Naturalness repair has no deterministic target section"
