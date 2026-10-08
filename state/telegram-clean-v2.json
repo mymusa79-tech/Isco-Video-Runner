@@ -7892,7 +7892,23 @@
       "status": "dispatched",
       "confirmed_at": "2026-10-08T07:50:39Z",
       "dispatched_at": "2026-10-08T07:50:43Z",
-      "request_sha256": "d9030fb6d974be76226ef631dc5a3146b703264aae914cf689ed8476bace8e00"
+      "request_sha256": "d9030fb6d974be76226ef631dc5a3146b703264aae914cf689ed8476bace8e00",
+      "production": {
+        "run_id": "37745958109",
+        "run_attempt": 1,
+        "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37745958109",
+        "runner_sha": "b5cd8ae28f1e607519ce842d37bd2d3ceea4705d",
+        "engine_sha": "595f69a28ff6ddc5532291c9f113f334562292f9",
+        "resume_cache_key": "clean-v2-resume-v6-Linux-b5cd8ae28f1e607519ce842d37bd2d3ceea4705d-595f69a28ff6ddc5532291c9f113f334562292f9-d9030fb6d974be76226ef631dc5a3146b703264aae914cf689ed8476bace8e00-37745958109-1",
+        "last_job_status": "in_progress",
+        "manifest_status": "running",
+        "artifact_id": null,
+        "artifact_name": "",
+        "artifact_url": "",
+        "final_published": false,
+        "started_at": "2026-10-08T07:50:52Z",
+        "finished_at": null
+      }
     }
   },
   "current_request_id": "req-79866ded84cb",
@@ -8245,6 +8261,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-08T07:50:43Z",
+  "updated_at": "2026-10-08T07:50:52Z",
   "provider_cooldown_until": "2026-10-08T00:40:07.147049Z"
 }
