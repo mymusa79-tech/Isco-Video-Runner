@@ -7862,9 +7862,40 @@
         "started_at": "2026-10-08T00:16:18Z",
         "finished_at": "2026-10-08T00:20:07Z"
       }
+    },
+    "req-79866ded84cb": {
+      "schema_version": 1,
+      "request_id": "req-79866ded84cb",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فخ المقارنة: مسارك الزمني خاص بك وحدك",
+      "research_pack": [
+        {
+          "source_title": "let me help you stop comparing yourself | psychology & affirmations (asmr)",
+          "source_url": "https://youtu.be/cY_InAo5P7w",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Smetto di Paragonarmi agli Altri | Affermazioni del Mattino per l'Autostima",
+          "source_url": "https://youtu.be/ICCDbyv-qmo",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "كيف تدمر المقارنة سعادتك ونجاحك دون أن تشعر؟ 🧠🚫 #تطوير_الذات #المقارنة #سيكولوجيا_النجاح #الراحة",
+          "source_url": "https://youtu.be/qkBPLHdfe4o",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-8fa6f8fb18",
+      "selected_at": "2026-10-08T07:50:12Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "d9030fb6d974be76226ef631dc5a3146b703264aae914cf689ed8476bace8e00"
     }
   },
-  "current_request_id": "req-8b55859229e1",
+  "current_request_id": "req-79866ded84cb",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -8214,6 +8245,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-08T07:49:49Z",
+  "updated_at": "2026-10-08T07:50:13Z",
   "provider_cooldown_until": "2026-10-08T00:40:07.147049Z"
 }
