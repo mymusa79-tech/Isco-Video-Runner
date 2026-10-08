@@ -2530,11 +2530,14 @@ def _required_semantic_repair_section_ids(
     # prose diagnostics often mention a healthy context section before naming
     # the actual defect (for example "s1 hook ... but s2 pivots"). Treating
     # every sN token as a repair target broke valid bounded repairs. Clean V2's
-    # current judge already emits compact target prefixes such as
-    # content_depth:s3 and content_dependency:s2; those are unambiguous.
+    # current judge emits compact target prefixes such as content_depth:s3.
+    # Also accept whitespace around an explicit multi-section or typed target,
+    # without treating legacy prose such as "s1 hook ... but s2 pivots" as a
+    # machine-declared list of sections that must all change.
     targeted_marker = re.compile(
         r"\b(?:editorial_promise_continuity|viewer_retention_continuity|"
-        r"content_depth|content_dependency):\s*(s[1-5](?:\s*/\s*s[1-5])*)\b",
+        r"content_depth|content_dependency):(?P<spacing>\s*)"
+        r"(?P<section_ids>s[1-5](?:\s*/\s*s[1-5])*)\b",
         flags=re.I,
     )
     for raw_line in str(revision_note or "").splitlines():
@@ -2542,7 +2545,16 @@ def _required_semantic_repair_section_ids(
         if not any(marker in line for marker in _SEMANTIC_TONE_REPAIR_MARKERS):
             continue
         for match in targeted_marker.finditer(line):
-            for candidate in re.findall(r"s[1-5]", match.group(1)):
+            ids = match.group("section_ids")
+            tail = line[match.end():]
+            if (
+                match.group("spacing")
+                and "/" not in ids
+                and tail.strip()
+                and not re.match(r"\s+[a-z_]+:", tail)
+            ):
+                continue
+            for candidate in re.findall(r"s[1-5]", ids):
                 if candidate in ordered_ids:
                     required.add(candidate)
         if "hook_quality:" in line and any(
@@ -3349,10 +3361,10 @@ LOCKED_PLAN:
 
 The approved brief and locked plan are authoritative.
 
+{_editorial_shape_contract_context(brief, plan)}
+
 PRODUCTION_CONTEXT:
 {payload}
-
-{_editorial_shape_contract_context(brief, plan)}
 
 REVISION_NOTE:
 {revision_note}
@@ -3664,10 +3676,10 @@ LOCKED_PLAN:
 
 The approved brief and locked plan are authoritative.
 
+{_editorial_shape_contract_context(brief, plan)}
+
 PRODUCTION_CONTEXT:
 {payload}
-
-{_editorial_shape_contract_context(brief, plan)}
 
 REVISION_NOTE:
 {revision_note}
@@ -6093,14 +6105,24 @@ def _script_prompt(
             "than rushed.\n" + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE + "\n" + PODCAST_GEMINI_PERFORMANCE_GUIDANCE
         )
     elif fmt == "short":
+        short_template = str(plan.get("short_template") or "")
+        if short_template not in TEMPLATE_WRITING_DIRECTIVES:
+            short_template = str(select_short_template(brief)["template"])
+        scene_progression = (
+            "For this scene-based template, s3 states the resulting change in that same scene; "
+            "inner_dialogue expresses that change as a discovered inner turn, not a narrator's lecture. "
+            if short_template in {"inner_dialogue", "micro_story"}
+            else ""
+        )
         length = (
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. SHORT SEMANTIC SPINE: follow the selected template's writing_shape: "
-            "s1 opens its exact topic-specific tension; s2 performs that template's next beat and adds "
-            "a useful distinction, event or interpretation rather than merely renaming s1; "
+            "s1 opens its exact topic-specific tension; s2 adds a specific why/how, event or interpretation "
+            "required by that template's next beat rather than merely renaming s1; "
             "s3 earns the selected template's payoff before the separate locked action. "
+            + scene_progression +
             "Do not impose a scene/event on why_reframe or quote_reflection, or turn micro_story into a general lecture. "
             "Do not repeat s2 as a generic payoff, claim an unsupported hidden psychological cause, "
             "or leave s3 as a dangling عندما/حين clause. Read all three sections together before returning. "

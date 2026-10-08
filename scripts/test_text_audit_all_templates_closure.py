@@ -77,6 +77,10 @@ class AllTemplatesContractTests(unittest.TestCase):
             prompt = repair(brief=brief, plan=plan, script=script, identity={}, cta_plan={},
                             revision_note="s2: repair this sentence's naturalness")
             self.assertIn(context, prompt)
+            production_context = prompt.split("PRODUCTION_CONTEXT:\n", 1)[1].split(
+                "\n\nREVISION_NOTE:\n", 1
+            )[0]
+            self.assertEqual(json.loads(production_context)["brief"], brief)
 
 
 def case(fmt, template):
@@ -208,6 +212,13 @@ class Run103RegressionTests(unittest.TestCase):
             pipeline._required_semantic_repair_section_ids(script, "content_dependency: failed section_dependency; s1 is context"),
             (),
         )
+        self.assertEqual(
+            pipeline._required_semantic_repair_section_ids(script, "viewer_retention_continuity: s1 hook establishes the scene but s2 pivots away"),
+            (),
+        )
+        for revision in ("content_depth:s3 generic action", "content_depth: s3 practical_action_generic: unrelated action", "content_depth: s3"):
+            with self.subTest(revision=revision):
+                self.assertEqual(pipeline._required_semantic_repair_section_ids(script, revision), ("s3",))
 
     def test_generic_action_subtype_is_transport_independent_and_narrow(self):
         plan = {"s3_locked_action": "اختر ثلاثة إنجازات صغيرة هذا الأسبوع."}
