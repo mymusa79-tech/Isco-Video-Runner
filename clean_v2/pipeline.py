@@ -2715,7 +2715,9 @@ def _validate_and_apply_script_patches(
             narration = str(item.get("narration") or "")
             patch_surface = narration
             action_patch_this_patch = False
+            seam_patch_this_patch = False
             pending_locked_action = ""
+            pending_payoff = ""
             if is_short_format and section_id == str(sections[-1].get("id") or ""):
                 locked_action = candidate_locked_action
                 if locked_action:
@@ -2724,9 +2726,50 @@ def _validate_and_apply_script_patches(
                         payoff_surface = narration[: -len(locked_action)].strip()
                     if not payoff_surface:
                         raise ValueError("short s3 patch requires structured s3_payoff")
+                    # Run 102: a provider may return one bounded replacement for the
+                    # complete structured s3 (payoff + Planning-owned action) even when the
+                    # audit explicitly opened the action for repair. Treat that exact full-s3
+                    # seam as a structured candidate instead of a terminal host-lock violation.
+                    # The last replacement sentence must independently pass the existing Short
+                    # practical-action validator; everything before it remains s3_payoff.
+                    full_s3_patch = (
+                        allow_short_locked_action_repair
+                        and narration.count(find) == 1
+                        and " ".join(find.split()).strip()
+                        == " ".join(narration.split()).strip()
+                    )
+                    if full_s3_patch:
+                        replacement_text = " ".join(replace.split()).strip()
+                        replacement_sentences = [
+                            item.strip()
+                            for item in re.split(r"(?<=[.!؟!])\s+", replacement_text)
+                            if item.strip()
+                        ]
+                        if len(replacement_sentences) < 2:
+                            raise ValueError(
+                                "audited Short full-s3 repair must keep separate payoff and action sentences"
+                            )
+                        proposed_action = validate_short_practical_action(
+                            replacement_sentences[-1]
+                        )
+                        proposed_payoff = " ".join(replacement_sentences[:-1]).strip()
+                        if not proposed_payoff:
+                            raise ValueError(
+                                "audited Short full-s3 repair requires a non-empty payoff"
+                            )
+                        pending_payoff = proposed_payoff
+                        pending_locked_action = proposed_action
+                        seam_patch_this_patch = True
+                        action_patch_this_patch = proposed_action != locked_action
+                        if action_patch_this_patch and locked_action_patch_used:
+                            raise ValueError(
+                                "script patch may repair the audited locked action only once"
+                            )
                     action_find_count = locked_action.count(find)
                     touches_locked_action = action_find_count > 0
-                    if touches_locked_action:
+                    if seam_patch_this_patch:
+                        pass
+                    elif touches_locked_action:
                         if not allow_short_locked_action_repair:
                             raise _ShortLockedActionPatchRejected(
                                 "script patch cannot change Planning-owned practical_action_ar"
@@ -2756,12 +2799,24 @@ def _validate_and_apply_script_patches(
                             locked_action in replace
                             or (find in narration and find not in payoff_surface)
                         ):
+                            if allow_short_locked_action_repair:
+                                # The audit opened the action, so a malformed seam-crossing
+                                # provider response is retryable provider output, not a terminal
+                                # policy violation. Another provider may still return the required
+                                # separated payoff/action patch shape.
+                                raise ValueError(
+                                    "audited Short action repair must patch the action alone or replace the complete structured s3"
+                                )
                             raise _ShortLockedActionPatchRejected(
                                 "script patch cannot change Planning-owned practical_action_ar"
                             )
                         patch_surface = payoff_surface
 
-            if not action_patch_this_patch and patch_surface.count(find) != 1:
+            if (
+                not action_patch_this_patch
+                and not seam_patch_this_patch
+                and patch_surface.count(find) != 1
+            ):
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
@@ -2885,7 +2940,16 @@ def _validate_and_apply_script_patches(
             hook_quality_fix_used = True
         elif hook_fix_this_patch:
             hook_word_fix_used = True
-        if action_patch_this_patch:
+        if seam_patch_this_patch:
+            item["s3_payoff"] = pending_payoff
+            item["narration"] = pending_payoff
+            if action_patch_this_patch:
+                candidate_locked_action = pending_locked_action
+                candidate_plan["practical_action_ar"] = candidate_locked_action
+                candidate_plan["s3_locked_action"] = candidate_locked_action
+                item["s3_locked_action"] = candidate_locked_action
+                locked_action_patch_used = True
+        elif action_patch_this_patch:
             candidate_locked_action = pending_locked_action
             candidate_plan["practical_action_ar"] = candidate_locked_action
             candidate_plan["s3_locked_action"] = candidate_locked_action
