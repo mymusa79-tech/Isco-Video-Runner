@@ -6324,7 +6324,10 @@ def _podcast_word_guidance(section_count: int) -> str:
         f"In spoken words, the 6-10 minute range is about {low}-{high} words in total, and the absolute floor for the whole "
         f"episode is {PODCAST_MIN_ESTIMATED_WORDS} words, which for this plan's {sections} section(s) is about "
         f"{per_section_floor} words per section at the very least. Let the real depth of this topic decide where the episode "
-        "lands; use these only as a check against a too-short draft, never as a target to pad toward."
+        "lands; use these only as a check against a too-short draft, never as a target to pad toward. "
+        "Before returning, count the COMPLETE spoken episode by whitespace, excluding A:/B: speaker labels "
+        f"and {PODCAST_PRAYER_MARKER}. If below the existing floor, develop missing reasoning in B answers "
+        "inside this same response; keep A questions concise. Do not return a condensed summary as the full episode."
     )
 
 
@@ -6350,18 +6353,24 @@ def _route_script_with_single_podcast_length_repair(
     if estimated_seconds >= PODCAST_MIN_ESTIMATED_SECONDS:
         return script
     previous_words = _podcast_script_word_count(script)
+    previous_script_json = json.dumps(script, ensure_ascii=False, separators=(",", ":"))
 
     repair_prompt = (
         prompt
         + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
         + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes "
         + f"({previous_words} words), below the 4-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
+        + f"Its minimum depth deficit is {PODCAST_MIN_ESTIMATED_WORDS - previous_words} spoken words. "
         + _podcast_word_guidance(len(script.get("sections") or [])) + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
         + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
         + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
         + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
         + "repetition, generic advice, extra CTAs, or new unsupported claims. Aim naturally for the existing 6-10 "
-        + "minute editorial range; the 4-minute value is only a floor, never a duration target."
+        + "minute editorial range; the 4-minute value is only a floor, never a duration target. "
+        + "The exact current draft is attached below: preserve its valid reasoning and expand the B answers "
+        + "where reasoning is missing; do not regenerate another condensed summary from the plan alone. "
+        + "Return the complete corrected script JSON, not a patch or a summary.\n"
+        + "[CURRENT_PODCAST_SCRIPT]\n" + previous_script_json + "\n[/CURRENT_PODCAST_SCRIPT]"
     )
 
     def validate_repair(value: Any) -> dict[str, Any]:

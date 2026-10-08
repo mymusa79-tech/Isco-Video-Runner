@@ -93,6 +93,57 @@ for _fmt, _templates in (("short", TEMPLATE_ORDER),
 
 
 class Run103RegressionTests(unittest.TestCase):
+    def test_run181_bare_invented_prefix_is_grounded_without_hiding_real_fragments(self):
+        flag = "s3: fragment starting with 'عندما' lacking main verb."
+        narration = "تتحرر من ضغط الإنجاز الكامل حين تدرك أن المهمة ليست في اكتمالها."
+        result = tone_audit._validate_tone_result(
+            tone_audit._ground_syntax_flags(payload(flags=[flag]), {"s3": narration})
+        )
+        self.assertEqual(result["status"], "pass")
+        for actual, claimed in (
+            ("هذا واضح. عندما يتحرك القلم.", flag),
+            (narration, flag + " It also has incorrect agreement."),
+        ):
+            with self.subTest(actual=actual, claimed=claimed):
+                blocked = tone_audit._validate_tone_result(
+                    tone_audit._ground_syntax_flags(payload(flags=[claimed]), {"s3": actual})
+                )
+                self.assertEqual(blocked["status"], "block")
+
+    def test_podcast_depth_repair_carries_actual_draft_with_one_unchanged_floor(self):
+        before = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 258}]}
+        self.assertEqual(pipeline._podcast_script_word_count(before), 259)
+        after = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 419}]}
+        calls = []
+        def route(**kwargs):
+            calls.append(kwargs)
+            return kwargs["validator"](before if len(calls) == 1 else after)
+        result = pipeline._route_script_with_single_podcast_length_repair(
+            router=SimpleNamespace(route=route), fmt="podcast", prompt="LOCKED PODCAST PROMPT",
+            max_tokens=18000, validator=lambda value: value,
+        )
+        self.assertEqual(result, after)
+        self.assertEqual(len(calls), 2)
+        prompt = calls[1]["prompt"]
+        current = prompt.split("[CURRENT_PODCAST_SCRIPT]\n", 1)[1].split("\n[/CURRENT_PODCAST_SCRIPT]", 1)[0]
+        self.assertEqual(json.loads(current), before)
+        self.assertIn("minimum depth deficit is 161 spoken words", prompt)
+        self.assertIn("420 words", prompt)
+        self.assertIn("expand the B answers", prompt)
+
+    def test_podcast_depth_repair_still_rejects_second_short_sized_draft(self):
+        draft = {"sections": [{"id": "s1", "narration": "B: " + "معنى " * 300}]}
+        calls = []
+        def route(**kwargs):
+            calls.append(kwargs)
+            return kwargs["validator"](draft)
+        with self.assertRaisesRegex(RuntimeError, "words=300 minimum_words=420"):
+            pipeline._route_script_with_single_podcast_length_repair(
+                router=SimpleNamespace(route=route), fmt="podcast", prompt="PODCAST PROMPT",
+                max_tokens=18000, validator=lambda value: value,
+            )
+        self.assertEqual(len(calls), 2)
+
     def test_imagined_opening_conjunction_does_not_block_real_nominal_sentence(self):
         narration = "كل خطوة تدوّنها هي دليل على تقدمك، حتى لو لم تره بعد. اختر ثلاثة إنجازات صغيرة هذا الأسبوع."
         flag = f"s3: '{narration}' — dangling fragment starting with a conjunction ('و' implied) without a main verb"
