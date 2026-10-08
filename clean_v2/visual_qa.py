@@ -327,12 +327,13 @@ def _apply_no_face_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
     """Deterministically reject any selected clip containing an identifiable person."""
     result = dict(audit)
     identifiable = bool(result.get("identifiable_person"))
-    result["no_face_policy"] = "block" if identifiable else "pass"
-    if identifiable:
+    uncertain = str(result.get("observed_face_status") or "") == "uncertain"
+    result["no_face_policy"] = "block" if identifiable or uncertain else "pass"
+    if identifiable or uncertain:
         prior = " ".join(str(result.get("reason") or "").split()).strip()
         result["status"] = "block"
         result["reason"] = (
-            "no_face_policy_identifiable_person"
+            ("no_face_policy_identifiable_person" if identifiable else "no_face_policy_uncertain_face")
             + (f"; {prior}" if prior else "")
         )
     return result
@@ -571,7 +572,8 @@ def run_final_cut_visual_qa(
     A section may contain multiple real story beats (the legacy pacing_auxiliary flag
     is retained only as a render compatibility marker). Every visible clip is reviewed
     independently with canonical evidence and the unchanged PASS/BLOCK gates. Recovery
-    is attempted only when a clip's semantic floor is below the unchanged target: one
+    is attempted when a clip is below the unchanged target or has an explicit
+    recoverable face/cultural/image-only policy block: one
     narration-bound alternate query and up to three bounded stock candidates. Phase B
     reviews the full bounded candidate set against the same previous/current/next story
     context, then selects the strongest final-cut-ready candidate. It never accepts the
@@ -963,7 +965,11 @@ def run_final_cut_visual_qa(
                         row["observed_action_family"] = primary_audit.get("observed_action_family", "")
                         continue
 
-                    if primary_floor >= retention_target:
+                    recoverable_policy_block = any(
+                        str(primary_audit.get(key) or "") == "block"
+                        for key in ("no_face_policy", "cultural_islamic_policy", "ai_image_only_policy")
+                    )
+                    if primary_floor >= retention_target and not recoverable_policy_block:
                         raise CleanV2VisualQABlock(
                             f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
                             f"position={clip_position} "

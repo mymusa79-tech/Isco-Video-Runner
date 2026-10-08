@@ -226,6 +226,25 @@ class VisualProofContextTests(unittest.TestCase):
                 self.assertEqual(result["status"], "block")
                 if face == "recognizable":
                     self.assertTrue(result["identifiable_person"])
+                # Strong semantic fit must not bypass bounded safe replacement
+                # just because the face defect is independent of relevance.
+                class Harness(qa_fixtures.VisualQASemanticRecoveryTests):
+                    audit_number = 0
+                    def _audit(self, **kwargs):
+                        value = super()._audit(**kwargs)
+                        self.audit_number += 1
+                        value["reason"] = (
+                            f"OBSERVED: person with readable or uncertain face; PROOF: matched; FACE: {face}; relevant action"
+                            if self.audit_number == 1 else
+                            "OBSERVED: hands avoiding task while scrolling phone; PROOF: matched; FACE: none; action visible"
+                        )
+                        return value
+                outcome = Harness()._run_case(primary_status="pass", primary_relevance=.95, recovery_relevance=.92)
+                self.assertEqual(outcome["commit_calls"], 1)
+                self.assertEqual(outcome["audit_calls"], 2)
+                self.assertEqual(outcome["audits"][0]["no_face_policy"], "block")
+                self.assertFalse(outcome["audits"][0]["is_selected"])
+                self.assertEqual(outcome["audits"][1]["no_face_policy"], "pass")
 
     def test_matched_proof_never_promotes_block_or_low_score_and_legacy_reason_is_preserved(self):
         for status, score in (("block", .95), ("pass", .4)):
