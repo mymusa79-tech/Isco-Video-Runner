@@ -24,6 +24,7 @@ from clean_v2.pipeline import (
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
     _run_text_audits,
+    _short_template_tone_repair_issue_notes,
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
 )
@@ -1824,6 +1825,106 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["factuality_status"], "pass")
         self.assertEqual(report["tone_naturalness_status"], "pass")
+
+
+class Run102ToneRepairClosureTests(unittest.TestCase):
+    def test_micro_story_mismatch_gets_template_specific_repair_guidance(self):
+        report = {
+            "narrative_format_flags": [
+                "narrative_format: القالب المختار في الخطة هو micro_story بينما بنية النص خالية من السرد القصصي."
+            ]
+        }
+        with patch(
+            "clean_v2.pipeline.select_short_template",
+            return_value={"template": "micro_story"},
+        ):
+            notes = _short_template_tone_repair_issue_notes(
+                {"format": "short"},
+                report,
+            )
+        self.assertIn("[tone-template:micro_story]", notes)
+        self.assertIn("one concrete situation", notes)
+        self.assertIn("preserving the locked first hook sentence", notes)
+
+    def test_template_guidance_is_not_added_without_a_validated_mismatch(self):
+        with patch(
+            "clean_v2.pipeline.select_short_template",
+            return_value={"template": "micro_story"},
+        ):
+            notes = _short_template_tone_repair_issue_notes(
+                {"format": "short"},
+                {"narrative_format_flags": ["content_dependency:s3 payoff is weak"]},
+            )
+        self.assertEqual(notes, "")
+
+    def test_audited_full_s3_patch_can_repair_payoff_and_locked_action_together(self):
+        action = "حدد خياراً واحداً الآن."
+        payoff = "ستجد أن الحسم أصبح أسهل وأكثر راحة."
+        plan = {
+            "title": "لماذا تشلّك كثرة الخيارات؟",
+            "practical_action_ar": action,
+            "s3_locked_action": action,
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "store shelf"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "browser tabs"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "single choice"},
+            ],
+        }
+        script = {
+            "title": plan["title"],
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "لماذا تتوقف عن الاختيار كلما زادت البدائل المتاحة أمامك؟",
+                },
+                {
+                    "id": "s2",
+                    "narration": "كل مقارنة إضافية تبقيك داخل البحث بدل أن تقرّبك من قرار واضح.",
+                },
+                {
+                    "id": "s3",
+                    "narration": f"{payoff} {action}",
+                    "s3_payoff": payoff,
+                    "s3_locked_action": action,
+                },
+            ],
+        }
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s3",
+                        "find": script["sections"][2]["narration"],
+                        "replace": (
+                            "حين تتوقف عن مقارنة كل بديل، يصبح القرار أخف. "
+                            "اختر أول خيار يلبّي حاجتك الأساسية الآن."
+                        ),
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=(
+                "- [tone] content_depth:s3 practical_action_generic: "
+                "الخطوة الحالية عامة ولا تشغّل مبدأ الاكتفاء بدل البحث عن المثالية."
+            ),
+            allowed_section_ids=("s3",),
+            is_short_format=True,
+            allow_short_locked_action_repair=True,
+            required_changed_section_ids=("s3",),
+        )
+        closing = repaired["sections"][2]
+        self.assertEqual(
+            closing["s3_locked_action"],
+            "اختر أول خيار يلبّي حاجتك الأساسية الآن.",
+        )
+        self.assertEqual(
+            closing["s3_payoff"],
+            "حين تتوقف عن مقارنة كل بديل، يصبح القرار أخف.",
+        )
+        self.assertTrue(closing["narration"].endswith(closing["s3_locked_action"]))
 
 
 class EditorialVoiceWriterPromptTests(unittest.TestCase):
