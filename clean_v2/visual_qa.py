@@ -3,11 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-from clean_v2.visual_story import contextual_intent, fallback_visual_story, validate_visual_story
+from clean_v2.visual_story import (
+    fallback_visual_story, validate_visual_story,
+    visual_action_family, visual_review_context,
+)
 
 
 STAGE_ID = "final_cut_visual_qa"
@@ -32,6 +36,49 @@ class CleanV2VisualQABlock(RuntimeError):
 
 class CleanV2VisualQAInfrastructure(RuntimeError):
     pass
+
+
+def _apply_observed_visual_proof(audit: Mapping[str, Any]) -> dict[str, Any]:
+    """Align PASS with the same Vision call's explicit observed proof and face facts.
+
+    No new judge or schema: observation stays in the existing bounded reason field.
+    Missing legacy markers do not manufacture a failure or pretend to prove a scene.
+    """
+    result = dict(audit)
+    reason = str(result.get("reason") or "")
+    observed = re.search(r"\bOBSERVED:\s*([^;\n]+)", reason, re.IGNORECASE)
+    proof = re.search(r"\bPROOF:\s*(matched|missing|contradicted|uncertain)\b", reason, re.IGNORECASE)
+    face = re.search(r"\bFACE:\s*(none|unrecognizable|recognizable|uncertain)\b", reason, re.IGNORECASE)
+    if observed:
+        value = " ".join(observed.group(1).split())[:190]
+        result["observed_visual"] = value
+        result["observed_action_family"] = visual_action_family(value)
+    if proof:
+        result["observed_proof_status"] = proof.group(1).casefold()
+        if result["observed_proof_status"] != "matched":
+            result["status"] = "block"
+            result["relevance"] = min(float(result.get("relevance") or 0.0), 0.64)
+    if face:
+        result["observed_face_status"] = face.group(1).casefold()
+        if result["observed_face_status"] == "recognizable":
+            result["identifiable_person"] = True
+        if result["observed_face_status"] in {"recognizable", "uncertain"}:
+            result["status"] = "block"
+    return result
+
+
+def _recovery_source_preference(beat: Mapping[str, Any], query: str) -> str:
+    preference = str(beat.get("source_preference") or "stock_motion")
+    if preference in {"stock_still", "ai_still"}:
+        return preference
+    # The alternate itself may describe a static comparison rather than an action.
+    # Reuse the existing photo path instead of spending the same slots on video.
+    if re.search(r"\b(?:versus|side by side|comparison)\b", query, re.IGNORECASE) and not re.search(
+        r"\b(?:walk\w*|run\w*|lift\w*|plac\w*|mov\w*|open\w*|closing|closes|closed|driv\w*|throw\w*)\b",
+        query, re.IGNORECASE,
+    ):
+        return "stock_still"
+    return "stock_motion"
 
 
 def _can_retain_safe_best_available_primary(
@@ -632,6 +679,7 @@ def run_final_cut_visual_qa(
     final_media_mutated = False
     audited_selected_clip_count = 0
     hook_floor: float | None = None
+    previous_observation = ""
 
     def review_clip(
         *,
@@ -747,6 +795,7 @@ def run_final_cut_visual_qa(
                 "reason=canonical_visual_evidence_provenance_mismatch"
             )
 
+        audit = _apply_observed_visual_proof(audit)
         audit = _apply_no_face_policy(audit)
         audit = _apply_cultural_islamic_policy(audit)
         audit = _apply_ai_image_only_policy(audit, row)
@@ -812,10 +861,16 @@ def run_final_cut_visual_qa(
                     narration_context = str(
                         row.get("writer_anchor_ar") or section_narration_context
                     ).strip()
-                    contextual_visual = contextual_intent(
+                    if row.get("writer_anchor_ar") and narration_context != section_narration_context:
+                        narration_context = (
+                            "Beat narration: " + narration_context[:500]
+                            + "\nSection narration: " + section_narration_context[:1200]
+                        )
+                    contextual_visual = visual_review_context(
                         visual_story,
                         beat_id,
                         str(row.get("shot_intent") or intended_visual).strip(),
+                        previous_observation=previous_observation,
                     )
 
                     primary_audit, primary_floor = review_clip(
@@ -864,6 +919,8 @@ def run_final_cut_visual_qa(
                         is_final_cut_ready(primary_audit)
                         and primary_floor >= retention_target
                     ):
+                        previous_observation = str(primary_audit.get("observed_visual") or "")
+                        row["observed_action_family"] = primary_audit.get("observed_action_family", "")
                         continue
 
                     if primary_floor >= retention_target:
@@ -985,6 +1042,15 @@ def run_final_cut_visual_qa(
                             None,
                         )
                         if callable(acquire_many):
+                            source_preference = _recovery_source_preference(
+                                story_beat if isinstance(story_beat, Mapping) else row,
+                                alternate,
+                            )
+                            recovery_record["source_preference"] = source_preference
+                            source_options = (
+                                {"source_preference": source_preference}
+                                if source_preference != "stock_motion" else {}
+                            )
                             acquired_candidates = list(
                                 acquire_many(
                                     alternate,
@@ -996,6 +1062,7 @@ def run_final_cut_visual_qa(
                                     exclude_provider=str(row.get("provider") or ""),
                                     exclude_asset_id=row.get("asset_id"),
                                     exclude_assets=excluded_assets,
+                                    **source_options,
                                 )
                                 or []
                             )
@@ -1064,6 +1131,16 @@ def run_final_cut_visual_qa(
                     ):
                         recovery_clip, replacement_row = acquired
                         recovery_clip = Path(recovery_clip)
+                        # Bind editorial truth before review, never the search syntax.
+                        for story_key in (
+                            "beat_id", "viewer_intent", "meaning_target",
+                            "semantic_must_have", "semantic_should_avoid", "shot_intent",
+                            "writer_anchor_ar", "role", "source_preference", "shot_role",
+                            "environment_family", "hold_reason", "pause_intent", "audio_energy",
+                            "pacing_auxiliary", "story_beat_auxiliary",
+                        ):
+                            if story_key in row:
+                                replacement_row[story_key] = row[story_key]
                         try:
                             recovery_audit, recovery_floor = review_clip(
                                 index=index,
@@ -1071,10 +1148,11 @@ def run_final_cut_visual_qa(
                                 clip=recovery_clip,
                                 row=replacement_row,
                                 narration_context=narration_context,
-                                intended_visual=contextual_intent(
+                                intended_visual=visual_review_context(
                                     visual_story,
                                     beat_id,
                                     alternate,
+                                    previous_observation=previous_observation,
                                 ),
                                 recovery=True,
                                 recovery_candidate_index=candidate_position,
@@ -1167,6 +1245,8 @@ def run_final_cut_visual_qa(
                         if primary_is_safe_best_available:
                             primary_audit["final_cut_readiness"] = "best_available_primary"
                             primary_audit["best_available_primary"] = True
+                            previous_observation = str(primary_audit.get("observed_visual") or "")
+                            row["observed_action_family"] = primary_audit.get("observed_action_family", "")
                             recovery_record.update(
                                 {
                                     "status": "retained_primary",
@@ -1232,24 +1312,9 @@ def run_final_cut_visual_qa(
                     # replaced in place without touching a still-passing primary.
                     visual_source.commit_replacement(recovery_clip, clip)
                     original_row = dict(row)
-                    for story_key in (
-                        "beat_id",
-                        "viewer_intent",
-                        "shot_intent",
-                        "writer_anchor_ar",
-                        "role",
-                        "source_preference",
-                        "shot_role",
-                        "environment_family",
-                        "hold_reason",
-                        "pause_intent",
-                        "audio_energy",
-                        "pacing_auxiliary",
-                        "story_beat_auxiliary",
-                    ):
-                        if story_key in original_row:
-                            replacement_row[story_key] = original_row[story_key]
                     replacement_row.setdefault("source_actual", "stock_motion")
+                    previous_observation = str(recovery_audit.get("observed_visual") or "")
+                    replacement_row["observed_action_family"] = recovery_audit.get("observed_action_family", "")
                     replacement_row["recovery_of_provider"] = original_row.get("provider")
                     replacement_row["recovery_of_asset_id"] = original_row.get("asset_id")
                     replacement_row["recovery_of_source_actual"] = original_row.get(

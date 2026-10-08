@@ -106,6 +106,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_groq_audio_audit",
     ),
     "P3": (
+        "scripts.test_visual_evidence_selection",
         "scripts.test_media_trust_boundary_v2",
         "scripts.test_run92_opening_feasibility_guard",
         "scripts.test_run108_stock_candidate_isolation",

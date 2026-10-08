@@ -5873,6 +5873,18 @@ must change the observable action, environment, or concrete cue rather than mere
 short and searchable. Example: primary "person checking work messages late at night"; alternate
 "commuter reading job email on train". Runtime will try at most this one alternate, so do not create a query list.
 
+STOCK FEASIBILITY applies to Short, Film and Podcast inside this SAME Planning call.
+Separate editorial meaning from a searchable physical scene. Use one common subject plus one observable
+action/state per stock query, usually 3-8 essential English words; omit imagined emotions, camera styling,
+multiple simultaneous actors and elaborate staged comparisons. Put the full meaning in meaning_target.
+semantic_must_have must describe the observable proof shared by primary and alternate, never demand props
+exclusive to both alternatives at once. Do not replace an unavailable precise action with generic mood B-roll.
+A static contrast/before-after object state normally belongs to stock_still; a rare staged metaphor that
+stock cannot plausibly supply belongs to the already-budgeted ai_still route, not an invented stock movie.
+Keep the concrete practical_action_ar a real action the viewer can do in daily life. A visual metaphor is
+supporting evidence, never the instruction itself: do not tell viewers to arrange metaphorical stones or
+move a symbolic object merely because that object appears in the visual story.
+
 Hook, body, and payoff all follow the same semantic-quality rule.
 Choose source_preference by meaning, never role: stock_motion when movement adds meaning;
 stock_still when a still explains the idea more clearly, including a simple comparison, sign, screen,

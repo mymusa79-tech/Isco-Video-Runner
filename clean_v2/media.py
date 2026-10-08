@@ -1208,7 +1208,7 @@ _STOCK_RANK_STOP_TOKENS = frozenset({
 
 
 def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
-    """Cheap semantic tie-breaker using metadata already returned by the same API call."""
+    """Cheap descriptive overlap using metadata from the same API call, not a verdict."""
     query_tokens = {
         token
         for token in re.findall(r"[a-z0-9]+", str(query or "").casefold())
@@ -1221,6 +1221,29 @@ def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
     )
     matched = len(query_tokens & metadata_tokens)
     return min(1.0, matched / float(min(6, max(1, len(query_tokens)))))
+
+
+def _stock_result_metadata(provider: str, item: Mapping[str, Any]) -> str:
+    """Use descriptive fields already returned by this search, never another fetch."""
+    if provider.startswith("pexels"):
+        value = " ".join(str(item.get(key) or "") for key in ("alt", "url"))
+    elif provider.startswith("pixabay"):
+        value = " ".join(str(item.get(key) or "") for key in ("tags", "pageURL"))
+    else:
+        value = " ".join(
+            str(item.get(key) or "")
+            for key in ("title", "description", "tags", "search_keywords")
+        )
+    return urllib.parse.unquote(value)[:2400]
+
+
+def _stock_candidate_rank_key(item: Mapping[str, Any]) -> tuple[float, float]:
+    # Descriptive overlap orders the shortlist; it NEVER approves a visual.
+    # Unknown metadata keeps stable provider ordering, with technical rank as tie-breaker.
+    return (
+        float(item.get("metadata_semantic_score") or 0.0),
+        float(item.get("local_rank_score") or 0.0),
+    )
 
 
 def _stock_local_rank_score(
@@ -1356,6 +1379,7 @@ class StockVisualSource:
         )
 
     def _coverr(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        semantic_query = query
         query = _provider_stock_query(query, "coverr")
         key = _read_secret("COVERR_API_KEY")
         if not key:
@@ -1430,7 +1454,15 @@ class StockVisualSource:
                 )
                 ranked.append((score, hit, download_url, identity))
             if ranked:
-                score, hit, download_url, identity = max(ranked, key=lambda item: item[0])
+                score, hit, download_url, identity = max(
+                    ranked,
+                    key=lambda item: (
+                        _stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("coverr", item[1])
+                        ),
+                        item[0],
+                    ),
+                )
                 self._used.add(identity)
                 self._event(
                     "coverr",
@@ -1447,6 +1479,9 @@ class StockVisualSource:
                     "creator": "Coverr",
                     "creator_url": "https://coverr.co",
                     "query": query,
+                    "metadata_semantic_score": round(
+                        _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("coverr", hit)), 6
+                    ),
                     "media_kind": "video",
                     "attribution_required": True,
                     "local_rank_score": round(float(score), 6),
@@ -1463,6 +1498,7 @@ class StockVisualSource:
         return None
 
     def _pexels_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        semantic_query = query
         query = _provider_stock_query(query, "pexels_photo")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
@@ -1517,7 +1553,15 @@ class StockVisualSource:
                 )
                 ranked.append((score, photo, image_url, identity))
             if ranked:
-                score, photo, image_url, identity = max(ranked, key=lambda item: item[0])
+                score, photo, image_url, identity = max(
+                    ranked,
+                    key=lambda item: (
+                        _stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pexels_photo", item[1])
+                        ),
+                        item[0],
+                    ),
+                )
                 self._used.add(identity)
                 self._event(
                     "pexels_photo",
@@ -1534,7 +1578,11 @@ class StockVisualSource:
                     "creator": str(photo.get("photographer") or ""),
                     "creator_url": str(photo.get("photographer_url") or ""),
                     "query": query,
+                    "metadata_semantic_score": round(
+                        _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pexels_photo", photo)), 6
+                    ),
                     "media_kind": "photo",
+                    "local_rank_score": round(float(score), 6),
                 }
             self._event("pexels_photo", query, "empty", wire_attempted=True)
         except Exception as exc:
@@ -1548,6 +1596,7 @@ class StockVisualSource:
         return None
 
     def _pixabay_photo(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        semantic_query = query
         query = _provider_stock_query(query, "pixabay_photo")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
@@ -1595,7 +1644,15 @@ class StockVisualSource:
                 )
                 ranked.append((score, hit, image_url, identity))
             if ranked:
-                score, hit, image_url, identity = max(ranked, key=lambda item: item[0])
+                score, hit, image_url, identity = max(
+                    ranked,
+                    key=lambda item: (
+                        _stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pixabay_photo", item[1])
+                        ),
+                        item[0],
+                    ),
+                )
                 self._used.add(identity)
                 self._event(
                     "pixabay_photo",
@@ -1612,7 +1669,11 @@ class StockVisualSource:
                     "creator": str(hit.get("user") or ""),
                     "creator_url": "",
                     "query": query,
+                    "metadata_semantic_score": round(
+                        _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pixabay_photo", hit)), 6
+                    ),
                     "media_kind": "photo",
+                    "local_rank_score": round(float(score), 6),
                 }
             self._event("pixabay_photo", query, "empty", wire_attempted=True)
         except Exception as exc:
@@ -1626,6 +1687,7 @@ class StockVisualSource:
         return None
 
     def _pexels(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        semantic_query = query
         query = _provider_stock_query(query, "pexels")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
@@ -1672,7 +1734,15 @@ class StockVisualSource:
                     identity,
                 ))
             if ranked:
-                score, video, selected, identity = max(ranked, key=lambda item: item[0])
+                score, video, selected, identity = max(
+                    ranked,
+                    key=lambda item: (
+                        _stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pexels", item[1])
+                        ),
+                        item[0],
+                    ),
+                )
                 self._used.add(identity)
                 self._event("pexels", query, "selected_ranked", wire_attempted=True)
                 user = video.get("user") or {}
@@ -1684,6 +1754,9 @@ class StockVisualSource:
                     "creator": str(user.get("name") or ""),
                     "creator_url": str(user.get("url") or ""),
                     "query": query,
+                    "metadata_semantic_score": round(
+                        _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pexels", video)), 6
+                    ),
                     "local_rank_score": round(float(score), 6),
                 }
             self._event("pexels", query, "empty", wire_attempted=True)
@@ -1698,6 +1771,7 @@ class StockVisualSource:
         return None
 
     def _pixabay(self, query: str, *, portrait: bool) -> dict[str, Any] | None:
+        semantic_query = query
         query = _provider_stock_query(query, "pixabay")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
@@ -1760,7 +1834,15 @@ class StockVisualSource:
                     identity,
                 ))
             if ranked:
-                score, hit, selected, identity = max(ranked, key=lambda item: item[0])
+                score, hit, selected, identity = max(
+                    ranked,
+                    key=lambda item: (
+                        _stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pixabay", item[1])
+                        ),
+                        item[0],
+                    ),
+                )
                 self._used.add(identity)
                 self._event("pixabay", query, "selected_ranked", wire_attempted=True)
                 return {
@@ -1771,6 +1853,9 @@ class StockVisualSource:
                     "creator": str(hit.get("user") or ""),
                     "creator_url": "",
                     "query": query,
+                    "metadata_semantic_score": round(
+                        _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pixabay", hit)), 6
+                    ),
                     "local_rank_score": round(float(score), 6),
                 }
             self._event("pixabay", query, "empty", wire_attempted=True)
@@ -2040,7 +2125,7 @@ class StockVisualSource:
 
                     ranked_candidates = sorted(
                         candidates,
-                        key=lambda item: float(item.get("local_rank_score") or -1.0),
+                        key=_stock_candidate_rank_key,
                         reverse=True,
                     )
                     identities = {
@@ -2363,6 +2448,7 @@ class StockVisualSource:
         portrait: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
+        semantic_query = query
         query = _provider_stock_query(query, "pexels")
         key = _read_secret("PEXELS_API_KEY")
         if not key:
@@ -2389,7 +2475,8 @@ class StockVisualSource:
                 f"https://api.pexels.com/v1/videos/search?{params}",
                 headers={"Authorization": key},
             )
-            for video in body.get("videos") or []:
+            results = [item for item in (body.get("videos") or []) if isinstance(item, dict)]
+            for index, video in enumerate(results):
                 if not isinstance(video, dict):
                     continue
                 identity = ("pexels", str(video.get("id") or ""))
@@ -2406,10 +2493,22 @@ class StockVisualSource:
                         "creator": str(user.get("name") or ""),
                         "creator_url": str(user.get("url") or ""),
                         "query": query,
+                        "local_rank_score": round(_stock_local_rank_score(
+                            index=index, count=len(results),
+                            width=int(selected.get("width") or 0),
+                            height=int(selected.get("height") or 0),
+                            duration=float(video.get("duration") or 0.0),
+                            portrait=portrait, query=query,
+                            metadata=_stock_result_metadata("pexels", video),
+                        ), 6),
+                        "metadata_semantic_score": round(_stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pexels", video)
+                        ), 6),
                     }
                 )
-                if len(candidates) >= max(1, int(limit)):
-                    break
+            candidates = sorted(
+                candidates, key=_stock_candidate_rank_key, reverse=True
+            )[:max(1, int(limit))]
             self._event(
                 "pexels",
                 query,
@@ -2440,6 +2539,7 @@ class StockVisualSource:
         used for first-pass selection) was available, so a weak clip could not be
         replaced from the third source. Shares the per-run Coverr search budget.
         """
+        semantic_query = query
         query = _provider_stock_query(query, "coverr")
         key = _read_secret("COVERR_API_KEY")
         if not key:
@@ -2504,7 +2604,12 @@ class StockVisualSource:
                     query=query, metadata=metadata,
                 )
                 ranked.append((score, hit, download_url, asset_id))
-            for score, hit, download_url, asset_id in sorted(ranked, key=lambda item: -item[0]):
+            for score, hit, download_url, asset_id in sorted(
+                ranked, key=lambda item: (
+                    _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("coverr", item[1])),
+                    item[0],
+                ), reverse=True
+            ):
                 candidates.append(
                     {
                         "provider": "coverr",
@@ -2514,6 +2619,9 @@ class StockVisualSource:
                         "creator": "Coverr",
                         "creator_url": "https://coverr.co",
                         "query": query,
+                        "metadata_semantic_score": round(_stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("coverr", hit)
+                        ), 6),
                         "media_kind": "video",
                         "attribution_required": True,
                         "local_rank_score": round(float(score), 6),
@@ -2537,6 +2645,7 @@ class StockVisualSource:
         portrait: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
+        semantic_query = query
         query = _provider_stock_query(query, "pixabay")
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
@@ -2560,7 +2669,8 @@ class StockVisualSource:
         candidates: list[dict[str, Any]] = []
         try:
             body = _get_json(f"https://pixabay.com/api/videos/?{params}")
-            for hit in body.get("hits") or []:
+            results = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            for index, hit in enumerate(results):
                 if not isinstance(hit, dict):
                     continue
                 identity = ("pixabay", str(hit.get("id") or ""))
@@ -2602,10 +2712,22 @@ class StockVisualSource:
                         "creator": str(hit.get("user") or ""),
                         "creator_url": "",
                         "query": query,
+                        "local_rank_score": round(_stock_local_rank_score(
+                            index=index, count=len(results),
+                            width=int(selected.get("width") or 0),
+                            height=int(selected.get("height") or 0),
+                            duration=float(hit.get("duration") or 0.0),
+                            portrait=portrait, query=query,
+                            metadata=_stock_result_metadata("pixabay", hit),
+                        ), 6),
+                        "metadata_semantic_score": round(_stock_metadata_semantic_score(
+                            semantic_query, _stock_result_metadata("pixabay", hit)
+                        ), 6),
                     }
                 )
-                if len(candidates) >= max(1, int(limit)):
-                    break
+            candidates = sorted(
+                candidates, key=_stock_candidate_rank_key, reverse=True
+            )[:max(1, int(limit))]
             self._event(
                 "pixabay",
                 query,
@@ -2632,14 +2754,16 @@ class StockVisualSource:
         destination_name: str,
         section_id: str,
         max_candidates: int = 3,
+        source_preference: str = "stock_motion",
         exclude_provider: str | None = None,
         exclude_asset_id: object | None = None,
         exclude_assets: list[tuple[str, object]] | None = None,
     ) -> list[tuple[Path, dict[str, Any]]]:
         """Return up to three safe alternate-query candidates with a fixed bound.
 
-        Recovery performs exactly one Pexels, one Pixabay and one Coverr search, preserves
-        each provider's own relevance ordering, interleaves the three pools, and admits
+        Motion recovery performs one Pexels, one Pixabay and one Coverr search. A still
+        uses the existing two photo searches instead, never a second video sweep. Rank
+        their returned metadata locally before using the scarce three review slots. Admit
         at most max_candidates downloaded candidates. Security V1 and the existing
         media transform run before a candidate can reach cloud Visual QA.
         """
@@ -2656,9 +2780,13 @@ class StockVisualSource:
 
         if exclude_provider and exclude_asset_id is not None:
             self._used.add((str(exclude_provider), str(exclude_asset_id)))
+            if str(exclude_provider) in {"pexels", "pixabay"}:
+                self._used.add((str(exclude_provider) + "_photo", str(exclude_asset_id)))
         for provider, asset_id in exclude_assets or []:
             if provider and asset_id is not None:
                 self._used.add((str(provider), str(asset_id)))
+                if str(provider) in {"pexels", "pixabay"}:
+                    self._used.add((str(provider) + "_photo", str(asset_id)))
 
         destination = output_dir / str(destination_name)
         if not destination.name or destination.parent != output_dir:
@@ -2667,22 +2795,29 @@ class StockVisualSource:
         # Pull a slightly wider local pool so download/security rejections can still
         # leave up to three candidates for Visual QA without another provider search.
         per_provider_limit = bounded_limit * 2
-        pexels = self._pexels_recovery_pool(
-            normalized_query,
-            portrait=portrait,
-            limit=per_provider_limit,
-        )
-        pixabay = self._pixabay_recovery_pool(
-            normalized_query,
-            portrait=portrait,
-            limit=per_provider_limit,
-        )
-        coverr = self._coverr_recovery_pool(
-            normalized_query,
-            portrait=portrait,
-            limit=per_provider_limit,
-        )
-        provider_pools = (pexels, pixabay, coverr)
+        as_still = source_preference in {"stock_still", "ai_still"}
+        if as_still:
+            # AI recovery uses real photos as its existing free fallback; no second
+            # image-generation attempt or another source is introduced.
+            provider_pools = tuple(
+                [candidate] if candidate is not None else []
+                for candidate in (
+                    self._pexels_photo(normalized_query, portrait=portrait),
+                    self._pixabay_photo(normalized_query, portrait=portrait),
+                )
+            )
+        else:
+            provider_pools = (
+                self._pexels_recovery_pool(
+                    normalized_query, portrait=portrait, limit=per_provider_limit,
+                ),
+                self._pixabay_recovery_pool(
+                    normalized_query, portrait=portrait, limit=per_provider_limit,
+                ),
+                self._coverr_recovery_pool(
+                    normalized_query, portrait=portrait, limit=per_provider_limit,
+                ),
+            )
         interleaved: list[dict[str, Any]] = []
         position = 0
         while len(interleaved) < per_provider_limit * 3:
@@ -2696,7 +2831,8 @@ class StockVisualSource:
             position += 1
 
         admitted: list[tuple[Path, dict[str, Any]]] = []
-        for ordinal, candidate in enumerate(interleaved, start=1):
+        ranked_candidates = sorted(interleaved, key=_stock_candidate_rank_key, reverse=True)
+        for ordinal, candidate in enumerate(ranked_candidates, start=1):
             if len(admitted) >= bounded_limit:
                 break
             provider = str(candidate.get("provider") or "unknown")
@@ -2714,7 +2850,15 @@ class StockVisualSource:
             temporary.unlink(missing_ok=True)
             temporary.with_suffix(".m8.json").unlink(missing_ok=True)
             try:
-                _download_media(str(candidate["download_url"]), temporary)
+                if as_still:
+                    still = temporary.with_suffix(".jpg")
+                    try:
+                        _download_media(str(candidate["download_url"]), still)
+                        _render_ai_still(still, temporary, fmt=fmt)
+                    finally:
+                        still.unlink(missing_ok=True)
+                else:
+                    _download_media(str(candidate["download_url"]), temporary)
                 if self.media_preflight is not None:
                     blocked = self.media_preflight(temporary)
                     if blocked is not None:
@@ -2750,7 +2894,7 @@ class StockVisualSource:
             }
             row["local_file"] = destination.name
             row["section_id"] = str(section_id or "")
-            row["source_actual"] = "stock_motion"
+            row["source_actual"] = "stock_still" if as_still else "stock_motion"
             row["semantic_recovery"] = True
             row["semantic_recovery_candidate_index"] = len(admitted) + 1
             admitted.append((replacement, row))
