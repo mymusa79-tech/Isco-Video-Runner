@@ -655,7 +655,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                     {
                         "section_id": "s3",
                         "find": payoff,
-                        "replace": "معيار الكفاية بدل الكمال يجعل الحسم أخف وأكثر وضوحًا.",
+                        "replace": "معيار الكفاية بدل الكمال يخفف ثقل الحسم ويزيد وضوحه.",
                     },
                     {
                         "section_id": "s3",
