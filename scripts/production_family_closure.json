@@ -111,9 +111,9 @@
   "families": [
     {
       "id":"F01","name":"planning_structured_output_and_repair",
-      "historical_runs":["54","71","73-80","84","94","96","98-101","114","116-126","182"],
+      "historical_runs":["54","71","73-80","84","94","96","98-101","114","116-126","182-183"],
       "required_phases":["P1","P4","P5","P6"],
-      "contracts":["scripts.test_planner_quality_guard","scripts.test_planning_provider_reliability_v2","scripts.test_bounded_output_recovery","scripts.test_schema_repair_policy","scripts.test_run120_dossier_repair_hardening","scripts.test_run182_planning_repair_context"]
+      "contracts":["scripts.test_planner_quality_guard","scripts.test_planning_provider_reliability_v2","scripts.test_bounded_output_recovery","scripts.test_schema_repair_policy","scripts.test_run120_dossier_repair_hardening","scripts.test_run182_planning_repair_context","scripts.test_planning_visual_repair_feedback"]
     },
     {
       "id":"F02","name":"runtime_composition_wrapper_and_install_order",
@@ -131,7 +131,7 @@
       "id":"F04","name":"provider_capacity_fallback_retry_and_retry_after",
       "historical_runs":["57-59","113-128","132"],
       "required_phases":["P1"],
-      "contracts":["scripts.test_provider_retry_ownership","scripts.test_retry_after_policy","scripts.test_run123_budget_closure","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run126_capacity_snapshot_closure","scripts.test_run128_rate_limit_ownership","scripts.test_run125_terminal_retry_budget"]
+      "contracts":["scripts.test_provider_retry_ownership","scripts.test_retry_after_policy","scripts.test_run123_budget_closure","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run126_capacity_snapshot_closure","scripts.test_run128_rate_limit_ownership","scripts.test_run125_terminal_retry_budget","scripts.test_provider_rejection_feedback"]
     },
     {
       "id":"F05","name":"task_identity_budget_and_review_capacity",

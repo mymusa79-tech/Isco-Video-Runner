@@ -89,6 +89,8 @@ _ACTION_FAMILY_TERMS = {
     "sitting": ("sit", "sitting", "chair", "desk"),
 }
 _ACTION_FAMILY_MAX_USES = 2
+PLANNING_VISUAL_FAMILY_NAMES = frozenset(_ACTION_FAMILY_TERMS)
+MAX_PLANNING_REPAIR_BEATS = 60
 
 _FACE_DEPENDENT_SEMANTIC_RE = re.compile(
     r"\b(?:face|facial|expression|expressions)\b|(?:وجه|ملامح|تعبير(?:ات)?)",
@@ -569,7 +571,107 @@ def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _stronger_post_hook_query(query: str, alternate: str, section_alternate: str) -> str:
+    return next(
+        (
+            candidate
+            for candidate in (
+                query if not _is_weak_generic_productivity_scene(query) else "",
+                alternate,
+                section_alternate,
+            )
+            if candidate
+            and candidate.isascii()
+            and not _is_weak_generic_productivity_scene(candidate)
+        ),
+        "",
+    )
+
+
+def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe concurrent visual conflicts using the production scene classifiers.
+
+    This is correction feedback, never a second validator or an acceptance path.
+    Only bounded beat IDs and host-owned family names leave this function.
+    """
+    if not isinstance(value, Mapping) or not isinstance(value.get("beats"), list):
+        return {}
+    sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
+    section_order = {str(item.get("id") or ""): index for index, item in enumerate(sections)}
+    section_by_id = {str(item.get("id") or ""): item for item in sections}
+    family_ids: dict[str, list[str]] = {}
+    weak_ids: list[str] = []
+    neighbors: list[list[str]] = []
+    prior_family = prior_id = ""
+    resolved: list[dict[str, str]] = []
+    for raw in value["beats"][:MAX_PLANNING_REPAIR_BEATS]:
+        if not isinstance(raw, Mapping):
+            continue
+        beat_id = str(raw.get("id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", beat_id):
+            continue
+        section_id = str(raw.get("section_id") or "").strip()
+        shot = " ".join(str(raw.get("shot_intent") or "").split())
+        query = " ".join(str(raw.get("stock_query_en") or "").split())
+        if (
+            str(plan.get("_visual_semantic_strength_contract") or "") == "v1_post_hook"
+            and section_order.get(section_id, 0) > 0
+            and _is_weak_generic_productivity_scene(shot or query)
+        ):
+            stronger = _stronger_post_hook_query(
+                query,
+                " ".join(str(raw.get("stock_query_alt_en") or "").split()),
+                " ".join(str((section_by_id.get(section_id) or {}).get("visual_query_alt_en") or "").split()),
+            )
+            if stronger:
+                shot = query = stronger
+            else:
+                weak_ids.append(beat_id)
+        beat = {"id": beat_id, "shot_intent": shot, "stock_query_en": query}
+        resolved.append(beat)
+        family = _beat_action_family(beat)
+        if family:
+            family_ids.setdefault(family, []).append(beat_id)
+            if family == prior_family:
+                neighbors.append([prior_id, beat_id])
+        prior_family, prior_id = family, beat_id
+    context: dict[str, Any] = {}
+    if weak_ids:
+        context["post_hook_weak_beat_ids"] = weak_ids
+    if family_ids:
+        context["family_beat_ids"] = family_ids
+    if neighbors:
+        context["same_family_neighbors"] = neighbors
+    if str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
+        context["visual_family_limit"] = _ACTION_FAMILY_MAX_USES
+        overused = [family for family, ids in family_ids.items() if len(ids) > _ACTION_FAMILY_MAX_USES]
+        if overused:
+            context["overused_families"] = overused
+        if (
+            resolved
+            and _beat_action_family(resolved[-1]) == "stationery"
+            and len(family_ids.get("stationery", [])) > 1
+            and _short_payoff_repeats_process_action(resolved[-1]["shot_intent"] or resolved[-1]["stock_query_en"])
+        ):
+            context["payoff_process_beat_id"] = resolved[-1]["id"]
+    return context
+
+
 def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        return _validate_visual_story(value, plan)
+    except ValueError as exc:
+        # The gate still raises its exact original rejection. Report the other
+        # visible conflicts too so its bounded provider correction fixes them
+        # together instead of discovering one new rejection per provider call.
+        context = dict(getattr(exc, "planning_repair_context", {}) or {})
+        context.update(visual_story_repair_context(value, plan))
+        if context:
+            exc.planning_repair_context = context
+        raise
+
+
+def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     if value is None:
         return fallback_visual_story(plan)
     if not isinstance(value, Mapping):
@@ -757,21 +859,7 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
             section_alt = " ".join(
                 str((section_by_id.get(section_id) or {}).get("visual_query_alt_en") or "").split()
             ).strip()
-            candidates = (
-                stock_query_en if not _is_weak_generic_productivity_scene(stock_query_en) else "",
-                stock_query_alt_en,
-                section_alt,
-            )
-            stronger = next(
-                (
-                    candidate
-                    for candidate in candidates
-                    if candidate
-                    and candidate.isascii()
-                    and not _is_weak_generic_productivity_scene(candidate)
-                ),
-                "",
-            )
+            stronger = _stronger_post_hook_query(stock_query_en, stock_query_alt_en, section_alt)
             if not stronger:
                 raise ValueError(
                     f"visual_story beat {beat_id} post-hook semantic drop requires "

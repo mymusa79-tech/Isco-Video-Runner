@@ -82,6 +82,8 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run180_short_template_representation_lifecycle",
         "scripts.test_run181_groq_readiness_budget",
         "scripts.test_run182_planning_repair_context",
+        "scripts.test_planning_visual_repair_feedback",
+        "scripts.test_provider_rejection_feedback",
         "scripts.test_run187_moment_duration_contract_closure",
         "scripts.test_run189_micro_story_contract_alignment",
         "scripts.test_run191_short_repair_composition_invariants",

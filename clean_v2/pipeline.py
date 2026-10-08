@@ -50,6 +50,7 @@ from .media import (
 )
 from .structural_ai import structural_ai_flags
 from .short_format import (
+    ShortFormatError,
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     COLD_OPEN_AS_SCENE,
     HUMAN_VOICE_NO_FILLER,
@@ -81,6 +82,7 @@ from .visual_story import (
     fallback_visual_story,
     validate_visual_story,
     visual_action_family,
+    visual_story_repair_context,
 )
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
@@ -2978,13 +2980,27 @@ def _validate_and_apply_script_patches(
 
     normalized = validate_script(repaired, candidate_plan)
     if required_changed_section_ids:
+        def repair_surface(item: Mapping[str, Any], locked_action: str) -> tuple[str, str]:
+            narration = str(item.get("narration") or "").strip()
+            if is_short_format and str(item.get("id") or "") == str(sections[-1].get("id") or ""):
+                payoff = str(item.get("s3_payoff") or "").strip()
+                if not payoff and locked_action and narration.endswith(locked_action):
+                    payoff = narration[:-len(locked_action)].strip()
+                # validate_script leaves payoff unmaterialized here. Compare the
+                # same authored payoff/action surfaces on both sides: removing
+                # the host-appended action is not a real semantic s3 repair.
+                return (" ".join((payoff or narration).split()), " ".join(locked_action.split()))
+            return (" ".join(narration.split()), "")
+
         original_by_id = {
-            str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
+            str(item.get("id") or ""): repair_surface(
+                item, str(plan.get("s3_locked_action") or plan.get("practical_action_ar") or "").strip(),
+            )
             for item in (original_script.get("sections") or [])
             if isinstance(item, Mapping)
         }
         repaired_by_id = {
-            str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
+            str(item.get("id") or ""): repair_surface(item, candidate_locked_action)
             for item in (normalized.get("sections") or [])
             if isinstance(item, Mapping)
         }
@@ -4730,26 +4746,33 @@ def _validate_plan_for_brief(
         # prevents Script from inventing multiple commands.
         fresh_practical_action = str(plan.get("practical_action_ar") or "").strip()
         practical_action = fresh_practical_action or "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن."
-        normalized_practical_action = normalize_short_practical_action(practical_action)
-        validated_practical_action = validate_short_practical_action(
-            normalized_practical_action
-        )
-        if fresh_practical_action:
-            action_context = " ".join(
-                [
-                    str(brief.get("approved_topic") or ""),
-                    str(plan.get("promise") or ""),
-                    *[
-                        str(item.get("purpose") or "")
-                        for item in (plan.get("sections") or [])
-                        if isinstance(item, Mapping)
-                    ],
-                ]
+        try:
+            normalized_practical_action = normalize_short_practical_action(practical_action)
+            validated_practical_action = validate_short_practical_action(
+                normalized_practical_action
             )
-            validated_practical_action = validate_short_practical_action_specificity(
-                validated_practical_action,
-                topic_context=action_context,
-            )
+            if fresh_practical_action:
+                action_context = " ".join(
+                    [
+                        str(brief.get("approved_topic") or ""),
+                        str(plan.get("promise") or ""),
+                        *[
+                            str(item.get("purpose") or "")
+                            for item in (plan.get("sections") or [])
+                            if isinstance(item, Mapping)
+                        ],
+                    ]
+                )
+                validated_practical_action = validate_short_practical_action_specificity(
+                    validated_practical_action,
+                    topic_context=action_context,
+                )
+        except ShortFormatError as exc:
+            # An early action rejection must not hide simultaneous visual
+            # conflicts until a later scarce correction. Gates remain unchanged.
+            raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
+            exc.planning_repair_context = visual_story_repair_context(raw_story, plan)
+            raise
         plan["practical_action_ar"] = validated_practical_action
         plan["s3_locked_action"] = plan["practical_action_ar"]
         normalize_short_visual_queries(plan)
