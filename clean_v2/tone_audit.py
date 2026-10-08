@@ -578,4 +578,3 @@ def audit_tone_and_naturalness_with_mistral(
             return _normalize_editorial_voice_advisory(result)
         finally:
             tone_quality.route_text_audit = original_route
-

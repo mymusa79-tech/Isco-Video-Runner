@@ -2134,4 +2134,3 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "narrative_identity": "not_applicable",
         "opening_director": "not_applicable",
     }
-

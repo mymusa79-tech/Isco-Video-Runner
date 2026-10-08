@@ -7884,4 +7884,3 @@ class CleanV2Pipeline:
         except Exception:
             self._write_runtime_events(output_dir)
             raise
-
