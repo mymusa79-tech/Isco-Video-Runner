@@ -135,6 +135,13 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   naturally inside its existing anchor section.
 - The narrative identity opener/closer are host-owned exact phrases. Do not request
   rewriting them; judge only the surrounding spoken transition.
+- ONE-PASS COMPLETE DEFECT INVENTORY — before the FIRST verdict, examine s1 hook, s2 explanatory
+  advance, s3 payoff AND the host-owned final practical action independently. Do not stop after
+  spotting one grammar defect: report every independently supported blocking flaw at once, with
+  its correct section id and stable marker (content_depth:s2, content_depth:s3
+  practical_action_generic:, hook_quality:, or content_dependency:s2/s3 as applicable). The
+  existing single bounded repair must be able to fix all cited s2/s3 defects together; do not
+  invent defects merely to fill these categories. Do not add a second audit or provider call.
 - SPOKEN ARABIC SURFACE CHECK — inside this SAME audit call and before the final verdict, scan
   every authored narration sentence, not only the hook. Block clear Arabic grammar or sentence-
   completeness defects that would sound wrong aloud: demonstrative/noun agreement (for example
@@ -142,7 +149,10 @@ The attached RESEARCH_BOUNDARIES are hard evidence ceilings, not optional contex
   such as a section beginning with «مما ...» without a grammatical antecedent in that sentence.
   Do not misclassify a finite imperative clause as a masdar fragment: forms such as «فأدخل ...»،
   «فاكتب ...»، «فاختر ...»، «فقارن ...»، «فتوقف ...»، and «فقلّل ...» are verb-led clauses when
-  they have their required object/complement. Judge the actual Arabic syntax, not the surface prefix.
+  they have their required object/complement. Likewise, a full main clause such as
+  «تتحرر من الضغط حين تدرك السبب» is grammatical; do not call it a dangling
+  «حين» fragment merely because it contains a subordinate clause. Judge the actual Arabic syntax,
+  not the surface prefix.
   For every such defect, add one naturalness_flags item that includes the affected section id
   (s1/s2/...) and a short exact excerpt from the draft. Do not flag stylistic preference as grammar.
   Never emit a correction whose proposed replacement is textually identical to the quoted original
