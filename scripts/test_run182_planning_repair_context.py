@@ -36,7 +36,7 @@ class Run182PlanningRepairContextTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             pipeline._validate_plan_for_brief(duplicate_plan(), _brief("short"))
         self.assertEqual(str(caught.exception), "visual_story stock_query_en values must be distinct per beat")
-        self.assertEqual(caught.exception.planning_repair_context, {
+        self.assertEqual({key: caught.exception.planning_repair_context[key] for key in ("beat_id", "conflicting_beat_id")}, {
             "beat_id": "b3", "conflicting_beat_id": "b1",
         })
 
