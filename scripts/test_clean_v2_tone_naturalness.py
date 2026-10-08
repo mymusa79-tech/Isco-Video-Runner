@@ -1896,7 +1896,7 @@ class Run102ToneRepairClosureTests(unittest.TestCase):
                         "section_id": "s3",
                         "find": script["sections"][2]["narration"],
                         "replace": (
-                            "حين تتوقف عن مقارنة كل بديل، يصبح القرار أخف. "
+                            "مع معيار كافٍ وواضح، يصبح القرار أخف. "
                             "اختر أول خيار يلبّي حاجتك الأساسية الآن."
                         ),
                     }
@@ -1922,7 +1922,7 @@ class Run102ToneRepairClosureTests(unittest.TestCase):
         )
         self.assertEqual(
             closing["s3_payoff"],
-            "حين تتوقف عن مقارنة كل بديل، يصبح القرار أخف.",
+            "مع معيار كافٍ وواضح، يصبح القرار أخف.",
         )
         self.assertTrue(closing["narration"].endswith(closing["s3_locked_action"]))
 
