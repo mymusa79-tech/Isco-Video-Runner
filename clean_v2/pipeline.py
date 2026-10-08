@@ -6764,6 +6764,9 @@ class _Journal:
                     )[:120],
                     "fallback_used": False,
                 }
+                quota_detail = getattr(exc, "quota_detail", None)
+                if quota_detail:
+                    voice_failure["quota_detail"] = str(quota_detail)[:400]
                 retry_after_seconds = getattr(exc, "retry_after_seconds", None)
                 if retry_after_seconds is not None:
                     retry_after = max(0.0, float(retry_after_seconds))
