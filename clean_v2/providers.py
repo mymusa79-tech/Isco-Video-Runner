@@ -722,6 +722,36 @@ def _mistral_planning_validator_retry_prompt(
             "by deleting another section's beat. Reuse that section's own purpose/visual query as the semantic "
             "source and keep each beat concrete, observable, and stock-searchable. "
         )
+    elif detail == "visual_story viewer_intent values must add new information per beat":
+        correction = (
+            "Every Short beat must give the viewer a NEW observable fact or changed state, "
+            "not repeat a previous viewer_intent with synonyms. Keep exactly seven "
+            "beats in order (three s1 hook, two s2 body, two s3 payoff-path). "
+            "Keep all three hook beats on the SAME unresolved tension but show "
+            "different evidence or consequences; make s2 advance the explanation "
+            "and s3 show the decision followed by its visible result. "
+            "Rework only duplicate intents and their corresponding concrete "
+            "meaning_target, semantic_must_have, shot_intent and stock_query_en "
+            "so every beat actually demonstrates its distinct intent. "
+            "Do not invent new sections or lower the semantic-evidence bar. "
+        )
+    elif (
+        detail.startswith("visual_story beat ")
+        and "semantic_must_have must contain observable semantic evidence" in detail
+    ):
+        beat_match = re.search(r"visual_story beat\s+([A-Za-z0-9_-]+)", detail)
+        beat_id = beat_match.group(1) if beat_match else "the rejected beat"
+        correction = (
+            f"For {beat_id}, replace mood, grade, lighting or composition-only "
+            "semantic_must_have cues with 1-4 CONCRETE observable proof cues: "
+            "a physical action, changed object state, visible consequence or "
+            "specific contrast that proves THIS beat's meaning_target. "
+            "Align its shot_intent and stock_query_en with the same visible "
+            "evidence; changing only the color or camera angle is not a fix. "
+            "Do not require facial expressions, identifiable faces, text "
+            "inside AI images, or generic productivity stock. Preserve "
+            "the other beats and their distinct viewer_intent values. "
+        )
     elif "post-hook semantic drop requires a stronger observable alternate" in detail:
         beat_match = re.search(r"visual_story beat\s+([A-Za-z0-9_-]+)", detail)
         beat_id = beat_match.group(1) if beat_match else "the rejected beat"
@@ -742,8 +772,9 @@ def _mistral_planning_validator_retry_prompt(
         + "Return the COMPLETE Planning JSON again, correcting that exact rule only where needed. "
         + "Preserve the APPROVED_BRIEF, format, section ids/order/count, all quality and safety "
         + "contracts, and all required visual-story semantics. For Short, preserve the EXACTLY "
-        + "5-beat house cut (three distinct s1 hook beats, then one s2 body beat, then one s3 "
-        + "payoff beat) and keep the social CTA empty. Do not explain the correction. Return JSON only."
+        + "7-beat house cut (three distinct s1 hook beats, then two s2 body beats, then two s3 "
+        + "payoff-path beats with the last showing the visible result) and keep the social CTA empty. "
+        + "Do not explain the correction. Return JSON only."
     )
 
 
