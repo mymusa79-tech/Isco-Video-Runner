@@ -91,6 +91,7 @@ _ACTION_FAMILY_TERMS = {
 _ACTION_FAMILY_MAX_USES = 2
 PLANNING_VISUAL_FAMILY_NAMES = frozenset(_ACTION_FAMILY_TERMS)
 MAX_PLANNING_REPAIR_BEATS = 60
+PLANNING_QUERY_FIELDS = ("stock_query_en", "stock_query_alt_en")
 
 _FACE_DEPENDENT_SEMANTIC_RE = re.compile(
     r"\b(?:face|facial|expression|expressions)\b|(?:وجه|ملامح|تعبير(?:ات)?)",
@@ -491,6 +492,14 @@ def _query_key(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
 
 
+def _query_has_arabic(value: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06ff]", value))
+
+
+def _viewer_intent_key(value: str) -> str:
+    return " ".join(value.lower().split())
+
+
 def fallback_visual_story(plan: Mapping[str, Any]) -> dict[str, Any]:
     sections = [item for item in (plan.get("sections") or []) if isinstance(item, Mapping)]
     if not sections:
@@ -592,7 +601,7 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
     """Describe concurrent visual conflicts using the production scene classifiers.
 
     This is correction feedback, never a second validator or an acceptance path.
-    Only bounded beat IDs and host-owned family names leave this function.
+    Only bounded beat IDs and host-owned family/query-field names leave it.
     """
     if not isinstance(value, Mapping) or not isinstance(value.get("beats"), list):
         return {}
@@ -602,6 +611,10 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
     family_ids: dict[str, list[str]] = {}
     weak_ids: list[str] = []
     neighbors: list[list[str]] = []
+    non_english_queries: dict[str, list[str]] = {}
+    duplicate_intents: list[list[str]] = []
+    seen_intents: dict[str, str] = {}
+    explicit_retention_contract = isinstance(value.get("retention_thread"), Mapping)
     prior_family = prior_id = ""
     resolved: list[dict[str, str]] = []
     for raw in value["beats"][:MAX_PLANNING_REPAIR_BEATS]:
@@ -611,6 +624,14 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", beat_id):
             continue
         section_id = str(raw.get("section_id") or "").strip()
+        for field in PLANNING_QUERY_FIELDS:
+            if _query_has_arabic(str(raw.get(field) or "")):
+                non_english_queries.setdefault(field, []).append(beat_id)
+        intent_key = _viewer_intent_key(str(raw.get("viewer_intent") or ""))
+        if intent_key:
+            if explicit_retention_contract and "stock_query_en" in raw and intent_key in seen_intents:
+                duplicate_intents.append([seen_intents[intent_key], beat_id])
+            seen_intents.setdefault(intent_key, beat_id)
         shot = " ".join(str(raw.get("shot_intent") or "").split())
         query = " ".join(str(raw.get("stock_query_en") or "").split())
         if (
@@ -636,6 +657,10 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
                 neighbors.append([prior_id, beat_id])
         prior_family, prior_id = family, beat_id
     context: dict[str, Any] = {}
+    if non_english_queries:
+        context["non_english_query_beat_ids"] = non_english_queries
+    if duplicate_intents:
+        context["duplicate_viewer_intent_pairs"] = duplicate_intents
     if weak_ids:
         context["post_hook_weak_beat_ids"] = weak_ids
     if family_ids:
@@ -725,7 +750,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
     beats: list[dict[str, str]] = []
     seen_ids: set[str] = set()
     seen_queries: dict[str, str] = {}
-    seen_intents: set[str] = set()
+    seen_intents: dict[str, str] = {}
     per_section = {section_id: 0 for section_id in section_ids}
     prior_section_index = -1
     for index, raw in enumerate(raw_beats, start=1):
@@ -835,11 +860,11 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
             raise ValueError(f"visual_story beat {beat_id} stock_query_en is too verbose")
         if len(stock_query_alt_en) > 260:
             raise ValueError(f"visual_story beat {beat_id} stock_query_alt_en is too verbose")
-        if re.search(r"[\u0600-\u06ff]", stock_query_en):
+        if _query_has_arabic(stock_query_en):
             raise ValueError(
                 f"visual_story beat {beat_id} stock_query_en must stay English"
             )
-        if stock_query_alt_en and re.search(r"[\u0600-\u06ff]", stock_query_alt_en):
+        if stock_query_alt_en and _query_has_arabic(stock_query_alt_en):
             raise ValueError(
                 f"visual_story beat {beat_id} stock_query_alt_en must stay English"
             )
@@ -897,7 +922,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
             )
         seen_ids.add(beat_id)
         query_key = _query_key(stock_query_en)
-        intent_key = " ".join(viewer_intent.lower().split())
+        intent_key = _viewer_intent_key(viewer_intent)
         if explicit_retention_contract and explicit_stock_query:
             if query_key in seen_queries:
                 fallback_query = _fallback_stock_query(
@@ -909,7 +934,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
                 if (
                     fallback_key
                     and fallback_key not in seen_queries
-                    and not re.search(r"[\u0600-\u06ff]", fallback_query)
+                    and not _query_has_arabic(fallback_query)
                 ):
                     stock_query_en = fallback_query
                     query_key = fallback_key
@@ -923,11 +948,16 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
                 }
                 raise error
             if intent_key in seen_intents:
-                raise ValueError(
+                error = ValueError(
                     "visual_story viewer_intent values must add new information per beat"
                 )
+                error.planning_repair_context = {
+                    "beat_id": beat_id,
+                    "conflicting_beat_id": seen_intents[intent_key],
+                }
+                raise error
         seen_queries[query_key] = beat_id
-        seen_intents.add(intent_key)
+        seen_intents.setdefault(intent_key, beat_id)
         beats.append(
             {
                 "id": beat_id,

@@ -113,7 +113,7 @@
       "id":"F01","name":"planning_structured_output_and_repair",
       "historical_runs":["54","71","73-80","84","94","96","98-101","114","116-126","182-183"],
       "required_phases":["P1","P4","P5","P6"],
-      "contracts":["scripts.test_planner_quality_guard","scripts.test_planning_provider_reliability_v2","scripts.test_bounded_output_recovery","scripts.test_schema_repair_policy","scripts.test_run120_dossier_repair_hardening","scripts.test_run182_planning_repair_context","scripts.test_planning_visual_repair_feedback"]
+      "contracts":["scripts.test_planner_quality_guard","scripts.test_planning_provider_reliability_v2","scripts.test_bounded_output_recovery","scripts.test_schema_repair_policy","scripts.test_run120_dossier_repair_hardening","scripts.test_run182_planning_repair_context","scripts.test_planning_visual_repair_feedback","scripts.test_planning_query_intent_feedback"]
     },
     {
       "id":"F02","name":"runtime_composition_wrapper_and_install_order",
