@@ -91,6 +91,61 @@ class FactualityAvailabilityBoundaryTests(unittest.TestCase):
 
 
 class CleanV2ToneNaturalnessTests(unittest.TestCase):
+    def test_run102_narrative_format_mismatch_opens_whole_short_for_repair(self):
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "بدأت المقارنة أمام رف طويل من الخيارات."},
+                {"id": "s2", "narration": "كل مقارنة جديدة أبقت القرار معلقًا."},
+                {"id": "s3", "narration": "صار الحسم أثقل بدل أن يصبح أوضح."},
+            ]
+        }
+        targets = _repair_target_section_ids(
+            script,
+            "- [tone] narrative_format: selected micro_story but draft is a flat analytical mini-essay.\n"
+            "- [tone] content_depth:s3 practical_action_generic: الإجراء عام.",
+            {},
+        )
+        self.assertEqual(targets, ("s1", "s2", "s3"))
+
+    def test_run102_micro_story_repair_prompt_keeps_selected_short_shape(self):
+        brief = {
+            "format": "short",
+            "approved_topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+            "_recent_templates": ["inner_dialogue", "why_reframe", "quote_reflection"],
+        }
+        plan = {
+            "title": "اختبار",
+            "practical_action_ar": "حدد معيارًا واحدًا يكفيك قبل مقارنة الخيارات.",
+            "s3_locked_action": "حدد معيارًا واحدًا يكفيك قبل مقارنة الخيارات.",
+            "sections": [
+                {"id": "s1", "heading": "h1", "purpose": "p1", "visual_query_en": "store shelf"},
+                {"id": "s2", "heading": "h2", "purpose": "p2", "visual_query_en": "comparison"},
+                {"id": "s3", "heading": "h3", "purpose": "p3", "visual_query_en": "decision"},
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "وقفت أمام خيارات كثيرة ولم أحسم."},
+                {"id": "s2", "narration": "كل مقارنة فتحت مقارنة أخرى."},
+                {
+                    "id": "s3",
+                    "narration": "صار القرار أثقل.",
+                    "s3_payoff": "صار القرار أثقل.",
+                    "s3_locked_action": plan["s3_locked_action"],
+                },
+            ],
+        }
+        prompt = _tone_repair_prompt(
+            brief=brief,
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note="- [tone] narrative_format: selected micro_story but draft is a flat analytical mini-essay.",
+        )
+        self.assertIn("Restore the selected Short template=micro_story", prompt)
+
     def test_strict_schema_matches_legacy_tone_contract(self):
         self.assertFalse(TONE_AUDIT_SCHEMA["additionalProperties"])
         self.assertEqual(

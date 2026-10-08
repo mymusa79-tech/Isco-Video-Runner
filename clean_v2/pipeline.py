@@ -2198,24 +2198,46 @@ def _tone_repair_issue_notes(
     return "\n".join(lines)
 
 
-def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
-    """Add a deterministic template-specific repair contract only for blocked Shorts."""
+def _short_template_tone_repair_issue_notes(
+    brief: Mapping[str, Any],
+    tone_issue_notes: str = "",
+) -> str:
+    """Add deterministic selected-template guidance for a blocked Short."""
     if str(brief.get("format") or "").strip().casefold() != "short":
         return ""
     selection = select_short_template(brief)
-    if str(selection.get("template") or "") != "inner_dialogue":
-        return ""
-    lines = [
-        "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
-        "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
-        "a narrator giving instructions."
-    ]
-    lines.extend(f"- [tone-template:inner_dialogue] {rule}" for rule in INNER_DIALOGUE_VOICE_RULES)
-    lines.append(
-        "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
-        "genuinely advance it instead of restating it."
-    )
-    return "\n".join(lines)
+    template = str(selection.get("template") or "").strip()
+    lines: list[str] = []
+
+    # A whole-draft narrative-format block must carry the selected Short
+    # template's own writing directive into the one bounded repair. Previously
+    # only inner_dialogue had template-aware repair guidance, so a micro_story
+    # mismatch could be diagnosed correctly yet never be repaired (Run 102).
+    if "narrative_format:" in str(tone_issue_notes or "").casefold() and template:
+        directive = " ".join(str(selection.get("writing_directive") or "").split()).strip()
+        lines.append(
+            f"- [tone-template:{template}] Restore the selected Short template={template} "
+            "across the existing s1/s2/s3 arc; keep the same topic, section ids, hook lock, "
+            "evidence boundaries, and single Planning-owned action."
+        )
+        if directive:
+            lines.append(f"- [tone-template:{template}] {directive}")
+
+    if template == "inner_dialogue":
+        lines.append(
+            "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
+            "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
+            "a narrator giving instructions."
+        )
+        lines.extend(
+            f"- [tone-template:inner_dialogue] {rule}"
+            for rule in INNER_DIALOGUE_VOICE_RULES
+        )
+        lines.append(
+            "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
+            "genuinely advance it instead of restating it."
+        )
+    return "\n".join(dict.fromkeys(lines))
 
 
 def _structural_repair_issue_notes(output_dir: Path) -> str:
@@ -2358,6 +2380,12 @@ def _repair_target_section_ids(
         anchor = str(cta_plan.get("anchor_section_id") or "").strip()
         if anchor in ordered_ids:
             targets.add(anchor)
+    # A narrative-format mismatch describes the draft's global writing shape,
+    # not one isolated sentence. If any other flag also names s3, limiting the
+    # repair scope to s3 makes the format defect impossible to fix in the same
+    # bounded attempt (Run 102: micro_story was audited as a flat mini-essay).
+    if "narrative_format:" in lowered:
+        targets.update(ordered_ids)
     if _HOOK_QUALITY_REPAIR_PREFIX in lowered and ordered_ids:
         if _hook_text_itself_is_defective(revision_note):
             # Rewriting the hook changes the exact tension every later section was
@@ -2709,6 +2737,16 @@ def _validate_and_apply_script_patches(
                             locked_action in replace
                             or (find in narration and find not in payoff_surface)
                         ):
+                            if allow_short_locked_action_repair:
+                                # The audit explicitly opened the action, but this
+                                # particular patch spans the payoff/action seam or
+                                # tries to copy the lock into payoff prose. Reject
+                                # only this malformed patch and keep evaluating the
+                                # rest/provider fallback; do not turn an authorized
+                                # repair into a terminal dead end (Run 102).
+                                raise ValueError(
+                                    "audited Short action patch must target practical_action_ar directly"
+                                )
                             raise _ShortLockedActionPatchRejected(
                                 "script patch cannot change Planning-owned practical_action_ar"
                             )
@@ -3394,7 +3432,9 @@ def _run_one_bounded_tone_repair(
 ) -> dict[str, Any]:
     tone_issue_notes = _tone_repair_issue_notes(blocked_report, script)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
-    template_issue_notes = _short_template_tone_repair_issue_notes(brief)
+    template_issue_notes = _short_template_tone_repair_issue_notes(
+        brief, tone_issue_notes
+    )
     issue_notes = "\n".join(
         item
         for item in (tone_issue_notes, structural_issue_notes, template_issue_notes)

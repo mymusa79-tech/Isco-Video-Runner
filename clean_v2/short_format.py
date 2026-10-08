@@ -734,6 +734,12 @@ _S3_FORBIDDEN_ACTION_FAMILY_SAFE_WORDS = frozenset(
         # safe prevents a topic-specific payoff such as "تقارن بدايتك..." from
         # being replaced by unrelated generic anti-procrastination copy.
         "بدايتك", "بدايته", "بدايتها", "بدايتهم", "بدايتنا", "بدايتي",
+        # Descriptive nouns from the choice family are not commands. Keep the
+        # imperative/verb forms (اختر/اختار/يختار...) blocked while allowing
+        # topic-native payoff prose such as "الاختيار يصبح أسهل".
+        "اختيار", "الاختيار", "بالاختيار", "والاختيار", "فاختيار",
+        "اختيارات", "الاختيارات", "باختيارات", "واختيارات",
+        "اختيارك", "اختياره", "اختيارها", "اختيارهم", "اختيارنا", "اختياري",
     )
 )
 
