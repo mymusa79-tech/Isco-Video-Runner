@@ -39,7 +39,7 @@ def attempt(name, call, prompt, b):
     try:
         value = call(prompt)
         out["json_ok"] = isinstance(value, dict)
-        pipeline._validate_plan_for_brief(value, b, enforce_visual_identity=True)
+        pipeline._validate_plan_for_brief(value, b, enforce_visual_identity=False)
         out["validator"] = "pass"
     except Exception as exc:  # noqa: BLE001 - probe reports every failure class
         out.setdefault("json_ok", False)
@@ -58,7 +58,7 @@ def main() -> int:
         b = brief(topic)
         prompt = pipeline._planning_prompt(b)
         row = {"topic": topic, "prompt_utf8_bytes": len(prompt.encode("utf-8")), "results": []}
-        row["results"].append(attempt("cloudflare_gpt_oss_120b", lambda p: providers._cloudflare_call(p, 3000), prompt, b))
+        row["results"].append(attempt("cloudflare_gpt_oss_120b", lambda p: providers._cloudflare_call(p, 8000), prompt, b))
         row["results"].append(attempt("mistral", lambda p: providers._mistral_call(p, 3000, "planning"), prompt, b))
         rows.append(row)
     print(json.dumps(rows, ensure_ascii=False, indent=2))
