@@ -2662,6 +2662,102 @@ class CleanV2EndToEndTests(unittest.TestCase):
             ):
                 self.assertTrue(resumed_by_name[name])
 
+    def _voice_bank_first_run(self, root: Path):
+        brief_path = root / "approved-brief.json"
+        brief = _brief()
+        brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+        approved = compute_brief_sha256(brief)
+        first_output = root / "first"
+        first = CleanV2Pipeline(
+            router=_FakeRouter(),
+            voice_synthesizer=_FakeVoice(),
+            visual_source=_FakeVisuals(),
+            visual_qa=_infrastructure_visual_qa,
+            cinematic_layer=_passing_cinematic_layer,
+            final_master_qc=_passing_final_master_qc,
+            text_audit=_passing_text_audit,
+            audio_mastering=_passing_audio_mastering,
+            narrative_identity=_passing_narrative_identity,
+        )
+        with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"):
+            first.run(
+                brief_path=brief_path, approved_sha256=approved, output_dir=first_output,
+                engine_sha="a" * 40, runner_sha="b" * 40, max_visuals=2,
+            )
+        return brief_path, approved, first_output
+
+    def _voice_bank_second_run(self, root, brief_path, approved, first_output, *, runner_sha, engine_sha="a" * 40, name="second"):
+        class _ForbiddenRouter:
+            events: list[dict] = []
+
+            def route(self, **_kwargs):
+                raise AssertionError("script/plan must be reused")
+
+        class _ForbiddenVoice:
+            def synthesize(self, *_args, **_kwargs):
+                raise AssertionError("paid voice must be reused")
+
+        visuals = _FakeVisuals()
+        second_output = root / name
+        result = CleanV2Pipeline(
+            router=_ForbiddenRouter(),
+            voice_synthesizer=_ForbiddenVoice(),
+            visual_source=visuals,
+            visual_qa=_passing_visual_qa,
+            cinematic_layer=_passing_cinematic_layer,
+            final_master_qc=_passing_final_master_qc,
+            text_audit=_passing_text_audit,
+            audio_mastering=_passing_audio_mastering,
+            narrative_identity=_passing_narrative_identity,
+        ).run(
+            brief_path=brief_path, approved_sha256=approved, output_dir=second_output,
+            engine_sha=engine_sha, runner_sha=runner_sha, max_visuals=2,
+            resume_from=first_output,
+        )
+        manifest = json.loads((second_output / "run-manifest.json").read_text(encoding="utf-8"))
+        return result, manifest, visuals
+
+    def test_voice_bank_keeps_script_and_voice_across_runner_update_but_redoes_visuals(self) -> None:
+        import os
+        from unittest.mock import patch as _patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path, approved, first_output = self._voice_bank_first_run(root)
+            with _patch.dict(os.environ, {"CLEAN_V2_RESUME_ACROSS_RUNNER": "1"}):
+                result, manifest, visuals = self._voice_bank_second_run(
+                    root, brief_path, approved, first_output, runner_sha="c" * 40
+                )
+            self.assertEqual(result["status"], "pass")
+            self.assertTrue(manifest["resume_runner_sha_drift"])
+            self.assertEqual(manifest["resume_saved_completed_stage"], "visuals")
+            self.assertEqual(manifest["resume_completed_stage"], "voice")
+            self.assertIn("voice", manifest["resumed_stages"])
+            self.assertIn(TEXT_AUDIT_STAGE, manifest["resumed_stages"])
+            self.assertNotIn("visuals", manifest["resumed_stages"])
+            self.assertEqual(visuals.calls, 1)
+
+    def test_voice_bank_is_off_without_switch_and_never_ignores_engine_or_brief(self) -> None:
+        import os
+        from unittest.mock import patch as _patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path, approved, first_output = self._voice_bank_first_run(root)
+            # Switch off: a different Runner SHA is not accepted (router would be called).
+            with _patch.dict(os.environ, {"CLEAN_V2_RESUME_ACROSS_RUNNER": ""}):
+                with self.assertRaisesRegex(AssertionError, "script/plan must be reused"):
+                    self._voice_bank_second_run(
+                        root, brief_path, approved, first_output, runner_sha="c" * 40
+                    )
+            # Switch on but Engine pin differs: still rejected.
+            with _patch.dict(os.environ, {"CLEAN_V2_RESUME_ACROSS_RUNNER": "1"}):
+                with self.assertRaisesRegex(AssertionError, "script/plan must be reused"):
+                    self._voice_bank_second_run(
+                        root, brief_path, approved, first_output,
+                        runner_sha="c" * 40, engine_sha="d" * 40, name="third",
+                    )
+
     def test_voice_quota_retry_resumes_after_text_audit_without_ai_replay(self) -> None:
         class _QuotaVoice:
             def synthesize(self, *_args, **_kwargs):

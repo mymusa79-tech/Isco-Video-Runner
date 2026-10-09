@@ -33,6 +33,7 @@ jobs:
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-podcast-one
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-podcast-resume
+      CLEAN_V2_RESUME_ACROSS_RUNNER: \"1\"
       CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
@@ -122,12 +123,22 @@ jobs:
           test "${#sha}" = 64
 
       - name: Restore exact Podcast request checkpoint
+        id: exact_checkpoint
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ env.CLEAN_V2_RESUME }}
           key: clean-v2-resume-v6-podcast-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             clean-v2-resume-v6-podcast-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-
+
+      - name: Restore voice-bank checkpoint across Runner updates
+        if: steps.exact_checkpoint.outputs.cache-matched-key == ''
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-voice-bank-v1-podcast-${{ runner.os }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            clean-v2-voice-bank-v1-podcast-${{ runner.os }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-
 
       - name: Restore verified Gemini TTS chunks
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
@@ -194,6 +205,13 @@ jobs:
         with:
           path: ${{ env.CLEAN_V2_RESUME }}
           key: clean-v2-resume-v6-podcast-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save voice-bank checkpoint across Runner updates
+        if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-voice-bank-v1-podcast-${{ runner.os }}-${{ env.ISCO_ENGINE_SHA }}-${{ steps.brief.outputs.brief_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Prepare verified Gemini TTS chunks
         if: always()
