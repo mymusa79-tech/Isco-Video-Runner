@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "كيف تتعامل مع النقد دون أن يفقدك ثقتك بنفسك؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37975588083",
-  "result": "failure",
-  "updated_at": 1791571781
+  "topic": "الخطأ ليس فشلاً: كيف تتحول التجارب السلبية إلى محركات للنمو",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37994734502",
+  "result": "",
+  "updated_at": 1791581979
 }
