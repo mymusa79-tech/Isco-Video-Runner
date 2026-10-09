@@ -1500,9 +1500,23 @@ def visual_review_context(
         f"Role:{_context_fragment(beat.get('role'), 'body', 12)}",
         f"Current: {_context_fragment(beat.get('shot_intent') or fallback_intent, 'visible action', 220)}",
         f"Meaning:{_context_fragment(beat.get('meaning_target') or beat.get('viewer_intent'), 'specific meaning', 180)}",
+        # Only the first cue is the proof gate. Providers list up to four cues, often
+        # alternative ways to show the idea; a single stock clip cannot hold all of
+        # them, and judging "all of them" blocked an otherwise correct clip (run 109).
         "Must show:" + ", ".join(
             _context_fragment(cue, "", 110)
-            for cue in list(beat.get("semantic_must_have") or [])[:4]
+            for cue in list(beat.get("semantic_must_have") or [])[:1]
+        ),
+        *(
+            [
+                "Optional support (NOT required for PROOF: matched): "
+                + ", ".join(
+                    _context_fragment(cue, "", 80)
+                    for cue in list(beat.get("semantic_must_have") or [])[1:4]
+                )
+            ]
+            if len(list(beat.get("semantic_must_have") or [])) > 1
+            else []
         ),
         "Avoid:" + ", ".join(
             _context_fragment(cue, "", 65)
