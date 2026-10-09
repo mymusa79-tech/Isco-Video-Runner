@@ -1217,7 +1217,7 @@ def _mistral_short_contract_validator_retry_prompt(
             + "Arabic, 12-16 words, same meaning and every other contract unchanged. "
             + "Return JSON only."
         )
-    if re.fullmatch(r"short_[a-z0-9_]{3,80}", code) and not (
+    if code != "short_hook_too_long" and re.fullmatch(r"short_[a-z0-9_]{3,80}", code) and not (
         stage == "script_patch" and code == "short_hook_requires_immediate_concrete_tension"
     ):
         # Any other deterministic Short contract rule: one generic, bounded correction
