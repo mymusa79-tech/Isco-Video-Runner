@@ -116,7 +116,8 @@ jobs:
           request_sha="$(jq -r .request_sha256 "$DISPATCH_FILE")"
           test -n "$request_id"
           test "$request_sha" != "null"
-          payload="$(jq -nc --arg ref "main" --arg request_id "$request_id" --arg request_sha256 "$request_sha" '{ref:$ref,inputs:{request_id:$request_id,request_sha256:$request_sha256}}')"
+          resume_voice="$(jq -r 'if .resume_from_voice == true then "true" else "false" end' "$DISPATCH_FILE")"
+          payload="$(jq -nc --arg ref "main" --arg request_id "$request_id" --arg request_sha256 "$request_sha" --arg resume_voice "$resume_voice" '{ref:$ref,inputs:({request_id:$request_id,request_sha256:$request_sha256} + (if $resume_voice == "true" then {resume_from_voice:"true"} else {} end))}')"
           code="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch-response.txt" --write-out '%{http_code}' \
             -X POST "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/clean-v2-telegram-production.yml/dispatches" \
             -H "Authorization: Bearer $GH_TOKEN" \
