@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 from clean_v2 import pipeline
@@ -57,6 +58,13 @@ def rejected(value, fmt="short"):
 
 
 class PlanningVisualRepairFeedbackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These tests exercise the provider-correction path for a family-overuse
+        # rejection, so the host-side repair is disabled here (it has its own tests).
+        patcher = mock.patch.object(pipeline, "repair_short_family_overuse", lambda value, plan: value)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_first_semantic_rejection_also_identifies_hidden_family_conflicts(self):
         value = combined_conflict()
         original = copy.deepcopy(value)

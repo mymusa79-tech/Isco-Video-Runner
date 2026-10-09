@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from clean_v2 import media as media_module
 from clean_v2 import providers as providers_module
 from clean_v2.contracts import LONGFORM_NARRATIVE_FORMATS
 from clean_v2.short_format import TEMPLATE_ORDER
+from clean_v2.visual_story import visual_action_family
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.visual_qa import _retention_quality_target
 from clean_v2.pipeline import (
@@ -190,6 +192,16 @@ class UnifiedVisualStoryPlanningTests(unittest.TestCase):
             beat["shot_intent"] = query
             beat["stock_query_en"] = query
             beat["semantic_must_have"] = [query]
+        # The third same-family beat is repaired host-side from the section's own
+        # alternate query when that alternate belongs to a different family.
+        result = _validate_plan_for_brief(copy.deepcopy(value), _brief("short"))
+        families = [visual_action_family(b["stock_query_en"]) for b in result["visual_story"]["beats"]]
+        self.assertLessEqual(families.count("stationery"), 2)
+        # When no section alternate qualifies the original rejection is kept.
+        for section in value["sections"]:
+            section["visual_query_alt_en"] = "hands writing in notebook"
+        for beat in value["visual_story"]["beats"]:
+            beat.pop("stock_query_alt_en", None)
         with self.assertRaisesRegex(
             ValueError,
             "Short visual family exceeds two beats: stationery",

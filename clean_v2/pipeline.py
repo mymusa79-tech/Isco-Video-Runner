@@ -80,6 +80,7 @@ from .visual_story import (
     VisualWorldIdentityError,
     bind_visual_story_to_script,
     fallback_visual_story,
+    repair_short_family_overuse,
     validate_visual_story,
     visual_action_family,
     visual_story_repair_context,
@@ -4872,7 +4873,21 @@ def _validate_plan_for_brief(
             strict_repetition=bool(fresh_practical_action),
         )
     raw_story = value.get("visual_story") if isinstance(value, Mapping) else None
-    visual_story = validate_visual_story(raw_story, plan)
+    try:
+        visual_story = validate_visual_story(raw_story, plan)
+    except ValueError as exc:
+        # Only the family-overuse rejection is repaired host-side, from the
+        # provider's own section alternates. Any other rejection, and any case
+        # where the repaired story still fails, keeps the original error.
+        if fmt != "short" or "visual family exceeds two beats" not in str(exc):
+            raise
+        repaired_story = repair_short_family_overuse(raw_story, plan)
+        if repaired_story is raw_story:
+            raise
+        try:
+            visual_story = validate_visual_story(repaired_story, plan)
+        except ValueError:
+            raise exc from None
     if fmt == "short":
         visual_story = _bound_short_visual_story(visual_story, max_beats=7)
     visual_story = _bound_ai_still_preferences(visual_story, fmt=fmt)

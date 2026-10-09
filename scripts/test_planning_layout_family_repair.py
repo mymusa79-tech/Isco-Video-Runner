@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 from clean_v2 import pipeline, providers
@@ -39,6 +40,13 @@ def run186_failure_shape():
 
 
 class PlanningLayoutFamilyRepairTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These tests exercise the provider-correction path for a family-overuse
+        # rejection, so the host-side repair is disabled here (it has its own tests).
+        patcher = mock.patch.object(pipeline, "repair_short_family_overuse", lambda value, plan: value)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_real_validator_keeps_primary_error_and_names_concurrent_repairs(self):
         value = run186_failure_shape()
         original = copy.deepcopy(value)
