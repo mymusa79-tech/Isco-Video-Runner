@@ -94,6 +94,33 @@ class HistoryViewStatusTests(unittest.TestCase):
         self.assertNotIn("resumevoice:", json.dumps(kb))
 
 
+class NewRunIdentityTests(unittest.TestCase):
+    def _state(self, status):
+        req = _request(last_job_status=status)
+        return {"requests": {"req-1": req}}
+
+    def _start(self, state, run_id):
+        return history.record_production_start(
+            state, request_id="req-1", request_sha256=SHA, run_id=run_id, run_attempt="1",
+            run_url="u", runner_sha="r", engine_sha=ENGINE, resume_cache_key="k",
+        )
+
+    def test_voice_resume_may_move_to_new_run_then_terminal_matches(self):
+        state = self._state("voice_resume_requested")
+        started = self._start(state, "999")
+        self.assertEqual(started["production"]["run_id"], "999")
+        self.assertEqual(started["production"]["last_job_status"], "in_progress")
+        done = history.record_production_terminal(
+            state, request_id="req-1", request_sha256=SHA, run_id="999", run_attempt="1",
+            job_status="failure", manifest_status="blocked",
+        )
+        self.assertEqual(done["production"]["run_id"], "999")
+
+    def test_ordinary_request_still_cannot_change_run(self):
+        with self.assertRaises(RuntimeError):
+            self._start(self._state("failure"), "999")
+
+
 class WorkflowPayloadTests(unittest.TestCase):
     JQ = (
         "jq -nc --arg ref main --arg request_id R --arg request_sha256 S --arg resume_voice \"$V\" "

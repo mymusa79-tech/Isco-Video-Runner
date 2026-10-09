@@ -79,7 +79,11 @@ def record_production_start(
     existing = request.get("production")
     production = dict(existing) if isinstance(existing, dict) else {}
     previous_run_id = str(production.get("run_id") or "").strip()
-    if previous_run_id and previous_run_id != str(run_id):
+    # A different run is accepted only for a Telegram-requested voice resume: that
+    # button re-dispatches the same immutable request as a NEW run and marks the
+    # request first (stage_voice_resume_dispatch in telegram_clean_v2_control.py).
+    voice_resume_pending = str(production.get("last_job_status") or "") == "voice_resume_requested"
+    if previous_run_id and previous_run_id != str(run_id) and not voice_resume_pending:
         raise RuntimeError("Telegram request cannot move to a different GitHub run")
     production.update(
         {
