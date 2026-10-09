@@ -121,6 +121,41 @@ class SimpleTelegramUiTests(unittest.TestCase):
         self.assertEqual(stored_hash, ui.panel._canonical_hash(subject))
         self.assertFalse(request["production_dispatch_authorized"])
 
+    def test_short_approval_carries_topic_web_sources_as_canonical_research_pack(self):
+        from scripts.control_approved_brief import materialize_approved_brief
+        import tempfile
+        from pathlib import Path
+
+        state = {"sessions": {}, "requests": {}, "pending_actions": [], "last_event_at": None}
+        source = {
+            "source_title": "Web A",
+            "source_url": "https://a.org/x",
+            "claim_scope": "مقتطف: ...",
+            "source_type": "web_snippet_tavily",
+        }
+        bad = {"source_title": "x", "source_url": "http://insecure.org", "claim_scope": "y"}
+        session = {
+            "session_id": "abc", "kind": "short",
+            "candidates": [{"title": "موضوع", "evidence": ["e"], "approved_research_pack": [source, bad]}],
+        }
+        request = ui._approve(state, session, 0, "short")
+        self.assertEqual(request["research_pack"], [source])
+        self.assertEqual(request["approved_research_pack"], [])
+        stored = request["request_sha256"]
+        subject = dict(request); subject.pop("request_sha256")
+        self.assertEqual(stored, ui.panel._canonical_hash(subject))
+        with tempfile.TemporaryDirectory() as tmp:
+            path, _ = materialize_approved_brief(request, Path(tmp) / "brief.json")
+            import json
+            self.assertEqual(json.loads(Path(path).read_text(encoding="utf-8"))["research_pack"], [source])
+
+    def test_short_approval_without_sources_keeps_empty_pack(self):
+        state = {"sessions": {}, "requests": {}, "pending_actions": [], "last_event_at": None}
+        session = {"session_id": "abc", "kind": "short", "candidates": [{"title": "موضوع", "evidence": ["e"]}]}
+        request = ui._approve(state, session, 0, "short")
+        self.assertNotIn("research_pack", request)
+        self.assertEqual(request["approved_research_pack"], [])
+
     def test_long_approval_fails_without_two_scholarly_sources(self):
         state = {"sessions": {}, "requests": {}, "pending_actions": [], "last_event_at": None}
         session = {

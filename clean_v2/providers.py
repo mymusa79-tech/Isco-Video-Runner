@@ -1118,7 +1118,7 @@ def _mistral_podcast_question_validator_retry_prompt(
         + "Return the COMPLETE podcast script JSON again with the same section ids/order and the same central reasoning. "
         + "Rewrite ONLY any overlong A listener question so each A turn is a concise natural Arabic question of 12-18 words "
         + "(hard rescue maximum 20). Move any necessary explanatory detail into the following B answer instead of deleting it. "
-        + "Keep the episode at or above the existing 4-minute/420-word floor, preserve the 6-10 minute editorial guidance, "
+        + "Keep the episode at or above the 8-minute/840-word floor, preserve the 10-20 minute editorial guidance, "
         + "the bridge/prayer token contract, factual boundaries, CTA, payoff, and every other validator rule. "
         + "Count every A turn by whitespace before returning JSON. Return JSON only."
     )
@@ -1151,19 +1151,19 @@ def _mistral_podcast_length_validator_retry_prompt(
     # Do not burn another free-tier call on a severely malformed tiny draft.
     # Run 42 was 300/420; the bounded recovery window covers that class while
     # still failing closed for scripts that are nowhere near Podcast length.
-    if minimum_words != 420 or not 280 <= words < minimum_words:
+    if minimum_words != 840 or not 560 <= words < minimum_words:
         return None
     return (
         prompt.rstrip()
         + "\n\nMISTRAL_PODCAST_LENGTH_VALIDATOR_RETRY — previous output was structurally valid "
-        + f"but only {words} spoken words, below the unchanged 420-word / 4-minute operational floor. "
+        + f"but only {words} spoken words, below the unchanged 840-word / 8-minute operational floor. "
         + "Return the COMPLETE podcast script JSON again with the same section ids/order, central question, "
         + "bridge/prayer contract, CTA, factual boundaries, and payoff. Keep every A listener turn concise "
         + "(12-18 words; hard rescue maximum 20). Expand the B answers only through missing reasoning: explain "
         + "the mechanism, add one concrete lived example where useful, address a genuine listener doubt or "
         + "clarification, make a useful distinction or consequence, and earn the resolution. Do NOT pad with "
         + "repetition, generic advice, invented facts, extra CTAs, or decorative wording. The returned complete "
-        + "episode must be at least 420 spoken words; aim naturally toward the existing 6-10 minute editorial "
+        + "episode must be at least 840 spoken words; aim naturally toward the 10-20 minute editorial "
         + "range when the topic supports it. Count the full spoken script before returning JSON. Return JSON only."
     )
 

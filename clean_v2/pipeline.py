@@ -4854,9 +4854,9 @@ PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS = 18
 # back to PODCAST_LISTENER_PROXY_QUESTION_MAX_WORDS first (Run #26).
 PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS = 20
 # Cheap local estimate only: it prevents a structurally valid podcast from reaching
-# TTS when it is really a Short-sized script. The 4-minute value is a floor, not a
-# writing target; the Writer still aims for a naturally complete 6-10 minute episode.
-PODCAST_MIN_ESTIMATED_SECONDS = 4 * 60.0
+# TTS when it is really a Short-sized script. The 8-minute value is a floor, not a
+# writing target; the Writer still aims for a naturally complete 10-20 minute episode.
+PODCAST_MIN_ESTIMATED_SECONDS = 8 * 60.0
 PODCAST_ESTIMATED_WORDS_PER_MINUTE = 105.0
 
 
@@ -6124,7 +6124,7 @@ def _script_prompt(
     longform_profile = _select_longform_narrative_profile(brief)
     if fmt == "film":
         length = (
-            "For the main long episode, 3-20 minutes is a normal editorial range, never an acceptance gate. "
+            "For the main long episode, 10-20 minutes is the normal editorial range, never an acceptance gate. "
             "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
             "a sound script merely to hit that range. Continue only while each section adds a new mechanism, "
             "consequence, example, distinction, or earned resolution.\n"
@@ -6132,10 +6132,12 @@ def _script_prompt(
         )
     elif fmt == "podcast":
         length = (
-            "For podcast / خارج النص, 6-10 minutes is the normal editorial range for a fully developed episode, not a padding target. "
+            "For podcast / خارج النص, 10-20 minutes is the normal editorial range for a fully developed episode, not a padding target. "
+            "Every paragraph must bring something NEW (a mechanism, a concrete example, a real objection, a distinction, a consequence); "
+            "never repeat an idea, restate the question, or add filler to reach length. A rich, dense episode beats a long one. "
             + _podcast_word_guidance(len(plan.get("sections") or [])) + " "
             + PODCAST_BRIDGE_GUIDANCE + " "
-            "A script that would clearly play under roughly 4 minutes is too compressed for this format and must deepen the SAME central "
+            "A script that would clearly play under roughly 8 minutes is too compressed for this format and must deepen the SAME central "
             "question before returning: add only missing reasoning, one concrete lived example where useful, a real listener doubt or "
             "objection, a useful distinction/consequence, and an earned resolution. Never repeat or paraphrase merely to gain length. "
             "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
@@ -6374,7 +6376,7 @@ def _estimated_podcast_script_seconds(script: Mapping[str, Any]) -> float:
 
 PODCAST_MIN_ESTIMATED_WORDS = int(PODCAST_MIN_ESTIMATED_SECONDS * PODCAST_ESTIMATED_WORDS_PER_MINUTE / 60.0)
 # Plain word guidance for the Writer: models cannot count minutes. The minimum is the
-# existing 4-minute floor expressed in words; the range is the existing 6-10 minute
+# 8-minute floor expressed in words; the range is the 10-20 minute
 # editorial range. Neither is a padding target.
 PODCAST_BRIDGE_GUIDANCE = (
     "BRIDGE INTO THE PRAYER: right after the listener's hook question (turn A), Charon's first turn is one short natural "
@@ -6384,14 +6386,14 @@ PODCAST_BRIDGE_GUIDANCE = (
     f"then put the exact token {PODCAST_PRAYER_MARKER} once, on its own, directly after it. Do NOT write the prayer or any "
     "religious wording yourself; the host replaces the token. The real answer then starts in a new `B:` turn right after the token."
 )
-PODCAST_EDITORIAL_MIN_MINUTES = 6
-PODCAST_EDITORIAL_MAX_MINUTES = 10
+PODCAST_EDITORIAL_MIN_MINUTES = 10
+PODCAST_EDITORIAL_MAX_MINUTES = 20
 
 
 def _podcast_word_guidance(section_count: int) -> str:
     """Word guidance derived from the existing floor/range and THIS plan's section count.
 
-    Models cannot count minutes, so the existing 4-minute floor and 6-10 minute editorial
+    Models cannot count minutes, so the 8-minute floor and 10-20 minute editorial
     range are restated in words. Nothing here is a target: topic depth decides where an
     episode lands inside the range, and the per-section share follows the plan's size.
     """
@@ -6400,7 +6402,7 @@ def _podcast_word_guidance(section_count: int) -> str:
     high = int(PODCAST_EDITORIAL_MAX_MINUTES * PODCAST_ESTIMATED_WORDS_PER_MINUTE)
     per_section_floor = -(-PODCAST_MIN_ESTIMATED_WORDS // sections)
     return (
-        f"In spoken words, the 6-10 minute range is about {low}-{high} words in total, and the absolute floor for the whole "
+        f"In spoken words, the 10-20 minute range is about {low}-{high} words in total, and the absolute floor for the whole "
         f"episode is {PODCAST_MIN_ESTIMATED_WORDS} words, which for this plan's {sections} section(s) is about "
         f"{per_section_floor} words per section at the very least. Let the real depth of this topic decide where the episode "
         "lands; use these only as a check against a too-short draft, never as a target to pad toward. "
@@ -6438,14 +6440,14 @@ def _route_script_with_single_podcast_length_repair(
         prompt
         + "\n\nSINGLE PODCAST DEPTH REPAIR (one rewrite only):\n"
         + f"The previous structurally valid episode was estimated at {estimated_seconds / 60.0:.1f} minutes "
-        + f"({previous_words} words), below the 4-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
+        + f"({previous_words} words), below the 8-minute operational floor of {PODCAST_MIN_ESTIMATED_WORDS} words. "
         + f"Its minimum depth deficit is {PODCAST_MIN_ESTIMATED_WORDS - previous_words} spoken words. "
         + _podcast_word_guidance(len(script.get("sections") or [])) + " Rewrite the COMPLETE JSON once from the same locked brief, plan, "
         + "visual story, and narrative format. Keep the same central question and payoff. Expand only by developing "
         + "missing reasoning: mechanism, one concrete lived example where useful, a genuine listener doubt/objection "
         + "or clarification, a useful distinction or consequence, and the earned resolution. Do not add filler, "
-        + "repetition, generic advice, extra CTAs, or new unsupported claims. Aim naturally for the existing 6-10 "
-        + "minute editorial range; the 4-minute value is only a floor, never a duration target. "
+        + "repetition, generic advice, extra CTAs, or new unsupported claims. Aim naturally for the 10-20 "
+        + "minute editorial range; the 8-minute value is only a floor, never a duration target. "
         + "The exact current draft is attached below: preserve its valid reasoning and expand the B answers "
         + "where reasoning is missing; do not regenerate another condensed summary from the plan alone. "
         + "Return the complete corrected script JSON, not a patch or a summary.\n"

@@ -382,8 +382,21 @@ def _approve(state: dict[str, Any], session: dict[str, Any], index: int, scope: 
                 raise RuntimeError("Approved research source claim scope is missing")
         request["approved_research_pack"] = pack
     else:
+        # Short: carry topic-grounded web sources (if research found any) as the
+        # canonical ``research_pack``; an empty list keeps the old fail-safe behaviour.
+        raw_pack = candidate.get("approved_research_pack")
+        short_pack = [
+            dict(source)
+            for source in (raw_pack if isinstance(raw_pack, list) else [])
+            if isinstance(source, dict)
+            and str(source.get("source_title") or "").strip()
+            and str(source.get("source_url") or "").startswith("https://")
+            and str(source.get("claim_scope") or "").strip()
+        ][:3]
         request["approved_research_pack"] = []
     request.pop("research_pack", None)
+    if session.get("kind") != "long" and short_pack:
+        request["research_pack"] = short_pack
     request.pop("request_sha256", None)
     request["request_sha256"] = panel._canonical_hash(request)
     state["requests"][request["request_id"]] = request

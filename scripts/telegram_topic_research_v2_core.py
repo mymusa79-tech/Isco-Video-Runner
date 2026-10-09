@@ -17,7 +17,7 @@ from scripts import telegram_control_panel as panel
 from scripts import telegram_control_simple_ui as simple
 from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
-from scripts.tavily_research_lite import collect_tavily_grounding
+from scripts.tavily_research_lite import collect_tavily_grounding, collect_topic_sources
 from scripts.youtube_learning_lite import learning_evidence_line, learning_memo
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
@@ -404,6 +404,16 @@ def _research_current_v2(state_path: Path) -> None:
         chosen = _diverse_top(research_ready, TARGET_RESEARCH_OPTIONS)
         if not chosen:
             raise RuntimeError("Live research did not produce any distinct production-ready candidate")
+        # Ground each option in topic-specific web sources (fail-open, <=1 credit each).
+        tavily_key = (os.environ.get("TAVILY_API_KEY") or "").strip()
+        for option in chosen:
+            extra = collect_topic_sources(tavily_key, str(option.get("title") or ""))
+            if extra:
+                option["approved_research_pack"] = [
+                    *[dict(x) for x in option.get("approved_research_pack") or [] if isinstance(x, dict)],
+                    *extra,
+                ]
+                option["research_source_count"] = len(option["approved_research_pack"])
 
         session_id = secrets.token_hex(4)
         session = {
