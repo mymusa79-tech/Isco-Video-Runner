@@ -5504,9 +5504,176 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-09T16:33:51Z"
+    },
+    {
+      "idea_id": "idea-f7d595b088",
+      "title": "لماذا تعيقك «الكلمات السلبية» دون أن تدرك؟",
+      "normalized_title": "لماذا تعيقك الكلمات السلبية دون ان تدرك؟",
+      "market_query": "كلمات سلبية كيف أتخلص منها",
+      "reason": "{'core_idea': 'شرح كيف أن عبارات مثل «لا أستطيع» أو «يجب أن» تقيّد تفكيرنا، مع تمرين عملي لاستبدالها بعبارات أكثر قوة (مثل: «أبحث عن طريقة» أو «أختار أن»). مثال من الحياة اليومية: «لا أستطيع هذا» → «ما هي الخطوة الأولى؟».'}",
+      "market_score": 0.317,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 45.6,
+        "median_views_per_day": 45.6,
+        "top_samples": [
+          {
+            "video_id": "MdK8ZEeo1ZQ",
+            "title": "The Most Dangerous Word You Say Daily! 🧠 الكلمة التي تدمر عقلك يومياً! #shorts",
+            "channel": "Salah Eddine | Content Creator",
+            "published_at": "2026-09-14T20:10:16Z",
+            "views": 1138,
+            "views_per_day": 45.6,
+            "relevance_overlap": [
+              "سلبية",
+              "منها"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:17Z"
+    },
+    {
+      "idea_id": "idea-f0a03f23d6",
+      "title": "كيف تتعامل مع النقد دون أن يفقدك ثقتك بنفسك؟",
+      "normalized_title": "كيف تتعامل مع النقد دون ان يفقدك ثقتك بنفسك؟",
+      "market_query": "نقد شخصي كيف أتعامل معه",
+      "reason": "{'core_idea': \"نقد بناء مقابل نقد تدمير: شرح كيفية تمييز النوعين، مع تمرين عملي لفصل المشاعر عن الحقائق. مثال: «إذا قال لي شخص ما 'أنت غير كفء'، هل هذا حقائق أم مشاعر؟». التركيز على الاستجابة، لا على رد الفعل.\", 'trend_relevance': 'البحث عن",
+      "market_score": 0.253,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 17.6,
+        "median_views_per_day": 17.6,
+        "top_samples": [
+          {
+            "video_id": "wqvKIShAJys",
+            "title": "هندسة السلوك | الحلقة 9 | التعامل مع الناقد السلبي | د. محمد العامري | د. فؤاد مرداد |د. صالح الدقلة",
+            "channel": "د. محمد العامري",
+            "published_at": "2026-10-03T14:06:09Z",
+            "views": 109,
+            "views_per_day": 17.6,
+            "relevance_overlap": [
+              "معه",
+              "نقد"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:17Z"
+    },
+    {
+      "idea_id": "idea-b859232223",
+      "title": "كيف تحول الفشل إلى خطوة نحو النمو النفسي؟",
+      "normalized_title": "كيف تحول الفشل الي خطوة نحو النمو النفسي؟",
+      "market_query": "فشل شخصي كيف يستفيد منه",
+      "reason": "{'core_idea': 'الفشل ليس نهاية، بل نقطة انطلاق. شرح عملي لكيفية إعادة تقييم الفشل كدافع للتعلم، مع أمثلة واقعية من تجارب شخصية أو قصص واقعية غير طبية. التركيز على الإدراكات الإيجابية (مثل: «ما تعلّمت منه؟») بدلاً من التجنب.', 'trend_relevan",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:16Z"
+    },
+    {
+      "idea_id": "idea-1e8ff590c5",
+      "title": "الوعي الذاتي في 5 دقائق يوميًا: أداة صغيرة لتغيير كبير",
+      "normalized_title": "الوعي الذاتي في 5 دقايق يوميًا اداة صغيرة لتغيير كبير",
+      "market_query": "طريقة سهلة للوعي الذاتي",
+      "reason": "{'core_idea': 'توضيح أن الوعي الذاتي لا يتطلب ساعات من التأمل، بل يمكن البدء بأدوات بسيطة مثل «سؤال اليوم الواحد» (مثل: «ما الذي جعلني أشعر بالسعادة اليوم؟») أو تسجيل 3 نقاط إيجابية يوميًا. التركيز على الدقة، لا الكمية.', 'trend_relevance':",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:16Z"
+    },
+    {
+      "idea_id": "idea-f58604239c",
+      "title": "الروتين الصباحية التي تغير mindsetك في أسبوع",
+      "normalized_title": "الروتين الصباحية التي تغير mindsetك في اسبوع",
+      "market_query": "روتين صباحي لتغيير mindset",
+      "reason": "{'core_idea': 'لا مجرد شرب الماء والتأمل، بل روتين متكامل يدمج «3 عناصر»: الحركة (مثل المشي 10 دقائق)، التعلم (قراءة صفحة واحدة)، والتفكير الإيجابي (كتابة هدف واحد). شرح كيف يؤثر هذا على الدماغ من منظور علم النفس السلوكي.', 'trend_relevance",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:17Z"
+    },
+    {
+      "idea_id": "idea-7fca2efde7",
+      "title": "العلاقة بين الإرهاق النفسي والقرارات السيئة: كيف تكسر الحلقة؟",
+      "normalized_title": "العلاقة بين الارهاق النفسي والقرارات السيية كيف تكسر الحلقة؟",
+      "market_query": "إرهاق نفسي كيف أتحكم فيه",
+      "reason": "{'core_idea': 'توضيح العلاقة بين الإرهاق النفسي (غير الطبي) والقرارات السلبية، مع 3 استراتيجيات عملية: 1) تحديد «أوقات الإرهاق» في اليوم، 2) تقنيات التنفس السريع (مثل 4-7-8)، و3) «التوقف قبل القرار» (انتظار 10 دقائق قبل اتخاذ قرارات مهمة).'",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:18Z"
+    },
+    {
+      "idea_id": "idea-47ca4545b2",
+      "title": "كيف تبني ثقة بنفسك من خلال «النجاحات الصغيرة»؟",
+      "normalized_title": "كيف تبني ثقة بنفسك من خلال النجاحات الصغيرة ؟",
+      "market_query": "ثقة بنفسك من خلال الإنجازات الصغيرة",
+      "reason": "{'core_idea': 'شرح كيف أن التركيز على «النجاحات الصغيرة» (مثل: إكمال مهمة واحدة يوميًا) يزيد الثقة بنفسك أكثر من انتظار «النجاح الكبير». مثال: «إذا نجحت في ترتيب مكتبتي، فهذا دليل على قدرتي على التنظيم».'}",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:18Z"
+    },
+    {
+      "idea_id": "idea-853e148a4e",
+      "title": "الخوف من الفشل مقابل الخوف من الندم: أيهما أكثر خطورة؟",
+      "normalized_title": "الخوف من الفشل مقابل الخوف من الندم ايهما اكثر خطورة؟",
+      "market_query": "خوف الفشل مقابل الندم أيهما أسوأ",
+      "reason": "{'core_idea': 'مقارنة بين الخوفين مع تمرين عملي: «اكتب 3 أشياء تخاف من فشلها و3 أشياء قد تندم على عدم تجربتها». شرح كيف أن الندم غالبًا ما يكون أكثر ألمًا من الفشل نفسه، مع أمثلة واقعية من قصص شخصية أو تاريخية.'}",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T18:44:18Z"
     }
   ],
   "sessions": {
+    "9f73f23b": {
+      "session_id": "9f73f23b",
+      "scope": "short",
+      "idea_ids": [
+        "idea-f7d595b088",
+        "idea-f0a03f23d6"
+      ],
+      "created_at": "2026-10-09T18:44:18Z"
+    },
     "3b1192af": {
       "session_id": "3b1192af",
       "scope": "short",
@@ -5933,17 +6100,6 @@
       ],
       "created_at": "2026-09-25T12:49:48Z",
       "obsolete_at": "2026-09-27T21:38:17Z"
-    },
-    "347a5f49": {
-      "session_id": "347a5f49",
-      "scope": "short",
-      "idea_ids": [
-        "idea-ad18a6a0f8",
-        "idea-0e48bc87b3",
-        "idea-b6fd6e4fe9"
-      ],
-      "created_at": "2026-09-24T13:21:50Z",
-      "obsolete_at": "2026-09-25T12:49:42Z"
     }
   },
   "requests": {
@@ -8842,6 +8998,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-09T17:30:56Z",
+  "updated_at": "2026-10-09T18:44:19Z",
   "provider_cooldown_until": "2026-10-09T17:50:56.953447Z"
 }
