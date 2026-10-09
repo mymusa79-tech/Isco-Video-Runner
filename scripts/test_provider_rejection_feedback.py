@@ -101,7 +101,8 @@ class ProviderRejectionFeedbackTests(unittest.TestCase):
         router = ProviderRouter((adapter("gemini_flash_lite", first, "planning"), adapter("mistral", second, "planning")))
         router.route(stage="planning", prompt="BASE", max_tokens=3000,
                      validator=lambda v: pipeline._validate_plan_for_brief(v, _brief("short")))
-        self.assertEqual(calls, ["gemini_flash_lite", "mistral"])
+        # Flash-Lite gets its own bounded corrections (1 + 2) before Mistral is asked.
+        self.assertEqual(calls, ["gemini_flash_lite"] * 3 + ["mistral"])
 
     def test_retry_transport_failure_retains_last_rejected_draft_for_fallback(self):
         candidate = combined_conflict()

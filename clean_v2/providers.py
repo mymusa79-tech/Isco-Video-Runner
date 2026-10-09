@@ -56,6 +56,9 @@ MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES = 2
 # provider (Gemini Flash-Lite) previously got none, and Mistral exactly one.
 TEXT_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite"})
 TEXT_MAX_CORRECTIONS = 2
+# Planning validator corrections (named rule + repair context): Flash-Lite is the
+# second planning provider and previously got none (runs 106 and 108).
+PLANNING_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite"})
 
 # A 429 whose own body says the limit is temporary (OpenRouter free models: "temporarily
 # rate-limited upstream ... retry shortly") must not poison the provider for the rest of
@@ -2474,7 +2477,7 @@ class ProviderRouter:
                 rejected_candidate, last_rejection = candidate, exc
                 retry_prompt = None
                 retry_event_reason = None
-                if adapter.name == "mistral" and stage == "planning":
+                if adapter.name in PLANNING_CORRECTION_PROVIDERS and stage == "planning":
                     retry_prompt = _mistral_planning_validator_retry_prompt(
                         base_provider_prompt, exc, candidate=candidate,
                         previous_rejections=previous_rejections,
@@ -2569,7 +2572,7 @@ class ProviderRouter:
                             validator_retries_used += 1
                             retry_prompt = None
                             if (
-                                adapter.name == "mistral"
+                                adapter.name in PLANNING_CORRECTION_PROVIDERS
                                 and stage == "planning"
                                 and validator_retries_used
                                 < MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES
