@@ -27,8 +27,8 @@ def _plan():
 
 
 class PodcastWordGuidanceTests(unittest.TestCase):
-    def test_floor_is_four_minutes_in_words(self):
-        self.assertEqual(PODCAST_MIN_ESTIMATED_WORDS, 420)
+    def test_floor_is_eight_minutes_in_words(self):
+        self.assertEqual(PODCAST_MIN_ESTIMATED_WORDS, 840)
 
     def test_podcast_prompt_has_derived_word_guidance_other_formats_do_not(self):
         podcast = _script_prompt(_brief("podcast"), _plan())
@@ -43,8 +43,8 @@ class PodcastWordGuidanceTests(unittest.TestCase):
 
     def test_guidance_follows_the_plan_not_fixed_numbers(self):
         three, five = _podcast_word_guidance(3), _podcast_word_guidance(5)
-        self.assertIn("about 140 words per section", three)
-        self.assertIn("about 84 words per section", five)
+        self.assertIn("about 280 words per section", three)
+        self.assertIn("about 168 words per section", five)
         self.assertNotEqual(three, five)
         plan5 = _plan()
         plan5["sections"] = plan5["sections"] + [dict(plan5["sections"][0], id="s4"), dict(plan5["sections"][0], id="s5")]
@@ -55,14 +55,14 @@ class PodcastWordGuidanceTests(unittest.TestCase):
             def __init__(self, c): self.c, self.calls = list(c), []
             def route(self, **kw):
                 self.calls.append(kw); return kw["validator"](self.c.pop(0))
-        short = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 150)}]}
-        deep = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 500)}]}
+        short = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 300)}]}
+        deep = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 900)}]}
         r = R([short, deep])
         _route_script_with_single_podcast_length_repair(
             router=r, fmt="podcast", prompt="BASE", max_tokens=1, validator=lambda v: v)
         p = r.calls[1]["prompt"]
-        self.assertIn("(151 words)", p)
-        self.assertIn("floor of 420 words", p)
+        self.assertIn("(301 words)", p)
+        self.assertIn("floor of 840 words", p)
         self.assertIn(_podcast_word_guidance(1), p)
 
     def test_too_short_rewrite_error_carries_measures(self):
@@ -80,7 +80,7 @@ class PodcastWordGuidanceTests(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertTrue(providers._SAFE_VALIDATOR_MEASURE_RE.fullmatch(msg), msg)
         self.assertIn("words=101", msg)
-        self.assertIn("minimum_words=420", msg)
+        self.assertIn("minimum_words=840", msg)
 
 
 class ScriptValidatorDetailTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class ScriptValidatorDetailTests(unittest.TestCase):
 
     def test_safe_measure_message_is_persisted(self):
         ev = self._events(RuntimeError(
-            "podcast_estimated_duration_too_short estimated_seconds=210.5 minimum=240.0 words=367 minimum_words=420"))
+            "podcast_estimated_duration_too_short estimated_seconds=210.5 minimum=480.0 words=367 minimum_words=840"))
         self.assertIn("words=367", ev[0]["detail"])
 
     def test_message_quoting_content_is_not_persisted(self):

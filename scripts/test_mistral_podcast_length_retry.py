@@ -23,7 +23,7 @@ class MistralPodcastLengthRetryTests(unittest.TestCase):
             if candidate["n"] == 1:
                 raise RuntimeError(
                     "podcast_estimated_duration_too_short "
-                    "estimated_seconds=171.4 minimum=240.0 words=300 minimum_words=420"
+                    "estimated_seconds=342.9 minimum=480.0 words=600 minimum_words=840"
                 )
             return {"ok": True}
 
@@ -37,7 +37,7 @@ class MistralPodcastLengthRetryTests(unittest.TestCase):
         self.assertEqual(out, {"ok": True})
         self.assertEqual(len(calls), 2)
         self.assertIn("MISTRAL_PODCAST_LENGTH_VALIDATOR_RETRY", calls[1])
-        self.assertIn("at least 420 spoken words", calls[1])
+        self.assertIn("at least 840 spoken words", calls[1])
         self.assertIn("Do NOT pad", calls[1])
         self.assertTrue(
             any(
@@ -58,7 +58,7 @@ class MistralPodcastLengthRetryTests(unittest.TestCase):
                 validator=lambda _candidate: (_ for _ in ()).throw(
                     RuntimeError(
                         "podcast_estimated_duration_too_short "
-                        "estimated_seconds=171.4 minimum=240.0 words=300 minimum_words=420"
+                        "estimated_seconds=342.9 minimum=480.0 words=600 minimum_words=840"
                     )
                 ),
             )
@@ -71,7 +71,7 @@ class MistralPodcastLengthRetryTests(unittest.TestCase):
                 "BASE",
                 RuntimeError(
                     "podcast_estimated_duration_too_short "
-                    "estimated_seconds=114.3 minimum=240.0 words=200 minimum_words=420"
+                    "estimated_seconds=228.6 minimum=480.0 words=400 minimum_words=840"
                 ),
             )
         )
@@ -88,7 +88,7 @@ class MistralPodcastLengthRetryTests(unittest.TestCase):
                 "BASE",
                 ValueError(
                     "podcast_estimated_duration_too_short "
-                    "estimated_seconds=171.4 minimum=240.0 words=300 minimum_words=420"
+                    "estimated_seconds=342.9 minimum=480.0 words=600 minimum_words=840"
                 ),
             )
         )

@@ -100,7 +100,7 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("fixed Gemini 3.8", script)
         self.assertIn("Never invent first-person", script)
-        self.assertIn("6-10 minutes is the normal editorial range", script)
+        self.assertIn("10-20 minutes is the normal editorial range", script)
         self.assertIn("6-8 distinct reasoning beats", script)
         self.assertIn("actual synthesized voice owns the final duration completely", script)
         self.assertIn("audio alone", script)
@@ -152,10 +152,10 @@ class PodcastFormatTests(unittest.TestCase):
                 return kwargs["validator"](self.candidates.pop(0))
 
         short_script = {
-            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 150)}]
+            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 300)}]
         }
         deep_script = {
-            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 500)}]
+            "sections": [{"id": "s1", "narration": "A: سؤال B: " + ("فكرة " * 900)}]
         }
         self.assertLess(
             _estimated_podcast_script_seconds(short_script),
@@ -180,8 +180,8 @@ class PodcastFormatTests(unittest.TestCase):
         self.assertEqual(router.calls[0]["stage"], "script")
         self.assertEqual(router.calls[1]["stage"], "script")
         self.assertIn("SINGLE PODCAST DEPTH REPAIR", router.calls[1]["prompt"])
-        self.assertIn("4-minute operational floor", router.calls[1]["prompt"])
-        self.assertIn("6-10", router.calls[1]["prompt"])
+        self.assertIn("8-minute operational floor", router.calls[1]["prompt"])
+        self.assertIn("10-20", router.calls[1]["prompt"])
 
     def test_podcast_length_floor_does_not_change_other_formats(self) -> None:
         class FakeRouter:
