@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,9 +20,11 @@ from typing import Any
 
 try:
     from scripts.research_relevance_filter import market_sample_relevance
+    from scripts.tavily_research_lite import collect_topic_sources
     from scripts import telegram_resume_history as resume_history
 except ModuleNotFoundError:
     from research_relevance_filter import market_sample_relevance
+    from tavily_research_lite import collect_topic_sources
     import telegram_resume_history as resume_history
 
 STATE_VERSION = 1
@@ -508,7 +511,7 @@ _RESEARCH_FAILURE_MESSAGES = {
         "(حوالي 11 صباحًا بتوقيت مسقط)."
     ),
     "youtube_error": "تعذر الوصول إلى YouTube Data API.",
-    "gemini_unavailable": "تعذر توليد أفكار جديدة من Gemini، فاستُخدمت الأفكار الاحتياطية فقط.",
+    "gemini_unavailable": "تعذر توليد أفكار جديدة (Gemini ومزودات الاحتياط معًا)، فاستُخدمت الأفكار الاحتياطية فقط.",
 }
 
 
@@ -642,13 +645,27 @@ def _scope_research_instruction(scope: str) -> str:
     return "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
 
 
-def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
-    key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
-    if not key:
+def _parse_candidate_rows(text: str) -> list[dict[str, str]]:
+    parsed = json.loads(text)
+    rows = parsed.get("candidates") if isinstance(parsed, dict) else None
+    if not isinstance(rows, list):
         return []
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = " ".join(str(row.get("title") or "").split())[:180]
+        query = " ".join(str(row.get("market_query") or "").split())[:120]
+        reason = " ".join(str(row.get("reason") or "").split())[:240]
+        if title and query:
+            result.append({"title": title, "market_query": query, "reason": reason})
+    return result[:8]
+
+
+def _research_prompt(trends: list[str], scope: str) -> str:
     trend_text = "\n".join(f"- {item}" for item in trends[:12]) or "- لا توجد إشارات Trends موثوقة"
     scope_instruction = _scope_research_instruction(scope)
-    prompt = f"""أنت محرر أبحاث لقناة عربية اسمها نداء اليقظة عن التطور الشخصي والوعي النفسي بأسلوب متفائل وواقعي.
+    return f"""أنت محرر أبحاث لقناة عربية اسمها نداء اليقظة عن التطور الشخصي والوعي النفسي بأسلوب متفائل وواقعي.
 {scope_instruction}
 اقترح 8 أفكار أصلية مناسبة للنطاق المطلوب. تجنب التشخيص الطبي والوعود المبالغ فيها والتكرار.
 استخدم إشارات Google Trends التالية كخلفية فقط إذا كانت ذات صلة، ولا تجبرها على المجال:
@@ -656,38 +673,109 @@ def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
 لكل فكرة أعد title وmarket_query وreason. market_query عبارة بحث عربية محايدة من 2-7 كلمات.
 أعد JSON فقط بالشكل:
 {{"candidates":[{{"title":"...","market_query":"...","reason":"..."}}]}}"""
+
+
+def _http_status(exc: BaseException) -> int:
+    return int(exc.code) if isinstance(exc, urllib.error.HTTPError) else 0
+
+
+def _gemini_idea_rows(prompt: str) -> list[dict[str, str]]:
+    key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not key:
+        return []
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.7},
     }
-    try:
-        data = _json_request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(MODEL, safe='')}:generateContent?key={urllib.parse.quote(key)}",
-            method="POST",
-            payload=payload,
-            headers={"Content-Type": "application/json"},
-            timeout=35,
-        )
-        parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
-        text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
-        parsed = json.loads(text)
-        rows = parsed.get("candidates") if isinstance(parsed, dict) else None
-        if not isinstance(rows, list):
-            return []
-        result = []
-        for row in rows:
-            if not isinstance(row, dict):
+    last: BaseException | None = None
+    for attempt in range(2):
+        try:
+            data = _json_request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(MODEL, safe='')}:generateContent?key={urllib.parse.quote(key)}",
+                method="POST",
+                payload=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=35,
+            )
+            parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [])
+            text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
+            return _parse_candidate_rows(text)
+        except Exception as exc:
+            last = exc
+            print(f"Gemini research attempt {attempt + 1} failed: {type(exc).__name__} http={_http_status(exc)}")
+            if attempt == 0 and _http_status(exc) in (429, 500, 502, 503, 504):
+                time.sleep(4)
                 continue
-            title = " ".join(str(row.get("title") or "").split())[:180]
-            query = " ".join(str(row.get("market_query") or "").split())[:120]
-            reason = " ".join(str(row.get("reason") or "").split())[:240]
-            if title and query:
-                result.append({"title": title, "market_query": query, "reason": reason})
-        return result[:8]
-    except Exception as exc:
-        print(f"Gemini research fallback activated: {type(exc).__name__}")
+            break
+    if last is not None:
+        raise last
+    return []
+
+
+def _chat_idea_rows(url: str, key: str, model: str, prompt: str, extra_headers: dict[str, str] | None = None) -> list[dict[str, str]]:
+    data = _json_request(
+        url,
+        method="POST",
+        payload={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"},
+        },
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}", **(extra_headers or {})},
+        timeout=45,
+    )
+    text = str((((data.get("choices") or [{}])[0].get("message") or {}).get("content")) or "")
+    return _parse_candidate_rows(text)
+
+
+def _fallback_provider_rows(prompt: str) -> list[dict[str, str]]:
+    """Free-tier fallbacks used only when Gemini idea generation fails."""
+    attempts = (
+        (
+            "mistral",
+            "https://api.mistral.ai/v1/chat/completions",
+            str(os.environ.get("MISTRAL_API_KEY") or "").strip(),
+            str(os.environ.get("MISTRAL_CONTENT_MODEL") or "ministral-14b-2512").strip(),
+            None,
+        ),
+        (
+            "openrouter",
+            "https://openrouter.ai/api/v1/chat/completions",
+            str(os.environ.get("OPENROUTER_API_KEY") or "").strip(),
+            str(os.environ.get("OPENROUTER_CONTENT_MODEL") or "google/gemma-4-26b-a4b-it:free").strip(),
+            {"HTTP-Referer": "https://github.com/mymusa79-tech/Isco-Video-Runner", "X-Title": "Isco Video Runner"},
+        ),
+    )
+    for name, url, key, model, headers in attempts:
+        if not key:
+            continue
+        try:
+            rows = _chat_idea_rows(url, key, model, prompt, headers)
+            if rows:
+                print(f"Research ideas generated by fallback provider: {name}")
+                return rows
+        except Exception as exc:
+            print(f"Research fallback {name} failed: {type(exc).__name__} http={_http_status(exc)}")
+    return []
+
+
+def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
+    key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
+    prompt = _research_prompt(trends, scope)
+    rows: list[dict[str, str]] = []
+    if key:
+        try:
+            rows = _gemini_idea_rows(prompt)
+        except Exception:
+            rows = []
+    if rows:
+        return rows
+    rows = _fallback_provider_rows(prompt)
+    if not rows:
+        print("Gemini research fallback activated: all idea providers failed")
         _RESEARCH_FAILURES.add("gemini_unavailable")
-        return []
+    return rows
 
 
 def _candidate_pool(scope: str) -> list[dict[str, str]]:
@@ -857,6 +945,12 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     pack = _research_pack(idea.get("market_evidence") or {})
     if not pack:
         raise RuntimeError("selected candidate has no usable research evidence")
+    # Topic-grounded web sources (fail-open): the Writer sees their quoted snippets
+    # inside claim_scope. YouTube market evidence stays first and unchanged.
+    pack = pack + collect_topic_sources(
+        str(os.environ.get("TAVILY_API_KEY") or "").strip(),
+        str(idea.get("title") or ""),
+    )
     idea["research_pack"] = pack
     idea["selected"] = True
     idea["selected_at"] = utc_now()
