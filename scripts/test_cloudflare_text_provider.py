@@ -33,6 +33,15 @@ class CloudflareTextProviderTests(unittest.TestCase):
         self.assertIn("/ai/v1/chat/completions", seen["url"])
         self.assertEqual(seen["payload"]["model"], "@cf/openai/gpt-oss-120b")
 
+    def test_per_run_cap_reserves_quota_for_vision(self):
+        env = {"CLOUDFLARE_API_TOKEN": "t", "CLOUDFLARE_ACCOUNT_ID": "a" * 32}
+        ok = lambda url, **kw: {"choices": [{"message": {"content": "{}"}}]}
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(providers, "_post_json", ok), mock.patch.object(providers, "_cloudflare_text_calls", 0):
+            for _ in range(providers.CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN):
+                providers._cloudflare_call("x", 10)
+            with self.assertRaises(NoWireFailure):
+                providers._cloudflare_call("x", 10)
+
     def test_in_stage_orders_before_openrouter(self):
         for stage in ("planning", "script", "script_patch"):
             order = providers.STAGE_PROVIDER_ORDER[stage]

@@ -576,6 +576,12 @@ CLOUDFLARE_TEXT_MODELS = frozenset({
 })
 
 
+# Workers AI free pool (10,000 Neurons/day) is shared with the visual QA stage, so
+# text calls are capped per pipeline process and only used as a late fallback.
+CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN = 3
+_cloudflare_text_calls = 0
+
+
 def _cloudflare_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
     """Cloudflare Workers AI (free 10,000 Neurons/day) via its OpenAI-compatible route."""
     token = _read_secret("CLOUDFLARE_API_TOKEN")
@@ -587,6 +593,15 @@ def _cloudflare_call(prompt: str, max_tokens: int, *, response_schema: dict[str,
     model = str(os.environ.get("CLOUDFLARE_TEXT_MODEL") or "@cf/openai/gpt-oss-120b").strip()
     if model not in CLOUDFLARE_TEXT_MODELS:
         raise NoWireFailure("paid_or_unapproved_model")
+    global _cloudflare_text_calls
+    try:
+        cap = int(os.environ.get("CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN") or CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN)
+    except ValueError:
+        cap = CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN
+    cap = max(0, min(cap, 6))
+    if _cloudflare_text_calls >= cap:
+        raise NoWireFailure("cloudflare_text_budget_reserved_for_vision")
+    _cloudflare_text_calls += 1
     body = _post_json(
         f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions",
         headers={"Authorization": f"Bearer {token}"},
