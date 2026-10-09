@@ -481,7 +481,7 @@ class GeminiFlashLiteFallbackTests(unittest.TestCase):
         names = [adapter.name for adapter in providers_module.default_adapters()]
         self.assertEqual(
             names,
-            ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
+            ["gemini", "gemini_flash_lite", "groq", "cloudflare", "openrouter", "mistral"],
         )
 
     def test_gemini_quota_exhaustion_falls_through_to_flash_lite_before_groq(self) -> None:
