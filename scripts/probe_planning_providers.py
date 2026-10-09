@@ -62,6 +62,10 @@ def main() -> int:
         row["results"].append(attempt("mistral", lambda p: providers._mistral_call(p, 3000, "planning"), prompt, b))
         rows.append(row)
     print(json.dumps(rows, ensure_ascii=False, indent=2))
+    for index, row in enumerate(rows, 1):
+        for res in row["results"]:
+            line = json.dumps({"t": index, "bytes": row["prompt_utf8_bytes"], **res}, ensure_ascii=False)
+            print(f"::notice title=probe {res['provider']}::{line}")
     return 0
 
 
