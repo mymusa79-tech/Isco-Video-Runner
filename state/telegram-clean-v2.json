@@ -5219,9 +5219,298 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-09T16:32:57Z"
+    },
+    {
+      "idea_id": "idea-d028e33025",
+      "title": "عقلية الريمونتادا: كيف تتصرف حين تسوء الأمور فجأة؟",
+      "normalized_title": "عقلية الريمونتادا كيف تتصرف حين تسوء الامور فجاة؟",
+      "market_query": "كيفية التعامل مع الضغوط النفسية بهدوء",
+      "reason": "استلهام مفهوم العودة بعد التأخر لبناء مرونة نفسية سريعة تمكن المشاهد من استعادة توازنه بدلاً من الاستسلام عند أول عقبة.",
+      "market_score": 0.521,
+      "market_evidence": {
+        "sample_count": 5,
+        "distinct_channels": 5,
+        "max_views_per_day": 188.2,
+        "median_views_per_day": 44.4,
+        "top_samples": [
+          {
+            "video_id": "5pcGJZb1wcI",
+            "title": "السر المذهل للسيطرة على التوتر والجهد اليومي! 💡",
+            "channel": "أثرُ الأوّلين",
+            "published_at": "2026-10-08T12:38:12Z",
+            "views": 219,
+            "views_per_day": 188.2,
+            "relevance_overlap": [
+              "تعامل",
+              "ضغوط",
+              "كيفية",
+              "نفسية"
+            ]
+          },
+          {
+            "video_id": "_NYqJQgtMZ0",
+            "title": "كيف تبقى مسيطراً عندما ينهار كل شيء؟ #قوة_الشخصية #تنمية_بشرية",
+            "channel": "رحلة التطوير النفسي",
+            "published_at": "2026-10-03T07:30:26Z",
+            "views": 1044,
+            "views_per_day": 163.7,
+            "relevance_overlap": [
+              "تعامل",
+              "ضغوط",
+              "كيفية",
+              "نفسية"
+            ]
+          },
+          {
+            "video_id": "QDivAI9jaHc",
+            "title": "كيف تتخلصين من التوتر عندما تشعرين أن كل شيء فوق طاقتكِ؟ | 7 خطوات لتهدئي من الداخل",
+            "channel": "كيف؟",
+            "published_at": "2026-09-20T19:01:03Z",
+            "views": 840,
+            "views_per_day": 44.4,
+            "relevance_overlap": [
+              "بهدوء",
+              "تعامل",
+              "نفسية"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:49Z"
+    },
+    {
+      "idea_id": "idea-aefd0217e0",
+      "title": "لا تنتظر الشغف: قوة الانضباط في الأيام العادية",
+      "normalized_title": "لا تنتظر الشغف قوة الانضباط في الايام العادية",
+      "market_query": "بناء عادة الانضباط الذاتي اليومي",
+      "reason": "تفكيك خرافة انتظار التحفيز المستمر، والتأكيد على أن الثبات الصغير في الأيام الروتينية هو صانع الفارق الحقيقي.",
+      "market_score": 0.669,
+      "market_evidence": {
+        "sample_count": 3,
+        "distinct_channels": 3,
+        "max_views_per_day": 2171.9,
+        "median_views_per_day": 1347.1,
+        "top_samples": [
+          {
+            "video_id": "q7ylok4O8Uk",
+            "title": "🔥 تجربتي الشخصية 66 يوم 🔥 كيفاش غادي نطبقو 5 عادات ونبدلو حياتنا؟ | شرحت ليكم الطريقة",
+            "channel": "Fatislaaay vlogs",
+            "published_at": "2026-09-30T09:57:34Z",
+            "views": 20145,
+            "views_per_day": 2171.9,
+            "relevance_overlap": [
+              "انضباط",
+              "بناء",
+              "ذاتي",
+              "عادة",
+              "يومي"
+            ]
+          },
+          {
+            "video_id": "o1kk_LNKs2M",
+            "title": "قوة الانضباط | سر 7 قواعد بسيطة ستغير حياتك تماماً ",
+            "channel": "خطوة نجاح",
+            "published_at": "2026-09-27T16:39:12Z",
+            "views": 16160,
+            "views_per_day": 1347.1,
+            "relevance_overlap": [
+              "انضباط",
+              "بناء",
+              "ذاتي",
+              "عادة"
+            ]
+          },
+          {
+            "video_id": "rz1XaygV6Pc",
+            "title": "الساعة المفقودة: هل يمكن لـ 60 دقيقة في الصباح الباكر أن تغير حياتك؟ (كتاب صوتي)",
+            "channel": "مجلة الكتب الصوتية",
+            "published_at": "2026-09-22T10:04:06Z",
+            "views": 10883,
+            "views_per_day": 630.1,
+            "relevance_overlap": [
+              "انضباط",
+              "بناء",
+              "ذاتي",
+              "عادة",
+              "يومي"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:50Z"
+    },
+    {
+      "idea_id": "idea-4e1086445a",
+      "title": "حدودك خط أحمر: كيف تحمي طاقتك من الاستنزاف؟",
+      "normalized_title": "حدودك خط احمر كيف تحمي طاقتك من الاستنزاف؟",
+      "market_query": "وضع حدود صحية في العلاقات الشخصية",
+      "reason": "تقديم توجيه واضح وحاسم حول قول 'لا' بلباقة لمنع استنزاف الطاقة النفسية وحفظ راحة البال.",
+      "market_score": 0.676,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 4941.0,
+        "median_views_per_day": 2975.2,
+        "top_samples": [
+          {
+            "video_id": "XivBGJq-Gsk",
+            "title": "بعض علامات التشافي تظهر في أول طريقك لتنظيف جروح الماضي",
+            "channel": "بدلي عقليتك تتبدل حياتك",
+            "published_at": "2026-09-30T07:10:06Z",
+            "views": 46403,
+            "views_per_day": 4941.0,
+            "relevance_overlap": [
+              "حدود",
+              "شخصية",
+              "صحية",
+              "علاقات",
+              "وضع"
+            ]
+          },
+          {
+            "video_id": "QPHZ9O1LEE8",
+            "title": "كيف أضع حدودي بدون ما أخسر الناس ؟",
+            "channel": "الأخصائية النفسية نورة الصفيري",
+            "published_at": "2026-09-27T15:17:16Z",
+            "views": 12166,
+            "views_per_day": 1009.4,
+            "relevance_overlap": [
+              "شخصية",
+              "صحية",
+              "علاقات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:51Z"
+    },
+    {
+      "idea_id": "idea-b53c9c23d8",
+      "title": "فخ إرضاء الجميع: كيف تصنع ولاءك لقيمك أولاً؟",
+      "normalized_title": "فخ ارضاء الجميع كيف تصنع ولاءك لقيمك اولاً؟",
+      "market_query": "التوقف عن إرضاء الآخرين وبناء الثقة",
+      "reason": "مناقشة التبعية الاجتماعية والحاجة للقبول، مع توضيح كيفية بناء بوصلة شخصية متزنة ومستقلة عن تصفيق الجمهور.",
+      "market_score": 0.399,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 151.7,
+        "median_views_per_day": 151.7,
+        "top_samples": [
+          {
+            "video_id": "3muxW4Q5Z88",
+            "title": "توقف عن قول نعم دائماً! 5 عبارات لذكاء التعامل ووضع الحدود",
+            "channel": "كاريزما الشباب",
+            "published_at": "2026-10-01T09:30:03Z",
+            "views": 1258,
+            "views_per_day": 151.7,
+            "relevance_overlap": [
+              "اخرين",
+              "ارضاء",
+              "توقف",
+              "ثقة",
+              "وبناء"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:50Z"
+    },
+    {
+      "idea_id": "idea-d0653178ee",
+      "title": "أكبر سرقة تحدث لك يومياً دون أن تنتبه",
+      "normalized_title": "اكبر سرقة تحدث لك يومياً دون ان تنتبه",
+      "market_query": "التخلص من مشتتات الانتباه وتنظيم الوقت",
+      "reason": "معالجة استنزاف التركيز الرقمي كسرقة صامتة للسلام الداخلي، وتقديم خطوة عملية واحدة لاستعادة السيطرة على اليوم.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:49Z"
+    },
+    {
+      "idea_id": "idea-d154aff8b5",
+      "title": "عقلية روضة الأطفال: سر التعلم دون خوف من الفشل",
+      "normalized_title": "عقلية روضة الاطفال سر التعلم دون خوف من الفشل",
+      "market_query": "تطوير عقلية التعلم المستمر والفضول",
+      "reason": "دعوة لتبني فضول البدايات وبراءة المحاولة لتخفيف القلق الناتج عن الرغبة في الكمال والخوف من حكم الآخرين.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:49Z"
+    },
+    {
+      "idea_id": "idea-ee793df5a7",
+      "title": "هل مدربك الداخلي يدعمك أم يحطمك؟",
+      "normalized_title": "هل مدربك الداخلي يدعمك ام يحطمك؟",
+      "market_query": "تحسين الحديث الداخلي مع النفس",
+      "reason": "مساعدة المشاهد على تمييز صوته الداخلي وتحويل النقد الذاتي القاسي إلى توجيه واقعي ومشجع يشبه توجيهات المدرب الحكيم.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:50Z"
+    },
+    {
+      "idea_id": "idea-f258a4316b",
+      "title": "فخ السرعة القصوى: لماذا يسبق الهادئ المندفع؟",
+      "normalized_title": "فخ السرعة القصوي لماذا يسبق الهادي المندفع؟",
+      "market_query": "تجنب الاحتراق النفسي وإدارة الطاقة",
+      "reason": "تسليط الضوء على خطورة الاندفاع الحماسي غير المحسوب الذي يقود للاحتراق السريع، مقابل قيمة الخطوات المدروسة الثابتة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T16:33:51Z"
     }
   ],
   "sessions": {
+    "3b1192af": {
+      "session_id": "3b1192af",
+      "scope": "short",
+      "idea_ids": [
+        "idea-d028e33025",
+        "idea-aefd0217e0",
+        "idea-4e1086445a"
+      ],
+      "created_at": "2026-10-09T16:33:51Z"
+    },
+    "998e5e9c": {
+      "session_id": "998e5e9c",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7457800a57"
+      ],
+      "created_at": "2026-10-04T23:00:54Z",
+      "source": "saved_library",
+      "closed_at": "2026-10-04T23:00:54Z",
+      "selected_index": 0
+    },
     "4684f069": {
       "session_id": "4684f069",
       "scope": "podcast",
@@ -5636,17 +5925,6 @@
       ],
       "created_at": "2026-09-24T13:21:50Z",
       "obsolete_at": "2026-09-25T12:49:42Z"
-    },
-    "998e5e9c": {
-      "session_id": "998e5e9c",
-      "scope": "short",
-      "idea_ids": [
-        "idea-7457800a57"
-      ],
-      "created_at": "2026-10-04T23:00:54Z",
-      "source": "saved_library",
-      "closed_at": "2026-10-04T23:00:54Z",
-      "selected_index": 0
     }
   },
   "requests": {
@@ -8451,6 +8729,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-09T16:32:57Z",
+  "updated_at": "2026-10-09T16:33:52Z",
   "provider_cooldown_until": "2026-10-09T14:34:49.128675Z"
 }
