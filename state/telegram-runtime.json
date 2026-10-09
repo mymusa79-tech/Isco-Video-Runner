@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "كيف تبني عادة تستمر عندما يختفي الدافع؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37942130648",
-  "result": "failure",
-  "updated_at": 1791555286
+  "topic": "لا تنتظر الشغف: قوة الانضباط في الأيام العادية",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37960269337",
+  "result": "",
+  "updated_at": 1791563775
 }
