@@ -1682,16 +1682,25 @@ def _history_request_view(
     try:
         voice_decision = _voice_resume_decision_for_request(request)
     except Exception:
-        voice_decision = {"available": False}
+        voice_decision = {"available": False, "reason": "تعذر التحقق من الصوت المحفوظ عبر GitHub الآن."}
     if voice_decision.get("available") is True:
         lines.extend(
             [
                 "",
-                "🎙️ الصوت المحفوظ جاهز: يمكن إعادة المرئيات والمونتاج فقط دون إعادة الصوت.",
+                "🎙️ الاستئناف من الصوت: ✅ مفعّل",
+                "الصوت المحفوظ جاهز؛ يُعاد المرئيات والمونتاج فقط دون توليد صوت جديد.",
             ]
         )
         keyboard.append(
             [{"text": "🎙️ استئناف من الصوت (مرئيات + مونتاج فقط)", "callback_data": f"resumevoice:{request_id}"}]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "🎙️ الاستئناف من الصوت: ⛔ غير متاح",
+                f"السبب: {str(voice_decision.get('reason') or 'تعذر إثبات صوت محفوظ صالح.')}",
+            ]
         )
     keyboard.append(
         [{"text": "🔁 إعادة المحاولة من البداية", "callback_data": f"restart:{request_id}"}]
