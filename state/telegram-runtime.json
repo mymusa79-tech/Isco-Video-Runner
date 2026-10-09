@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
   "kind": "",
   "topic": "لا تنتظر الشغف: قوة الانضباط في الأيام العادية",
-  "stage": "بدأ الإنتاج",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/37960269337",
-  "result": "",
-  "updated_at": 1791563775
+  "result": "failure",
+  "updated_at": 1791563862
 }
