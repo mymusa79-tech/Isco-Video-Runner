@@ -73,6 +73,27 @@ class StageVoiceDispatchTests(unittest.TestCase):
             self.assertFalse(path.exists())
 
 
+class HistoryViewStatusTests(unittest.TestCase):
+    def _view(self, voice):
+        req = _request()
+        req.update({"approved_topic": "t", "scope": "short"})
+        state = {"requests": {"req-1": req}}
+        with mock.patch.object(control, "_resume_decision_for_request", return_value={"available": False, "reason": "x"}), \
+             mock.patch.object(control, "_voice_resume_decision_for_request", return_value=voice):
+            return control._history_request_view(state, "req-1")
+
+    def test_enabled_shows_mark_and_button(self):
+        text, kb = self._view({"available": True})
+        self.assertIn("الاستئناف من الصوت: ✅ مفعّل", text)
+        self.assertIn("resumevoice:req-1", json.dumps(kb))
+
+    def test_disabled_shows_reason_and_no_button(self):
+        text, kb = self._view({"available": False, "reason": "انتهت صلاحية الكاش"})
+        self.assertIn("الاستئناف من الصوت: ⛔ غير متاح", text)
+        self.assertIn("انتهت صلاحية الكاش", text)
+        self.assertNotIn("resumevoice:", json.dumps(kb))
+
+
 class WorkflowPayloadTests(unittest.TestCase):
     JQ = (
         "jq -nc --arg ref main --arg request_id R --arg request_sha256 S --arg resume_voice \"$V\" "
