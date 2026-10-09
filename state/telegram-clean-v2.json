@@ -5339,9 +5339,26 @@
           }
         ]
       },
-      "research_pack": [],
-      "selected": false,
-      "created_at": "2026-10-09T16:33:50Z"
+      "research_pack": [
+        {
+          "source_title": "🔥 تجربتي الشخصية 66 يوم 🔥 كيفاش غادي نطبقو 5 عادات ونبدلو حياتنا؟ | شرحت ليكم الطريقة",
+          "source_url": "https://youtu.be/q7ylok4O8Uk",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "قوة الانضباط | سر 7 قواعد بسيطة ستغير حياتك تماماً",
+          "source_url": "https://youtu.be/o1kk_LNKs2M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "الساعة المفقودة: هل يمكن لـ 60 دقيقة في الصباح الباكر أن تغير حياتك؟ (كتاب صوتي)",
+          "source_url": "https://youtu.be/rz1XaygV6Pc",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "selected": true,
+      "created_at": "2026-10-09T16:33:50Z",
+      "selected_at": "2026-10-09T16:35:24Z"
     },
     {
       "idea_id": "idea-4e1086445a",
@@ -5498,7 +5515,9 @@
         "idea-aefd0217e0",
         "idea-4e1086445a"
       ],
-      "created_at": "2026-10-09T16:33:51Z"
+      "created_at": "2026-10-09T16:33:51Z",
+      "closed_at": "2026-10-09T16:35:24Z",
+      "selected_index": 1
     },
     "998e5e9c": {
       "session_id": "998e5e9c",
@@ -8377,9 +8396,40 @@
         "started_at": "2026-10-09T14:10:05Z",
         "finished_at": "2026-10-09T14:14:49Z"
       }
+    },
+    "req-7a4016df92c1": {
+      "schema_version": 1,
+      "request_id": "req-7a4016df92c1",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لا تنتظر الشغف: قوة الانضباط في الأيام العادية",
+      "research_pack": [
+        {
+          "source_title": "🔥 تجربتي الشخصية 66 يوم 🔥 كيفاش غادي نطبقو 5 عادات ونبدلو حياتنا؟ | شرحت ليكم الطريقة",
+          "source_url": "https://youtu.be/q7ylok4O8Uk",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "قوة الانضباط | سر 7 قواعد بسيطة ستغير حياتك تماماً",
+          "source_url": "https://youtu.be/o1kk_LNKs2M",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "الساعة المفقودة: هل يمكن لـ 60 دقيقة في الصباح الباكر أن تغير حياتك؟ (كتاب صوتي)",
+          "source_url": "https://youtu.be/rz1XaygV6Pc",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-aefd0217e0",
+      "selected_at": "2026-10-09T16:35:24Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "4cb721e66af6a556d0be50211a532e8c3ebfa7db86887d827a3478a3c3c45e0f"
     }
   },
-  "current_request_id": "req-5f0f581b1f42",
+  "current_request_id": "req-7a4016df92c1",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -8729,6 +8779,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-09T16:33:52Z",
+  "updated_at": "2026-10-09T16:35:25Z",
   "provider_cooldown_until": "2026-10-09T14:34:49.128675Z"
 }
