@@ -5687,9 +5687,230 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-09T18:44:18Z"
+    },
+    {
+      "idea_id": "idea-849c6d4cfa",
+      "title": "المرونة النفسية: كيف تتكيف مع التغييرات دون فقدان هويتك",
+      "normalized_title": "المرونة النفسية كيف تتكيف مع التغييرات دون فقدان هويتك",
+      "market_query": "المرونة النفسية والتكيف مع التغيير",
+      "reason": "{'insight': 'المرونة النفسية هي مهارة حيوية في عالم سريع التغيير. هذه الفكرة تركز على كيفية تطوير المرونة النفسية من خلال تقنيات مثل التأمل، التعلم المستمر، والتكيف مع التغييرات دون فقدان الهوية الشخصية.', 'trend_relation': 'غير مرتبط مباشر",
+      "market_score": 0.48,
+      "market_evidence": {
+        "sample_count": 4,
+        "distinct_channels": 3,
+        "max_views_per_day": 481.8,
+        "median_views_per_day": 17.4,
+        "top_samples": [
+          {
+            "video_id": "cgQ-L6GqkS0",
+            "title": "تغيرت خطتك؟ربما ينتظرك طريق أحمل",
+            "channel": "تركي العبيدي (مهارات نفسية)",
+            "published_at": "2026-10-08T17:11:50Z",
+            "views": 571,
+            "views_per_day": 481.8,
+            "relevance_overlap": [
+              "مرونة",
+              "نفسية"
+            ]
+          },
+          {
+            "video_id": "tgRjt1Luls8",
+            "title": "لماذا تتعطل عندما تتغير الظروف؟ التفكير المرن",
+            "channel": "تركي العبيدي (مهارات نفسية)",
+            "published_at": "2026-10-02T06:19:25Z",
+            "views": 168,
+            "views_per_day": 22.0,
+            "relevance_overlap": [
+              "تغيير",
+              "مرونة"
+            ]
+          },
+          {
+            "video_id": "JQObLjRgDgA",
+            "title": "هندسة السلوك | الحلقة 13 | التكيف مع التغيير | د. محمد العامري | د. فؤاد مرداد | د. صالح الدقلة",
+            "channel": "د. محمد العامري",
+            "published_at": "2026-10-03T14:53:48Z",
+            "views": 80,
+            "views_per_day": 12.7,
+            "relevance_overlap": [
+              "تغيير",
+              "مرونة",
+              "نفسية",
+              "والتكيف"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:22Z"
+    },
+    {
+      "idea_id": "idea-0129cb4031",
+      "title": "التغلب على الخوف من الفشل: كيف تتحول من الخائف إلى المحترف",
+      "normalized_title": "التغلب علي الخوف من الفشل كيف تتحول من الخايف الي المحترف",
+      "market_query": "خوف الفشل والتطور الشخصي",
+      "reason": "{'insight': 'الخوف من الفشل هو عقبة شائعة في التطور الشخصي. هذه الفكرة تركز على كيفية تحويل هذا الخوف إلى دافع للنمو، من خلال تقنيات مثل إعادة تقييم المخاوف، وضع أهداف صغيرة، والتفكير الإيجابي.', 'trend_relation': 'غير مرتبط، لكن يخدم اهتما",
+      "market_score": 0.425,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 125.4,
+        "median_views_per_day": 85.9,
+        "top_samples": [
+          {
+            "video_id": "uYD13VOyycI",
+            "title": "الخوف يتحكم بك؟ كيف تتخلص من الخوف وتبني ثقة حقيقية في 10 ثوانٍ",
+            "channel": "كاريزما الشباب",
+            "published_at": "2026-09-30T09:30:08Z",
+            "views": 1192,
+            "views_per_day": 125.4,
+            "relevance_overlap": [
+              "خوف",
+              "فشل"
+            ]
+          },
+          {
+            "video_id": "iTFLJGVn8Go",
+            "title": "كيف تتغلب على الخوف وتنجح؟ اكسر حاجز الخوف | Ibn Khaldun on Fear & Success",
+            "channel": "منصة تلفزا | تطوير الذات",
+            "published_at": "2026-09-12T09:00:06Z",
+            "views": 1277,
+            "views_per_day": 46.4,
+            "relevance_overlap": [
+              "خوف",
+              "فشل"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:21Z"
+    },
+    {
+      "idea_id": "idea-fbf3785c69",
+      "title": "الخطأ ليس فشلاً: كيف تتحول التجارب السلبية إلى محركات للنمو",
+      "normalized_title": "الخطا ليس فشلاً كيف تتحول التجارب السلبية الي محركات للنمو",
+      "market_query": "تعلم من الأخطاء والتطور الشخصي",
+      "reason": "{'insight': 'استلهام من ارتفاع بحث *dhruv rathee* حول التعليم المالي والنفسي، حيث يركز على تحويل التجارب السلبية إلى فرص. فكرة مناسبة لنطاق القناة لتقديم منظور واقعي ومتفائل حول كيفية تحويل الفشل إلى دروس عملية، مع التركيز على النمو النفسي",
+      "market_score": 0.195,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 7.0,
+        "median_views_per_day": 7.0,
+        "top_samples": [
+          {
+            "video_id": "zX1Grc1ruC0",
+            "title": "طوّر نفسك كل يوم… السعي للتعلم هو طريقك للتغيير",
+            "channel": "الدليل",
+            "published_at": "2026-09-19T21:35:32Z",
+            "views": 141,
+            "views_per_day": 7.0,
+            "relevance_overlap": [
+              "اخطاء",
+              "تعلم"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:19Z"
+    },
+    {
+      "idea_id": "idea-176383d573",
+      "title": "الوعي النفسي في الحياة اليومية: كيف تتعلم الاستماع إلى نفسك دون الحاجة إلى جلسة علاجية",
+      "normalized_title": "الوعي النفسي في الحياة اليومية كيف تتعلم الاستماع الي نفسك دون الحاجة الي جلسة علاجية",
+      "market_query": "الوعي النفسي اليومي بدون علاج",
+      "reason": "{'insight': 'الجمهور العربي يبحث عن طرق عملية للوعي النفسي، خاصةً بعد ارتفاع بحث *navanethem navi pillay* حول حقوق الإنسان والوعي الاجتماعي. هذه الفكرة تركز على أدوات بسيطة مثل التنفس العميق والتأمل القصير، والتي يمكن دمجها في الروتين اليوم",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:20Z"
+    },
+    {
+      "idea_id": "idea-255f18a1b0",
+      "title": "الطاقة النفسية: كيف تحمي نفسك من استنزاف الطاقة في العلاقات اليومية",
+      "normalized_title": "الطاقة النفسية كيف تحمي نفسك من استنزاف الطاقة في العلاقات اليومية",
+      "market_query": "طاقة نفسية وحماية من استنزاف الطاقة",
+      "reason": "{'insight': 'العلاقات اليومية، خاصة في بيئات العمل أو الأسرة، يمكن أن تكون مصدرًا لاستنزاف الطاقة. هذه الفكرة تقدم استراتيجيات عملية لحماية الطاقة النفسية، مثل وضع حدود صحية أو التعرف على العلاقات السامة.', 'trend_relation': 'غير مرتبط، لكن",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:20Z"
+    },
+    {
+      "idea_id": "idea-647aff6468",
+      "title": "التفاؤل الواقعي: كيف تتوقع الأفضل دون تجاهل الواقع",
+      "normalized_title": "التفاول الواقعي كيف تتوقع الافضل دون تجاهل الواقع",
+      "market_query": "التفاؤل الواقعي والتطور الشخصي",
+      "reason": "{'insight': 'الجمهور العربي يبحث عن توازن بين التفاؤل والواقعية، خاصة في ظل التحديات الاجتماعية والسياسية. هذه الفكرة تركز على كيفية الحفاظ على التفاؤل دون تجاهل التحديات، مع استراتيجيات عملية مثل التخطيط الإيجابي والتفاؤل المدعوم بالأدلة.'",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:20Z"
+    },
+    {
+      "idea_id": "idea-d3f41002a3",
+      "title": "الوعي النفسي في العمل: كيف تحافظ على راحة نفسية في بيئة عمل مرهقة",
+      "normalized_title": "الوعي النفسي في العمل كيف تحافظ علي راحة نفسية في بيية عمل مرهقة",
+      "market_query": "الوعي النفسي في العمل والتحديات اليومية",
+      "reason": "{'insight': 'العمل هو مصدر رئيسي للتوتر في المجتمع العربي. هذه الفكرة تقدم نصائح عملية مثل إدارة الوقت، التعرف على حدودك، والتواصل الفعال مع الزملاء، مع التركيز على الحفاظ على الراحة النفسية في بيئة عمل قد تكون مرهقة.', 'trend_relation': 'غ",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:21Z"
+    },
+    {
+      "idea_id": "idea-fb3ebf9a5f",
+      "title": "الوعي النفسي في العلاقات: كيف تبني علاقات صحية دون توقع المثالية",
+      "normalized_title": "الوعي النفسي في العلاقات كيف تبني علاقات صحية دون توقع المثالية",
+      "market_query": "العلاقات الصحية والتوقع الواقعي",
+      "reason": "{'insight': 'العلاقات الشخصية والعائلية هي مصدر كبير للتوتر في المجتمع العربي. هذه الفكرة تركز على كيفية بناء علاقات صحية من خلال وضع توقعات واقعية، التواصل الفعال، والتقبل.', 'trend_relation': 'غير مرتبط، لكن يخدم اهتمامًا واسعًا بالعلاقات",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-09T21:38:22Z"
     }
   ],
   "sessions": {
+    "e4bdaeb7": {
+      "session_id": "e4bdaeb7",
+      "scope": "short",
+      "idea_ids": [
+        "idea-849c6d4cfa",
+        "idea-0129cb4031",
+        "idea-fbf3785c69"
+      ],
+      "created_at": "2026-10-09T21:38:22Z"
+    },
     "9f73f23b": {
       "session_id": "9f73f23b",
       "scope": "short",
@@ -6116,17 +6337,6 @@
       "source": "saved_library",
       "closed_at": "2026-09-26T14:28:26Z",
       "selected_index": 0
-    },
-    "cda97410": {
-      "session_id": "cda97410",
-      "scope": "podcast",
-      "idea_ids": [
-        "idea-6bc09acdf7",
-        "idea-ead5c50eb7",
-        "idea-5f133b2080"
-      ],
-      "created_at": "2026-09-25T12:49:48Z",
-      "obsolete_at": "2026-09-27T21:38:17Z"
     }
   },
   "requests": {
@@ -9080,6 +9290,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-09T21:37:08Z",
+  "updated_at": "2026-10-09T21:38:23Z",
   "provider_cooldown_until": "2026-10-09T19:09:42.830614Z"
 }
