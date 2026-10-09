@@ -52,6 +52,10 @@ SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 # One correction was not enough; two keep every validator intact while giving the
 # repair loop room to converge. Other stages keep their single correction.
 MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES = 2
+# Script / script_patch deterministic-contract corrections: the first Short script
+# provider (Gemini Flash-Lite) previously got none, and Mistral exactly one.
+TEXT_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite"})
+TEXT_MAX_CORRECTIONS = 2
 
 # A 429 whose own body says the limit is temporary (OpenRouter free models: "temporarily
 # rate-limited upstream ... retry shortly") must not poison the provider for the rest of
@@ -1211,6 +1215,19 @@ def _mistral_short_contract_validator_retry_prompt(
             + "tension: a direct question, an explicit contrast (not X but Y / despite / "
             + "but), or a concrete early loss, failure or escalation. Keep it natural "
             + "Arabic, 12-16 words, same meaning and every other contract unchanged. "
+            + "Return JSON only."
+        )
+    if code != "short_hook_too_long" and re.fullmatch(r"short_[a-z0-9_]{3,80}", code) and not (
+        stage == "script_patch" and code == "short_hook_requires_immediate_concrete_tension"
+    ):
+        # Any other deterministic Short contract rule: one generic, bounded correction
+        # that names the exact rule code. Never relaxes the rule or edits locally.
+        return (
+            prompt.rstrip()
+            + "\n\nSHORT_CONTRACT_VALIDATOR_RETRY - previous output was rejected by the "
+            + f"deterministic Short rule `{code}`. " + shape
+            + " Fix ONLY what that rule names, keep every other valid part and every "
+            + "locked sentence exactly as given, and do not introduce a new violation. "
             + "Return JSON only."
         )
     return None
@@ -2443,7 +2460,7 @@ class ProviderRouter:
                     )
                     if retry_prompt is not None:
                         retry_event_reason = "mistral_planning_validator_retry"
-                elif adapter.name == "mistral" and stage in {"script", "script_patch"}:
+                elif adapter.name in TEXT_CORRECTION_PROVIDERS and stage in {"script", "script_patch"}:
                     retry_prompt, retry_event_reason = _text_validator_retry_prompt(
                         base_provider_prompt, exc, stage,
                     )
@@ -2540,6 +2557,26 @@ class ProviderRouter:
                                     previous_rejections=previous_rejections,
                                     max_prompt_bytes=max_provider_prompt_bytes,
                                 )
+                            elif (
+                                adapter.name in TEXT_CORRECTION_PROVIDERS
+                                and stage in {"script", "script_patch"}
+                                and validator_retries_used < TEXT_MAX_CORRECTIONS
+                                and type(exc).__name__ == "ShortFormatError"
+                                and previous_rejections
+                                and str(exc).split()[:1] != previous_rejections[-1].split()[:1]
+                            ):
+                                # A different deterministic rejection after a correction
+                                # gets its own targeted correction (bounded), instead of
+                                # ending the provider and burning the run.
+                                retry_prompt, retry_event_reason = _text_validator_retry_prompt(
+                                    base_provider_prompt, exc, stage,
+                                )
+                                if retry_prompt is not None:
+                                    retry_prompt = _text_rejected_draft_prompt(
+                                        retry_prompt, retry_candidate, stage=stage,
+                                        max_prompt_bytes=max_provider_prompt_bytes,
+                                        previous_rejections=previous_rejections,
+                                    )
                             if retry_prompt is None:
                                 break
                             continue

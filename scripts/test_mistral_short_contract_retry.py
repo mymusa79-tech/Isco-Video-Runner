@@ -44,7 +44,7 @@ class MistralShortContractRetryTests(unittest.TestCase):
         self.assertIsNone(_mistral_short_contract_validator_retry_prompt(
             "p", ShortFormatError("short_hook_requires_immediate_concrete_tension"), "script_patch"))
 
-    def test_retry_is_bounded_to_one(self):
+    def test_same_rule_repeated_is_not_corrected_twice(self):
         calls = []
         router = _router(calls)
         with self.assertRaises(Exception):
@@ -53,9 +53,35 @@ class MistralShortContractRetryTests(unittest.TestCase):
                              ShortFormatError("short_s3_payoff_contains_forbidden_action_family")))
         self.assertEqual(len(calls), 2)
 
-    def test_other_codes_and_error_types_not_retried(self):
-        for exc in (ShortFormatError("short_s3_forbids_joined_second_action"), ValueError("x")):
+    def test_unlisted_short_rule_gets_generic_correction_other_errors_do_not(self):
+        generic = _mistral_short_contract_validator_retry_prompt(
+            "p", ShortFormatError("short_s3_forbids_joined_second_action"), "script")
+        self.assertIn("short_s3_forbids_joined_second_action", generic)
+        self.assertIn("SHORT_CONTRACT_VALIDATOR_RETRY", generic)
+        for exc in (ValueError("x"), RuntimeError("short_x")):
             self.assertIsNone(_mistral_short_contract_validator_retry_prompt("p", exc, "script"))
+
+    def test_flash_lite_also_gets_corrections_and_a_changed_rule_gets_its_own(self):
+        calls = []
+
+        def fake(prompt, max_tokens, stage):
+            calls.append(prompt)
+            return {"n": len(calls)}
+
+        router = ProviderRouter((ProviderAdapter("gemini_flash_lite", fake, accepts_stage=True),))
+        errors = {1: "short_hook_requires_immediate_concrete_tension",
+                  2: "short_s3_payoff_contains_forbidden_action_family"}
+
+        def validator(c):
+            if c["n"] in errors:
+                raise ShortFormatError(errors[c["n"]])
+            return {"ok": True}
+
+        out = router.route(stage="script", prompt="BASE", max_tokens=100, validator=validator)
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(len(calls), 3)
+        self.assertIn("MISTRAL_SHORT_HOOK_TENSION_VALIDATOR_RETRY", calls[1])
+        self.assertIn("MISTRAL_SHORT_S3_PAYOFF_VALIDATOR_RETRY", calls[2])
 
 
 if __name__ == "__main__":
