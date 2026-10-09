@@ -38,7 +38,7 @@ jobs:
       STATE_BRANCH: clean-v2-telegram-state
       STATE_FILE: state/telegram-clean-v2.json
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-telegram-resume
-      CLEAN_V2_RESUME_ACROSS_RUNNER: \"1\"
+      CLEAN_V2_RESUME_ACROSS_RUNNER: "1"
       CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

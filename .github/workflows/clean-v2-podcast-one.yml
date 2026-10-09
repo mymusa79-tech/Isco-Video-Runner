@@ -33,7 +33,7 @@ jobs:
       CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "true"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-podcast-one
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-podcast-resume
-      CLEAN_V2_RESUME_ACROSS_RUNNER: \"1\"
+      CLEAN_V2_RESUME_ACROSS_RUNNER: "1"
       CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
