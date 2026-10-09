@@ -593,8 +593,8 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         self.assertTrue(any(ch.isalpha() for ch in result["alternate_query"]))
         self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
-            [item["reason"] for item in router.events[:4]],
-            ["http_503", "missing_api_key", "http_400", "http_429"],
+            [item["reason"] for item in router.events[:5]],
+            ["http_503", "missing_api_key", "http_400", "missing_api_key", "http_429"],
         )
         self.assertEqual(router.events[-1]["provider"], "mistral")
         self.assertEqual(router.events[-1]["result"], "success")
@@ -776,7 +776,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
             [item["provider"] for item in router.events],
-            ["gemini", "gemini_flash_lite", "groq", "openrouter", "mistral"],
+            ["gemini", "gemini_flash_lite", "groq", "cloudflare", "openrouter", "mistral"],
         )
         self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
         sleep.assert_not_called()
