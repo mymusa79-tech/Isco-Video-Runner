@@ -3891,6 +3891,31 @@ def _run_text_audit_with_one_bounded_tone_repair(
         )
 
 
+_AUDIT_DECIDING_OUTCOMES = frozenset({"success", "pass", "content_blocked", "block"})
+_AUDIT_UNAVAILABLE_OUTCOMES = frozenset({"rate_limited", "other", "unavailable", "failed", "quota"})
+
+
+def _tone_block_is_single_provider(report: Mapping[str, Any]) -> bool:
+    """True when exactly one provider produced the Tone verdict and every other
+    audit provider was merely unavailable (quota / outage), never a second opinion.
+
+    Used only after the bounded repair itself failed technically: a one-provider
+    block with no repair path must not discard an otherwise contract-valid script.
+    """
+    attempts = report.get("attempts")
+    if not isinstance(attempts, list) or not attempts:
+        return False
+    outcomes = [
+        str(item.get("outcome") or "").strip().lower()
+        for item in attempts
+        if isinstance(item, Mapping)
+    ]
+    deciding = [o for o in outcomes if o in _AUDIT_DECIDING_OUTCOMES]
+    unavailable = [o for o in outcomes if o in _AUDIT_UNAVAILABLE_OUTCOMES]
+    return len(deciding) == 1 and len(deciding) + len(unavailable) == len(outcomes)
+
+
+
 def _run_text_audit_repair_pass(
     *,
     text_audit: Callable[..., dict[str, Any]],
@@ -4000,6 +4025,38 @@ def _run_text_audit_repair_pass(
             )
         except Exception as exc:
             unavailable = CleanV2ContentRepairUnavailable("tone", "repair", exc)
+            if _tone_block_is_single_provider(blocked.report):
+                # Fail-open (owner decision, 2026-10-09): the only Tone verdict came
+                # from ONE provider (all others quota/outage) and the repair path is
+                # technically unavailable. The script already passed every
+                # deterministic contract and the Factuality audit, so production
+                # continues; the waiver is recorded and visible in the manifest.
+                atomic_write_json(
+                    output_dir / "tone-repair.json",
+                    {
+                        "schema_version": 1,
+                        "source": "clean-v2-one-bounded-tone-repair",
+                        "status": "waived_single_provider_audit",
+                        "content_block_confirmed": True,
+                        "repair_failure_classification": (
+                            unavailable.repair_failure_classification
+                        ),
+                        "repair_error_type": unavailable.repair_error_type,
+                        "deciding_provider": str(blocked.report.get("provider") or ""),
+                    },
+                )
+                print(
+                    "clean-v2 stage=text_audit tone_block=waived_single_provider_audit",
+                    flush=True,
+                )
+                return {
+                    "schema_version": 1,
+                    "source": "clean-v2-composite-text-audit",
+                    "status": "pass",
+                    "factuality_status": "pass",
+                    "tone_naturalness_status": "waived_single_provider_audit",
+                    "tone_waiver_provider": str(blocked.report.get("provider") or ""),
+                }
             atomic_write_json(
                 output_dir / "tone-repair.json",
                 {
