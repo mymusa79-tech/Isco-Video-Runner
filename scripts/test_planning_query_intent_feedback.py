@@ -225,7 +225,8 @@ class PlanningQueryIntentFeedbackTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "planning exhausted bounded provider route"):
             router.route(stage="planning", prompt="BASE", max_tokens=3000,
                          validator=lambda v: pipeline._validate_plan_for_brief(v, _brief("short")))
-        self.assertEqual(len(calls), 4)
+        # Mistral: 1 + 2 corrections; Flash-Lite now also gets 1 + 2 corrections.
+        self.assertEqual(len(calls), 6)
         for prompt in calls[1:]:
             self.assertEqual(previous_draft(prompt), bad)
             self.assertIn("non_english_query_beat_ids", conflict_map(prompt))
