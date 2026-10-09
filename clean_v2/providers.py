@@ -54,11 +54,11 @@ SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 MISTRAL_PLANNING_MAX_VALIDATOR_RETRIES = 2
 # Script / script_patch deterministic-contract corrections: the first Short script
 # provider (Gemini Flash-Lite) previously got none, and Mistral exactly one.
-TEXT_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite"})
+TEXT_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite", "cloudflare"})
 TEXT_MAX_CORRECTIONS = 2
 # Planning validator corrections (named rule + repair context): Flash-Lite is the
 # second planning provider and previously got none (runs 106 and 108).
-PLANNING_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite"})
+PLANNING_CORRECTION_PROVIDERS = frozenset({"mistral", "gemini_flash_lite", "cloudflare"})
 
 # A 429 whose own body says the limit is temporary (OpenRouter free models: "temporarily
 # rate-limited upstream ... retry shortly") must not poison the provider for the rest of
@@ -567,6 +567,48 @@ def _openrouter_call(prompt: str, max_tokens: int, *, response_schema: dict[str,
         raise ProviderWireFailure("openrouter_no_choice")
     message = choices[0].get("message") or {}
     return _parse_json_object(str(message.get("content") or ""), "openrouter")
+
+
+CLOUDFLARE_TEXT_MODELS = frozenset({
+    "@cf/openai/gpt-oss-120b",
+    "@cf/openai/gpt-oss-20b",
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+})
+
+
+def _cloudflare_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
+    """Cloudflare Workers AI (free 10,000 Neurons/day) via its OpenAI-compatible route."""
+    token = _read_secret("CLOUDFLARE_API_TOKEN")
+    account = _read_secret("CLOUDFLARE_ACCOUNT_ID")
+    if not token or not account:
+        raise NoWireFailure("missing_api_key")
+    if not re.fullmatch(r"[A-Za-z0-9]{8,64}", account):
+        raise NoWireFailure("invalid_account_id")
+    model = str(os.environ.get("CLOUDFLARE_TEXT_MODEL") or "@cf/openai/gpt-oss-120b").strip()
+    if model not in CLOUDFLARE_TEXT_MODELS:
+        raise NoWireFailure("paid_or_unapproved_model")
+    body = _post_json(
+        f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        payload={
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt + "\nReturn only one complete JSON object. No markdown.",
+                }
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.3,
+            "max_tokens": int(max_tokens),
+        },
+        timeout=180,
+    )
+    choices = body.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        raise ProviderWireFailure("cloudflare_no_choice")
+    message = choices[0].get("message") or {}
+    return _parse_json_object(str(message.get("content") or ""), "cloudflare")
 
 
 def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dict[str, Any]:
@@ -2117,6 +2159,7 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
                 "planning": GROQ_MAX_PLANNING_PROMPT_UTF8_BYTES,
             },
         ),
+        ProviderAdapter("cloudflare", _cloudflare_call),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
             "mistral",
@@ -2136,9 +2179,9 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
 # succeeds most often. OpenRouter stays as a last free safety net. Stages not listed
 # here (narrative_identity, visual_query_recovery, ...) keep default_adapters() order.
 STAGE_PROVIDER_ORDER: dict[str, tuple[str, ...]] = {
-    "planning": ("mistral", "gemini_flash_lite", "openrouter"),
-    "script": ("gemini_flash_lite", "mistral", "openrouter"),
-    "script_patch": ("mistral", "gemini_flash_lite", "openrouter"),
+    "planning": ("mistral", "gemini_flash_lite", "cloudflare", "openrouter"),
+    "script": ("gemini_flash_lite", "mistral", "cloudflare", "openrouter"),
+    "script_patch": ("mistral", "gemini_flash_lite", "cloudflare", "openrouter"),
 }
 
 
