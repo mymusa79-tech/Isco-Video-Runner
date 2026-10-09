@@ -161,6 +161,48 @@ def _can_retain_safe_best_available_primary(
     )
 
 
+_SAFETY_FLAG_KEYS = (
+    "identifiable_person",
+    "sensitive_trait_implication_risk",
+    "prominent_logo_or_brand",
+    "cultural_conflict",
+    "cultural_islamic_suitability_risk",
+    "advertiser_conflict",
+    "obvious_synthetic_or_visual_artifact",
+)
+
+
+def _can_use_best_available_recovery(
+    *,
+    audit: Mapping[str, Any],
+    floor: float,
+    primary_floor: float,
+    is_hook: bool,
+) -> bool:
+    """Accept the best safe recovery clip when none reaches the 0.85 target.
+
+    Run 111: a Vision-PASS, PROOF-matched recovery clip at 0.80 was discarded for
+    sitting 0.05 under the 0.85 target while the primary was a BLOCK, so the whole
+    production died. Same philosophy as the existing safe best-available primary:
+    the 0.85 stays the quality target, but a clip that Vision marked PASS with
+    matched proof, no safety/policy flag, and a floor at or above the
+    best-available minimum (and strictly better than the primary) beats a block.
+    """
+    minimum_floor = (
+        BEST_AVAILABLE_HOOK_SEMANTIC_FLOOR if is_hook else BEST_AVAILABLE_PRIMARY_SEMANTIC_FLOOR
+    )
+    if str(audit.get("status") or "").lower() != "pass":
+        return False
+    if str(audit.get("observed_proof_status") or "").lower() != "matched":
+        return False
+    if any(audit.get(key) is True for key in _SAFETY_FLAG_KEYS):
+        return False
+    for policy_key in ("no_face_policy", "cultural_islamic_policy"):
+        if str(audit.get(policy_key) or "pass").lower() != "pass":
+            return False
+    return float(floor) >= float(minimum_floor) and float(floor) > float(primary_floor)
+
+
 def _retention_quality_target(
     *,
     hook_floor: float | None,
@@ -1198,6 +1240,15 @@ def run_final_cut_visual_qa(
                             int,
                         ]
                     ] = []
+                    best_available_recoveries: list[
+                        tuple[
+                            Path,
+                            dict[str, Any],
+                            dict[str, Any],
+                            float,
+                            int,
+                        ]
+                    ] = []
                     best_recovery_floor = 0.0
 
                     for candidate_position, acquired in enumerate(
@@ -1286,6 +1337,21 @@ def run_final_cut_visual_qa(
                                     candidate_position,
                                 )
                             )
+                        elif _can_use_best_available_recovery(
+                            audit=recovery_audit,
+                            floor=recovery_floor,
+                            primary_floor=primary_floor,
+                            is_hook=beat_id == hook_beat_id,
+                        ):
+                            best_available_recoveries.append(
+                                (
+                                    recovery_clip,
+                                    replacement_row,
+                                    recovery_audit,
+                                    recovery_floor,
+                                    candidate_position,
+                                )
+                            )
 
                         # Selection happens only after every bounded candidate has
                         # been reviewed against the same previous/current/next story
@@ -1297,6 +1363,12 @@ def run_final_cut_visual_qa(
                         if ready_recoveries
                         else None
                     )
+                    if selected_recovery is None and best_available_recoveries:
+                        selected_recovery = max(
+                            best_available_recoveries, key=lambda item: (item[3], -item[4])
+                        )
+                        selected_recovery[2]["final_cut_readiness"] = "best_available_recovery"
+                        selected_recovery[2]["best_available_recovery"] = True
 
                     if selected_recovery is None:
                         for cleanup_clip, _cleanup_row in acquired_candidates:
