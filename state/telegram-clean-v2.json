@@ -8031,8 +8031,8 @@
       ],
       "idea_id": "idea-38555beb28",
       "selected_at": "2026-10-09T14:09:21Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-09T14:09:46Z",
       "dispatched_at": null,
       "request_sha256": "149daa51f11746188941399b781768b153dbcb1f74d242fcd579b81d55891b89"
     }
@@ -8387,6 +8387,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-09T14:09:21Z",
+  "updated_at": "2026-10-09T14:09:47Z",
   "provider_cooldown_until": "2026-10-09T13:19:59.191684Z"
 }
