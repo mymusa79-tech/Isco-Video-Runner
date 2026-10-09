@@ -121,7 +121,7 @@ class Run103RegressionTests(unittest.TestCase):
     def test_podcast_depth_repair_carries_actual_draft_with_one_unchanged_floor(self):
         before = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 258}]}
         self.assertEqual(pipeline._podcast_script_word_count(before), 259)
-        after = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 419}]}
+        after = {"sections": [{"id": "s1", "narration": "A: سؤال B: " + "معنى " * 839}]}
         calls = []
         def route(**kwargs):
             calls.append(kwargs)
@@ -135,8 +135,8 @@ class Run103RegressionTests(unittest.TestCase):
         prompt = calls[1]["prompt"]
         current = prompt.split("[CURRENT_PODCAST_SCRIPT]\n", 1)[1].split("\n[/CURRENT_PODCAST_SCRIPT]", 1)[0]
         self.assertEqual(json.loads(current), before)
-        self.assertIn("minimum depth deficit is 161 spoken words", prompt)
-        self.assertIn("420 words", prompt)
+        self.assertIn("minimum depth deficit is 581 spoken words", prompt)
+        self.assertIn("840 words", prompt)
         self.assertIn("expand the B answers", prompt)
 
     def test_podcast_depth_repair_still_rejects_second_short_sized_draft(self):
@@ -145,7 +145,7 @@ class Run103RegressionTests(unittest.TestCase):
         def route(**kwargs):
             calls.append(kwargs)
             return kwargs["validator"](draft)
-        with self.assertRaisesRegex(RuntimeError, "words=300 minimum_words=420"):
+        with self.assertRaisesRegex(RuntimeError, "words=300 minimum_words=840"):
             pipeline._route_script_with_single_podcast_length_repair(
                 router=SimpleNamespace(route=route), fmt="podcast", prompt="PODCAST PROMPT",
                 max_tokens=18000, validator=lambda value: value,
