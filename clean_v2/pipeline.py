@@ -4533,6 +4533,7 @@ def _load_resume_checkpoint(
     runner_sha: str | None,
     max_visuals: int,
     allow_runner_drift: bool = False,
+    force_from_voice: bool = False,
 ) -> tuple[Path, dict[str, Any]] | None:
     if resume_from is None:
         return None
@@ -4560,7 +4561,7 @@ def _load_resume_checkpoint(
             # visual budget) must still match exactly.
             saved_identity = checkpoint.get("identity")
             if not (
-                allow_runner_drift
+                (allow_runner_drift or force_from_voice)
                 and isinstance(saved_identity, dict)
                 and {**saved_identity, "runner_sha": None}
                 == {**expected_identity, "runner_sha": None}
@@ -4575,11 +4576,12 @@ def _load_resume_checkpoint(
         artifacts = checkpoint.get("artifacts")
         if not isinstance(artifacts, dict) or not artifacts:
             return None
-        if runner_drift:
+        if runner_drift or force_from_voice:
             # Keep script + audit + voice; drop visuals so every stage after voice is
             # re-run on the current Runner code.
             checkpoint = dict(checkpoint)
-            checkpoint["runner_sha_drift"] = True
+            checkpoint["runner_sha_drift"] = bool(runner_drift)
+            checkpoint["forced_from_voice"] = bool(force_from_voice)
             checkpoint["saved_completed_stage"] = completed_stage
             if _RESUME_STAGE_INDEX[completed_stage] > _RESUME_STAGE_INDEX["voice"]:
                 completed_stage = "voice"
@@ -6986,11 +6988,19 @@ class CleanV2Pipeline:
                 allow_runner_drift=(
                     os.environ.get("CLEAN_V2_RESUME_ACROSS_RUNNER", "").strip() == "1"
                 ),
+                force_from_voice=(
+                    os.environ.get("CLEAN_V2_RESUME_FROM_VOICE", "").strip() == "1"
+                ),
             )
             if resume is not None:
                 journal.payload["resume_checkpoint_accepted"] = True
                 if resume[1].get("runner_sha_drift"):
                     journal.payload["resume_runner_sha_drift"] = True
+                    journal.payload["resume_saved_completed_stage"] = str(
+                        resume[1].get("saved_completed_stage") or ""
+                    )
+                if resume[1].get("forced_from_voice"):
+                    journal.payload["resume_forced_from_voice"] = True
                     journal.payload["resume_saved_completed_stage"] = str(
                         resume[1].get("saved_completed_stage") or ""
                     )

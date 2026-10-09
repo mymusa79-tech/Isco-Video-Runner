@@ -2,6 +2,12 @@ name: Clean V2 Short Final One-Shot
 
 on:
   workflow_dispatch:
+    inputs:
+      resume_from_voice:
+        description: Reuse the frozen script and voice; redo only visuals and editing
+        required: false
+        default: false
+        type: boolean
   issue_comment:
     types: [created]
 
@@ -37,6 +43,7 @@ jobs:
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-short-final-one
       CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-short-final-resume
       CLEAN_V2_RESUME_ACROSS_RUNNER: "1"
+      CLEAN_V2_RESUME_FROM_VOICE: ${{ inputs.resume_from_voice && '1' || '' }}
       CLEAN_V2_TTS_CACHE_PATH: ${{ github.workspace }}/.clean-v2-tts-cache
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 

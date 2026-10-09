@@ -2737,6 +2737,23 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertNotIn("visuals", manifest["resumed_stages"])
             self.assertEqual(visuals.calls, 1)
 
+    def test_resume_from_voice_switch_redoes_visuals_on_same_runner(self) -> None:
+        import os
+        from unittest.mock import patch as _patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path, approved, first_output = self._voice_bank_first_run(root)
+            with _patch.dict(os.environ, {"CLEAN_V2_RESUME_FROM_VOICE": "1", "CLEAN_V2_RESUME_ACROSS_RUNNER": ""}):
+                result, manifest, visuals = self._voice_bank_second_run(
+                    root, brief_path, approved, first_output, runner_sha="b" * 40
+                )
+            self.assertEqual(result["status"], "pass")
+            self.assertTrue(manifest["resume_forced_from_voice"])
+            self.assertEqual(manifest["resume_completed_stage"], "voice")
+            self.assertNotIn("visuals", manifest["resumed_stages"])
+            self.assertEqual(visuals.calls, 1)
+
     def test_voice_bank_is_off_without_switch_and_never_ignores_engine_or_brief(self) -> None:
         import os
         from unittest.mock import patch as _patch
