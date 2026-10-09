@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 from clean_v2 import pipeline
@@ -48,6 +49,13 @@ def patch_scenario(fmt, template):
 
 
 class ProviderRejectionFeedbackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These tests exercise the provider-correction path for a family-overuse
+        # rejection, so the host-side repair is disabled here (it has its own tests).
+        patcher = mock.patch.object(pipeline, "repair_short_family_overuse", lambda value, plan: value)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_planning_fallback_keeps_latest_draft_semantic_fix_and_family_map(self):
         calls = []
         latest = None

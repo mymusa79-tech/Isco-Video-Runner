@@ -726,6 +726,63 @@ def visual_story_repair_context(value: Any, plan: Mapping[str, Any]) -> dict[str
     return context
 
 
+def repair_short_family_overuse(value: Any, plan: Mapping[str, Any]) -> Any:
+    """Host-side fix for a provider story that repeats one visual action family.
+
+    A Short beat beyond the allowed uses of its family is switched to the same
+    section's own alternate query (written by the provider) when that alternate
+    is a different family and a distinct query. Nothing is invented: if no
+    alternate qualifies the story is returned unchanged and the validator
+    rejects it exactly as before.
+    """
+    if not isinstance(value, Mapping) or not isinstance(value.get("beats"), list):
+        return value
+    beats = [dict(b) if isinstance(b, Mapping) else b for b in value["beats"]]
+    if not all(isinstance(b, dict) for b in beats):
+        return value
+    sections = {
+        str(item.get("id") or ""): item
+        for item in (plan.get("sections") or [])
+        if isinstance(item, Mapping)
+    }
+    changed = False
+    for _ in range(len(beats)):
+        uses: dict[str, int] = {}
+        offender = -1
+        offender_family = ""
+        for index, beat in enumerate(beats):
+            family = _beat_action_family(beat)
+            if not family:
+                continue
+            uses[family] = uses.get(family, 0) + 1
+            if uses[family] > _ACTION_FAMILY_MAX_USES:
+                offender, offender_family = index, family
+                break
+        if offender < 0:
+            break
+        beat = beats[offender]
+        section = sections.get(str(beat.get("section_id") or ""), {})
+        used_keys = {_query_key(str(b.get("stock_query_en") or "")) for b in beats}
+        replacement = ""
+        for candidate in (section.get("visual_query_alt_en"), section.get("visual_query_en")):
+            text = " ".join(str(candidate or "").split())
+            if not text or not text.isascii() or _query_key(text) in used_keys:
+                continue
+            family = _visual_action_family(text)
+            if family == offender_family or (family and uses.get(family, 0) >= _ACTION_FAMILY_MAX_USES):
+                continue
+            replacement = text
+            break
+        if not replacement:
+            return value if not changed else {**value, "beats": beats}
+        beat["stock_query_en"] = replacement
+        beat["shot_intent"] = replacement
+        beat["semantic_must_have"] = [replacement]
+        beat.pop("stock_query_alt_en", None)
+        changed = True
+    return {**value, "beats": beats} if changed else value
+
+
 def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     try:
         return _validate_visual_story(value, plan)
