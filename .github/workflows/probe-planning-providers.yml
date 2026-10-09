@@ -1,0 +1,54 @@
+name: Probe planning providers (isolated, manual)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cloudflare-workers-ai-text
+    paths:
+      - .github/workflows/probe-planning-providers.yml
+      - scripts/probe_planning_providers.py
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install frozen Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-build-isolation --no-deps -e .
+      - name: Run isolated planning probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_TEXT_MAX_CALLS_PER_RUN: "3"
+        run: python scripts/probe_planning_providers.py | tee "$RUNNER_TEMP/probe.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: planning-probe
+          path: ${{ runner.temp }}/probe.json
