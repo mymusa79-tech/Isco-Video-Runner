@@ -37,12 +37,22 @@ class MistralShortContractRetryTests(unittest.TestCase):
             self.assertEqual(out, {"ok": True})
             self.assertTrue(any(e["reason"] == "mistral_short_contract_validator_retry" for e in events))
 
-    def test_hook_tension_retried_in_script_only(self):
+    def test_hook_tension_retried_in_script_and_patch_with_matching_shape(self):
         calls, _, _ = self._run("script", "short_hook_requires_immediate_concrete_tension")
         self.assertEqual(len(calls), 2)
         self.assertIn("MISTRAL_SHORT_HOOK_TENSION_VALIDATOR_RETRY", calls[1])
-        self.assertIsNone(_mistral_short_contract_validator_retry_prompt(
-            "p", ShortFormatError("short_hook_requires_immediate_concrete_tension"), "script_patch"))
+        patch = _mistral_short_contract_validator_retry_prompt(
+            "p", ShortFormatError("short_hook_requires_immediate_concrete_tension"), "script_patch")
+        self.assertIn("MISTRAL_SHORT_PATCH_HOOK_VALIDATOR_RETRY", patch)
+        self.assertIn("patch.find VERBATIM", patch)
+
+    def test_patch_hook_too_long_only_when_bounded(self):
+        bounded = _mistral_short_contract_validator_retry_prompt(
+            "p", ShortFormatError("short_hook_too_long words=21 maximum=20"), "script_patch")
+        self.assertIn("short_hook_too_long", bounded)
+        for words in (33, 50):
+            self.assertIsNone(_mistral_short_contract_validator_retry_prompt(
+                "p", ShortFormatError(f"short_hook_too_long words={words} maximum=20"), "script_patch"))
 
     def test_same_rule_repeated_is_not_corrected_twice(self):
         calls = []

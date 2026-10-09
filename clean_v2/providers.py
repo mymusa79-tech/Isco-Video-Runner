@@ -1206,6 +1206,28 @@ def _mistral_short_contract_validator_retry_prompt(
             + "given. " + shape + " Rewrite ONLY the s3 payoff sentences as a descriptive "
             + "outcome and keep every other contract unchanged. Return JSON only."
         )
+    if stage == "script_patch" and code in {
+        "short_hook_requires_immediate_concrete_tension",
+        "short_hook_too_long",
+    }:
+        # An audit repair legitimately rewrites a flagged generic hook, and the patch
+        # then trips the same hook rules as a full script. Bounded, patch-shaped fix.
+        words_match = re.search(r"words=(\d+)", str(exc))
+        if code == "short_hook_too_long" and not (
+            words_match and 21 <= int(words_match.group(1)) <= 32
+        ):
+            return None
+        return (
+            prompt.rstrip()
+            + "\n\nMISTRAL_SHORT_PATCH_HOOK_VALIDATOR_RETRY - previous patch was rejected "
+            + f"by the deterministic Short hook rule `{code}`. " + shape
+            + " The patch that rewrites the FIRST spoken sentence must make it one natural "
+            + "Arabic sentence of 12-16 words (hard maximum 20) that opens with one concrete "
+            + "tension: a direct question, an explicit contrast (not X but Y / despite / but), "
+            + "or a concrete early loss, failure or escalation. Keep the same meaning, keep "
+            + "every other valid patch, and leave the locked s3 action untouched. "
+            + "Return JSON only."
+        )
     if stage == "script" and code == "short_hook_requires_immediate_concrete_tension":
         return (
             prompt.rstrip()
