@@ -465,6 +465,66 @@ def evaluate_resume(
     }
 
 
+VOICE_BANK_NAMESPACE = "clean-v2-voice-bank-v1-telegram"
+VOICE_BANK_MAX_AGE_DAYS = 6  # Actions cache entries expire after 7 days unused.
+
+
+def evaluate_voice_resume(
+    request: Mapping[str, Any],
+    *,
+    current_engine_sha: str,
+    github_json: JsonGetter,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Can the saved script + voice be reused with fresh visuals and editing?
+
+    Unlike evaluate_resume this tolerates Runner changes (the voice bank is keyed by
+    Engine SHA and the immutable request hash only), because a visual fix is exactly
+    the case where the Runner moved on after the voice was already paid for.
+    """
+    production = request.get("production")
+    if not isinstance(production, dict):
+        return _disabled("لا يوجد GitHub Run أصلي مسجّل لهذا الطلب.")
+    if production.get("final_published") is True:
+        return _disabled("هذا الطلب منشور نهائيًا.")
+    run_id = str(production.get("run_id") or "").strip()
+    if not run_id:
+        return _disabled("لا يوجد GitHub Run أصلي مسجّل لهذا الطلب.")
+    request_sha = str(request.get("request_sha256") or "").strip()
+    if not request_sha or not current_engine_sha:
+        return _disabled("هوية الطلب أو Engine SHA غير مكتملة.", run_id=run_id)
+    if str(production.get("engine_sha") or "").strip() != current_engine_sha:
+        return _disabled("تغيّر Engine SHA منذ المحاولة الأصلية؛ الصوت المحفوظ غير صالح.", run_id=run_id)
+    try:
+        run = github_json(f"actions/runs/{run_id}")
+    except Exception:
+        return _disabled("تعذر التحقق من GitHub Run الأصلي عبر API.", run_id=run_id)
+    if not isinstance(run, dict):
+        return _disabled("GitHub Run الأصلي غير متاح.", run_id=run_id)
+    if str(run.get("status") or "") != "completed":
+        return _disabled("يوجد تشغيل لنفس الطلب ما زال قائمًا؛ انتظر حتى ينتهي.", run_id=run_id)
+    created_at = _parse_time(run.get("created_at"))
+    current_time = now or datetime.now(timezone.utc)
+    if created_at and current_time - created_at > timedelta(days=VOICE_BANK_MAX_AGE_DAYS):
+        return _disabled("مرّت أكثر من ٦ أيام؛ الصوت المحفوظ في الكاش يوشك أن يُحذف أو حُذف.", run_id=run_id)
+    prefix = f"{VOICE_BANK_NAMESPACE}-Linux-{current_engine_sha}-{request_sha}-"
+    query = urllib.parse.urlencode({"key": prefix, "ref": "refs/heads/main", "per_page": 100})
+    try:
+        payload = github_json(f"actions/caches?{query}")
+    except Exception:
+        return _disabled("تعذر التحقق من Actions cache عبر GitHub API.", run_id=run_id)
+    caches = payload.get("actions_caches") if isinstance(payload, dict) else None
+    found = any(
+        isinstance(item, dict)
+        and str(item.get("key") or "").startswith(prefix)
+        and str(item.get("ref") or "") == "refs/heads/main"
+        for item in (caches if isinstance(caches, list) else [])
+    )
+    if not found:
+        return _disabled("لا يوجد صوت محفوظ لهذا الطلب في الكاش (لم يُحفظ أو انتهت صلاحيته).", run_id=run_id)
+    return {"available": True, "reason": "", "run_id": run_id}
+
+
 class _DropAuthOnCrossHostRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)

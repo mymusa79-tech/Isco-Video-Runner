@@ -1679,6 +1679,20 @@ def _history_request_view(
                 "الخيار الفعّال الوحيد: بدء طلب جديد من الصفر.",
             ]
         )
+    try:
+        voice_decision = _voice_resume_decision_for_request(request)
+    except Exception:
+        voice_decision = {"available": False}
+    if voice_decision.get("available") is True:
+        lines.extend(
+            [
+                "",
+                "🎙️ الصوت المحفوظ جاهز: يمكن إعادة المرئيات والمونتاج فقط دون إعادة الصوت.",
+            ]
+        )
+        keyboard.append(
+            [{"text": "🎙️ استئناف من الصوت (مرئيات + مونتاج فقط)", "callback_data": f"resumevoice:{request_id}"}]
+        )
     keyboard.append(
         [{"text": "🔁 إعادة المحاولة من البداية", "callback_data": f"restart:{request_id}"}]
     )
@@ -1754,6 +1768,55 @@ def request_resume_rerun(
     production["last_job_status"] = "rerun_requested"
     production["resume_requested_at"] = utc_now()
     production["resume_requested_from_stage"] = str(decision.get("completed_stage") or "")
+    return decision
+
+
+def _voice_resume_decision_for_request(request: dict[str, Any]) -> dict[str, Any]:
+    stored_sha = str(request.get("request_sha256") or "")
+    if not stored_sha or stored_sha != _request_hash(request):
+        return {"available": False, "reason": "هوية الطلب الأصلية لا تطابق request_sha256 المحفوظ."}
+    if _history_topic_published(request, _release_library_records()):
+        return {"available": False, "reason": "هذا الموضوع منشور نهائيًا بالفعل."}
+    return resume_history.evaluate_voice_resume(
+        request,
+        current_engine_sha=_history_current_engine_sha(),
+        github_json=resume_history.github_json,
+    )
+
+
+def stage_voice_resume_dispatch(
+    state: dict[str, Any],
+    request_id: str,
+    dispatch_path: Path,
+) -> dict[str, Any]:
+    """Re-dispatch the same immutable request, reusing saved script+voice only."""
+    request = state.get("requests", {}).get(request_id)
+    if not isinstance(request, dict):
+        raise RuntimeError("history request is missing")
+    decision = _voice_resume_decision_for_request(request)
+    if decision.get("available") is not True:
+        return decision
+    if request.get("status") not in {"dispatched", "confirmed_pending_dispatch"}:
+        raise RuntimeError("request was never confirmed for production")
+    dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+    dispatch_path.write_text(
+        json.dumps(
+            {
+                "request_id": request["request_id"],
+                "request_sha256": request["request_sha256"],
+                "resume_from_voice": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    production = request.get("production")
+    if isinstance(production, dict):
+        production["last_job_status"] = "voice_resume_requested"
+        production["resume_requested_at"] = utc_now()
+        production["resume_requested_from_stage"] = "voice"
     return decision
 
 
@@ -2004,6 +2067,29 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 )
                 return
             send_telegram(history_text, history_keyboard)
+            return
+        if data.startswith("resumevoice:"):
+            request_id = data.split(":", 1)[1].strip()
+            try:
+                decision = stage_voice_resume_dispatch(state, request_id, dispatch_path)
+            except Exception as exc:
+                print(f"Telegram voice resume failed: {type(exc).__name__}")
+                send_telegram(
+                    "⚠️ تعذر تجهيز الاستئناف من الصوت. لم يبدأ أي تشغيل.",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            if decision.get("available") is not True:
+                send_telegram(
+                    "⛔ الاستئناف من الصوت غير متاح الآن.\n"
+                    f"السبب: {str(decision.get('reason') or 'الصوت المحفوظ غير صالح.')}",
+                    [[{"text": "↩️ المحفوظات", "callback_data": "main:saved"}]],
+                )
+                return
+            send_telegram(
+                "🎙️ تم إرسال الاستئناف من الصوت: سيُعاد المرئيات والفحص والمونتاج فقط، "
+                "بنفس الصوت المحفوظ دون توليد جديد."
+            )
             return
         if data.startswith("resume:"):
             request_id = data.split(":", 1)[1].strip()
