@@ -25,6 +25,18 @@ CHANNEL_VISUAL_AVOID = (
     "gloomy or depressive treatment",
 )
 SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
+
+# Run117: a still photograph cannot prove actual page-turning motion. Keep
+# this narrowly scoped to observable motion, not generic reading/writing poses.
+_PAGE_TURNING_MOTION_RE = re.compile(
+    r"\b(?:turning|flipping)\s+(?:(?:over|through|the|a|book|its|some)\s+){0,3}pages?\b",
+    re.IGNORECASE,
+)
+
+
+def stock_scene_requires_motion(value: object) -> bool:
+    """Detect an explicit temporal page-turning action in the approved shot."""
+    return bool(_PAGE_TURNING_MOTION_RE.search(str(value or "")))
 BEAT_ROLES = frozenset({"hook", "body", "payoff"})
 MAX_BEATS_PER_SECTION = 3
 MAX_AI_STILL_BEATS = 4

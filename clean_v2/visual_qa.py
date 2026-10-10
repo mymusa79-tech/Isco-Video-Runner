@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from clean_v2.visual_story import (
     fallback_visual_story, validate_visual_story,
-    visual_action_family, visual_review_context,
+    visual_action_family, visual_review_context, stock_scene_requires_motion,
 )
 
 
@@ -109,6 +109,11 @@ def _apply_observed_visual_proof(audit: Mapping[str, Any]) -> dict[str, Any]:
 
 def _recovery_source_preference(beat: Mapping[str, Any], query: str) -> str:
     preference = str(beat.get("source_preference") or "stock_motion")
+    # The same editorial rule must apply to both the initial choice and its
+    # bounded replacement; otherwise Run117's rejected still is replaced by
+    # more still photos that can never show the intended turning motion.
+    if preference == "stock_still" and stock_scene_requires_motion(beat.get("shot_intent") or query):
+        return "stock_motion"
     if preference in {"stock_still", "ai_still"}:
         return preference
     # The alternate itself may describe a static comparison rather than an action.
