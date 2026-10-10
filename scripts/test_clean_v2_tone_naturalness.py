@@ -24,6 +24,7 @@ from clean_v2.pipeline import (
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
     _run_text_audits,
+    _tone_repair_issue_notes,
     _tone_repair_prompt,
     _validate_and_apply_script_patches,
 )
@@ -1143,6 +1144,138 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(plan.identity_opener, identity["opener"])
         self.assertEqual(plan.identity_closer, identity["closer"])
         self.assertEqual(plan.identity_transitions, identity["transitions"])
+
+    def _run114_short_repair_fixture(self):
+        action = "اختر هدفًا صغيرًا واقعيًا."
+        payoff = "الهدف الصغير جداً يقلل من مقاومة دماغك، ويسمح للتغيير بأن يتسلل إلى روتينك ليصبح جزءاً دائماً من حياتك."
+        script = {
+            "title": "لماذا تفشل الأنظمة في تغيير عاداتك؟",
+            "sections": [
+                {"id": "s1", "narration": "تغرق في تعقيد تطبيقات تتبع العادات، لكن عاداتك القديمة لا تزال ثابتة في مكانها."},
+                {"id": "s2", "narration": "النظم المعقدة ترهق دماغك بمتطلبات كثيرة، مما يدفعه لمقاومة التغيير بدلاً من تبنيه كجزء من يومك."},
+                {"id": "s3", "narration": f"{payoff} {action}", "s3_payoff": payoff, "s3_locked_action": action},
+            ],
+        }
+        plan = {
+            "title": script["title"],
+            "short_template": "micro_story",
+            "practical_action_ar": action,
+            "s3_locked_action": action,
+            "sections": [{"id": f"s{i}", "heading": "h", "purpose": "p", "visual_query_en": "goal"} for i in range(1, 4)],
+        }
+        patches = [
+            {"section_id": "s1", "find": script["sections"][0]["narration"], "replace": "تضغط زر «إضافة هدف» للمرة الخامسة، لكن كوب القهوة المنسي لا يزال مكانه."},
+            {"section_id": "s2", "find": script["sections"][1]["narration"], "replace": "تعدد الخطوات في تطبيقك يرهق دماغك؛ هو لا يرى نظامًا للنجاح، بل عبئًا يدفعه للمقاومة بدلًا من التبني."},
+            {"section_id": "s3", "find": action, "replace": "اختر خطوة واحدة بسيطة، كوضع كتابك المفضل فوق وسادتك قبل النوم."},
+        ]
+        return plan, script, patches
+
+    def test_run114_action_patch_cannot_cover_rejected_authored_payoff(self):
+        plan, script, patches = self._run114_short_repair_fixture()
+        revision = (
+            "- [tone] content_depth:s2: generic explanation.\n"
+            "- [tone] content_depth:s3 practical_action_generic: unrelated action.\n"
+            "- [tone] hook_quality: hook_genericness=true, payoff_resolves_hook=false"
+        )
+        with self.assertRaisesRegex(ValueError, "explicitly flagged section: s3"):
+            _validate_and_apply_script_patches(
+                {"patches": patches}, plan=plan, original_script=script,
+                identity={}, cta_plan={}, revision_note=revision,
+                is_short_format=True, allow_short_locked_action_repair=True,
+                required_changed_section_ids=_required_semantic_repair_section_ids(script, revision),
+            )
+
+    def test_run114_possessives_preserve_real_audit_targets_before_repair(self):
+        plan, script, patches = self._run114_short_repair_fixture()
+        # This is the real Run 114 diagnostic: the two English possessives
+        # previously became quotation delimiters and swallowed the payoff flag.
+        flag = (
+            "hook_quality: hook_genericness=true (the hook could fit dozens of unrelated videos "
+            "about apps, systems, or habits without specificity). hook_body_continuity=false "
+            "(the body does not sustain the hook's concrete tension about habit-tracking apps). "
+            "payoff_resolves_hook=false (the payoff does not resolve the hook's specific question "
+            "about why 'الأنظمة' fail)."
+        )
+        note = _tone_repair_issue_notes(
+            {"narrative_format_flags": [flag, "content_depth:s2: generic explanation.", "content_depth:s3 practical_action_generic: unrelated action."]},
+            script,
+        )
+        self.assertIn("hook's concrete tension", note)
+        self.assertIn("payoff_resolves_hook=false", note)
+        with self.assertRaisesRegex(ValueError, "explicitly flagged section: s3"):
+            _validate_and_apply_script_patches(
+                {"patches": patches}, plan=plan, original_script=script,
+                identity={}, cta_plan={}, revision_note=note,
+                is_short_format=True, allow_short_locked_action_repair=True,
+                required_changed_section_ids=_required_semantic_repair_section_ids(script, note),
+            )
+
+    def test_run114_quote_filter_still_drops_fabricated_examples(self):
+        _, script, _ = self._run114_short_repair_fixture()
+        note = _tone_repair_issue_notes(
+            {"narrative_format_flags": ["content_depth:s2: The hook's wording 'fabricated example' is generic; the payoff's dependence is weak."]},
+            script,
+        )
+        self.assertNotIn("fabricated example", note)
+        self.assertIn("hook's wording", note)
+        self.assertIn("payoff's dependence", note)
+
+    def test_run114_separate_payoff_and_action_repairs_cover_both_defects(self):
+        plan, script, patches = self._run114_short_repair_fixture()
+        payoff = script["sections"][-1]["s3_payoff"]
+        repaired_payoff = "بدل خمسة أهداف تنتظر داخل التطبيق، صار هناك هدف واحد له وقت في يومك."
+        patches[-1]["replace"] = "اختر في تطبيقك هدفًا واحدًا مرتبطًا بموعد ثابت."
+        patches.append({"section_id": "s3", "find": payoff, "replace": repaired_payoff})
+        revision = (
+            "- [tone] content_depth:s2: generic explanation.\n"
+            "- [tone] content_depth:s3 practical_action_generic: unrelated action.\n"
+            "- [tone] hook_quality: hook_genericness=true, payoff_resolves_hook=false"
+        )
+        result = _validate_and_apply_script_patches(
+            {"patches": patches}, plan=plan, original_script=script,
+            identity={}, cta_plan={}, revision_note=revision,
+            is_short_format=True, allow_short_locked_action_repair=True,
+            required_changed_section_ids=_required_semantic_repair_section_ids(script, revision),
+        )
+        self.assertEqual(result["sections"][-1]["s3_payoff"], repaired_payoff)
+        self.assertEqual(result["sections"][-1]["s3_locked_action"], patches[2]["replace"])
+        self.assertEqual(plan["practical_action_ar"], "اختر هدفًا صغيرًا واقعيًا.")
+
+    def test_run114_action_only_defect_preserves_unflagged_payoff(self):
+        plan, script, patches = self._run114_short_repair_fixture()
+        revision = "- [tone] content_depth:s3 practical_action_generic: unrelated action."
+        result = _validate_and_apply_script_patches(
+            {"patches": [patches[-1]]}, plan=plan, original_script=script,
+            identity={}, cta_plan={}, revision_note=revision,
+            is_short_format=True, allow_short_locked_action_repair=True,
+            required_changed_section_ids=("s3",),
+        )
+        self.assertEqual(result["sections"][-1]["s3_payoff"], script["sections"][-1]["s3_payoff"])
+        self.assertNotEqual(result["sections"][-1]["s3_locked_action"], plan["s3_locked_action"])
+
+    def test_run114_passing_payoff_dimension_does_not_require_unrelated_edit(self):
+        plan, script, patches = self._run114_short_repair_fixture()
+        revision = (
+            "- [tone] content_depth:s3 practical_action_generic: unrelated action.\n"
+            "- [tone] hook_quality: hook_genericness=true, payoff_resolves_hook=true"
+        )
+        result = _validate_and_apply_script_patches(
+            {"patches": patches}, plan=plan, original_script=script,
+            identity={}, cta_plan={}, revision_note=revision,
+            is_short_format=True, allow_short_locked_action_repair=True,
+            required_changed_section_ids=("s1", "s2", "s3"),
+        )
+        self.assertEqual(result["sections"][-1]["s3_payoff"], script["sections"][-1]["s3_payoff"])
+
+    def test_run114_repair_prompt_separates_payoff_from_authorized_action(self):
+        plan, script, _ = self._run114_short_repair_fixture()
+        prompt = _tone_repair_prompt(
+            brief={"format": "short", "short_template": "micro_story"},
+            plan=plan, script=script, identity={}, cta_plan={},
+            revision_note="- [tone] hook_quality: payoff_resolves_hook=false",
+        )
+        self.assertIn("REQUIRED AUTHORED PAYOFF REPAIR", prompt)
+        self.assertIn("Changing only practical_action_ar cannot satisfy this defect", prompt)
 
     def test_run82_semantic_repair_requires_every_explicitly_flagged_section(self):
         script = {
