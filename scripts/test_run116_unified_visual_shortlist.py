@@ -32,7 +32,8 @@ class Run116UnifiedVisualShortlistTests(unittest.TestCase):
             downloaded.append(url)
             Path(destination).write_bytes(b"fixture-video-data")
 
-        with tempfile.TemporaryDirectory() as tmp, (
+        with (
+            tempfile.TemporaryDirectory() as tmp,
             patch.object(source, "_pexels_recovery_pool", return_value=[]) as pexels,
             patch.object(source, "_pixabay_recovery_pool", return_value=pixabay) as pixabay_search,
             patch.object(source, "_coverr_recovery_pool", return_value=[]) as coverr,
