@@ -48,6 +48,59 @@ def photo(provider, index, description):
 
 
 class StockEvidenceSelectionTests(unittest.TestCase):
+    def test_run112_query_keeps_pen_and_notebook_in_coverr_search(self):
+        query = media._provider_stock_query("close up hands holding pen over clean notebook on desk", "coverr")
+        self.assertIn("pen", query.split())
+        self.assertIn("notebook", query.split())
+        self.assertLessEqual(len(query.split()), 6)
+
+    def test_shared_props_do_not_outscore_the_missing_action(self):
+        query = "hands pushing away laptop on messy desk with crumpled paper balls"
+        generic = "hands typing laptop on messy desk with paper balls"
+        correct = "hands pushing away laptop on messy desk with crumpled paper balls"
+        self.assertLess(media._stock_metadata_semantic_score(query, generic), 0.8)
+        for provider in ("pexels", "pixabay", "coverr"):
+            with self.subTest(provider=provider):
+                results = [video(provider, 1, generic), video(provider, 2, correct, portrait=False)]
+                key = "videos" if provider == "pexels" else "hits"
+                with mock.patch.object(media, "_read_secret", return_value="test"), mock.patch.object(
+                    media, "_get_json", return_value={key: results}
+                ) as search:
+                    selected = getattr(media.StockVisualSource(), "_" + provider)(query, portrait=True)
+                self.assertEqual(selected["asset_id"], "2")
+                self.assertEqual(search.call_count, 1)
+
+    def test_observed_failure_prioritizes_new_action_with_existing_recovery_budget(self):
+        query = "hands pushing away laptop on messy desk with crumpled paper balls"
+        observation = "hands typing laptop on messy desk"
+        descriptions = ("hands typing laptop messy desk crumpled paper balls",
+                        "hands pushing laptop away and crumpling papers")
+        candidates = [{"provider": "pexels", "asset_id": str(index),
+                       "download_url": f"https://example.invalid/{index}.mp4",
+                       "retrieval_description": description,
+                       "metadata_semantic_score": media._stock_metadata_semantic_score(query, description),
+                       "local_rank_score": .9}
+                      for index, description in enumerate(descriptions, 1)]
+        self.assertGreater(candidates[0]["metadata_semantic_score"], candidates[1]["metadata_semantic_score"])
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as root:
+                checks = []
+                source = media.StockVisualSource(media_preflight=lambda path: checks.append(Path(path).name))
+                with mock.patch.object(source, "_pexels_recovery_pool", return_value=candidates) as p, mock.patch.object(
+                    source, "_pixabay_recovery_pool", return_value=[]
+                ) as x, mock.patch.object(source, "_coverr_recovery_pool", return_value=[]) as c, mock.patch.object(
+                    media, "_download_media", side_effect=lambda url, dest: Path(dest).write_bytes(b"clip")
+                ):
+                    admitted = source.acquire_replacement_candidates(
+                        query, Path(root), fmt, destination_name="visual.mp4", section_id="s1",
+                        max_candidates=50, rejected_observation=observation,
+                    )
+                self.assertEqual([row["asset_id"] for _, row in admitted], ["2", "1"])
+                self.assertEqual(len(checks), 2)
+                for search in (p, x, c):
+                    self.assertEqual(search.call_count, 1)
+                    self.assertEqual(search.call_args.kwargs["limit"], 6)
+
     def test_descriptive_fit_beats_popular_high_resolution_wrong_scene(self):
         # Run 185 selected a ski gondola for a struggling person with a backpack.
         # The relevant lower-resolution result must win inside the SAME response.
@@ -174,6 +227,53 @@ class StockEvidenceSelectionTests(unittest.TestCase):
 
 
 class VisualProofContextTests(unittest.TestCase):
+    def test_explicit_clear_face_blocks_inconsistent_unrecognizable_marker(self):
+        for observation in ("woman with clear facial features looking down at papers",
+                            "side profile face is readable", "person with recognizable face"):
+            with self.subTest(observation=observation):
+                audit = visual_qa._apply_observed_visual_proof({"status": "pass", "relevance": .95,
+                    "identifiable_person": False,
+                    "reason": f"OBSERVED: {observation}; PROOF: matched; FACE: unrecognizable"})
+                self.assertEqual(audit["status"], "block")
+                self.assertTrue(audit["identifiable_person"])
+        for observation in ("hands and no clear facial features", "back view without a readable face",
+                            "face is not clear", "silhouette without any recognizable face"):
+            with self.subTest(observation=observation):
+                audit = visual_qa._apply_observed_visual_proof({"status": "pass", "relevance": .95,
+                    "identifiable_person": False,
+                    "reason": f"OBSERVED: {observation}; PROOF: matched; FACE: unrecognizable"})
+                self.assertEqual(audit["status"], "pass")
+                self.assertFalse(audit["identifiable_person"])
+
+    def test_actual_rejected_observation_reaches_query_recovery_for_every_format(self):
+        primary_reason = "OBSERVED: hands sorting papers beside laptop; PROOF: missing; FACE: none; no required action"
+        class Harness(qa_fixtures.VisualQASemanticRecoveryTests):
+            audit_number = 0
+            def _audit(self, **kwargs):
+                value = super()._audit(**kwargs)
+                self.audit_number += 1
+                value["reason"] = (primary_reason if self.audit_number == 1 else
+                    "OBSERVED: hands avoiding task while scrolling phone; PROOF: matched; FACE: none; avoidance visible")
+                return value
+        run = visual_qa.run_final_cut_visual_qa
+        prompt = visual_qa._alternate_visual_query_prompt
+        for fmt in ("short", "story", "moment", "film", "podcast"):
+            def run_format(**kwargs):
+                return run(**dict(kwargs, fmt=fmt))
+            with self.subTest(fmt=fmt), mock.patch.object(visual_qa, "run_final_cut_visual_qa", side_effect=run_format), mock.patch.object(
+                visual_qa, "_alternate_visual_query_prompt", wraps=prompt
+            ) as recovery_prompt:
+                outcome = Harness()._run_case(primary_status="pass", primary_relevance=.95, recovery_relevance=.92)
+            self.assertEqual(recovery_prompt.call_args.kwargs["observed_failure"], primary_reason)
+            self.assertEqual(outcome["recovery"][0]["rejected_observation"], "hands sorting papers beside laptop")
+            self.assertEqual(outcome["recovery"][0]["rejected_proof_status"], "missing")
+            self.assertEqual(outcome["router_calls"], 1)
+            self.assertEqual(outcome["audit_calls"], 2)
+            self.assertEqual(outcome["commit_calls"], 1)
+            aspect = [9, 16] if fmt in {"short", "story", "moment"} else [16, 9]
+            self.assertEqual([row["review_display_aspect_ratio"] for row in outcome["audits"]], [aspect, aspect])
+            self.assertEqual(outcome["intended_visual_calls"][0], outcome["intended_visual_calls"][1])
+
     def test_run185_full_action_and_both_required_states_survive_review_prompt(self):
         story = {"beats": [{"id": "b3", "role": "body", "shot_intent": BACKPACK + " while another carries small bag effortlessly",
                             "meaning_target": "العبء لا يتساوى مع حجم المهمة", "semantic_must_have": ["visible effort carrying heavy load", "contrasting light load"],
@@ -337,11 +437,13 @@ class DisplayWindowEvidenceTests(unittest.TestCase):
             (root / "timeline-first.json").write_text(json.dumps({"status": "pass", "voice_seconds_measured": 30,
                 "section_events": [{"section_id": "s1", "start": 0, "end": 18}, {"section_id": "s2", "start": 18, "end": 30}],
                 "identity_events": [{"kind": "hook", "start": 0, "end": 6}]}))
-            windows = visual_qa._review_display_durations(root, rights, "short")
-            self.assertAlmostEqual(windows["v1.mp4"], 2.0)
-            self.assertAlmostEqual(windows["v2.mp4"], 2.0)
-            self.assertAlmostEqual(windows["v3.mp4"], 14.36)
-            self.assertAlmostEqual(windows["v4.mp4"], 6.12)
+            for fmt in ("short", "story", "moment"):
+                with self.subTest(fmt=fmt):
+                    windows = visual_qa._review_display_durations(root, rights, fmt)
+                    self.assertAlmostEqual(windows["v1.mp4"], 2.0)
+                    self.assertAlmostEqual(windows["v2.mp4"], 2.0)
+                    self.assertAlmostEqual(windows["v3.mp4"], 14.36)
+                    self.assertAlmostEqual(windows["v4.mp4"], 6.12)
             for fmt in ("film", "podcast"):
                 windows = visual_qa._review_display_durations(root, rights, fmt)
                 self.assertAlmostEqual(windows["v1.mp4"], 6.12)
@@ -364,6 +466,8 @@ class AllTemplatesVisualEvidenceTests(unittest.TestCase):
             prompt = pipeline._planning_prompt(brief)
             plan = pipeline._validate_plan_for_brief(healthy_plan(fmt), brief)
         self.assertIn("STOCK FEASIBILITY", prompt)
+        self.assertIn("FIRST semantic_must_have cue is the shared core proof", prompt)
+        self.assertIn("essential action/object first in both queries", prompt)
         self.assertEqual(plan["short_template" if fmt == "short" else "narrative_format"], template)
         original = copy.deepcopy(plan["visual_story"])
         for beat in plan["visual_story"]["beats"]:
@@ -373,6 +477,7 @@ class AllTemplatesVisualEvidenceTests(unittest.TestCase):
             self.assertIn("Must show:", final)
             self.assertNotIn("alternate retrieval syntax", final)
             self.assertIn("OBSERVED:", final)
+            self.assertIn("does NOT mean knowing the person's name", final)
         self.assertEqual(plan["visual_story"], original)
 
 

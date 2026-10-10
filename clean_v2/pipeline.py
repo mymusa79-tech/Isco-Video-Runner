@@ -5722,7 +5722,8 @@ VISUAL EVIDENCE CONTRACT — Short, Film, and Podcast:
 - Ask "What can the viewer literally see here?" Every beat must prove its exact meaning through an observable
   action, changed state, consequence, comparison, choice, interruption, completion, or relationship.
 - meaning_target, semantic_must_have, shot_intent and stock queries must describe the SAME visible proof.
-  At least one semantic_must_have cue must prove the idea itself; lighting/style never counts as proof.
+  The FIRST semantic_must_have cue is the shared core proof; later cues are optional support.
+  Put the essential action/object first in both queries; avoid composite scenes and specific screen messages.
 - Reject default desk/laptop/notebook/writing, walking/path/sunset, or mood-only B-roll unless that literal
   action/location proves the narration. Abstract relations need visible contrast, state change, or consequence.
 - HUMAN PRESENCE POLICY: never require an identifiable face/expression; use hands, posture, turned-away,
