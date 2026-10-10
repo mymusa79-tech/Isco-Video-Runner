@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .visual_story import EDITORIAL_HOLD_WEIGHTS, compact_searchable_visual_intent
+from .visual_story import EDITORIAL_HOLD_WEIGHTS, compact_searchable_visual_intent, stock_scene_requires_motion
 
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
@@ -2502,7 +2502,13 @@ class StockVisualSource:
             # explicitly asks for a photographic still (or an unavailable AI still)
             # tries Pexels/Pixabay photos first. Motion beats exhaust the two bounded
             # query variants before falling back to a real photo.
-            prefer_still = preference in {"stock_still", "ai_still"}
+            # Run117 requested visible page-turning but tagged the beat
+            # stock_still. Search motion FIRST for that explicitly temporal
+            # proof; leave ordinary stills and AI stills unchanged.
+            prefer_still = preference in {"stock_still", "ai_still"} and not (
+                preference == "stock_still"
+                and stock_scene_requires_motion(beat.get("shot_intent") or query)
+            )
             if prefer_still and _try_stock_kind(
                 queries,
                 section_id,
