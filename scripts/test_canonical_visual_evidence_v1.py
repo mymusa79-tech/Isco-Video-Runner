@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image
 
 from scripts import canonical_visual_evidence_v1 as evidence
 from scripts import gold_cloudflare_vision_fallback as cloudflare
@@ -30,13 +33,20 @@ _PASS = {
 }
 
 
-def _manual_evidence(root: str) -> evidence.CanonicalVisualEvidence:
+def _manual_evidence(root: str, size: tuple[int, int] = (32, 24)) -> evidence.CanonicalVisualEvidence:
     base = Path(root)
     source = base / "original.mp4"
     source.write_bytes(b"original-selected-video")
     frames = []
     hashes = []
-    for index, payload in enumerate((b"frame-one-high-quality", b"frame-two-high-quality", b"frame-three-high-quality"), start=1):
+    for index in range(1, 4):
+        # Real, detailed images exercise the production image encoder and detect
+        # loss of pixels, ordering, scale or crop during transport packing.
+        pixels = bytes((offset * 17 + index * 53) % 256 for offset in range(size[0] * size[1] * 3))
+        frame = Image.frombytes("RGB", size, pixels)
+        encoded = io.BytesIO()
+        frame.save(encoded, format="JPEG", quality=95)
+        payload = encoded.getvalue()
         path = base / f"frame-{index:02d}.jpg"
         path.write_bytes(payload)
         frames.append(path)
@@ -145,7 +155,7 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertTrue(all(len(value) == 64 for value in bundle.frame_sha256))
         self.assertEqual(len(bundle.prompt_hash), 64)
 
-    def test_all_five_providers_receive_same_frame_bytes_same_order_and_same_prompt(self) -> None:
+    def test_all_five_providers_receive_same_frame_pixels_same_order_and_same_prompt(self) -> None:
         class OpenAIResponse:
             ok = True
             status_code = 200
@@ -194,7 +204,7 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
             with mock.patch.object(mesh, "_certify_groq_vision_model"), mock.patch.object(
                 mesh, "_groq_key", return_value="key"
             ), mock.patch.object(mesh.requests, "post", return_value=OpenAIResponse()) as groq_post:
-                mesh._groq_visual_call(
+                groq_audit = mesh._groq_visual_call(
                     bundle.source_path,
                     narration_context="ignored",
                     intended_visual="ignored",
@@ -258,11 +268,17 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
             ][0]
 
         self.assertEqual(or_frames, expected_frames)
-        self.assertEqual(groq_frames, expected_frames)
+        self.assertEqual(len(groq_frames), 1)
+        with Image.open(io.BytesIO(groq_frames[0])) as board:
+            width, height = Image.open(io.BytesIO(expected_frames[0])).size
+            self.assertEqual(board.size, (3 * width, height))
+            for index, original in enumerate(expected_frames):
+                with Image.open(io.BytesIO(original)) as frame:
+                    panel = board.crop((index * width, 0, (index + 1) * width, height))
+                    self.assertEqual(panel.tobytes(), frame.convert("RGB").tobytes())
         self.assertEqual(cf_frames, expected_frames)
         self.assertEqual(mistral_frames, expected_frames)
         self.assertEqual(gemini_frames, expected_frames)
-        self.assertEqual(or_frames, groq_frames)
         self.assertEqual(or_frames, cf_frames)
         self.assertEqual(or_frames, mistral_frames)
         self.assertEqual(or_frames, gemini_frames)
@@ -272,10 +288,48 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertEqual(mistral_prompt, bundle.prompt)
         self.assertEqual(gemini_prompt, bundle.prompt)
         self.assertEqual([item["type"] for item in or_content], ["image_url", "image_url", "image_url", "text"])
-        self.assertEqual([item["type"] for item in groq_content], ["image_url", "image_url", "image_url", "text"])
+        self.assertEqual([item["type"] for item in groq_content], ["image_url", "text"])
+        self.assertEqual(groq_audit["vision_transport"]["frame_count"], 3)
+        self.assertEqual(groq_audit["vision_transport"]["image_count"], 1)
+        self.assertFalse(groq_audit["vision_transport"]["resampled"])
+        self.assertEqual(groq_audit["vision_transport"]["image_sha256"], hashlib.sha256(groq_frames[0]).hexdigest())
         self.assertEqual([item["type"] for item in cf_content], ["image_url", "image_url", "image_url", "text"])
         self.assertEqual([item["type"] for item in mistral_content], ["image_url", "image_url", "image_url", "text"])
         self.assertEqual([item["type"] for item in client.interactions.input], ["image", "image", "image", "text"])
+
+    def test_groq_board_preserves_original_pixels_for_portrait_and_widescreen(self) -> None:
+        for size in ((90, 160), (160, 90)):
+            with self.subTest(size=size), tempfile.TemporaryDirectory() as root:
+                bundle = _manual_evidence(root, size=size)
+                content = evidence.groq_image_content(bundle)
+                packed, _ = _decode_openai_content(content)
+                with Image.open(io.BytesIO(packed[0])) as board:
+                    self.assertEqual(board.size, (size[0] * 3, size[1]))
+                    for index, original in enumerate(bundle.frame_bytes()):
+                        with Image.open(io.BytesIO(original)) as frame:
+                            panel = board.crop((size[0] * index, 0, size[0] * (index + 1), size[1]))
+                            self.assertEqual(panel.tobytes(), frame.convert("RGB").tobytes())
+
+    def test_groq_board_rejects_tampered_frames_before_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            bundle = _manual_evidence(root)
+            bundle.frame_paths[1].write_bytes(b"tampered")
+            with self.assertRaisesRegex(RuntimeError, "frame hash mismatch"):
+                evidence.groq_image_content(bundle)
+
+    def test_groq_oversized_image_request_is_blocked_before_wire(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            bundle = _manual_evidence(root)
+            oversized = [{"type": "image_url", "image_url": {"url": "data:image/png;base64," + "a" * 20_000_000}}]
+            with mock.patch.object(mesh, "_certify_groq_vision_model"), mock.patch.object(
+                mesh, "_groq_key", return_value="key"
+            ), mock.patch.object(evidence, "groq_image_content", return_value=oversized), mock.patch.object(
+                mesh.requests, "post"
+            ) as post:
+                with self.assertRaises(contract.VisionStageError) as error:
+                    mesh._groq_visual_call(bundle.source_path, narration_context="ctx", intended_visual="intent", canonical_visual_evidence=bundle)
+                self.assertEqual(error.exception.code, contract.VisionErrorCode.CAPACITY)
+                post.assert_not_called()
 
     def test_openrouter_judge_identity_is_fixed_and_not_free_router(self) -> None:
         self.assertEqual(contract.OPENROUTER_PRIMARY_MODEL, "google/gemma-4-26b-a4b-it:free")

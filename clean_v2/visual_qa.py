@@ -334,6 +334,9 @@ Observed failure class from the existing review:
 
 Propose ONE different English stock-footage search query for the SAME exact beat.
 Fix the observed failure class directly: weak_semantic_fit means make the visible proof more concrete;
+When the brief says Must show, search that core proof first. Optional support is not a search requirement.
+Use the fewest concrete action/object terms that preserve that proof; omit optional screens, props and mental states.
+An object's required state must be visible: a hidden fill level or covered surface cannot prove that state.
 identifiable_face means preserve the same action using hands/back view/objects/distant framing;
 cultural_conflict means preserve the meaning in a culturally suitable ordinary setting;
 embedded_text_or_logo means use a clean image-only scene with no visible text, UI, logo or watermark.
