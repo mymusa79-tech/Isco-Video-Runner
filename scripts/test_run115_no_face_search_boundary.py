@@ -31,6 +31,7 @@ class Run115NoFaceSearchBoundaryTests(unittest.TestCase):
             "hands placing phone face down beside unfinished task",
             "shoes crossing doorway toward morning light no face",
             "closed notebook beside unfinished task hands only",
+            "person writing in a notebook with a pen then looking at a desk",
         ):
             with self.subTest(intent=intent):
                 self.assertEqual(_face_safe_stock_intent(intent), intent)
