@@ -391,9 +391,41 @@ def _strip_embedded_text_request(value: object) -> str:
     return _EMBEDDED_TEXT_REQUEST_RE.sub("", compact).strip(" ,;:-")
 
 
+# Face-expression requirements are incompatible with the channel's no-clear-face
+# policy. Fix only the search representation, not the authored narration/proof.
+# Run 115 asked stock for "person starting to write ... focused expression"
+# and then blocked a face in the exact stock shot that query solicited.
+_FACE_MOOD_QUERY_RE = re.compile(
+    r"\s+with\s+(?:(?:a|an)\s+)?"
+    r"(?:(?:focused|thoughtful|happy|sad|worried|frustrated|calm|"
+    r"satisfied|determined|confident|pleased|smiling|slight|subtle)\s+){1,3}"
+    r"(?:facial\s+)?(?:expression|smile|grin)\b",
+    re.IGNORECASE,
+)
+_HAND_ACTION_PERSON_QUERY_RE = re.compile(
+    r"\b(?:(?:a|the)\s+)?(?:person|man|woman|someone|student)\s+"
+    r"(?=(?:(?:starting|beginning)\s+to\s+)?"
+    r"(?:write|writing|hold|holding|mark|marking|turn|turning|"
+    r"place|placing|sort|sorting|draw|drawing)\b)",
+    re.IGNORECASE,
+)
+
+
+def _face_safe_stock_intent(value: object) -> str:
+    """Resolve an avoidable face/search contradiction without a new AI call."""
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    text = _FACE_MOOD_QUERY_RE.sub("", text)
+    text, hand_action_rewritten = _HAND_ACTION_PERSON_QUERY_RE.subn("hands ", text)
+    if hand_action_rewritten and not re.search(r"\bno\s+face\b", text, re.IGNORECASE):
+        text += " no face visible"
+    return " ".join(text.split())
+
+
 def _writer_searchable_intent(value: object) -> str:
-    """Compact one authored visual intent into a concrete provider/search boundary."""
-    compact = _strip_embedded_text_request(value)
+    """Compact a face-safe, concrete intent using the existing stock boundary."""
+    compact = _face_safe_stock_intent(_strip_embedded_text_request(value))
     return compact_searchable_visual_intent(
         compact,
         drop_tokens=_WRITER_INTENT_DROP_TOKENS,
@@ -1234,6 +1266,12 @@ def bind_visual_story_to_script(
                 f"writer visual binding could not anchor section {section_id}"
             )
         for beat, anchor in zip(section_beats, anchors):
+            # The bounded recovery query must obey the same face-safe search
+            # boundary as the primary query; do not rewrite unrelated alternates.
+            raw_alternate = str(beat.get("stock_query_alt_en") or "")
+            safe_alternate = _face_safe_stock_intent(raw_alternate)
+            if safe_alternate != raw_alternate and safe_alternate:
+                beat["stock_query_alt_en"] = safe_alternate
             direct = _writer_searchable_intent(beat.get("shot_intent"))
             fallback = _writer_searchable_intent(beat.get("stock_query_en"))
             if direct or fallback:
