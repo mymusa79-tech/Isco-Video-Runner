@@ -98,6 +98,19 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("For generated/AI image-only compositions", prompt)
         self.assertIn("obvious_synthetic_or_visual_artifact=true", prompt)
 
+    def test_run115_hand_only_frames_are_not_evidence_of_a_face(self) -> None:
+        """A hand with jewelry is not a facial feature; actual visible faces still block."""
+        prompt = evidence.canonical_visual_prompt(
+            narration_context="Put the pen on a notebook",
+            intended_visual="hands writing without a visible face",
+        )
+        self.assertIn("Hands, rings, nail polish, clothing and skin tone are NOT facial features", prompt)
+        self.assertIn("If no face is visible,", prompt)
+        self.assertIn("never infer an unseen face", prompt)
+        self.assertIn("visible anywhere in the background", prompt)
+        self.assertIn("still judge its actual readable features and block when clear", prompt)
+        self.assertIn("If true, status MUST be block", prompt)
+
     def test_attempt5_s1_does_not_require_unstated_decision_fatigue(self) -> None:
         narration = (
             "يضع كثيرون خططًا وأهدافًا، ثم بعد أيام يعودون إلى الأنماط السابقة "
