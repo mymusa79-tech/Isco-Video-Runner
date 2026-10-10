@@ -36,6 +36,40 @@ class Run115NoFaceSearchBoundaryTests(unittest.TestCase):
             with self.subTest(intent=intent):
                 self.assertEqual(_face_safe_stock_intent(intent), intent)
 
+    def test_run115_voice_resume_refreshes_old_search_without_touching_proof(self) -> None:
+        from clean_v2.visual_story import _face_safe_resumed_visual_story
+
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                stale = {
+                    "format": fmt,
+                    "beats": [{
+                        "id": "b5",
+                        "shot_intent": "person starting to write in a clean notebook with a focused expression",
+                        "stock_query_en": "person starting to write in a clean notebook with a focused expression",
+                        "stock_query_alt_en": "person holding a notebook with a pleased expression",
+                        "semantic_must_have": ["hands beginning to write", "face smiling"],
+                        "writer_anchor_ar": "اتخذ خطوة صغيرة اليوم.",
+                    }],
+                }
+                repaired, changed = _face_safe_resumed_visual_story(stale)
+                self.assertTrue(changed)
+                beat = repaired["beats"][0]
+                self.assertEqual(
+                    beat["stock_query_en"],
+                    "hands starting to write in a clean notebook no face visible",
+                )
+                self.assertEqual(
+                    beat["stock_query_alt_en"],
+                    "hands holding a notebook no face visible",
+                )
+                self.assertEqual(beat["semantic_must_have"], stale["beats"][0]["semantic_must_have"])
+                self.assertEqual(beat["writer_anchor_ar"], stale["beats"][0]["writer_anchor_ar"])
+                self.assertEqual(stale["beats"][0]["shot_intent"], "person starting to write in a clean notebook with a focused expression")
+                same, changed_again = _face_safe_resumed_visual_story(repaired)
+                self.assertFalse(changed_again)
+                self.assertEqual(same, repaired)
+
     def test_writer_binder_applies_same_boundary_across_all_formats(self) -> None:
         for fmt in ("short", "film", "podcast"):
             with self.subTest(fmt=fmt):

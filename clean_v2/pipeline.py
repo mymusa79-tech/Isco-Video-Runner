@@ -7240,6 +7240,18 @@ class CleanV2Pipeline:
                     encoding="utf-8"
                 ) != transcript + "\n":
                     raise RuntimeError("Clean V2 resume narration does not match script")
+                if resume[1].get("forced_from_voice"):
+                    # The fresh-run Writer binder is deliberately skipped for a
+                    # fully accepted cached script. Apply only its new zero-call
+                    # face-safe search fix to the saved story before new visuals;
+                    # never regenerate Gemini voice or alter approved narration.
+                    from clean_v2.visual_story import _face_safe_resumed_visual_story
+
+                    visual_story, search_updated = _face_safe_resumed_visual_story(visual_story)
+                    if search_updated:
+                        atomic_write_json(output_dir / "visual-story.json", visual_story)
+                        journal.payload["resume_face_safe_visual_search_refreshed"] = True
+                        journal._write()
             else:
                 if resume_has_script:
                     _copy_resume_artifact(

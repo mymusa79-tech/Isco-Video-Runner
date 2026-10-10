@@ -428,6 +428,34 @@ def _face_safe_stock_intent(value: object) -> str:
     return " ".join(text.split())
 
 
+
+def _face_safe_resumed_visual_story(value: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Refresh stale face-dependent stock searches after a voice-only resume.
+
+    Cached Script/TTS are immutable. The normal Writer binder is skipped on a
+    voice checkpoint, so newly corrected search rules must be applied locally
+    to cached beats before fresh visual acquisition. This changes search text
+    only; narration, approved proof, pacing and scene count stay untouched.
+    """
+    result = copy.deepcopy(dict(value))
+    beats = result.get("beats")
+    if not isinstance(beats, list):
+        return result, False
+    changed = False
+    for beat in beats:
+        if not isinstance(beat, dict):
+            continue
+        for key in ("shot_intent", "stock_query_en", "stock_query_alt_en"):
+            authored = beat.get(key)
+            if not isinstance(authored, str) or not authored:
+                continue
+            safe = _face_safe_stock_intent(authored)
+            if safe and safe != authored:
+                beat[key] = safe
+                changed = True
+    return result, changed
+
+
 def _writer_searchable_intent(value: object) -> str:
     """Compact a face-safe, concrete intent using the existing stock boundary."""
     compact = _face_safe_stock_intent(_strip_embedded_text_request(value))
