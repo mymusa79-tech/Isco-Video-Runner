@@ -416,10 +416,15 @@ def _face_safe_stock_intent(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
+    explicit_face_mood = bool(_FACE_MOOD_QUERY_RE.search(text))
     text = _FACE_MOOD_QUERY_RE.sub("", text)
-    text, hand_action_rewritten = _HAND_ACTION_PERSON_QUERY_RE.subn("hands ", text)
-    if hand_action_rewritten and not re.search(r"\bno\s+face\b", text, re.IGNORECASE):
-        text += " no face visible"
+    # An ordinary person writing is not itself a facial-expression demand.
+    # Preserve existing stock queries unless the same cue explicitly requests
+    # a visible face emotion, as it did in Run 115.
+    if explicit_face_mood:
+        text, hand_action_rewritten = _HAND_ACTION_PERSON_QUERY_RE.subn("hands ", text)
+        if hand_action_rewritten and not re.search(r"\bno\s+face\b", text, re.IGNORECASE):
+            text += " no face visible"
     return " ".join(text.split())
 
 
