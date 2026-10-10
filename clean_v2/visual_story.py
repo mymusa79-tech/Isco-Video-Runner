@@ -29,7 +29,7 @@ SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
 # Run117: a still photograph cannot prove actual page-turning motion. Keep
 # this narrowly scoped to observable motion, not generic reading/writing poses.
 _PAGE_TURNING_MOTION_RE = re.compile(
-    r"\\b(?:turning|flipping)\\s+(?:(?:over|through|the)\\s+){0,2}pages?\\b",
+    r"\b(?:turning|flipping)\s+(?:(?:over|through|the|a|book|its|some)\s+){0,3}pages?\b",
     re.IGNORECASE,
 )
 
