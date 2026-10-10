@@ -1456,7 +1456,8 @@ def _reuse_existing_visual_competitor(
             continue
         # Never increase the number of review/download slots; the second-best
         # alternate yields one slot to an already-discovered different source.
-        return (top[:1] + [prior] + ranked_candidates[1:]) if top else [prior]
+        reused = dict(prior, recovery_shortlist_origin="initial_competitor")
+        return (top[:1] + [reused] + ranked_candidates[1:]) if top else [reused]
     return ranked_candidates
 
 
