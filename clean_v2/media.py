@@ -1134,8 +1134,8 @@ def _provider_stock_query(query: str, provider: str) -> str:
     if name.startswith("coverr"):
         adapted = compact_searchable_visual_intent(
             raw,
-            drop_tokens=_PIXABAY_QUERY_DROP_TOKENS | frozenset({"showing", "many", "small"}),
-            max_words=4,
+            drop_tokens=_PIXABAY_QUERY_DROP_TOKENS | frozenset({"showing", "many", "small", "over"}),
+            max_words=6,
         )
         return _bounded_provider_query_chars(adapted or raw, 160)
 
@@ -1230,23 +1230,45 @@ _STOCK_RANK_STOP_TOKENS = frozenset({
     "cinematic", "warm", "neutral", "natural", "practical", "light", "lighting",
     "close", "up", "wide", "shot", "frame", "strong", "focal", "contrast",
     "no", "face", "visible", "only", "soft", "depth", "dark", "bright",
+    "the", "and", "with", "without", "for", "from", "into", "onto", "over",
+    "under", "while", "then", "that", "this", "person", "people", "someone",
+    "http", "https", "www", "com", "photo", "photos", "video", "videos",
+    "pexels", "pixabay", "coverr",
 })
 
 
+def _stock_rank_tokens(value: str) -> set[str]:
+    """Normalize ordinary inflections without turning metadata into visual proof."""
+    tokens = set()
+    for token in re.findall(r"[a-z]+", str(value or "").casefold()):
+        if len(token) <= 2 or token in _STOCK_RANK_STOP_TOKENS:
+            continue
+        if token.endswith("ies") and len(token) > 4:
+            token = token[:-3] + "y"
+        elif token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+            token = token[:-1]
+        if token.endswith("ing") and len(token) > 5:
+            token = token[:-3]
+            if len(token) > 2 and token[-1] == token[-2]:
+                token = token[:-1]
+        elif token.endswith("ed") and len(token) > 4:
+            token = token[:-2]
+        tokens.add(token.rstrip("e") if len(token) > 3 else token)
+    return tokens
+
+
 def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
-    """Cheap descriptive overlap using metadata from the same API call, not a verdict."""
-    query_tokens = {
-        token
-        for token in re.findall(r"[a-z0-9]+", str(query or "").casefold())
-        if len(token) > 2 and token not in _STOCK_RANK_STOP_TOKENS
-    }
+    """Content-word coverage from the same response; never a safety/QA verdict.
+
+    Glue words and a shared laptop/desk must not saturate the score while the
+    requested action/state is absent. Keep the full query denominator.
+    """
+    query_tokens = _stock_rank_tokens(query)
     if not query_tokens:
         return 0.0
-    metadata_tokens = set(
-        re.findall(r"[a-z0-9]+", str(metadata or "").replace("-", " ").casefold())
-    )
+    metadata_tokens = _stock_rank_tokens(metadata)
     matched = len(query_tokens & metadata_tokens)
-    return min(1.0, matched / float(min(6, max(1, len(query_tokens)))))
+    return matched / float(len(query_tokens))
 
 
 def _stock_result_metadata(provider: str, item: Mapping[str, Any]) -> str:
@@ -1607,6 +1629,7 @@ class StockVisualSource:
                     "metadata_semantic_score": round(
                         _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pexels_photo", photo)), 6
                     ),
+                    "retrieval_description": _stock_result_metadata("pexels_photo", photo),
                     "media_kind": "photo",
                     "local_rank_score": round(float(score), 6),
                 }
@@ -1698,6 +1721,7 @@ class StockVisualSource:
                     "metadata_semantic_score": round(
                         _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pixabay_photo", hit)), 6
                     ),
+                    "retrieval_description": _stock_result_metadata("pixabay_photo", hit),
                     "media_kind": "photo",
                     "local_rank_score": round(float(score), 6),
                 }
@@ -2530,6 +2554,7 @@ class StockVisualSource:
                         "metadata_semantic_score": round(_stock_metadata_semantic_score(
                             semantic_query, _stock_result_metadata("pexels", video)
                         ), 6),
+                        "retrieval_description": _stock_result_metadata("pexels", video),
                     }
                 )
             candidates = sorted(
@@ -2648,6 +2673,7 @@ class StockVisualSource:
                         "metadata_semantic_score": round(_stock_metadata_semantic_score(
                             semantic_query, _stock_result_metadata("coverr", hit)
                         ), 6),
+                        "retrieval_description": _stock_result_metadata("coverr", hit),
                         "media_kind": "video",
                         "attribution_required": True,
                         "local_rank_score": round(float(score), 6),
@@ -2749,6 +2775,7 @@ class StockVisualSource:
                         "metadata_semantic_score": round(_stock_metadata_semantic_score(
                             semantic_query, _stock_result_metadata("pixabay", hit)
                         ), 6),
+                        "retrieval_description": _stock_result_metadata("pixabay", hit),
                     }
                 )
             candidates = sorted(
@@ -2781,6 +2808,7 @@ class StockVisualSource:
         section_id: str,
         max_candidates: int = 3,
         source_preference: str = "stock_motion",
+        rejected_observation: str = "",
         exclude_provider: str | None = None,
         exclude_asset_id: object | None = None,
         exclude_assets: list[tuple[str, object]] | None = None,
@@ -2857,7 +2885,17 @@ class StockVisualSource:
             position += 1
 
         admitted: list[tuple[Path, dict[str, Any]]] = []
-        ranked_candidates = sorted(interleaved, key=_stock_candidate_rank_key, reverse=True)
+        missing_tokens = _stock_rank_tokens(normalized_query) - _stock_rank_tokens(rejected_observation)
+
+        def recovery_rank(candidate: Mapping[str, Any]) -> tuple[float, float, float]:
+            description = str(candidate.get("retrieval_description") or "")
+            missing_fit = (
+                len(missing_tokens & _stock_rank_tokens(description)) / len(missing_tokens)
+                if rejected_observation and missing_tokens and description else 0.0
+            )
+            return (missing_fit, *_stock_candidate_rank_key(candidate))
+
+        ranked_candidates = sorted(interleaved, key=recovery_rank, reverse=True)
         for ordinal, candidate in enumerate(ranked_candidates, start=1):
             if len(admitted) >= bounded_limit:
                 break

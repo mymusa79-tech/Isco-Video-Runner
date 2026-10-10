@@ -3859,7 +3859,7 @@ class CoverrQueryShapeTests(unittest.TestCase):
         long_query = "hand hovering over paper then stopping in hesitation close up"
         adapted = media_module._provider_stock_query(long_query, "coverr")
         self.assertTrue(adapted)
-        self.assertLessEqual(len(adapted.split()), 4)
+        self.assertLessEqual(len(adapted.split()), 6)
         self.assertIn("paper", adapted)
 
 
