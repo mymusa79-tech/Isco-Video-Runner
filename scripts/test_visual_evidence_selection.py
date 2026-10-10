@@ -466,8 +466,8 @@ class AllTemplatesVisualEvidenceTests(unittest.TestCase):
             prompt = pipeline._planning_prompt(brief)
             plan = pipeline._validate_plan_for_brief(healthy_plan(fmt), brief)
         self.assertIn("STOCK FEASIBILITY", prompt)
-        self.assertIn("FIRST semantic_must_have cue is the shared core proof", prompt)
-        self.assertIn("essential action/object first in both queries", prompt)
+        self.assertIn("First semantic_must_have = core proof; others optional", prompt)
+        self.assertIn("Queries: action/object first", prompt)
         self.assertEqual(plan["short_template" if fmt == "short" else "narrative_format"], template)
         original = copy.deepcopy(plan["visual_story"])
         for beat in plan["visual_story"]["beats"]:
