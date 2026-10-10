@@ -18,6 +18,7 @@ then crosses Security V1's runtime stock-query gate, whose provider ceiling is c
 with Clean V2's 200-character alternate-query contract.
 """
 
+import re
 import unicodedata
 
 from .legacy_cinematic import CleanV2LayerBlock, _block, security_query_normalizer
@@ -106,6 +107,11 @@ def _normalize_observed_separators(value: str) -> str:
     # Fold diacritics last so the existing named-character replacements remain
     # authoritative. NFD is intentionally used instead of compatibility folding.
     compatible = _fold_latin_diacritics(compatible)
+    # Run118: a planner-authored clock time (6:00 AM) was rejected by the
+    # unchanged Security V1 plain-search grammar *before* any recovery search.
+    # Only a colon BETWEEN ASCII digits is a harmless time separator.
+    # Full-value cross-provider injection checks already ran above.
+    compatible = re.sub(r"(?<=[0-9]):(?=[0-9])", " ", compatible)
     return " ".join(compatible.split())
 
 
@@ -119,7 +125,7 @@ def normalize_clean_v2_stock_query(value: str) -> str:
        immediately revalidated by the same firewall. Any other bracket syntax stays blocked.
     2. After validation, convert observed presentation punctuation before stock search:
        commas/parentheses/periods to spaces, U+2011 to ASCII hyphen, remove quotes, and
-       fold Latin letters with diacritics to their plain ASCII base (café -> cafe).
+       fold Latin letters with diacritics to their plain ASCII base (café -> cafe),\n       and convert only numeric clock-time colons (6:00 -> 6 00) to spaces.
     3. Reuse the Security V1 stock-query gate (same safety checks, 200-char runtime ceiling).
 
     No other punctuation, non-English text, or malformed query class is repaired here.
