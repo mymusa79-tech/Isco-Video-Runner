@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "الخطأ ليس فشلاً: كيف تتحول التجارب السلبية إلى محركات للنمو",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38015534874",
-  "result": "failure",
-  "updated_at": 1791598209
+  "topic": "لماذا تفشل «الأنظمة» في تغيير عاداتك؟ الدليل العلمي لبدء صغير",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38016409681",
+  "result": "",
+  "updated_at": 1791598656
 }
