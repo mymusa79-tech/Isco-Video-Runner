@@ -95,7 +95,7 @@ MAX_PLANNING_REPAIR_BEATS = 60
 PLANNING_QUERY_FIELDS = ("stock_query_en", "stock_query_alt_en")
 
 _FACE_DEPENDENT_SEMANTIC_RE = re.compile(
-    r"\b(?:face|facial|expression|expressions)\b|(?:وجه|ملامح|تعبير(?:ات)?)",
+    r"\b(?:face|facial|expression|expressions|smile|smiling|grin|grinning)\b|(?:وجه|ملامح|تعبير(?:ات)?|ابتسام\w*)",
     re.IGNORECASE,
 )
 _SHORT_PAYOFF_PROCESS_RE = re.compile(
@@ -193,11 +193,11 @@ _SEMANTIC_PROOF_NOISE = frozenset({
     "atmosphere", "tone", "color", "colour", "bokeh", "glow",
 })
 
-_QUERY_CLAUSE_BREAK_TOKENS = frozenset({"then", "while"})
+_QUERY_CLAUSE_BREAK_TOKENS = frozenset({"then", "while", "and", "showing", "displaying"})
 _QUERY_DANGLING_TOKENS = frozenset({
     "a", "an", "the", "and", "or", "at", "by", "for", "from", "in",
     "into", "of", "on", "onto", "through", "to", "toward", "towards",
-    "under", "with", "without",
+    "under", "with", "without", "showing", "displaying", "holding", "while", "then",
 })
 
 
@@ -223,7 +223,10 @@ def compact_searchable_visual_intent(
             if index >= 3 and token.casefold() in _QUERY_CLAUSE_BREAK_TOKENS:
                 bounded = bounded[:index]
                 break
-        while bounded and bounded[-1].casefold() in _QUERY_DANGLING_TOKENS:
+        # A count cut can strand a modifier ("half-empty") with no noun.
+        while bounded and (
+            bounded[-1].casefold() in _QUERY_DANGLING_TOKENS or "-" in bounded[-1]
+        ):
             bounded.pop()
     if len(bounded) < 3:
         return ""
@@ -1566,6 +1569,11 @@ def visual_review_context(
     if index is None:
         return str(fallback_intent or "").strip()[:300]
     beat = beats[index]
+    optional_support = [
+        _context_fragment(cue, "", 80)
+        for cue in list(beat.get("semantic_must_have") or [])[1:]
+        if not _is_face_dependent_semantic_cue(cue)
+    ][:3]
     core = [
         "Visual proof contract v2",
         f"Role:{_context_fragment(beat.get('role'), 'body', 12)}",
@@ -1579,14 +1587,8 @@ def visual_review_context(
             for cue in list(beat.get("semantic_must_have") or [])[:1]
         ),
         *(
-            [
-                "Optional support (NOT required for PROOF: matched): "
-                + ", ".join(
-                    _context_fragment(cue, "", 80)
-                    for cue in list(beat.get("semantic_must_have") or [])[1:4]
-                )
-            ]
-            if len(list(beat.get("semantic_must_have") or [])) > 1
+            ["Optional support (NOT required for PROOF: matched): " + ", ".join(optional_support)]
+            if optional_support
             else []
         ),
         "Avoid:" + ", ".join(
