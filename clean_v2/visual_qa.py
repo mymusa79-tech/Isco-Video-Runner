@@ -358,22 +358,29 @@ Return ONLY JSON: {{"alternate_query": "..."}}.
 """.strip()
 
 
-def _validate_alternate_query(value: Any, *, original_query: str) -> dict[str, str]:
+def _validate_alternate_query(value: Any, *, original_query: str, planned: bool = False) -> dict[str, str]:
     if not isinstance(value, dict):
         raise AlternateQueryError("alternate_query_invalid_shape", "alternate query output must be an object")
     query = str(value.get("alternate_query") or "").strip()
     words = query.split()
     if not query or not any(ch.isalpha() for ch in query):
         raise AlternateQueryError("alternate_query_empty", "alternate query must contain a stock search phrase")
-    if len(query) > ALTERNATE_QUERY_MAX_CHARACTERS:
+    # Planner-authored stock searches already passed Planning's English/query
+    # contract and are consumed by stock providers (up to 160 characters).
+    # The 80-character response limit belongs to NEW model-generated alternatives,
+    # not to an existing zero-call search. Run116 discarded a meaningful authored
+    # alternate and spent four provider attempts inventing a worse one.
+    max_chars = 160 if planned else ALTERNATE_QUERY_MAX_CHARACTERS
+    max_words = 24 if planned else ALTERNATE_QUERY_MAX_WORDS
+    if len(query) > max_chars:
         raise AlternateQueryError(
             "alternate_query_too_long",
-            f"alternate query has {len(query)} characters; maximum is {ALTERNATE_QUERY_MAX_CHARACTERS} including spaces",
+            f"alternate query has {len(query)} characters; maximum is {max_chars} including spaces",
         )
-    if not ALTERNATE_QUERY_MIN_WORDS <= len(words) <= ALTERNATE_QUERY_MAX_WORDS:
+    if not ALTERNATE_QUERY_MIN_WORDS <= len(words) <= max_words:
         raise AlternateQueryError(
             "alternate_query_word_count",
-            f"alternate query has {len(words)} words; use {ALTERNATE_QUERY_MIN_WORDS}-{ALTERNATE_QUERY_MAX_WORDS} English words",
+            f"alternate query has {len(words)} words; use {ALTERNATE_QUERY_MIN_WORDS}-{max_words} English words",
         )
     normalize = lambda text: " ".join(text.casefold().split())
     if normalize(query) == normalize(original_query):
@@ -1118,6 +1125,7 @@ def run_final_cut_visual_qa(
                             alternate = _validate_alternate_query(
                                 {"alternate_query": planned_alternate},
                                 original_query=intended_visual,
+                                planned=True,
                             )["alternate_query"]
                             recovery_record["query_source"] = "planning_authored_zero_call"
                         except ValueError:

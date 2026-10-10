@@ -1391,6 +1391,34 @@ def _enforce_short_hook_shot_cap(
     return result_paths, result_durations
 
 
+def _diversify_recovery_candidates(
+    ranked: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Spend the SAME recovery review slots across available stock providers.
+
+    Run116 returned six results each from Pexels and Pixabay but ranked all
+    three admitted alternatives from Pixabay. Keep the highest-ranked choice
+    from each provider before reusing a provider; remaining candidates retain
+    their original order to fill rejected/failed downloads. This never adds a
+    search, download slot, model call, QA pass, or changes the safety gate.
+    """
+    if limit <= 1:
+        return ranked
+    varied: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in ranked:
+        provider = str(candidate.get("provider") or "")
+        if provider and provider not in seen and len(varied) < limit:
+            varied.append(candidate)
+            seen.add(provider)
+        else:
+            remaining.append(candidate)
+    return varied + remaining
+
+
 class StockVisualSource:
     def __init__(
         self,
@@ -2895,7 +2923,10 @@ class StockVisualSource:
             )
             return (missing_fit, *_stock_candidate_rank_key(candidate))
 
-        ranked_candidates = sorted(interleaved, key=recovery_rank, reverse=True)
+        ranked_candidates = _diversify_recovery_candidates(
+            sorted(interleaved, key=recovery_rank, reverse=True),
+            limit=bounded_limit,
+        )
         for ordinal, candidate in enumerate(ranked_candidates, start=1):
             if len(admitted) >= bounded_limit:
                 break
