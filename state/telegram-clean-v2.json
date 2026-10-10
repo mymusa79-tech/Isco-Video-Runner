@@ -5923,9 +5923,179 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-09T21:38:22Z"
+    },
+    {
+      "idea_id": "idea-9cebbf7ca9",
+      "title": "العلاقة بين «الشجاعة» و«الخوف»: كيف تتخذ قرارات كبيرة دون أن تكون «قويًا»",
+      "normalized_title": "العلاقة بين الشجاعة و الخوف كيف تتخذ قرارات كبيرة دون ان تكون قويًا",
+      "market_query": "كيفية اتخاذ قرارات كبيرة مع الخوف",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «قوات الدعم السريع» و«السفارة اليمنية» (القرارات الصعبة في الحياة الحقيقية)، حيث يبحث العرب عن كيفية التعامل مع الخوف في قرارات الحياة الشخصية أو المهنية.', 'unique_angle': 'يؤكد أن الشجاعة ليست غياب الخوف،",
+      "market_score": 0.504,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 688.3,
+        "median_views_per_day": 688.3,
+        "top_samples": [
+          {
+            "video_id": "78YYPoTUvzE",
+            "title": "كيف تجد الوضوح عندما يمتلئ عقلك بالشك والخوف؟",
+            "channel": "طريق الحكمة",
+            "published_at": "2026-10-03T15:02:03Z",
+            "views": 4452,
+            "views_per_day": 688.3,
+            "relevance_overlap": [
+              "اتخاذ",
+              "خوف",
+              "قرارات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:05Z"
+    },
+    {
+      "idea_id": "idea-da827653bf",
+      "title": "لماذا تفشل «الأنظمة» في تغيير عاداتك؟ الدليل العلمي لبدء صغير",
+      "normalized_title": "لماذا تفشل الانظمة في تغيير عاداتك؟ الدليل العلمي لبدء صغير",
+      "market_query": "لماذا تفشل الأنظمة في تغيير العادات",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «نجيب ساويرس» (التحديات في الأعمال) و«honor» (التزام الأخلاقي)، حيث يبحث العرب عن أساليب واقعية لتغيير العادات دون الاعتماد على «ال意志 القوي» فقط.', 'unique_angle': 'يؤكد أن معظم الأنظمة تفشل بسبب التركيز على",
+      "market_score": 0.172,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 4.8,
+        "median_views_per_day": 4.8,
+        "top_samples": [
+          {
+            "video_id": "mbWyNW4tHsI",
+            "title": "أدوات البناء - عادات بسيطة تنتج نتائج عظيمة | اقوى ملخص لكتاب العادات الذرية",
+            "channel": "خلاصة الثروة",
+            "published_at": "2026-09-12T21:15:31Z",
+            "views": 130,
+            "views_per_day": 4.8,
+            "relevance_overlap": [
+              "انظمة",
+              "تغيير",
+              "تفشل",
+              "عادات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:05Z"
+    },
+    {
+      "idea_id": "idea-58ee1e1150",
+      "title": "كيف تتحول من «مستمع» إلى «مبدع»: علم النفس وراء الإبداع اليومي",
+      "normalized_title": "كيف تتحول من مستمع الي مبدع علم النفس وراء الابداع اليومي",
+      "market_query": "كيفية التحول من مستمع إلى مبدع",
+      "reason": "{'trend_insight': 'يرتبط بالإقبال على المحتوى حول تطوير المهارات الشخصية، خاصة بعد ارتفاع بحث عن حسين عبد الغني (المؤثر في تطوير الذات) و«هذا البحر سوف يفيض» (كتاب عن الإبداع).', 'unique_angle': 'يؤكد على دور الاستماع النشط في تحفيز الإبداع",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:04Z"
+    },
+    {
+      "idea_id": "idea-9e984e88c4",
+      "title": "الخطأ الذي يجعلنا نعتقد أن «النجاح» هو هدف، وليس رحلة: درس من علم النفس الإيجابي",
+      "normalized_title": "الخطا الذي يجعلنا نعتقد ان النجاح هو هدف، وليس رحلة درس من علم النفس الايجابي",
+      "market_query": "النجاح كهدف مقابل رحلة",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن كاتي زكريا (المؤثرة في التنمية الذاتية) ونافي بيلاي (المحاضر حول التحديات الشخصية)، حيث يبحث العرب عن فهم عميق للنجاح دون إغفال التحديات.', 'unique_angle': 'يؤكد أن التركيز على «الهدف» يخلق ضغطًا، بينما التر",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:04Z"
+    },
+    {
+      "idea_id": "idea-dadbb85e3c",
+      "title": "لماذا تخاف من «الفراغ»؟ كيف تتعلم الاستمتاع بالوقت بدون أهداف",
+      "normalized_title": "لماذا تخاف من الفراغ ؟ كيف تتعلم الاستمتاع بالوقت بدون اهداف",
+      "market_query": "كيفية الاستمتاع بالفراغ بدون أهداف",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «delta air lines» (الفراغ في الرحلات) و«باكستان» (الفراغ في الحياة اليومية)، حيث يبحث العرب عن كيفية التعامل مع الوقت غير المنظم، خاصة في مجتمعات ذات ضغط اجتماعي.', 'unique_angle': 'يؤكد أن الخوف من الفراغ ي",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:05Z"
+    },
+    {
+      "idea_id": "idea-0cee9ac8bf",
+      "title": "كيف تتعامل مع «الانتقاد» دون أن تصبح ضحية: علم النفس وراء الاستجابة الصحيحة",
+      "normalized_title": "كيف تتعامل مع الانتقاد دون ان تصبح ضحية علم النفس وراء الاستجابة الصحيحة",
+      "market_query": "كيفية التعامل مع الانتقاد بدون أن تصبح ضحية",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «كاتي زكريا» (التعامل مع التحديات) و«نافي بيلاي» (الاستجابة للمواقف الصعبة)، حيث يبحث العرب عن كيفية التعامل مع الانتقاد دون أن يؤثر سلبًا على الثقة بالنفس.', 'unique_angle': 'يؤكد أن الانتقاد ليس دائمًا سلب",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:06Z"
+    },
+    {
+      "idea_id": "idea-6925322899",
+      "title": "لماذا تحتاج إلى «الملل»؟ كيف يتحول إلى محرك للإبداع والابتكار",
+      "normalized_title": "لماذا تحتاج الي الملل ؟ كيف يتحول الي محرك للابداع والابتكار",
+      "market_query": "كيفية تحويل الملل إلى إبداع",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «هذا البحر سوف يفيض» (الكتاب عن الإبداع) و«نجيب ساويرس» (الابتكار في الأعمال)، حيث يبحث العرب عن كيفية تحويل الملل إلى طاقة إيجابية.', 'unique_angle': 'يؤكد أن الملل ليس سلبيًا، بل يمكن استخدامه كدافع للإبدا",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:06Z"
+    },
+    {
+      "idea_id": "idea-050367ca3b",
+      "title": "الخطأ الشائع في «التفاؤل»: كيف يكون واقعيًا دون أن يكون «تجنبًا» للمشاكل",
+      "normalized_title": "الخطا الشايع في التفاول كيف يكون واقعيًا دون ان يكون تجنبًا للمشاكل",
+      "market_query": "التفاؤل الواقعي دون تجنب المشاكل",
+      "reason": "{'trend_insight': 'يرتبط ببحث عن «هوسين عبد الغني» (التفاؤل في الحياة) و«باكستان» (التحديات اليومية)، حيث يبحث العرب عن كيفية الحفاظ على التفاؤل دون تجاهل الواقع.', 'unique_angle': 'يؤكد أن التفاؤل الواقعي ليس «تجنبًا» للمشاكل، بل هو القدرة",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-10T02:16:06Z"
     }
   ],
   "sessions": {
+    "72dddbbc": {
+      "session_id": "72dddbbc",
+      "scope": "short",
+      "idea_ids": [
+        "idea-9cebbf7ca9",
+        "idea-da827653bf"
+      ],
+      "created_at": "2026-10-10T02:16:06Z"
+    },
     "e4bdaeb7": {
       "session_id": "e4bdaeb7",
       "scope": "short",
@@ -6353,17 +6523,6 @@
       "created_at": "2026-09-27T21:38:19Z",
       "closed_at": "2026-09-27T21:52:09Z",
       "selected_index": 1
-    },
-    "62380029": {
-      "session_id": "62380029",
-      "scope": "short",
-      "idea_ids": [
-        "idea-b6fd6e4fe9"
-      ],
-      "created_at": "2026-09-26T14:28:26Z",
-      "source": "saved_library",
-      "closed_at": "2026-09-26T14:28:26Z",
-      "selected_index": 0
     }
   },
   "requests": {
@@ -9374,6 +9533,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-10T02:10:11Z",
+  "updated_at": "2026-10-10T02:16:07Z",
   "provider_cooldown_until": "2026-10-09T19:09:42.830614Z"
 }
