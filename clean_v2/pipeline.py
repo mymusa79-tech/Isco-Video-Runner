@@ -2195,7 +2195,9 @@ def _factuality_location_issue_notes(
 
 
 _QUOTED_TONE_FLAG_EXAMPLE = re.compile(
-    r'(?:"([^"\n]{1,220})"|\'([^\'\n]{1,220})\'|«([^»\n]{1,220})»|“([^”\n]{1,220})”)'
+    # An English possessive such as hook's is not an opening quote. Treating
+    # it as one swallowed payoff_resolves_hook in Run 114's repair dossier.
+    r'(?:"([^"\n]{1,220})"|(?<!\w)\'((?:[^\'\n]|(?<=\w)\'(?=\w)){1,220})\'(?!\w)|«([^»\n]{1,220})»|“([^”\n]{1,220})”)'
 )
 _WORD_TOKEN = re.compile(r"\w+", re.UNICODE)
 
@@ -2587,6 +2589,20 @@ def _hook_text_itself_is_defective(revision_note: str) -> bool:
     if _HOOK_QUALITY_REPAIR_PREFIX not in lowered:
         return False
     return any(field in lowered for field in _HOOK_OWN_TEXT_DEFECT_FIELDS)
+
+
+def _short_payoff_repair_required(revision_note: str) -> bool:
+    """A flagged hook/payoff mismatch belongs to the authored payoff.
+
+    Run 114 changed the separate practical action while leaving the rejected
+    payoff verbatim. That action must not satisfy the payoff's repair coverage.
+    """
+    return any(
+        "hook_quality:" in line.casefold()
+        and "payoff_resolves_hook" in line.casefold()
+        and not re.search(r"payoff_resolves_hook\s*=\s*true\b", line, flags=re.I)
+        for line in str(revision_note or "").splitlines()
+    )
 
 
 def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
@@ -3010,6 +3026,16 @@ def _validate_and_apply_script_patches(
             for section_id in required_changed_section_ids
             if original_by_id.get(section_id) == repaired_by_id.get(section_id)
         ]
+        closing_id = str(sections[-1].get("id") or "")
+        if (
+            is_short_format
+            and closing_id in required_changed_section_ids
+            and _short_payoff_repair_required(revision_note)
+            and original_by_id.get(closing_id, ("", ""))[0]
+            == repaired_by_id.get(closing_id, ("", ""))[0]
+            and closing_id not in missing
+        ):
+            missing.append(closing_id)
         if missing:
             raise ValueError(
                 "semantic script patch did not change every explicitly flagged section: "
@@ -3359,6 +3385,15 @@ def _tone_repair_prompt(
         if str(brief.get("format") or "") == "short"
         else ""
     )
+    if str(brief.get("format") or "") == "short" and _short_payoff_repair_required(revision_note):
+        short_payoff_repair_guidance += (
+            "- REQUIRED AUTHORED PAYOFF REPAIR: payoff_resolves_hook is flagged. Patch s3_payoff itself "
+            "so it resolves the same concrete detail/tension carried through s1 and s2. Changing only "
+            "practical_action_ar cannot satisfy this defect and the host will reject that candidate "
+            "before re-audit. If the action is also flagged, use a separate patch for it; keep the "
+            "payoff/action boundary intact. Use an observable event or supported distinction rather "
+            "than inventing a hidden brain mechanism to connect the sections. "
+        )
     short_locked_action_rule = (
         "- AUDITED SHORT ACTION EXCEPTION: REVISION_NOTE explicitly identifies "
         "LOCKED_PLAN.practical_action_ar as the defect. You MAY patch that final-section action once. "
@@ -6255,6 +6290,13 @@ def _script_prompt(
             "s3 earns the selected template's payoff before the separate locked action. "
             + scene_progression +
             "Do not impose a scene/event on why_reframe or quote_reflection, or turn micro_story into a general lecture. "
+            "SHORT RETENTION SELF-CHECK: use LOCKED_VISUAL_STORY.retention_thread to keep the same "
+            "hook_tension and payoff_answer through all three sections, within RESEARCH_BOUNDARIES. "
+            "For micro_story, s2 must advance the SAME concrete scene with an event/turn; s3_payoff "
+            "states what changed because of that turn. For every Short template, the payoff must depend "
+            "on a specific detail established earlier. A practical action cannot substitute for that "
+            "payoff, and an unrelated prop/action cannot close the opening tension. Re-read the three "
+            "sections together and fix drift before returning JSON; do not output this self-check. "
             "Do not repeat s2 as a generic payoff, claim an unsupported hidden psychological cause, "
             "or leave s3 as a dangling عندما/حين clause. Read all three sections together before returning. "
             "Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "

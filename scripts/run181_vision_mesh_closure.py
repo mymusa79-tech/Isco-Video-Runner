@@ -305,7 +305,7 @@ def _groq_visual_call(
     if canonical_visual_evidence is not None:
         evidence = canonical_evidence.require_canonical_evidence(canonical_visual_evidence)
         prompt = evidence.prompt
-        frame_items = canonical_evidence.openai_image_content(evidence)
+        frame_items = canonical_evidence.groq_image_content(evidence)
     else:
         prompt = contract.legacy._visual_prompt(
             narration_context=narration_context,
@@ -335,6 +335,13 @@ def _groq_visual_call(
         "include_reasoning": False,
         "response_format": contract._strict_response_format(),
     }
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 20_000_000:
+        raise contract.VisionStageError(
+            contract.VisionErrorCode.CAPACITY,
+            "Groq Vision image request exceeds the 20 MB transport limit",
+            provider="groq",
+            requested_model=GROQ_VISION_MODEL,
+        )
     try:
         response = requests.post(
             GROQ_CHAT_URL,
@@ -398,7 +405,18 @@ def _groq_visual_call(
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
         )
-    return _groq_parse_and_normalize(message.get("content"))
+    audit = _groq_parse_and_normalize(message.get("content"))
+    if canonical_visual_evidence is not None:
+        audit["vision_transport"] = {
+            "layout": "three_original_frames_left_to_right",
+            "frame_count": 3,
+            "image_count": 1,
+            "resampled": False,
+            "image_sha256": hashlib.sha256(
+                base64.b64decode(frame_items[0]["image_url"]["url"].split(",", 1)[1])
+            ).hexdigest(),
+        }
+    return audit
 
 
 def _run_groq_attempt(

@@ -3,12 +3,14 @@ from __future__ import annotations
 """Canonical Visual Evidence V1 for deterministic cross-provider Visual QA.
 
 The evidence owner samples exactly three high-quality still frames directly from the
-selected original clip. The bundle is created once per section and reused byte-for-byte
-by every Vision provider. No provider is allowed to resample a compressed review proxy.
+selected original clip. The bundle is created once per section and reused by every
+Vision provider. Groq packs those same decoded pixels into one lossless image; no
+provider may resample a compressed review proxy.
 """
 
 import base64
 import hashlib
+import io
 import json
 import math
 import os
@@ -92,6 +94,7 @@ def canonical_visual_prompt(*, narration_context: str, intended_visual: str) -> 
 You are a strict visual editor, rights-safety reviewer and advertiser-safety reviewer for an Arabic YouTube channel.
 Review the attached representative still frames sampled directly from the ORIGINAL selected media file (stock video or rendered still). Do not identify any person. Do not infer sensitive traits from appearance.
 Treat all frames as evidence from the same clip. If the sampled frames are insufficient to establish any mandatory pass condition with confidence, fail closed with status=block.
+If the frames arrive in one horizontal image, its three panels are the original frames in left-to-right time order; inspect every panel.
 
 Check faces first. Recognizable means facial features are clearly readable to a viewer;
 it does NOT mean knowing the person's name, fame, or identity. A close face looking down
@@ -333,6 +336,39 @@ def openai_image_content(evidence: CanonicalVisualEvidence) -> list[dict[str, An
         }
         for frame in evidence.frame_bytes()
     ]
+
+
+def groq_image_content(evidence: CanonicalVisualEvidence) -> list[dict[str, Any]]:
+    """Pack all three verified frames into one lossless image, without resizing.
+
+    Groq charges 2,048 input tokens per image. Three attachments consume 6,144
+    tokens before the shared prompt and response schema in an 8,000 TPM account.
+    A horizontal PNG keeps every decoded source pixel and the temporal order in
+    one attachment. The canonical frame hashes and shared prompt remain intact.
+    """
+    from PIL import Image
+
+    evidence = require_canonical_evidence(evidence)
+    frames = []
+    for frame in evidence.frame_bytes():
+        with Image.open(io.BytesIO(frame)) as source:
+            frames.append(source.convert("RGB"))
+    # Sampling one clip yields equally sized frames. Do not pad mismatched
+    # evidence with invented pixels or silently resample it to fit a board.
+    if len({frame.size for frame in frames}) != 1:
+        raise ValueError("Canonical Visual Evidence frames have inconsistent dimensions")
+    width, height = frames[0].size
+    board = Image.new("RGB", (width * len(frames), height))
+    for index, frame in enumerate(frames):
+        board.paste(frame, (width * index, 0))
+    encoded = io.BytesIO()
+    board.save(encoded, format="PNG")
+    return [{
+        "type": "image_url",
+        "image_url": {
+            "url": "data:image/png;base64," + base64.b64encode(encoded.getvalue()).decode("ascii")
+        },
+    }]
 
 
 def attach_provenance(
