@@ -1419,6 +1419,47 @@ def _diversify_recovery_candidates(
     return varied + remaining
 
 
+def _reuse_existing_visual_competitor(
+    ranked_candidates: list[dict[str, Any]],
+    prior_competitors: list[dict[str, Any]],
+    *,
+    used_assets: set[tuple[str, str]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Reuse one already-found cross-provider option within the SAME QA budget.
+
+    The opening/payoff stock search can return a candidate from Pexels and one
+    from Pixabay, but a metadata-only ranking keeps just one. Previously all
+    the other results were thrown away and the final-cut recovery performed a
+    second search. If the new shortlist is dominated by one provider, reserve
+    ONE existing alternative-provider result as a candidate for the already
+    existing Vision review (up to three total). Vision remains the sole judge
+    of semantic fit, policy and safety.
+    """
+    if limit < 2 or not prior_competitors:
+        return ranked_candidates
+    top = ranked_candidates[:limit]
+    providers = {str(row.get("provider") or "") for row in top if row.get("provider")}
+    if len(providers) >= 2:
+        return ranked_candidates
+    for prior in sorted(prior_competitors, key=_stock_candidate_rank_key, reverse=True):
+        provider = str(prior.get("provider") or "")
+        asset_id = str(prior.get("asset_id") or "")
+        if not provider or not asset_id or not prior.get("download_url"):
+            continue
+        if provider in providers or (provider, asset_id) in used_assets:
+            continue
+        if any(
+            (provider, asset_id) == (str(row.get("provider") or ""), str(row.get("asset_id") or ""))
+            for row in ranked_candidates
+        ):
+            continue
+        # Never increase the number of review/download slots; the second-best
+        # alternate yields one slot to an already-discovered different source.
+        return (top[:1] + [prior] + ranked_candidates[1:]) if top else [prior]
+    return ranked_candidates
+
+
 class StockVisualSource:
     def __init__(
         self,
@@ -1433,6 +1474,9 @@ class StockVisualSource:
         self.media_preflight = media_preflight
         self.media_transform = media_transform
         self._coverr_search_calls = 0
+        # Ephemeral shortlisted assets from the SAME production run, not a cache
+        # across requests/resumes. Never store API URLs in the rights manifest.
+        self._initial_visual_competitors: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
     def _event(
         self,
@@ -1957,6 +2001,7 @@ class StockVisualSource:
     ) -> tuple[list[Path], list[dict[str, Any]]]:
         output_dir.mkdir(parents=True, exist_ok=True)
         portrait = fmt in {"moment", "story", "short"}
+        self._initial_visual_competitors.clear()
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
@@ -2243,6 +2288,19 @@ class StockVisualSource:
                                     and other_identity not in failed_identities
                                 ):
                                     self._used.discard(other_identity)
+                            # Keep unused competitors from this SAME query in
+                            # memory for the final-cut proof check. They are not
+                            # accepted here; Vision decides if recovery is needed.
+                            self._initial_visual_competitors[
+                                (section_id, str(beat.get("id") or ""))
+                            ] = [
+                                dict(other) for other in ranked_candidates
+                                if other is not candidate
+                                and (
+                                    str(other.get("provider") or ""),
+                                    str(other.get("asset_id") or ""),
+                                ) not in failed_identities
+                            ]
                             self._event(
                                 str(candidate.get("provider") or "unknown"),
                                 query,
@@ -2834,6 +2892,7 @@ class StockVisualSource:
         *,
         destination_name: str,
         section_id: str,
+        beat_id: str = "",
         max_candidates: int = 3,
         source_preference: str = "stock_motion",
         rejected_observation: str = "",
@@ -2927,6 +2986,15 @@ class StockVisualSource:
             sorted(interleaved, key=recovery_rank, reverse=True),
             limit=bounded_limit,
         )
+        if not as_still and beat_id:
+            # The initial hook/payoff search already spent these provider calls.
+            # Share its unused shortlist with the ONE bounded final-cut decision.
+            ranked_candidates = _reuse_existing_visual_competitor(
+                ranked_candidates,
+                self._initial_visual_competitors.get((section_id, beat_id), []),
+                used_assets=self._used,
+                limit=bounded_limit,
+            )
         for ordinal, candidate in enumerate(ranked_candidates, start=1):
             if len(admitted) >= bounded_limit:
                 break

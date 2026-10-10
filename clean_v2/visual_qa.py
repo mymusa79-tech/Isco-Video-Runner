@@ -1202,6 +1202,9 @@ def run_final_cut_visual_qa(
                             from clean_v2.media import StockVisualSource
                             if isinstance(visual_source, StockVisualSource):
                                 source_options["rejected_observation"] = str(primary_audit.get("observed_visual") or "")
+                                # Reuse candidates already returned by the SAME
+                                # initial search; do not expand the review budget.
+                                source_options["beat_id"] = beat_id
                             acquired_candidates = list(
                                 acquire_many(
                                     alternate,
