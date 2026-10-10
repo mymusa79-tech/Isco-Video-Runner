@@ -24,7 +24,7 @@ class CleanV2ProviderAwareStockQueryTests(unittest.TestCase):
         )
         self.assertEqual(
             coverr,
-            "exhausted office worker checking",
+            "exhausted office worker checking work messages",
         )
         self.assertEqual(
             pixabay,
@@ -32,14 +32,14 @@ class CleanV2ProviderAwareStockQueryTests(unittest.TestCase):
         )
         self.assertEqual(len({pexels, coverr, pixabay}), 3)
 
-        # Coverr is a keyword/tag search: run 88 returned 0 hits for 5/5 long
-        # phrases, so it receives only the leading subject keywords (max 4).
-        self.assertLessEqual(len(coverr.split()), 4)
+        # Keep a short keyword pack while retaining the action's object;
+        # dropping "messages" leaves only a generic checking activity.
+        self.assertLessEqual(len(coverr.split()), 6)
         for query in (pexels, coverr, pixabay):
             self.assertIn("office", query)
             self.assertIn("worker", query)
-        for query in (pexels, pixabay):
             self.assertIn("messages", query)
+        for query in (pexels, pixabay):
             self.assertIn("late", query)
             self.assertIn("night", query)
 
