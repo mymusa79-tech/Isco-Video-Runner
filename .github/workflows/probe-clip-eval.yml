@@ -1,0 +1,16 @@
+name: probe-clip-eval
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install open_clip_torch pillow
+      - run: python tools/clip_eval/eval.py

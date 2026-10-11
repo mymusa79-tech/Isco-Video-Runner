@@ -1,0 +1,114 @@
+[
+ {
+  "dir": "01-s1-c01",
+  "query": "person sitting at a cluttered desk with crumpled papers and a laptop showing",
+  "observed": "A woman with long dark hair, wearing a brown cardigan, looking down at a piece of paper held in her hands. The background is a plain white c",
+  "proof": "missing",
+  "status": "block",
+  "face_block": true
+ },
+ {
+  "dir": "01-s1-c02",
+  "query": "person standing at a window looking out at a stormy sky holding a half-empty",
+  "observed": "A person holding a cup of coffee looking out of a window at a stormy sky",
+  "proof": "matched",
+  "status": "pass",
+  "face_block": false
+ },
+ {
+  "dir": "01-s1-c03",
+  "query": "hands holding a pen over a clean notebook with scattered papers in the",
+  "observed": "hands holding a pen and notebook with colorful charts",
+  "proof": "matched",
+  "status": "pass",
+  "face_block": false
+ },
+ {
+  "dir": "01-s1-c01-recovery-01",
+  "query": "hands dropping a pen in frustration while looking at a messy notebook filled with crossed-out notes",
+  "observed": "A hand holding an orange pen over a notebook",
+  "proof": "missing",
+  "status": "block",
+  "face_block": false
+ },
+ {
+  "dir": "01-s1-c01-recovery-02",
+  "query": "hands dropping a pen in frustration while looking at a messy notebook filled with crossed-out notes",
+  "observed": "A hand holding a pen over a notebook with crossed-out notes",
+  "proof": "matched",
+  "status": "pass",
+  "face_block": false
+ },
+ {
+  "dir": "01-s1-c01-recovery-03",
+  "query": "hands dropping a pen in frustration while looking at a messy notebook filled with crossed-out notes",
+  "observed": "A notebook with a pen on top, and a person's arm in the background. PROOF: missing",
+  "proof": "missing",
+  "status": "block",
+  "face_block": false
+ },
+ {
+  "dir": "02-s2-c01",
+  "query": "hands turning pages of a book with a highlighter marking a passage about cognitive",
+  "observed": "Hands of a person turning pages of an open book with readable text, using a highlighter",
+  "proof": "contradicted",
+  "status": "block",
+  "face_block": true
+ },
+ {
+  "dir": "02-s2-c02",
+  "query": "hands starting to write in a clean notebook no face visible",
+  "observed": "Hands holding a pen writing in a clean notebook with 'Business Summary' partially visible, no face shown, white lilies in background, neutra",
+  "proof": "matched",
+  "status": "pass",
+  "face_block": false
+ },
+ {
+  "dir": "02-s2-c01-recovery-01",
+  "query": "person reading a book",
+  "observed": "Close-up of hands holding an open book with visible text, resting on a person's lap in a soft-focus indoor setting",
+  "proof": "matched",
+  "status": "pass",
+  "face_block": false
+ },
+ {
+  "dir": "02-s2-c01-recovery-02",
+  "query": "person reading a book",
+  "observed": "Frames show a person with a clearly recognizable face writing in a notebook, another person partially visible with a recognizable face and a",
+  "proof": "contradicted",
+  "status": "block",
+  "face_block": true
+ },
+ {
+  "dir": "02-s2-c01-recovery-03",
+  "query": "person reading a book",
+  "observed": "Hands holding an open book with readable text, no face visible in close-up but facial features readable in background",
+  "proof": "missing",
+  "status": "block",
+  "face_block": true
+ },
+ {
+  "dir": "03-s3-c01",
+  "query": "hands holding a completed puzzle piece fitting perfectly into place",
+  "observed": "Hands placing puzzle pieces forming the word 'ISTIQLAL' (independence)",
+  "proof": "contradicted",
+  "status": "block",
+  "face_block": false
+ },
+ {
+  "dir": "03-s3-c01-recovery-01",
+  "query": "hands inserting a final key into a vintage wooden box lock",
+  "observed": "Three antique skeleton keys inserted into keyholes on a white wooden door, with close-up details of the metal and wood texture. PROOF: missi",
+  "proof": "missing",
+  "status": "block",
+  "face_block": false
+ },
+ {
+  "dir": "03-s3-c01-recovery-02",
+  "query": "hands inserting a final key into a vintage wooden box lock",
+  "observed": "Close-up of weathered wooden structure with a yellow rope tied to a metal hook",
+  "proof": "missing",
+  "status": "block",
+  "face_block": false
+ }
+]
