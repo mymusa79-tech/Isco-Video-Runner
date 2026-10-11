@@ -1,6 +1,8 @@
 name: probe-clip-eval
 on:
-  workflow_dispatch:
+  push:
+    branches: [probe/clip-eval]
+    paths: ['tools/clip_eval/**', '.github/workflows/probe-clip-eval.yml']
 permissions:
   contents: read
 jobs:
