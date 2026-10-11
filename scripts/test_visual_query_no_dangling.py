@@ -22,5 +22,22 @@ class DanglingQueryTests(unittest.TestCase):
         self.assertIn("coffee cup", ctx)
 
 
+class AlternateDriftTests(unittest.TestCase):
+    def test_run120_symbol_swap_is_rejected_early(self):
+        from clean_v2 import visual_qa
+        original = "hands holding a completed puzzle piece fitting perfectly into place"
+        with self.assertRaises(visual_qa.AlternateQueryError) as raised:
+            visual_qa._validate_alternate_query(
+                {"alternate_query": "hands inserting a final key into a vintage wooden box lock"},
+                original_query=original,
+            )
+        self.assertEqual(raised.exception.code, "alternate_query_drifted")
+        ok = visual_qa._validate_alternate_query(
+            {"alternate_query": "hands assembling final puzzle pieces on a table"},
+            original_query=original,
+        )
+        self.assertTrue(ok["alternate_query"])
+
+
 if __name__ == "__main__":
     unittest.main()
