@@ -390,6 +390,13 @@ Observed failure class from the existing review:
 {failure_reason[:120] or "weak_semantic_fit"}
 
 Propose ONE different English stock-footage search query for the SAME exact beat.
+Use a DIFFERENT observable visual mechanism, not a synonym of the failed shot.
+When literal props are unavailable, use a concrete symbolic action that communicates
+the SAME narration meaning in one frame (for example, a repaired object instead
+of the original failed object). Never invent a new message or unrelated mood.
+A symbolic query is a search suggestion, NOT proof: the existing Vision judge
+must still verify narrative relevance, visible action, faces, text and safety.
+Prefer common, realistically available stock footage over elaborate staged scenes.
 Fix the observed failure class directly: weak_semantic_fit means make the visible proof more concrete;
 When the brief says Must show, search that core proof first. Optional support is not a search requirement.
 Use the fewest concrete action/object terms that preserve that proof; omit optional screens, props and mental states.
@@ -1349,12 +1356,29 @@ def run_final_cut_visual_qa(
                     ] = []
                     best_recovery_floor = 0.0
 
+                    reviewed_recovery_assets: set[tuple[str, str]] = set()
                     for candidate_position, acquired in enumerate(
                         acquired_candidates,
                         start=1,
                     ):
                         recovery_clip, replacement_row = acquired
                         recovery_clip = Path(recovery_clip)
+                        # A provider may return the same asset twice under different
+                        # search queries. Never spend another Vision review on it.
+                        candidate_key = (
+                            str(replacement_row.get("provider") or "").casefold(),
+                            str(replacement_row.get("asset_id") or "").strip(),
+                        )
+                        if candidate_key[1] and candidate_key in reviewed_recovery_assets:
+                            candidate_reviews.append({
+                                "candidate_index": candidate_position,
+                                "status": "skipped_duplicate_asset",
+                                "provider": candidate_key[0],
+                                "asset_id": candidate_key[1],
+                            })
+                            continue
+                        if candidate_key[1]:
+                            reviewed_recovery_assets.add(candidate_key)
                         # Bind editorial truth before review, never the search syntax.
                         for story_key in (
                             "beat_id", "viewer_intent", "meaning_target",
