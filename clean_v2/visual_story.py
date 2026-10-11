@@ -12,7 +12,11 @@ CHANNEL_VISUAL_IDENTITY = (
     "a wakeful visual signature built on observable state-change from friction toward clarity, movement "
     "or earned progress, never on one repeated prop; hope shown through effort and earned small wins "
     "rather than glossy lifestyle brightness or forced melancholy; environments, hands, objects, routines, "
-    "back views and wide shots; no identifiable faces."
+    "back views and wide shots; no identifiable faces. Culturally respectful, globally "
+    "understandable, visually meaningful: modest dress, no sexualized or suggestive imagery; "
+    "a modestly dressed woman is allowed when the scene genuinely fits the idea; never "
+    "force Arab or Western styling without an editorial reason. Prefer universally "
+    "recognizable actions and meaningful visual change over generic regional scenery."
 )
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
