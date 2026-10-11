@@ -4284,6 +4284,20 @@ def _run_text_audits(
     except CleanV2ToneContentBlock as blocked:
         tone_block = blocked
         tone_naturalness = blocked.report
+    except Exception as exc:
+        from clean_v2.simple_mode import (
+            is_known_infra_failure,
+            is_simple_mode,
+            unavailable_tone_report,
+        )
+
+        # Simple Mode only: the tone audit is optional, so a classified provider
+        # outage (429/503/timeout) is recorded as "unavailable", never as passed.
+        # Unknown exceptions keep propagating.
+        if not (is_simple_mode() and is_known_infra_failure(exc)):
+            raise
+        tone_naturalness = unavailable_tone_report(exc)
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", tone_naturalness)
 
     from clean_v2.simple_mode import (
         advisory_tone_report,

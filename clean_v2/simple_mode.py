@@ -53,6 +53,65 @@ def advisory_tone_report(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_INFRA_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
+_INFRA_REASON_MARKERS = ("http_408", "http_425", "http_429", "http_500", "http_502", "http_503", "http_504", "timeout", "timed out", "exhaust")
+
+
+def is_known_infra_failure(exc: BaseException) -> bool:
+    """True only for classified provider-capacity/availability failures.
+
+    Anything else (programming errors, schema drift, contract violations) must keep
+    propagating: an unknown exception is never turned into a warning.
+    """
+    import socket
+    import urllib.error
+
+    from clean_v2.mistral_executor import MistralExecutorWireFailure
+    from clean_v2.providers import ProviderWireFailure
+
+    if isinstance(exc, (TimeoutError, socket.timeout, urllib.error.URLError)):
+        return True
+    if isinstance(exc, ProviderWireFailure):
+        if exc.http_status in _INFRA_HTTP_STATUS:
+            return True
+        return exc.http_status is None and any(m in exc.reason_code.lower() for m in _INFRA_REASON_MARKERS)
+    if isinstance(exc, MistralExecutorWireFailure):
+        return any(m in str(exc).lower() for m in _INFRA_REASON_MARKERS)
+    return False
+
+
+def unavailable_tone_report(exc: BaseException) -> dict[str, Any]:
+    """Record an optional-audit outage honestly: it is NOT a passed audit."""
+    return {
+        "schema_version": 1,
+        "source": "clean-v2-simple-mode-tone-audit-outage",
+        "status": "pass",
+        "audit_availability": "unavailable",
+        "advisory_only": True,
+        "tone_audit_reviewed": False,
+        "infrastructure_failure": type(exc).__name__,
+        "infrastructure_reason": str(exc)[:120],
+        "decision_source": "simple_mode_optional_audit_unavailable",
+    }
+
+
+def tone_audit_state(output_dir: Path) -> str:
+    """reviewed | advisory_downgraded | unavailable | unknown, from the saved report."""
+    import json
+
+    try:
+        data = json.loads((Path(output_dir) / "tone-naturalness-audit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(data, Mapping):
+        return "unknown"
+    if data.get("audit_availability") == "unavailable":
+        return "unavailable"
+    if data.get("simple_mode_advisory"):
+        return "advisory_downgraded"
+    return "reviewed"
+
+
 def simple_visual_qa(
     *,
     output_dir: Path,
@@ -64,8 +123,15 @@ def simple_visual_qa(
     visual_source: Any = None,
 ) -> dict[str, Any]:
     """No semantic review. Records exactly what was selected, never claims a match."""
-    primary = [row for row in rights if isinstance(row, Mapping) and not row.get("pacing_auxiliary")]
-    backgrounds = [row for row in primary if row.get("provider") == FALLBACK_PROVIDER]
+    rows = [row for row in rights if isinstance(row, Mapping)]
+    primary = [row for row in rows if not row.get("pacing_auxiliary")]
+    extra = [row for row in rows if row.get("pacing_auxiliary")]
+
+    def _is_bg(row: Mapping[str, Any]) -> bool:
+        return row.get("provider") == FALLBACK_PROVIDER
+
+    backgrounds = [row for row in primary if _is_bg(row)]
+    extra_backgrounds = [row for row in extra if _is_bg(row)]
     report = {
         "status": "pass",
         "mode": "simple_unreviewed",
@@ -73,6 +139,9 @@ def simple_visual_qa(
         "clips": len(primary),
         "stock_clips": len(primary) - len(backgrounds),
         "fallback_backgrounds": len(backgrounds),
+        "extra_pacing_clips": len(extra),
+        "extra_pacing_stock": len(extra) - len(extra_backgrounds),
+        "extra_pacing_backgrounds": len(extra_backgrounds),
         "final_media_mutated": False,
         "provider_calls_added": 0,
     }
@@ -98,7 +167,10 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     scenes = int(qa.get("clips") or 0)
     backgrounds = int(qa.get("fallback_backgrounds") or 0)
     stock = int(qa.get("stock_clips") or max(0, scenes - backgrounds))
+    extra = int(qa.get("extra_pacing_clips") or 0)
+    extra_bg = int(qa.get("extra_pacing_backgrounds") or 0)
     share = round(backgrounds / scenes, 3) if scenes else 0.0
+    report_tone = tone_audit_state(output_dir)
     report = {
         "mode": "simple",
         "format": fmt,
@@ -106,13 +178,18 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "stock_clips_selected_by_ranking": stock,
         "fallback_backgrounds": backgrounds,
         "fallback_share": share,
+        "extra_pacing_clips": extra,
+        "extra_pacing_backgrounds": extra_bg,
         "semantic_visual_review": "not_performed",
+        "tone_audit": tone_audit_state(output_dir),
         "technically_complete": True,
         "publish_decision": "owner",
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
-            f"{backgrounds} channel backgrounds. Visual match was NOT reviewed; "
-            "the owner decides whether to publish."
+            f"{backgrounds} channel backgrounds"
+            + (f" (plus {extra} extra pacing clips, {extra_bg} of them backgrounds)" if extra else "")
+            + ". Visual match was NOT reviewed; the owner decides whether to publish."
+            + (" The tone audit was unavailable and was NOT passed." if report_tone == "unavailable" else "")
         ),
     }
     atomic_write_json(output_dir / REPORT_FILE, report)

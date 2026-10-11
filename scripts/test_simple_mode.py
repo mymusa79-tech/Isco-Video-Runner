@@ -13,6 +13,7 @@ from clean_v2.simple_mode import (
     is_simple_mode,
     simple_opening_director,
     simple_visual_qa,
+    tone_audit_state,
     tone_block_is_objective,
     write_simple_report,
 )
@@ -112,6 +113,176 @@ class SimpleModeUnitTests(unittest.TestCase):
             self.assertEqual(final["publish_decision"], "owner")
             self.assertNotIn("matched", json.dumps(final).lower())
             self.assertEqual(simple_opening_director()["status"], "skipped_simple_mode")
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class SimpleModeBeatOrderTests(unittest.TestCase):
+    """A failed beat keeps its own slot; nothing is moved, duplicated or lost."""
+
+    def _run(self, *, fmt, failing, simple, section_ids=("s1", "s1", "s1")):
+        from clean_v2 import media as media_module
+        from scripts import test_clean_v2_visual_pacing as vp
+
+        helper = vp.StockVisualSourceAcquireBeatTests("_story")
+        beats = [
+            helper._beat(f"b{i}", sid, f"closed notebook scene number {i} on desk")
+            for i, sid in enumerate(section_ids, start=1)
+        ]
+        source = media_module.StockVisualSource()
+        counter = {"n": 0}
+
+        def fake_pexels(query, *, portrait):
+            del portrait
+            if any(
+                f"number {b[1:]} " in f"{query} " or f"action {b} " in f"{query} " for b in failing
+            ):
+                return None
+            counter["n"] += 1
+            return vp._candidate("pexels", f"p{counter['n']}")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        plan = vp._pacing_plan(*dict.fromkeys(section_ids))
+        plan["visual_story"] = helper._story(*beats)
+        env = {SIMPLE_MODE_ENV: "1"} if simple else {}
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, env), mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(source, "_pixabay", return_value=None), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, "ok")
+        ):
+            if not simple:
+                os.environ.pop(SIMPLE_MODE_ENV, None)
+            return source.acquire(
+                plan, Path(root), fmt, 5,
+                section_estimated_seconds={sid: 30.0 for sid in dict.fromkeys(section_ids)},
+            )
+
+    def test_middle_beat_failure_keeps_order_in_every_format(self):
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                clips, rights = self._run(fmt=fmt, failing={"b2"}, simple=True)
+                self.assertEqual([r["beat_id"] for r in rights], ["b1", "b2", "b3"])
+                self.assertEqual(len(clips), 3)
+                self.assertEqual(len({r["beat_id"] for r in rights}), 3)
+                self.assertEqual(
+                    [r["provider"] == "generated_local" for r in rights], [False, True, False]
+                )
+                self.assertEqual(rights[1]["section_id"], "s1")
+                self.assertTrue(rights[1]["local_file"].startswith("visual-fallback-b2"))
+
+    def test_first_and_last_failures_also_keep_slots(self):
+        _clips, rights = self._run(fmt="film", failing={"b1", "b3"}, simple=True)
+        self.assertEqual([r["beat_id"] for r in rights], ["b1", "b2", "b3"])
+        self.assertEqual(
+            [r["provider"] == "generated_local" for r in rights], [True, False, True]
+        )
+
+    def test_standard_path_never_adds_backgrounds(self):
+        _clips, rights = self._run(fmt="film", failing={"b2"}, simple=False)
+        self.assertTrue(all(r["provider"] != "generated_local" for r in rights))
+        self.assertNotIn("b2", [r["beat_id"] for r in rights])
+
+
+class SimpleModeToneOutageTests(unittest.TestCase):
+    def _run(self, exc, *, simple=True, fact_block=False):
+        def fact(**_):
+            if fact_block:
+                raise pl.CleanV2FactualityContentBlock({"status": "block"})
+            return {"status": "pass"}
+
+        def tone(**_):
+            raise exc
+
+        env = {SIMPLE_MODE_ENV: "1"} if simple else {}
+        with tempfile.TemporaryDirectory() as t, mock.patch.dict(os.environ, env), \
+                mock.patch.object(pl, "_run_legacy_factuality_audit", fact), \
+                mock.patch.object(pl, "_run_legacy_tone_naturalness_audit", tone):
+            if not simple:
+                os.environ.pop(SIMPLE_MODE_ENV, None)
+            out = pl._run_text_audits(output_dir=Path(t), brief={}, plan={}, script={})
+            saved = json.loads((Path(t) / "tone-naturalness-audit.json").read_text(encoding="utf-8"))
+            rep = write_simple_report(Path(t), fmt="short") if saved.get("audit_availability") else None
+            return out, saved, tone_audit_state(Path(t)), rep
+
+    def test_known_provider_outages_do_not_stop_simple_mode_and_are_not_a_pass(self):
+        from clean_v2.mistral_executor import MistralExecutorWireFailure
+        from clean_v2.providers import ProviderWireFailure
+
+        for exc in (
+            ProviderWireFailure("http_429", http_status=429),
+            ProviderWireFailure("http_503", http_status=503),
+            ProviderWireFailure("timeout"),
+            MistralExecutorWireFailure("http_429"),
+            TimeoutError("read timed out"),
+        ):
+            with self.subTest(exc=repr(exc)):
+                out, saved, state, rep = self._run(exc)
+                self.assertEqual(saved["audit_availability"], "unavailable")
+                self.assertFalse(saved["tone_audit_reviewed"])
+                self.assertEqual(state, "unavailable")
+                self.assertEqual(rep["tone_audit"], "unavailable")
+                self.assertIn("NOT passed", rep["statement"])
+
+    def test_unknown_exceptions_and_client_errors_still_propagate(self):
+        from clean_v2.providers import ProviderWireFailure
+
+        for exc in (ValueError("schema drift"), KeyError("x"), ProviderWireFailure("http_400", http_status=400)):
+            with self.subTest(exc=repr(exc)):
+                with self.assertRaises(type(exc)):
+                    self._run(exc)
+
+    def test_standard_path_unchanged_for_outage(self):
+        from clean_v2.providers import ProviderWireFailure
+
+        with self.assertRaises(ProviderWireFailure):
+            self._run(ProviderWireFailure("http_429", http_status=429), simple=False)
+
+    def test_mandatory_checks_still_block_during_tone_outage(self):
+        from clean_v2.providers import ProviderWireFailure
+
+        with self.assertRaises(pl.CleanV2FactualityContentBlock):
+            self._run(ProviderWireFailure("http_503", http_status=503), fact_block=True)
+        with self.assertRaises(pl.CleanV2ToneContentBlock):
+            # objective religious-quote flag still blocks even though subjective ones do not
+            def fact(**_):
+                return {"status": "pass"}
+
+            def tone(**_):
+                raise pl.CleanV2ToneContentBlock({"unverified_religious_quote_flags": ["x"]})
+
+            with tempfile.TemporaryDirectory() as t, mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}), \
+                    mock.patch.object(pl, "_run_legacy_factuality_audit", fact), \
+                    mock.patch.object(pl, "_run_legacy_tone_naturalness_audit", tone):
+                pl._run_text_audits(output_dir=Path(t), brief={}, plan={}, script={})
+
+
+class SimpleModeVisualReportTests(unittest.TestCase):
+    def test_report_counts_primary_extra_and_backgrounds_from_used_rows(self):
+        rights = [
+            {"provider": "pexels", "beat_id": "b1"},
+            {"provider": "generated_local", "beat_id": "b2"},
+            {"provider": "pixabay", "beat_id": "b3"},
+            {"provider": "pexels", "beat_id": "b4", "pacing_auxiliary": True},
+            {"provider": "generated_local", "beat_id": "b5", "pacing_auxiliary": True},
+        ]
+        with tempfile.TemporaryDirectory() as t:
+            qa = simple_visual_qa(output_dir=Path(t), plan={}, script={}, rights=rights, fmt="film")
+            self.assertEqual((qa["clips"], qa["stock_clips"], qa["fallback_backgrounds"]), (3, 2, 1))
+            self.assertEqual((qa["extra_pacing_clips"], qa["extra_pacing_backgrounds"]), (2, 1))
+            rep = write_simple_report(Path(t), fmt="film")
+            self.assertEqual(rep["scenes"], 3)
+            self.assertEqual(rep["stock_clips_selected_by_ranking"], 2)
+            self.assertEqual(rep["fallback_backgrounds"], 1)
+            self.assertEqual(rep["extra_pacing_clips"], 2)
+            self.assertAlmostEqual(rep["fallback_share"], 0.333, places=3)
+            low = rep["statement"].lower()
+            self.assertIn("not reviewed", low)
+            self.assertNotIn("matched", low)
+            self.assertEqual(rep["publish_decision"], "owner")
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
