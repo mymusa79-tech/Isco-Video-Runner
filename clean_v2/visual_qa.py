@@ -390,7 +390,8 @@ Observed failure class from the existing review:
 {failure_reason[:120] or "weak_semantic_fit"}
 
 Propose ONE different English stock-footage search query for the SAME exact beat.
-Use a DIFFERENT observable visual mechanism, not a synonym of the failed shot.
+Use a DIFFERENT framing or action, not a synonym of the failed shot, but KEEP at least one
+distinctive object or action word from the original query (a swapped-in unrelated symbol is rejected).
 When literal props are unavailable, use a concrete symbolic action that communicates
 the SAME narration meaning in one frame (for example, a repaired object instead
 of the original failed object). Never invent a new message or unrelated mood.
