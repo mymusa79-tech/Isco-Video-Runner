@@ -390,6 +390,13 @@ Observed failure class from the existing review:
 {failure_reason[:120] or "weak_semantic_fit"}
 
 Propose ONE different English stock-footage search query for the SAME exact beat.
+Use a DIFFERENT observable visual mechanism, not a synonym of the failed shot.
+When literal props are unavailable, use a concrete symbolic action that communicates
+the SAME narration meaning in one frame (for example, a repaired object instead
+of the original failed object). Never invent a new message or unrelated mood.
+A symbolic query is a search suggestion, NOT proof: the existing Vision judge
+must still verify narrative relevance, visible action, faces, text and safety.
+Prefer common, realistically available stock footage over elaborate staged scenes.
 Fix the observed failure class directly: weak_semantic_fit means make the visible proof more concrete;
 When the brief says Must show, search that core proof first. Optional support is not a search requirement.
 Use the fewest concrete action/object terms that preserve that proof; omit optional screens, props and mental states.
