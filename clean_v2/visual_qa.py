@@ -439,6 +439,29 @@ def _distinctive_query_stems(value: str) -> set[str]:
     }
 
 
+def _deterministic_broadened_alternate(original_query: str) -> str:
+    """Zero-call alternate for a beat Planning gave no alternate (Run 120 s3).
+
+    A shorter, face-safe and text-free framing of the SAME subject. It is a search
+    suggestion only; Vision still judges the clip. It never invents a new symbol and
+    spends no provider call, so a Gemini max_tokens failure cannot derail recovery.
+    """
+    from clean_v2.visual_story import _WRITER_INTENT_DROP_TOKENS, compact_searchable_visual_intent
+
+    core = compact_searchable_visual_intent(
+        original_query, drop_tokens=_WRITER_INTENT_DROP_TOKENS, max_words=5
+    )
+    if not core:
+        return ""
+    candidate = f"{core} close-up no face no text"
+    try:
+        return _validate_alternate_query(
+            {"alternate_query": candidate}, original_query=original_query, planned=True
+        )["alternate_query"]
+    except ValueError:
+        return ""
+
+
 def _validate_alternate_query(value: Any, *, original_query: str, planned: bool = False) -> dict[str, str]:
     if not isinstance(value, dict):
         raise AlternateQueryError("alternate_query_invalid_shape", "alternate query output must be an object")
@@ -1244,22 +1267,32 @@ def run_final_cut_visual_qa(
                             )["alternate_query"]
                             recovery_record["query_source"] = "provider_recovery"
                         except Exception as exc:
-                            recovery_record.update(
-                                {
-                                    "status": "query_generation_failed",
-                                    "reason": type(exc).__name__,
-                                    "router_events": list(
-                                        getattr(router, "events", [])[router_event_start:]
-                                    ),
-                                }
-                            )
-                            _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                            raise CleanV2VisualQAInfrastructure(
-                                f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
-                                f"position={clip_position} "
-                                f"reason=semantic_recovery_query_unavailable "
-                                f"error_type={type(exc).__name__}"
-                            ) from exc
+                            # Run 120: Gemini hit max_tokens, then the model drifted to an
+                            # unrelated symbol. A same-subject zero-call alternate beats
+                            # stopping the whole production on a missing search phrase.
+                            alternate = _deterministic_broadened_alternate(intended_visual)
+                            if alternate:
+                                recovery_record["query_source"] = (
+                                    "deterministic_after_provider_failure"
+                                )
+                                recovery_record["provider_failure"] = type(exc).__name__
+                            if not alternate:
+                                recovery_record.update(
+                                    {
+                                        "status": "query_generation_failed",
+                                        "reason": type(exc).__name__,
+                                        "router_events": list(
+                                            getattr(router, "events", [])[router_event_start:]
+                                        ),
+                                    }
+                                )
+                                _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                                raise CleanV2VisualQAInfrastructure(
+                                    f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
+                                    f"position={clip_position} "
+                                    f"reason=semantic_recovery_query_unavailable "
+                                    f"error_type={type(exc).__name__}"
+                                ) from exc
 
                     recovery_record["alternate_query"] = alternate
                     recovery_record["router_events"] = list(

@@ -2030,6 +2030,8 @@ def _run_legacy_tone_naturalness_audit(
         repair_verification_context=repair_verification_context,
     )
     validation = str(result.get("validation") or "")
+    if validation == "valid":
+        result = _short_generic_action_only_advisory(result, plan)
     if validation != "valid":
         report = {
             "schema_version": 1,
@@ -2124,6 +2126,58 @@ def _run_legacy_tone_naturalness_audit(
         )
         raise CleanV2ToneContentBlock(report)
     return report
+
+
+_SHORT_GENERIC_ACTION_MARKER = re.compile(
+    r"^\s*content_depth:\s*s3\s+practical_action_generic:", re.IGNORECASE
+)
+_SHORT_ADVISORY_CLEAN_LISTS = (
+    "cultural_dignity_flags", "filler_flags", "naturalness_flags",
+    "preachiness_flags", "unverified_religious_quote_flags",
+)
+_SHORT_ADVISORY_TRUE_FIELDS = (
+    "hook_body_continuity", "hook_curiosity", "hook_honesty", "hook_specificity",
+    "payoff_resolves_hook", "section_dependency", "topic_fidelity",
+)
+
+
+def _short_generic_action_only_advisory(
+    result: Mapping[str, Any], plan: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Run 122: a subjective 'final action is generic' verdict must not stop a Short.
+
+    The one Planning-owned action is host-locked and one bounded repair cannot
+    reliably change it, while judges disagree between providers. When that is the
+    ONLY complaint (every other tone, hook, dignity, religious and dependency
+    check is clean) the verdict is kept as advisory evidence instead of a block.
+    Any additional flag keeps the original fail-closed behaviour.
+    """
+    if (
+        str(result.get("status") or "") != "block"
+        or not str(plan.get("short_template") or "").strip()
+    ):
+        return dict(result)
+    flags = [str(f) for f in (result.get("narrative_format_flags") or [])]
+    if not flags or not all(_SHORT_GENERIC_ACTION_MARKER.match(f) for f in flags):
+        return dict(result)
+    if any(result.get(key) for key in _SHORT_ADVISORY_CLEAN_LISTS):
+        return dict(result)
+    if any(result.get(key) is False for key in _SHORT_ADVISORY_TRUE_FIELDS):
+        return dict(result)
+    if result.get("hook_genericness") is True or result.get("cold_open_story_violation"):
+        return dict(result)
+    for key in ("editorial_promise_continuity", "viewer_retention_continuity"):
+        item = result.get(key)
+        if isinstance(item, Mapping) and str(item.get("decision") or "pass") != "pass":
+            return dict(result)
+    return {
+        **result,
+        "status": "pass",
+        "narrative_format_flags": [],
+        "advisory_narrative_format_flags": flags,
+        "downgraded_from": "block",
+        "downgrade_reason": "short_generic_final_action_only",
+    }
 
 
 def _structured_factuality_flags(report: Mapping[str, Any]) -> list[tuple[str, str]]:
