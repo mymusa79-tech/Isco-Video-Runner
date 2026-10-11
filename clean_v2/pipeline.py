@@ -4285,6 +4285,23 @@ def _run_text_audits(
         tone_block = blocked
         tone_naturalness = blocked.report
 
+    from clean_v2.simple_mode import (
+        advisory_tone_report,
+        is_simple_mode,
+        tone_block_is_objective,
+    )
+
+    if (
+        is_simple_mode()
+        and tone_block is not None
+        and not tone_block_is_objective(tone_block.report)
+    ):
+        # Simple Mode: a subjective tone verdict is evidence, not a stop. Factuality
+        # and objective (religious-quote / dignity) problems still block.
+        tone_naturalness = advisory_tone_report(tone_block.report)
+        atomic_write_json(output_dir / "tone-naturalness-audit.json", tone_naturalness)
+        tone_block = None
+
     if factuality_block is not None:
         factuality_block.tone_report = (
             dict(tone_block.report) if tone_block is not None else None
@@ -8129,6 +8146,16 @@ class CleanV2Pipeline:
                     ),
                 )
 
+            from clean_v2.simple_mode import is_simple_mode, write_simple_report
+
+            simple_report = (
+                write_simple_report(output_dir, fmt=str(brief["format"]))
+                if is_simple_mode()
+                else None
+            )
+            if simple_report is not None:
+                journal.payload["run_mode"] = "simple"
+                journal.payload["simple_mode_report"] = simple_report
             journal.complete(
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],

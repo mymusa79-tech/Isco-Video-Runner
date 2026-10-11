@@ -56,7 +56,24 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
+    from clean_v2.simple_mode import (
+        is_simple_mode,
+        simple_final_master_qc,
+        simple_opening_director,
+        simple_visual_qa,
+    )
+
+    simple_gates = (
+        {
+            "visual_qa": simple_visual_qa,
+            "opening_director": simple_opening_director,
+            "final_master_qc": simple_final_master_qc,
+        }
+        if is_simple_mode()
+        else {}
+    )
     pipeline = CleanV2Pipeline(
+        **simple_gates,
         router=ProviderRouter(),
         voice_synthesizer=GeminiOnlyVoiceSynthesizer(
             os.environ.get("GEMINI_API_KEY", ""),

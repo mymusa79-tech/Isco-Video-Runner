@@ -169,6 +169,11 @@ jobs:
           echo "TELEGRAM_REQUEST_STATE_ROOT=$state_root" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"
+          run_mode="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].run_mode // empty' "$state")"
+          if [ "$run_mode" = "simple" ]; then
+            echo "CLEAN_V2_SIMPLE_MODE=1" >> "$GITHUB_ENV"
+            echo "::notice title=run-mode::Simple Mode (visual match not reviewed; owner decides publication)"
+          fi
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
