@@ -6413,9 +6413,163 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-10T20:07:14Z"
+    },
+    {
+      "idea_id": "idea-44b7eae4a4",
+      "title": "كيف تتعلم أن تكون سعيدًا بمفردك دون الاعتماد على others؟",
+      "normalized_title": "كيف تتعلم ان تكون سعيدًا بمفردك دون الاعتماد علي others؟",
+      "market_query": "سعادة شخصية بدون اعتماد على الآخرين",
+      "reason": "{'trend_relevance': False, 'insight': \"يستهدف الشورت فئة من الناس الذين يشعرون بالوحدة أو الاعتماد الزائد على العلاقات (بحث 'كيفية أن أكون سعيدًا بمفردي' مرتفع). يركز على بناء السعادة الداخلية من خلال ممارسات مثل 'التعريف بنفسك' و'الاحتفال",
+      "market_score": 0.192,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 6.7,
+        "median_views_per_day": 6.7,
+        "top_samples": [
+          {
+            "video_id": "0rCG66Fmrr0",
+            "title": "لا تنتظر احدا يسعدك اسعد نفسك بنفسك قبل فوات الاوان",
+            "channel": "سينما الصعيد - عاطف الشريف",
+            "published_at": "2026-09-22T10:00:59Z",
+            "views": 129,
+            "views_per_day": 6.7,
+            "relevance_overlap": [
+              "اخرين",
+              "اعتماد",
+              "سعادة",
+              "شخصية",
+              "علي"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:31Z"
+    },
+    {
+      "idea_id": "idea-0483496595",
+      "title": "كيف تتحول الضغوط اليومية إلى محركات للتطور، لا إلى عوائق؟",
+      "normalized_title": "كيف تتحول الضغوط اليومية الي محركات للتطور، لا الي عوايق؟",
+      "market_query": "ضغوط يومية كمصدر للتطور النفسي",
+      "reason": "{'trend_relevance': False, 'insight': \"تستغل الفكرة ارتفاع اهتمام الناس ببحث حلول واقعية للضغوط (أظهرت بيانات Google Trends ارتفاع في استفسارات مثل 'كيفية التعامل مع الضغوط' بنسبة 40% في المنطقة العربية خلال العام الماضي). يركز الشورت على إ",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:29Z"
+    },
+    {
+      "idea_id": "idea-e89a24ebd2",
+      "title": "الوعي النفسي في 5 دقائق يوميًا: كيف تبدأ دون إرهاق؟",
+      "normalized_title": "الوعي النفسي في 5 دقايق يوميًا كيف تبدا دون ارهاق؟",
+      "market_query": "ممارسة الوعي النفسي سهلة للبدء",
+      "reason": "{'trend_relevance': False, 'insight': \"يستهدف الشورت فئة كبيرة من الناس الذين يشعرون بالذنب بسبب عدم ممارسة الوعي النفسي بسبب نقص الوقت (بحث 'لماذا لا أمارس التأمل' يظهر ارتفاعًا في المنطقة). يشرح كيفية دمج ممارسات قصيرة ومفعولة مثل 'التنفس",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:29Z"
+    },
+    {
+      "idea_id": "idea-e6c9e12e65",
+      "title": "كيف تتعلم من الفشل دون أن تصبح ضحية للذنب؟",
+      "normalized_title": "كيف تتعلم من الفشل دون ان تصبح ضحية للذنب؟",
+      "market_query": "تعامل مع الفشل بدون ذنب",
+      "reason": "{'trend_relevance': False, 'insight': \"يستفيد الشورت من ارتفاع البحث عن 'كيفية التعلم من الأخطاء' بعد فترات اقتصادية أو اجتماعية صعبة (مثل جائحة كورونا). يركز على إعادة تعريف الفشل كخطوة ضرورية، ويقدم أدلة عملية مثل 'سؤال واحد فقط' (مثل 'ما",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:30Z"
+    },
+    {
+      "idea_id": "idea-20c3c65a69",
+      "title": "العلاقات السليمة: كيف تقول 'لا' دون أن تشعر بالذنب؟",
+      "normalized_title": "العلاقات السليمة كيف تقول لا دون ان تشعر بالذنب؟",
+      "market_query": "كيفية رفض طلبات بدون ذنب",
+      "reason": "{'trend_relevance': False, 'insight': \"يستهدف الشورت مشكلة شائعة في الثقافات الجماعية حيث يشعر الناس بالذنب عند رفض طلبات (بحث 'لماذا أشعر بالذنب عند رفض' مرتفع في المنطقة). يشرح كيفية استخدام 'الرسائل غير المباشرة' و'التفكير في الأولويات ا",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:30Z"
+    },
+    {
+      "idea_id": "idea-100b3783c1",
+      "title": "كيف تتحول من 'شخص مثير للجدل' إلى 'شخص مثير للاحترام'؟",
+      "normalized_title": "كيف تتحول من شخص مثير للجدل الي شخص مثير للاحترام ؟",
+      "market_query": "كيفية تغيير صورة الناس عنك إيجابيا",
+      "reason": "{'trend_relevance': False, 'insight': \"يستفيد الشورت من اهتمام الناس بتطوير صورة إيجابية عن أنفسهم في العمل أو المجتمع (بحث 'كيفية أن أصبح أكثر احترامًا' مرتفع). يركز على سلوكيات صغيرة مثل 'الاستماع الفعال' و'التحدث بأسلوب هادئ' و'الاعتراف",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:30Z"
+    },
+    {
+      "idea_id": "idea-1d04a80716",
+      "title": "الخوف من الفشل مقابل الخوف من الضياع: كيف تختار ما يجب أن تخاف منه؟",
+      "normalized_title": "الخوف من الفشل مقابل الخوف من الضياع كيف تختار ما يجب ان تخاف منه؟",
+      "market_query": "ما هو الخوف المفيد وما هو الضار",
+      "reason": "{'trend_relevance': False, 'insight': \"يستهدف الشورت فئة من الناس الذين يشعرون بالارتباك بسبب الخوف من اتخاذ القرارات (بحث 'لماذا أخاف من كل شيء' مرتفع). يشرح الفرق بين الخوف الذي يحميك (مثل الخوف من المخاطر الحقيقية) والخوف الذي يعطلك (مثل",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:30Z"
+    },
+    {
+      "idea_id": "idea-b0d04d3f70",
+      "title": "كيف تتحول من 'شخص نشط' إلى 'شخص منتج'؟",
+      "normalized_title": "كيف تتحول من شخص نشط الي شخص منتج ؟",
+      "market_query": "الفرق بين النشاط والنتاجية",
+      "reason": "{'trend_relevance': False, 'insight': \"يستفيد الشورت من ارتفاع البحث عن تحسين الإنتاجية دون الإرهاق (بحث 'كيفية أن أكون أكثر إنتاجية' مرتفع). يشرح الفرق بين 'العمل الكثير' و'العمل بفعالية'، ويقدم أدوات مثل 'قائمة المهام بالترتيب' و'التفكير",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-11T14:16:31Z"
     }
   ],
   "sessions": {
+    "2a807c58": {
+      "session_id": "2a807c58",
+      "scope": "short",
+      "idea_ids": [
+        "idea-44b7eae4a4"
+      ],
+      "created_at": "2026-10-11T14:16:31Z"
+    },
     "af2fe585": {
       "session_id": "af2fe585",
       "scope": "short",
@@ -6843,18 +6997,6 @@
       "created_at": "2026-09-29T20:01:51Z",
       "closed_at": "2026-09-29T20:02:35Z",
       "selected_index": 2
-    },
-    "ba1c4b1c": {
-      "session_id": "ba1c4b1c",
-      "scope": "short",
-      "idea_ids": [
-        "idea-1a50e9c850",
-        "idea-38555beb28",
-        "idea-b946be3ff6"
-      ],
-      "created_at": "2026-09-28T22:18:44Z",
-      "closed_at": "2026-09-28T22:19:47Z",
-      "selected_index": 1
     }
   },
   "requests": {
@@ -9985,6 +10127,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-11T09:21:55Z",
+  "updated_at": "2026-10-11T14:16:31Z",
   "provider_cooldown_until": "2026-10-10T02:42:33.111075Z"
 }
