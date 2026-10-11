@@ -2539,21 +2539,71 @@ class StockVisualSource:
                 return True
             return False
 
+        from clean_v2.simple_mode import FALLBACK_PROVIDER, is_simple_mode
+
+        simple_mode = is_simple_mode()
+
+        def _simple_background(beat: dict[str, Any], index: int, *, auxiliary: bool) -> None:
+            # Simple Mode: the channel-colour background is the LAST resort and takes
+            # the failed beat's own slot, so narrative order is never rearranged.
+            beat_id = str(beat.get("id") or f"b{index}")
+            background = output_dir / f"visual-fallback-{beat_id}.mp4"
+            create_fallback_visual(background, portrait=portrait)
+            if self.media_transform is not None:
+                background = Path(self.media_transform(background))
+            clips.append(background)
+            row = {
+                "provider": FALLBACK_PROVIDER,
+                "asset_id": f"clean-v2-simple-background-{beat_id}",
+                "source_url": None,
+                "creator": "Isco Clean V2",
+                "creator_url": None,
+                "query": None,
+                "local_file": background.name,
+                "section_id": str(beat.get("section_id") or ""),
+                "beat_id": beat_id,
+                "viewer_intent": str(beat.get("viewer_intent") or ""),
+                "meaning_target": str(beat.get("meaning_target") or ""),
+                "shot_intent": str(beat.get("shot_intent") or ""),
+                "writer_anchor_ar": str(beat.get("writer_anchor_ar") or ""),
+                "display_text_ar": str(beat.get("display_text_ar") or ""),
+                "role": str(beat.get("role") or ""),
+                "source_actual": "generated_background",
+                "shot_role": str(beat.get("shot_role") or ""),
+                "hold_reason": str(beat.get("hold_reason") or ""),
+                "pause_intent": str(beat.get("pause_intent") or ""),
+                "audio_energy": str(beat.get("audio_energy") or ""),
+            }
+            if auxiliary:
+                row["pacing_auxiliary"] = True
+                row["story_beat_auxiliary"] = True
+            rights.append(row)
+            self._event(
+                FALLBACK_PROVIDER, "", "selected", wire_attempted=False,
+                reason="simple_mode_background_last_resort",
+            )
+
         seen_sections: set[str] = set()
-        for beat in beats:
+        for index, beat in enumerate(beats, start=1):
             section_id = str(beat.get("section_id") or "")
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
             primary_query = specific or str(beat.get("stock_query_en") or "").strip()
+            auxiliary = section_id in seen_sections
             if not primary_query:
+                if simple_mode:
+                    _simple_background(beat, index, auxiliary=auxiliary)
+                    seen_sections.add(section_id)
                 continue
             evolved = _stock_query_ladder(primary_query, beat)
-            auxiliary = section_id in seen_sections
             if _acquire_one(
                 tuple(evolved[:2]),
                 section_id,
                 beat,
                 auxiliary=auxiliary,
             ):
+                seen_sections.add(section_id)
+            elif simple_mode:
+                _simple_background(beat, index, auxiliary=auxiliary)
                 seen_sections.add(section_id)
 
         if not clips:

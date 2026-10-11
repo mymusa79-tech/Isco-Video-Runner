@@ -316,6 +316,43 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertEqual(state["requests"]["req-current"]["status"], "confirmed_pending_dispatch")
             self.assertIn("تم تأكيد الإنتاج", send.call_args.args[0])
 
+    def test_simple_confirm_button_sets_run_mode_without_changing_request_hash(self):
+        def make():
+            state = control.default_state()
+            request = {
+                "schema_version": 1, "request_id": "req-s", "source": "clean_v2_telegram_editorial_lite",
+                "scope": "short", "approved_by_user": True, "approved_topic": "موضوع",
+                "research_pack": [], "idea_id": "i", "selected_at": control.utc_now(),
+                "status": "awaiting_confirmation", "confirmed_at": None, "dispatched_at": None,
+            }
+            request["request_sha256"] = control._request_hash(request)
+            state["requests"]["req-s"] = request
+            state["current_request_id"] = "req-s"
+            return state, request
+
+        state, request = make()
+        sha = request["request_sha256"]
+        self.assertTrue(any(b["callback_data"] == "confirm:req-s:simple" for r in control.selection_confirmation_keyboard(request) for b in r))
+        for data, expected in (("confirm:req-s:simple", "simple"), ("confirm:req-s", None)):
+            state, request = make()
+            update = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": data}}
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+                "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+            ), mock.patch.object(control, "send_telegram"):
+                dispatch = Path(tmp) / "d.json"
+                control.handle_update(state, update, dispatch)
+                self.assertTrue(dispatch.exists())
+                self.assertEqual(state["requests"]["req-s"].get("run_mode"), expected)
+                self.assertEqual(state["requests"]["req-s"]["request_sha256"], sha)
+        state, _ = make()
+        bad = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s:bogus"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram"):
+            dispatch = Path(tmp) / "d.json"
+            control.handle_update(state, bad, dispatch)
+            self.assertFalse(dispatch.exists())
+
     def test_stale_confirmation_button_cannot_confirm_newer_request(self):
         state = control.default_state()
         request = {

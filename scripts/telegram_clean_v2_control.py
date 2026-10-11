@@ -1026,11 +1026,15 @@ def _stage_confirmation_dispatch(
     dispatch_path: Path,
     *,
     expected_request_id: str | None = None,
+    run_mode: str = "standard",
 ) -> dict[str, Any]:
     current_request_id = str(state.get("current_request_id") or "")
     if expected_request_id is not None and expected_request_id != current_request_id:
         raise RuntimeError("confirmation button is stale")
     result = confirm_current(state)
+    if not result["already_dispatched"] and run_mode == "simple":
+        # Lifecycle field, deliberately outside the immutable request hash.
+        result["request"]["run_mode"] = "simple"
     if result["already_dispatched"]:
         return result
     remaining = resume_history.provider_cooldown_remaining_seconds(state)
@@ -1244,6 +1248,7 @@ def selection_confirmation_keyboard(request: dict[str, Any]) -> list[list[dict[s
         raise RuntimeError("confirmation request id missing")
     return [
         [{"text": "✅ تأكيد الإنتاج", "callback_data": f"confirm:{request_id}"}],
+        [{"text": "⚡ تأكيد — الوضع المبسّط (Simple)", "callback_data": f"confirm:{request_id}:simple"}],
         [{"text": "📚 المحاولات السابقة / الاستئناف", "callback_data": "main:saved"}],
         [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
     ]
@@ -1939,12 +1944,14 @@ def _confirm_and_notify(
     dispatch_path: Path,
     *,
     expected_request_id: str | None = None,
+    run_mode: str = "standard",
 ) -> None:
     try:
         result = _stage_confirmation_dispatch(
             state,
             dispatch_path,
             expected_request_id=expected_request_id,
+            run_mode=run_mode,
         )
     except ProviderCooldownActive as cooldown:
         minutes = max(1, (cooldown.remaining_seconds + 59) // 60)
@@ -1967,7 +1974,10 @@ def _confirm_and_notify(
         send_telegram("✅ هذا الطلب أُرسل للإنتاج بالفعل. لن أنشئ محاولة مكررة.")
         return
     send_telegram(
-        "🚀 تم تأكيد الإنتاج. حُفظ القرار أولًا، وسيُرسل الآن إلى Clean V2.\n"
+        ("⚡ " if request.get("run_mode") == "simple" else "🚀 ")
+        + "تم تأكيد الإنتاج"
+        + (" بالوضع المبسّط (Simple): المطابقة البصرية لن تُراجع، والقرار بالنشر لك." if request.get("run_mode") == "simple" else ".")
+        + " حُفظ القرار أولًا، وسيُرسل الآن إلى Clean V2.\n"
         f"الموضوع: {request['approved_topic']}"
     )
 
@@ -1979,15 +1989,17 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     if isinstance(callback, dict):
         data = str(callback.get("data") or "")
         if data.startswith("confirm:"):
-            parts = data.split(":", 1)
-            expected_request_id = parts[1].strip() if len(parts) == 2 else ""
-            if not expected_request_id:
+            parts = data.split(":")
+            expected_request_id = parts[1].strip() if len(parts) >= 2 else ""
+            run_mode = "simple" if len(parts) == 3 and parts[2] == "simple" else "standard"
+            if not expected_request_id or len(parts) > 3 or (len(parts) == 3 and run_mode != "simple"):
                 send_telegram("⚠️ زر التأكيد غير صالح. افتح آخر رسالة اختيار وحاول مجددًا.")
                 return
             _confirm_and_notify(
                 state,
                 dispatch_path,
                 expected_request_id=expected_request_id,
+                run_mode=run_mode,
             )
             return
         if data.startswith("main:"):

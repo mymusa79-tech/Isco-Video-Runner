@@ -180,6 +180,10 @@ test("live routing keeps research browsing local and dispatches selection and co
     await invoke(callbackUpdate(4, "confirm:req-current"), env);
     workflowCalls = calls.filter((call) => call.url.includes("/actions/workflows/"));
     assert.equal(workflowCalls.length, 2, "confirmation remains a separate authoritative transition");
+
+    await invoke(callbackUpdate(5, "confirm:req-current:simple"), env);
+    workflowCalls = calls.filter((call) => call.url.includes("/actions/workflows/"));
+    assert.equal(workflowCalls.length, 3, "simple-mode confirmation is forwarded to the authoritative control");
   } finally {
     globalThis.fetch = originalFetch;
   }

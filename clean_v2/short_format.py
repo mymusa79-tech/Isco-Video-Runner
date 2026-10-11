@@ -309,6 +309,12 @@ def validate_short_hook_immediate_tension(hook: object) -> str:
             else ("explicit_contrast" if contrast else "early_consequence")
         )
 
+    from clean_v2.simple_mode import is_simple_mode
+
+    if is_simple_mode():
+        # Simple Mode: this lexical heuristic must not stop a run (Run 123). The
+        # explicit generic-calm opener check above still applies.
+        return "simple_mode_tension_unverified"
     raise ShortFormatError("short_hook_requires_immediate_concrete_tension")
 
 
