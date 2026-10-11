@@ -8075,6 +8075,22 @@ class CleanV2Pipeline:
                 report_name="cover-lite.json",
             )
 
+            # Optional viewer-controlled Arabic captions for Film/Podcast.
+            # Reuse the Short Unicode/width owner; no burn, stage, call or gate.
+            from clean_v2.short_timed_text import write_longform_caption_sidecars
+            try:
+                longform_captions_report = write_longform_caption_sidecars(
+                    output_dir=output_dir, script=script, fmt=str(brief["format"]),
+                )
+            except Exception as caption_exc:
+                longform_captions_report = {
+                    "status": "unavailable_fail_soft",
+                    "reason": f"{type(caption_exc).__name__}:{str(caption_exc)[:160]}",
+                    "format": str(brief["format"]),
+                    "new_quality_gate": False,
+                }
+                atomic_write_json(output_dir / "caption-sidecars.json", longform_captions_report)
+
             podcast_short_report = (
                 _run_podcast_derived_short_lite(
                     output_dir=output_dir,
