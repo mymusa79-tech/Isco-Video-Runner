@@ -4114,7 +4114,9 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             exclude_asset_id,
             exclude_assets,
         ) -> None:
-            if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY:
+            if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY and not query.endswith(
+                " close-up no face no text"
+            ):
                 raise AssertionError(query)
             if section_id != "s3" or destination_name != "visual-03.mp4":
                 raise AssertionError((section_id, destination_name))
@@ -4636,24 +4638,20 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 
-    def test_attempt1_recovery_provider_exhaustion_is_infrastructure_not_content(self) -> None:
+    def test_attempt1_recovery_provider_exhaustion_uses_same_subject_zero_call_fallback(self) -> None:
+        # Run 120: provider exhaustion while inventing a recovery query used to stop
+        # production. A substantive original query now falls back to a same-subject,
+        # face-safe zero-call alternate; Vision still judges the resulting clip.
         original_router = self._Router
         self._Router = lambda _alternate: self._FailingRecoveryRouter()
         try:
-            with self.assertRaises(
-                visual_qa_module.CleanV2VisualQAInfrastructure
-            ) as raised:
-                self._run_case(recovery_relevance=0.92)
+            outcome = self._run_case(recovery_relevance=0.92)
         finally:
             self._Router = original_router
-        self.assertIn(
-            "reason=semantic_recovery_query_unavailable",
-            str(raised.exception),
-        )
-        self.assertIn(
-            "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE",
-            str(raised.exception),
-        )
+        record = outcome["recovery"][0]
+        self.assertEqual(record["query_source"], "deterministic_after_provider_failure")
+        self.assertIn("no face", record["alternate_query"])
+        self.assertEqual(outcome["result"]["status"], "pass")
 
 
 class VisualQAMultiClipSectionTests(unittest.TestCase):
