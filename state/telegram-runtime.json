@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "كيف تبني «الروتين» الذي لا يفشل أبدًا: درس من الرياضيين المحترفين",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38082613953",
-  "result": "failure",
-  "updated_at": 1791663267
+  "topic": "الخطأ ليس فشلاً: كيف تتحول التجارب السلبية إلى محركات للنمو",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38113063718",
+  "result": "",
+  "updated_at": 1791694478
 }
