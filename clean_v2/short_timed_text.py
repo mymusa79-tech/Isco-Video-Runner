@@ -1116,7 +1116,7 @@ def write_longform_caption_sidecars(
             start, end = max(section_start, left), min(section_end, right)
             if end <= start:
                 continue
-            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\\s)[AB]:\\s*", " ", text))
+            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text))
             if not chunks:
                 continue
             weights = [max(1, len(_clean(chunk))) for chunk in chunks]
@@ -1140,16 +1140,16 @@ def write_longform_caption_sidecars(
         if not rows:
             continue
         srt_lines.append(
-            f'{index}\\n{_srt_time(row["start"])} --> {_srt_time(row["end"])}\\n'
-            + "\\n".join(rows) + "\\n"
+            f'{index}\n{_srt_time(row["start"])} --> {_srt_time(row["end"])}\n'
+            + "\n".join(rows) + "\n"
         )
-        rendered = r"\\N".join(_rtl_row(value.split()) for value in rows)
+        rendered = r"\N".join(_rtl_row(value.split()) for value in rows)
         dialogues.append(
             f'Dialogue: 0,{_ass_time(row["start"])},{_ass_time(row["end"])},Caption,,0,0,0,,'
-            + r"{\\fs" + str(fitted) + r"\\fad(120,140)}" + rendered
+            + r"{\fs" + str(fitted) + r"\fad(120,140)}" + rendered
         )
 
-    ass = "\\n".join([
+    ass = "\n".join([
         "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2",
         "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
         "", "[V4+ Styles]",
@@ -1161,7 +1161,7 @@ def write_longform_caption_sidecars(
     ])
     srt_path = root / f"{fmt}-captions.srt"
     ass_path = root / f"{fmt}-captions.ass"
-    srt_path.write_text("\\n".join(srt_lines) + "\\n", encoding="utf-8")
+    srt_path.write_text("\n".join(srt_lines) + "\n", encoding="utf-8")
     ass_path.write_text(ass, encoding="utf-8")
     report = {
         "status": "available_optional", "format": fmt,
@@ -1173,6 +1173,6 @@ def write_longform_caption_sidecars(
         "provider_calls_added": 0, "new_quality_gate": False,
     }
     (root / "caption-sidecars.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return report
