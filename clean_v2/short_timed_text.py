@@ -7,6 +7,7 @@ import re
 import subprocess
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -126,13 +127,17 @@ def _clean(value: object) -> str:
             safe.append(" ")
             continue
         codepoint = ord(char)
+        if char in {"\u061c", "\u200c", "\u200d"}:
+            # Arabic letter mark and joining controls can change real Arabic text.
+            safe.append(char)
+            continue
         if 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF:
             continue
         category = unicodedata.category(char)
         # Arabic letters/marks, numbers and punctuation are retained. Format/control
         # characters, private-use glyphs, emoji and decorative symbols are not caption
         # content and are the main source of square/tofu boxes in libass fallback paths.
-        if category[:1] in {"L", "M", "N", "P"}:
+        if category[:1] in {"L", "M", "N", "P"} or category in {"Sc", "Sm"}:
             safe.append(char)
     return " ".join("".join(safe).split()).strip()
 
@@ -476,20 +481,87 @@ def _rtl_row(words: Sequence[str]) -> str:
     return ARABIC_WORD_GAP.join(escaped)
 
 
-def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
+@lru_cache(maxsize=1)
+def _caption_font_path() -> str:
+    """Use the installed Cairo font; do not rely on a silent Latin fallback."""
+    result = subprocess.run(
+        ["fc-match", "-f", "%{file}", "Cairo:style=Bold"],
+        capture_output=True, text=True, timeout=4,
+        env=_secret_free_subprocess_env(),
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+@lru_cache(maxsize=512)
+def _caption_width(text: str, size: int) -> float:
+    """Actual shaped width when Cairo/Pillow are available; safe local fallback."""
+    try:
+        from PIL import ImageFont
+        font_path = _caption_font_path()
+        if font_path:
+            font = ImageFont.truetype(font_path, size, layout_engine=ImageFont.Layout.RAQM)
+            return float(font.getlength(text, direction="rtl", language="ar"))
+    except (OSError, ImportError, AttributeError, ValueError):
+        pass
+    return len(text) * size * 0.60
+
+
+_CAPTION_FRAME_WIDTH = {"short": 1080, "film": 1920, "podcast": 1920}
+_CAPTION_MAX_WIDTH = {"short": 920, "film": 1560, "podcast": 1460}
+_CAPTION_FONT_MIN = {"short": 118, "film": 48, "podcast": 40}
+
+
+def _caption_rows_and_size(text: str, *, fmt: str, font_size: int) -> tuple[list[str], int]:
+    """One line when it really fits, else best two visual-width balanced lines."""
     words = _clean(text).split()
     if not words:
-        return ""
-    # Match the face layer exactly: preserve every word and use at most two
-    # balanced RTL rows so shadow/extrusion never form a different silhouette.
-    if len(words) <= maximum_words:
-        rows = [words]
-    else:
-        split_at = (len(words) + 1) // 2
-        rows = [words[:split_at], words[split_at:]]
-    lines = [_rtl_row(row) for row in rows]
-    return r"\N".join(lines)
+        return [], font_size
+    width = _CAPTION_MAX_WIDTH.get(fmt, _CAPTION_MAX_WIDTH["short"])
+    floor = _CAPTION_FONT_MIN.get(fmt, _CAPTION_FONT_MIN["short"])
+    size = font_size
+    while True:
+        whole = " ".join(words)
+        if _caption_width(whole, size) <= width:
+            return [whole], size
+        choices = [
+            (max(_caption_width(" ".join(words[:i]), size),
+                 _caption_width(" ".join(words[i:]), size)), i)
+            for i in range(1, len(words))
+        ]
+        if not choices:
+            return [whole], size
+        _, split = min(choices)
+        rows = [" ".join(words[:split]), " ".join(words[split:])]
+        if max(_caption_width(row, size) for row in rows) <= width or size <= floor:
+            return rows, size
+        size = max(floor, size - 4)
 
+
+def _ass_wrap_words(
+    text: str, *, maximum_words: int = BODY_WRAP_WORDS,
+    fmt: str = "short", font_size: int = BODY_FONT_SIZE,
+) -> str:
+    del maximum_words  # Width (not arbitrary word count) decides display rows.
+    rows, _ = _caption_rows_and_size(text, fmt=fmt, font_size=font_size)
+    return r"\N".join(_rtl_row(row.split()) for row in rows)
+
+
+def caption_character_diagnostics(texts: Sequence[str]) -> dict[str, Any]:
+    """Record actual changed codepoints before rendering, without blocking production."""
+    removed: set[str] = set()
+    for value in texts:
+        original = unicodedata.normalize("NFKC", str(value or "").replace("\n", " "))
+        for char in original:
+            if char.isspace():
+                continue
+            if not _clean(char):
+                removed.add(f"U+{ord(char):04X}")
+    return {
+        "removed_codepoints": sorted(removed),
+        "arabic_joining_controls_preserved": True,
+        "font_requested": BODY_FONT,
+        "source": "local_pre_render_unicode_inspection",
+    }
 
 def _filter_escape_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
@@ -808,7 +880,7 @@ def build_rich_ass(
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        "WrapStyle: 0",
+        "WrapStyle: 2",  # Never let libass silently wrap a third line.
         "ScaledBorderAndShadow: yes",
         "PlayResX: 1080",
         "PlayResY: 1920",
@@ -823,11 +895,12 @@ def build_rich_ass(
     ]
 
     for event_index, item in enumerate(validated):
-        plain = _plain_caption(item.text)
         hint = hints[event_index]
         x = int(hint.get("x") or CAPTION_X)
         y = int(hint.get("y") or CAPTION_Y)
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
+        _, font_size = _caption_rows_and_size(item.text, fmt="short", font_size=font_size)
+        plain = _ass_wrap_words(item.text, fmt="short", font_size=font_size)
         start = _ass_time(item.start)
         end = _ass_time(item.end)
         motion = r"\fad(140,200)"
@@ -861,14 +934,15 @@ def render_progressive_text(
     vf = ",".join(filters)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_warnings = ""
     try:
-        subprocess.run(
+        render_result = subprocess.run(
             [
                 "ffmpeg",
                 "-y",
                 "-hide_banner",
                 "-loglevel",
-                "error",
+                "warning",
                 "-i",
                 str(Path(video).resolve()),
                 "-vf",
@@ -886,7 +960,9 @@ def render_progressive_text(
             check=True,
             timeout=180,
             env=_secret_free_subprocess_env(),
+            capture_output=True, text=True,
         )
+        ffmpeg_warnings = render_result.stderr or ""
     finally:
         ass_path.unlink(missing_ok=True)
 
@@ -947,6 +1023,12 @@ def render_progressive_text(
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
+        "unicode_diagnostics": caption_character_diagnostics([item.text for item in validated]),
+        "post_render_libass_glyph_warnings": [
+            line.strip()[:250] for line in ffmpeg_warnings.splitlines()
+            if "glyph" in line.lower() or "font" in line.lower() and "not found" in line.lower()
+        ][:25],
+        "pixel_to_unicode_mapping_verified": False,
         "shadow_policy": "black_outline4_no_shadow_no_extrusion_no_black_box",
     }
 
