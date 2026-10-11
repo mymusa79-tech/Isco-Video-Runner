@@ -1349,12 +1349,29 @@ def run_final_cut_visual_qa(
                     ] = []
                     best_recovery_floor = 0.0
 
+                    reviewed_recovery_assets: set[tuple[str, str]] = set()
                     for candidate_position, acquired in enumerate(
                         acquired_candidates,
                         start=1,
                     ):
                         recovery_clip, replacement_row = acquired
                         recovery_clip = Path(recovery_clip)
+                        # A provider may return the same asset twice under different
+                        # search queries. Never spend another Vision review on it.
+                        candidate_key = (
+                            str(replacement_row.get("provider") or "").casefold(),
+                            str(replacement_row.get("asset_id") or "").strip(),
+                        )
+                        if candidate_key[1] and candidate_key in reviewed_recovery_assets:
+                            candidate_reviews.append({
+                                "candidate_index": candidate_position,
+                                "status": "skipped_duplicate_asset",
+                                "provider": candidate_key[0],
+                                "asset_id": candidate_key[1],
+                            })
+                            continue
+                        if candidate_key[1]:
+                            reviewed_recovery_assets.add(candidate_key)
                         # Bind editorial truth before review, never the search syntax.
                         for story_key in (
                             "beat_id", "viewer_intent", "meaning_target",
