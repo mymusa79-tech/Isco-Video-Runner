@@ -161,6 +161,8 @@ def select_cover_source(
                 "studio_source_fallback_reason": f"{type(exc).__name__}:{str(exc)[:180]}",
             }
 
+    if final_path is None or not Path(final_path).is_file():
+        raise RuntimeError("cover_source_missing")
     return _channel_cover_fallback(output_dir, fmt=fmt), {
         "selection": "channel_identity_local_fallback",
         "source_exclusion_applied": bool(excluded),
