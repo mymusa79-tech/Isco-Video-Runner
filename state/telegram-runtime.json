@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "كيف تتعلم أن تكون سعيدًا بمفردك دون الاعتماد على others؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38170758533",
-  "result": "failure",
-  "updated_at": 1791749350
+  "topic": "لماذا تجعلنا كثرة الخيارات أقل حسمًا؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38182153369",
+  "result": "",
+  "updated_at": 1791759184
 }
