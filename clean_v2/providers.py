@@ -593,6 +593,18 @@ def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dic
         }
         return diagnostic
 
+    # Run 123: a Short hook rejected by the lexical tension validator could not be
+    # judged from shape-only logs. Surface ONLY the rejected opening sentence (it is
+    # public channel copy, bounded) so a validator miss can be reviewed on evidence.
+    if "short_hook" in str(exc):
+        first = ""
+        sections_value = value.get("sections")
+        if isinstance(sections_value, list) and sections_value and isinstance(sections_value[0], dict):
+            first = " ".join(str(sections_value[0].get("narration") or "").split())
+        hook = re.split(r"(?<=[.!؟?!])\s+", first, maxsplit=1)[0][:200] if first else ""
+        diagnostic["rejected_hook"] = hook
+        if hook:
+            print("::notice title=rejected-short-hook::" + hook.replace("\n", " "))
     shape: dict[str, Any] = {
         "json_type": "object",
         "top_level_keys": sorted(str(key)[:80] for key in value.keys())[:30],
