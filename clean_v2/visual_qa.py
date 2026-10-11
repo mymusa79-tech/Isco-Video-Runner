@@ -390,7 +390,8 @@ Observed failure class from the existing review:
 {failure_reason[:120] or "weak_semantic_fit"}
 
 Propose ONE different English stock-footage search query for the SAME exact beat.
-Use a DIFFERENT observable visual mechanism, not a synonym of the failed shot.
+Use a DIFFERENT framing or action, not a synonym of the failed shot, but KEEP at least one
+distinctive object or action word from the original query (a swapped-in unrelated symbol is rejected).
 When literal props are unavailable, use a concrete symbolic action that communicates
 the SAME narration meaning in one frame (for example, a repaired object instead
 of the original failed object). Never invent a new message or unrelated mood.
@@ -422,6 +423,22 @@ Return ONLY JSON: {{"alternate_query": "..."}}.
 """.strip()
 
 
+_GENERIC_QUERY_WORDS = frozenset({
+    "hand", "hands", "person", "people", "man", "woman", "someone", "holding",
+    "with", "into", "onto", "from", "that", "this", "the", "and", "for", "over",
+    "close", "closeup", "shot", "view", "perfectly", "place", "placed", "visible",
+    "face", "slowly", "natural", "light", "table", "desk",
+})
+
+
+def _distinctive_query_stems(value: str) -> set[str]:
+    return {
+        token[:5]
+        for token in re.findall(r"[a-z]{4,}", str(value or "").casefold())
+        if token not in _GENERIC_QUERY_WORDS
+    }
+
+
 def _validate_alternate_query(value: Any, *, original_query: str, planned: bool = False) -> dict[str, str]:
     if not isinstance(value, dict):
         raise AlternateQueryError("alternate_query_invalid_shape", "alternate query output must be an object")
@@ -449,6 +466,18 @@ def _validate_alternate_query(value: Any, *, original_query: str, planned: bool 
     normalize = lambda text: " ".join(text.casefold().split())
     if normalize(query) == normalize(original_query):
         raise AlternateQueryError("alternate_query_unchanged", "alternate query did not change")
+    if not planned:
+        # Run 120: "puzzle piece fitting into place" became "key into a wooden box
+        # lock" - a different symbol the proof contract could never match, which
+        # then burned review calls. A model-invented alternate must keep at least
+        # one distinctive subject/action word of the original; planner-authored
+        # alternates were designed with the beat and are exempt.
+        original_core = _distinctive_query_stems(original_query)
+        if len(original_core) >= 3 and not (original_core & _distinctive_query_stems(query)):
+            raise AlternateQueryError(
+                "alternate_query_drifted",
+                "alternate query must keep the original visual subject or action",
+            )
     return {"alternate_query": query}
 
 
