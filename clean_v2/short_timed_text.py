@@ -1075,3 +1075,104 @@ def apply_short_timed_text(
         "events": events,
         "final_file": Path(final_path).name,
     }
+
+
+def write_longform_caption_sidecars(
+    *, output_dir: Path, script: Mapping[str, Any], fmt: str,
+) -> dict[str, Any]:
+    """Optional Film/Podcast subtitles using the SAME Arabic caption normalizer.
+
+    Do not burn captions onto a quiet long-form master by default. Both files
+    travel alongside final.mp4 and can be enabled by the viewer/editor.
+    Timing is estimated within the measured voice-owned section boundaries,
+    never claimed as word-level speech alignment.
+    """
+    if fmt not in {"film", "podcast"}:
+        return {"status": "not_applicable", "format": fmt}
+    root = Path(output_dir)
+    timeline = json.loads((root / "timeline-first.json").read_text(encoding="utf-8"))
+    if timeline.get("status") != "pass":
+        raise ValueError("caption_sidecar_measured_timeline_required")
+    sections = {
+        str(row.get("id") or ""): str(row.get("narration") or "")
+        for row in (script.get("sections") or [])
+        if isinstance(row, Mapping)
+    }
+    # Protect the fixed intro, prayer, identity and outro images from captions.
+    allowed_windows = [
+        (float(row["start"]), float(row["end"]))
+        for row in (timeline.get("identity_events") or [])
+        if isinstance(row, Mapping) and row.get("kind") in {"hook", "topic"}
+    ]
+    events: list[dict[str, Any]] = []
+    for section in (timeline.get("section_events") or []):
+        if not isinstance(section, Mapping):
+            continue
+        text = sections.get(str(section.get("section_id") or ""), "")
+        if not text:
+            continue
+        section_start, section_end = float(section["start"]), float(section["end"])
+        for left, right in allowed_windows:
+            start, end = max(section_start, left), min(section_end, right)
+            if end <= start:
+                continue
+            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\\s)[AB]:\\s*", " ", text))
+            if not chunks:
+                continue
+            weights = [max(1, len(_clean(chunk))) for chunk in chunks]
+            total_weight = sum(weights)
+            cursor = start
+            for index, (chunk, weight) in enumerate(zip(chunks, weights)):
+                boundary = end if index == len(chunks) - 1 else cursor + (end - start) * weight / total_weight
+                if boundary <= cursor:
+                    continue
+                events.append({"start": cursor, "end": boundary, "text": chunk})
+                cursor = boundary
+    if not events:
+        return {"status": "not_available", "format": fmt, "reason": "no_topic_caption_windows"}
+
+    font_size = 62 if fmt == "film" else 50
+    margin_v = 130 if fmt == "film" else 170
+    srt_lines: list[str] = []
+    dialogues: list[str] = []
+    for index, row in enumerate(events, 1):
+        rows, fitted = _caption_rows_and_size(str(row["text"]), fmt=fmt, font_size=font_size)
+        if not rows:
+            continue
+        srt_lines.append(
+            f'{index}\\n{_srt_time(row["start"])} --> {_srt_time(row["end"])}\\n'
+            + "\\n".join(rows) + "\\n"
+        )
+        rendered = r"\\N".join(_rtl_row(value.split()) for value in rows)
+        dialogues.append(
+            f'Dialogue: 0,{_ass_time(row["start"])},{_ass_time(row["end"])},Caption,,0,0,0,,'
+            + r"{\\fs" + str(fitted) + r"\\fad(120,140)}" + rendered
+        )
+
+    ass = "\\n".join([
+        "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2",
+        "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
+        "", "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        f"Style: Caption,Cairo,{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},1",
+        "", "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+        *dialogues, "",
+    ])
+    srt_path = root / f"{fmt}-captions.srt"
+    ass_path = root / f"{fmt}-captions.ass"
+    srt_path.write_text("\\n".join(srt_lines) + "\\n", encoding="utf-8")
+    ass_path.write_text(ass, encoding="utf-8")
+    report = {
+        "status": "available_optional", "format": fmt,
+        "srt": srt_path.name, "ass": ass_path.name,
+        "event_count": len(dialogues), "max_rows": 2,
+        "burned_into_final_video": False,
+        "timing": "estimated_phrases_inside_measured_voice_section_windows",
+        "unicode_diagnostics": caption_character_diagnostics([str(r["text"]) for r in events]),
+        "provider_calls_added": 0, "new_quality_gate": False,
+    }
+    (root / "caption-sidecars.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+    )
+    return report
