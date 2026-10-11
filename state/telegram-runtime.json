@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "كيف تتعلم أن تكون سعيدًا بمفردك دون الاعتماد على others؟",
-  "stage": "⚡ الشورت · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38146576914",
-  "result": "",
-  "updated_at": 1791728386
+  "result": "failure",
+  "updated_at": 1791728634
 }
