@@ -107,12 +107,64 @@ def _apply_observed_visual_proof(audit: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _authored_recovery_visual_context(
+    visual_story: Mapping[str, Any],
+    beat_id: str,
+    alternate_query: str,
+    *,
+    previous_observation: str = "",
+    use_authored_proof: bool = False,
+) -> str:
+    """Judge an approved alternate by its OWN visible proof, never a fabricated one.
+
+    Run116's pre-approved alternate depicted dropping a pen over a messy notebook,
+    while recovery still demanded the ORIGINAL cluttered desk and scattered papers.
+    The same Vision safety/relevance thresholds and the approved beat's narrative
+    meaning remain authoritative. Model-invented recovery queries and reused
+    contenders from the original search do NOT get to change the proof.
+    """
+    normal = visual_review_context(
+        visual_story, beat_id, alternate_query,
+        previous_observation=previous_observation,
+    )
+    if not use_authored_proof:
+        return normal
+    beats = visual_story.get("beats")
+    if not isinstance(beats, list):
+        return normal
+    authored_key = " ".join(str(alternate_query or "").casefold().split())
+    for beat in beats:
+        if not isinstance(beat, Mapping) or str(beat.get("id") or "") != beat_id:
+            continue
+        stored_key = " ".join(str(beat.get("stock_query_alt_en") or "").casefold().split())
+        if not stored_key or stored_key != authored_key:
+            return normal
+        # Only the pre-approved alternate is a possible equivalent way to show
+        # the SAME beat. Preserve immutable Meaning, role, Avoid, and narration.
+        approved = dict(beat)
+        approved["shot_intent"] = alternate_query
+        approved["semantic_must_have"] = [alternate_query]
+        modified = dict(visual_story)
+        modified["beats"] = [
+            approved if str(item.get("id") or "") == beat_id else item
+            for item in beats if isinstance(item, Mapping)
+        ]
+        return visual_review_context(
+            modified, beat_id, alternate_query,
+            previous_observation=previous_observation,
+        )
+    return normal
+
+
 def _recovery_source_preference(beat: Mapping[str, Any], query: str) -> str:
     preference = str(beat.get("source_preference") or "stock_motion")
     # The same editorial rule must apply to both the initial choice and its
     # bounded replacement; otherwise Run117's rejected still is replaced by
     # more still photos that can never show the intended turning motion.
-    if preference == "stock_still" and stock_scene_requires_motion(beat.get("shot_intent") or query):
+    if preference == "stock_still" and (
+        stock_scene_requires_motion(beat.get("shot_intent"))
+        or stock_scene_requires_motion(query)
+    ):
         return "stock_motion"
     if preference in {"stock_still", "ai_still"}:
         return preference
@@ -1320,11 +1372,15 @@ def run_final_cut_visual_qa(
                                 clip=recovery_clip,
                                 row=replacement_row,
                                 narration_context=narration_context,
-                                intended_visual=visual_review_context(
+                                intended_visual=_authored_recovery_visual_context(
                                     visual_story,
                                     beat_id,
                                     alternate,
                                     previous_observation=previous_observation,
+                                    use_authored_proof=(
+                                        recovery_record.get("query_source") == "planning_authored_zero_call"
+                                        and replacement_row.get("recovery_shortlist_origin") != "initial_competitor"
+                                    ),
                                 ),
                                 recovery=True,
                                 recovery_candidate_index=candidate_position,
