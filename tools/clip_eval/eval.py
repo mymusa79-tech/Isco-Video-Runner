@@ -21,9 +21,13 @@ def main():
     pos = [r["clip_mean"] for r in rows if r["proof"] == "matched"]
     neg = [r["clip_mean"] for r in rows if r["proof"] != "matched"]
     auc = sum((p > n) + 0.5 * (p == n) for p in pos for n in neg) / max(1, len(pos) * len(neg))
-    for r in sorted(rows, key=lambda r: -r["clip_mean"]):
-        print(f"::notice::{r['clip_mean']:.3f} {r['proof']:11} {r['status']:5} {r['dir']} | {r['observed'][:70]}")
-    print(f"::notice::AUC matched-vs-not = {auc:.3f} (pos={len(pos)}, neg={len(neg)}); chance=0.5")
+    print(f"::notice::AUC matched-vs-not = {auc:.3f} (pos={len(pos)}, neg={len(neg)}); chance=0.5; pos_mean={sum(pos)/len(pos):.3f} neg_mean={sum(neg)/len(neg):.3f}")
+    ranked = sorted(rows, key=lambda r: -r["clip_mean"])
+    print("::notice::RANK " + " ".join(f"{r['clip_mean']:.2f}:{'+' if r['proof']=='matched' else '-'}:{r['dir'][:2]}{r['dir'][3:5]}{r['dir'][-2:] if 'recovery' in r['dir'] else ''}" for r in ranked))
+    for sec in ("s1","s2","s3"):
+        grp = [r for r in rows if f"-{sec}-" in r["dir"]]
+        top = max(grp, key=lambda r: r["clip_mean"])
+        print(f"::notice::{sec} CLIP top pick = {top['dir']} proof={top['proof']} status={top['status']}")
 
 
 if __name__ == "__main__":
