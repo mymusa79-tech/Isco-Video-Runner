@@ -1,10 +1,10 @@
 """Measure whether CLIP text-image similarity separates frames the cloud judge
 accepted (PROOF matched) from rejected ones. Run 120 evidence, 14 candidates."""
 import glob, json, os
-import open_clip, torch
-from PIL import Image
 
 def main():
+    import open_clip, torch
+    from PIL import Image
     here = os.path.dirname(__file__)
     items = json.load(open(os.path.join(here, "labels.json")))
     model, _, pre = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
