@@ -522,33 +522,20 @@ def render_cover_studio(
     draw = ImageDraw.Draw(canvas)
 
     if fmt == "short":
+        # Same Cover Studio text owner, but never allow a third visual line.
+        # Prefer one line at an honestly readable size, without cropping words.
         x = width // 2
-        if layout == "centered":
-            rows = _balanced_rows(text, maximum_rows=2)
-            for index, row in enumerate(rows):
-                _render_line(
-                    canvas, row, center_x=x, center_y=520 + index * 190,
-                    max_width=800, start_size=225, gold=index == len(rows) - 1,
-                    style="clean" if len(rows) > 1 else "depth", font_path=FONT_BOLD,
-                )
-        elif layout == "impact":
-            if supporting:
-                _render_line(
-                    canvas, supporting, center_x=x, center_y=500, max_width=800,
-                    start_size=168, gold=False, style="depth",
-                )
+        rows = (
+            [_clean(text)] if _text_width(_clean(text), size=190) <= 800
+            else _balanced_rows(text, maximum_rows=2)
+        )
+        for index, row in enumerate(rows):
             _render_line(
-                canvas, focus or text, center_x=x, center_y=750, max_width=800,
-                start_size=290, gold=True, style="impact",
+                canvas, row, center_x=x,
+                center_y=640 if len(rows) == 1 else 570 + index * 200,
+                max_width=800, start_size=190 if len(rows) == 1 else 170,
+                gold=False, style="depth", font_path=FONT_BOLD,
             )
-        else:
-            rows = _balanced_rows(text, maximum_rows=2)
-            for index, row in enumerate(rows):
-                _render_line(
-                    canvas, row, center_x=x, center_y=500 + index * 205,
-                    max_width=800, start_size=215, gold=index == len(rows) - 1,
-                    style="depth",
-                )
     else:
         if side == "left":
             x = int(width * 0.29)
