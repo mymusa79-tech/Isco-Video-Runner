@@ -484,11 +484,14 @@ def _rtl_row(words: Sequence[str]) -> str:
 @lru_cache(maxsize=1)
 def _caption_font_path() -> str:
     """Use the installed Cairo font; do not rely on a silent Latin fallback."""
-    result = subprocess.run(
-        ["fc-match", "-f", "%{file}", "Cairo:style=Bold"],
-        capture_output=True, text=True, timeout=4,
-        env=_secret_free_subprocess_env(),
-    )
+    try:
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}", "Cairo:style=Bold"],
+            capture_output=True, text=True, timeout=4,
+            env=_secret_free_subprocess_env(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
