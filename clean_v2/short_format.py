@@ -1295,14 +1295,25 @@ def validate_short_practical_action_specificity(
     # actions keep the existing quality/repair path, without a second model.
     action_key = _semantic_key(action)
     topic_key = _semantic_key(approved_topic)
-    stage_prop = re.search(r"\\b(?:مفتاح\\w*|المفتاح\\w*|كوب\\w*|الكوب\\w*|شمع\\w*|الشمع\\w*|حجر\\w*|الحجر\\w*)\\b", action_key)
-    stage_surface = re.search(r"\\b(?:الطاوله|طاوله|المكتب|مكتب|الرف|رف|سطح)\\b", action_key)
+    action_words = action_key.split()
+    stage_prop = next(
+        (
+            noun for noun in ("مفتاح", "كوب", "شمع", "حجر")
+            if any(word.startswith(noun) or word.startswith("ال" + noun) for word in action_words)
+        ),
+        "",
+    )
+    stage_surface = any(
+        word.startswith(surface) or word.startswith("ال" + surface)
+        for surface in ("طاوله", "مكتب", "رف", "سطح")
+        for word in action_words
+    )
     if (
         topic_key
         and action_key.startswith("ضع ")
         and stage_prop
         and stage_surface
-        and not re.search(re.escape(stage_prop.group()).rstrip("ا")[:4], topic_key)
+        and stage_prop not in topic_key
     ):
         raise ShortFormatError("short_practical_action_unrelated_staged_prop")
     return action
