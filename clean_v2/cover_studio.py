@@ -359,8 +359,7 @@ def _deep_grade(image, *, fmt: str):
 def _prepare_canvas(source: Path, *, fmt: str):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     frame = _extract_frame(source)
-    from .simple_mode import is_simple_mode
-    if fmt == "short" or is_simple_mode():
+    if fmt == "short":
         return _deep_grade(_crop(frame, 1080, 1920), fmt=fmt)
 
     if frame.width / max(1, frame.height) >= 1.35:
@@ -527,7 +526,8 @@ def render_cover_studio(
     supporting = " ".join(part for part in (prefix, suffix) if part).strip()
     draw = ImageDraw.Draw(canvas)
 
-    if fmt == "short":
+    from .simple_mode import is_simple_mode
+    if fmt == "short" or is_simple_mode():
         # Two clean, readable lines, not giant cover lettering over the subject.
         from .simple_mode import is_simple_mode
         compact = is_simple_mode()
@@ -623,7 +623,7 @@ def render_cover_studio(
         "tone_profile": TONE_PROFILE,
         "channel_cover_vibe": CHANNEL_COVER_VIBE,
         "font_family": "Cairo",
-        "font_weight": "Bold/Black",
+        "font_weight": "Bold" if is_simple_mode() else "Bold/Black",
         "outline_depth": "strong",
         "podcast_program": PROGRAM_NAME if fmt == "podcast" else None,
         "channel_name": CHANNEL_NAME if fmt == "podcast" else None,

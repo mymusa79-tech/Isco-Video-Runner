@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import os
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image, features
 
@@ -107,6 +109,19 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertEqual((film["width"], film["height"]), (1280, 720))
             self.assertIn(short["layout_family"], {"impact", "split", "stacked", "centered"})
             self.assertIn(film["layout_family"], {"impact", "split", "stacked", "centered"})
+
+    def test_simple_layout_keeps_each_formats_aspect_and_cairo_bold(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {"CLEAN_V2_SIMPLE_MODE": "1"}):
+            root = Path(temporary)
+            source = self._image(root / "source.jpg", value=105, accent=True)
+            for fmt, size in (("short", (1080, 1920)), ("film", (1280, 720)), ("podcast", (1280, 720))):
+                with self.subTest(fmt=fmt):
+                    output = root / f"{fmt}.jpg"
+                    report = render_cover_studio(source, output, text="لست في سباق", fmt=fmt)
+                    with Image.open(output) as image:
+                        self.assertEqual(image.size, size)
+                    self.assertEqual((report["width"], report["height"]), size)
+                    self.assertEqual(report["font_weight"], "Bold")
 
 
 if __name__ == "__main__":
