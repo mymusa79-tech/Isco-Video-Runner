@@ -204,7 +204,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertTrue(dispatch.exists())
             payload = json.loads(dispatch.read_text(encoding="utf-8"))
             self.assertEqual(payload["request_id"], "req-1")
-            self.assertEqual(state["requests"]["req-1"]["run_mode"], "simple")
+            self.assertNotIn("run_mode", state["requests"]["req-1"])
 
     def test_provider_cooldown_blocks_dispatch_and_notifies_without_creating_file(self):
         """Telegram runs #79/81/83/84 (2026-10-04): ten dispatches fired back to
@@ -319,10 +319,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             control.handle_update(state, update, dispatch)
             self.assertTrue(dispatch.exists())
             self.assertEqual(state["requests"]["req-current"]["status"], "confirmed_pending_dispatch")
-            self.assertEqual(state["requests"]["req-current"]["run_mode"], "simple")
+            self.assertNotIn("run_mode", state["requests"]["req-current"])
             self.assertIn("تم تأكيد الإنتاج", send.call_args.args[0])
 
-    def test_single_confirm_and_legacy_simple_callback_use_simple_without_changing_request_hash(self):
+    def test_single_confirm_preserves_standard_and_legacy_simple_is_rejected(self):
         def make():
             state = control.default_state()
             request = {
@@ -339,17 +339,27 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         state, request = make()
         sha = request["request_sha256"]
         self.assertFalse(any(b["callback_data"] == "confirm:req-s:simple" for r in control.selection_confirmation_keyboard(request) for b in r))
-        for data in ("confirm:req-s:simple", "confirm:req-s"):
-            state, request = make()
-            update = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": data}}
-            with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-                "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
-            ), mock.patch.object(control, "send_telegram"):
-                dispatch = Path(tmp) / "d.json"
-                control.handle_update(state, update, dispatch)
-                self.assertTrue(dispatch.exists())
-                self.assertEqual(state["requests"]["req-s"].get("run_mode"), "simple")
-                self.assertEqual(state["requests"]["req-s"]["request_sha256"], sha)
+        state, request = make()
+        update = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram"):
+            dispatch = Path(tmp) / "d.json"
+            control.handle_update(state, update, dispatch)
+            self.assertTrue(dispatch.exists())
+            self.assertNotIn("run_mode", state["requests"]["req-s"])
+            self.assertEqual(state["requests"]["req-s"]["request_sha256"], sha)
+
+        state, _ = make()
+        legacy = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s:simple"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as sent:
+            dispatch = Path(tmp) / "d.json"
+            control.handle_update(state, legacy, dispatch)
+            self.assertFalse(dispatch.exists())
+            self.assertEqual(state["requests"]["req-s"]["status"], "awaiting_confirmation")
+            self.assertIn("المطابقة البصرية", sent.call_args.args[0])
         state, _ = make()
         bad = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s:bogus"}}
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -795,7 +805,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("مصدر ثان", text)
         self.assertNotIn("مصدر ثالث", text)
         self.assertIn(control.CONFIRM_TEXT, text)
-        self.assertIn("الوضع المبسّط (Simple)", text)
+        self.assertIn("مراجعة المطابقة البصرية", text)
 
     def test_stats_copy_is_plain_arabic_without_internal_terms(self):
         stats = {
