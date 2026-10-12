@@ -89,6 +89,7 @@ class SelectionGrounding(unittest.TestCase):
         self.assertEqual(len(request["research_pack"]), 1)
 
     def test_selected_excerpts_reach_each_format_and_are_bound_to_approval(self):
+        from clean_v2.pipeline import _planning_prompt, _script_prompt
         snippet = (
             "Social comparison and self evaluation were associated in an observational sample of adult volunteers. "
             "This association does not establish causality."
@@ -120,6 +121,15 @@ class SelectionGrounding(unittest.TestCase):
                 self.assertIn("CONTENT EVIDENCE USE", constraints)
                 self.assertIn("section purpose", constraints)
                 self.assertIn("shot_intent", constraints)
+                plan = {"sections": [{"id": "s1", "heading": "الموقف", "purpose": "الموقف"},
+                                     {"id": "s2", "heading": "المعيار", "purpose": "اختيار المعيار"},
+                                     {"id": "s3", "heading": "النتيجة", "purpose": "نتيجة المعيار"}],
+                        "practical_action_ar": "اختر معيارًا واضحًا لتقدمك اليوم."}
+                for prompt in (_planning_prompt(brief), _script_prompt(brief, plan, visual_story={"beats": []})):
+                    self.assertIn(snippet, prompt)
+                    self.assertIn("CONTENT EVIDENCE USE", prompt)
+                    self.assertIn("section purpose", prompt)
+                    self.assertIn("shot_intent", prompt)
                 self.assertEqual(digest, control._request_hash(request))
                 request["research_pack"][1]["source_excerpt"] = "unapproved replacement"
                 with self.assertRaisesRegex(RuntimeError, "integrity mismatch"):
@@ -140,4 +150,3 @@ class SelectionGrounding(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

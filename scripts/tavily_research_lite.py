@@ -324,4 +324,3 @@ def collect_topic_sources(
         if len(sources) >= max(1, int(limit)):
             break
     return sources
-

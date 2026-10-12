@@ -40,4 +40,3 @@ def market_sample_relevance(query: str, snippet: Mapping[str, Any]) -> tuple[boo
     overlap = sorted(query_tokens & (title_tokens | description_tokens))
     minimum = 1 if len(query_tokens) == 1 else 2
     return bool(query_tokens & title_tokens) and len(overlap) >= minimum, overlap
-
