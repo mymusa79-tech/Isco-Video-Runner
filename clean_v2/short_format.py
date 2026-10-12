@@ -454,15 +454,19 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words, "
             f"never more than {SHORT_HOOK_MAX_WORDS}, no greeting or clickbait. "
             "HOOK SHAPE: question, contrast/paradox or early concrete "
-            "consequence/result; no generic setup. "
+            "consequence/result; no generic setup. For an unfinished day, name its concrete consequence, not generic mood. "
             "HOOK SPECIFICITY SELF-CHECK: if changing 1-2 words makes the hook fit unrelated "
-            "topics, name a brief-specific object, situation, behavior, number or consequence.\n"
+            "topics, name a brief-specific object, situation, behavior, number or consequence. "
+            "Complete the same s1 with the lived consequence, not a second generic opener.\n"
             "- s2 adds the selected template's specific cause/turn and depends on s1; it must be necessary "
-            "to understand s3, never redundant, generic motivation or an explanatory lull.\n"
+            "to understand s3, never redundant, generic motivation or an explanatory lull. Give a genuinely NEW insight via one lived example or mechanism.\n"
             "- s3 resolves the SAME tension through an earned descriptive payoff tied to s1/s2. "
             "PAYOFF CHECK: answer fitting an unrelated hook is generic. "
             "Planning owns top-level practical_action_ar; Script later writes only descriptive "
-            "s3_payoff and runtime appends the exact locked action once.\n"
+            "s3_payoff and runtime appends the exact locked action once. "
+            "Never promote a scenic prop into a real-life action: placing a key, cup or book on a table is NOT a "
+            "solution to procrastination, low productivity or an unproductive day unless the approved topic is actually about "
+            "that object/behavior. The action must help with the exact problem independently of the visual story. REAL-WORLD ACTION CHECK: solve the narrated obstacle, not merely arrange a visual prop. For an unfinished day, name the FIRST concrete step of the unfinished task; a key/cup/book arrangement is valid only if that object IS the actual problem.\n"
             "- practical_action_ar: ONE sentence, at most 18 words, starting with exactly ONE direct Arabic "
             "imperative from: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، "
             "اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، "
@@ -504,14 +508,16 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "THIS specific brief/topic inside the sentence itself: a specific object, situation, behavior, number, or named consequence drawn "
         "from the approved brief — not a swappable topic label. A question or contrast that only plugs the topic's name into an otherwise "
         "generic template still fails this self-check.\n"
-        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull. It must read as a necessary step toward s3, not an optional aside — if s2 could be deleted without weakening the explanation, or if it introduces a mechanism never grounded in this topic's own tension, rewrite it.\n"
+        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Give this section a real mechanism or observable contrast plus its consequence, not a single paraphrase of the hook. Keep the pressure moving; do not drop into a long explanatory lull. It must read as a necessary step toward s3, not an optional aside — if s2 could be deleted without weakening the explanation, or if it introduces a mechanism never grounded in this topic's own tension, rewrite it.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned descriptive payoff; it must feel like a strong answer to the hook. PAYOFF-EARNED SELF-CHECK: the payoff must depend on the specific detail s1/s2 already established, not a free-standing conclusion — if s3_payoff would still make complete sense read after a DIFFERENT, unrelated hook/body, it is unearned and generic; rewrite it to reference or resolve the exact tension named earlier. Planning owns exactly ONE practical action in the top-level practical_action_ar field; Script MUST return only the descriptive closing text in s3_payoff and MUST NOT invent, repeat, paraphrase, or replace the action. Runtime injects that exact Planning value as s3_locked_action and materializes narration only after both fields pass local validation. "
         "For Planning, practical_action_ar MUST begin with a direct Arabic imperative verb, contain exactly ONE recognized imperative/action marker, and express exactly ONE practical action. Its first word MUST be one of these validator-recognized imperatives: اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. It must not append a second action with ثم/و, an attached conjunction such as والتزم/واكتب, punctuation, or another clause. "
         "For Script, every authored s3 sentence must be purely descriptive, with ZERO command verbs and ZERO occurrences or derivatives of these action families: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، التزم، قم. "
         "Planning self-check: practical_action_ar contains exactly one imperative marker. It must DIRECTLY operationalize this video's own hook_tension/payoff_answer and name the same topic-specific object, contrast, or behavior; if the same action could close an unrelated self-development Short, rewrite it. "
         "ACTION-SPECIFICITY SELF-CHECK (apply this in addition to the check above, on the action phrase itself, not just the surrounding plan): the imperative verb alone (اختر، ابدأ، اكتب، ضع...) is never enough — it is generic by construction and every Short shares the same short list of approved verbs. Before returning JSON, test the object/behavior that verb is pointed at: if you deleted the one concrete noun, number, or named behavior that ties this action to THIS brief, would the same sentence still close a completely different self-development Short word-for-word? If yes, it is a generic verb+placeholder and WILL read as unearned even though it passes the imperative-marker check. Fix it by making the action's object/target itself a concrete detail already named in or directly implied by this video's own hook_tension or payoff_answer (the same object, number, or named behavior - not a generic stand-in like \"مهمة\"/\"هدف\"/\"عادة\" with nothing anchoring it to this topic). "
-        "Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward.\n"
+        "Script self-check: s3 contains zero imperative markers because the host adds the locked Planning action afterward. "
+        "Before the locked action, explain the earned result and give a topic-specific illustrative contrast when the approved evidence allows; "
+        "never finish with only a generic slogan or restatement of s2.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
@@ -521,7 +527,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "Before returning JSON, silently reread EVERY authored Arabic sentence for demonstrative/noun agreement, pronoun/reference agreement, "
         "and sentence completeness. No section may open with a dependent fragment such as «مما ...» unless its grammatical antecedent is inside "
         "that same sentence. Fix any such surface-language error in place before returning. "
-        "The whole Short should feel like one complete miniature idea, not a chain of motivational captions.\n"
+        "The whole Short should feel like one complete miniature idea, not a chain of motivational captions. Do not mistake a technically valid 3-section script for a complete explanation: give s1 one lived situation, s2 an actual mechanism/contrast, and s3 an earned consequence of the already-locked practical action, without padded words.\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
@@ -1260,15 +1266,15 @@ def validate_short_practical_action_specificity(
     value: object,
     *,
     topic_context: object = "",
+    approved_topic: object = "",
 ) -> str:
-    """Reject only clearly-generic fresh Short actions before they become host locks.
+    """Reject generic and obviously staged actions before host locking.
 
-    The normal action validator remains the authority on grammar/shape. This
-    adds a deliberately narrow semantic floor: anonymous buckets such as
-    "أشياء/أمور" are never an acceptable action target, and the common
-    stand-ins مهمة/هدف/عادة/خطوة need at least one concrete word shared with
-    the approved topic/plan context. It does not try to solve Arabic semantics
-    locally or replace the downstream audit.
+    The existing grammar/shape validator remains authoritative. Anonymous
+    placeholders need concrete context; a prop-placement instruction with no
+    connection to the independently approved topic is not a behavioral payoff.
+    This is a narrow extension of the existing specificity check, not another
+    review stage, call, or general Arabic-semantic inference.
     """
     action = validate_short_practical_action(value)
     tokens = set(_semantic_key(action).split())
@@ -1280,6 +1286,36 @@ def validate_short_practical_action_specificity(
         approved_context = _short_action_context_tokens(topic_context)
         if not (action_context & approved_context):
             raise ShortFormatError("short_practical_action_too_generic_for_topic")
+
+    # Run 125: a scenic prop from Planning was also copied into the section
+    # purposes, so comparing the action against the plan "context" approved
+    # the self-referential but useless instruction to put a key on the table.
+    # Only reject the narrow, provably staged prop-placement case when that
+    # object is absent from the independently approved video topic. Other
+    # actions keep the existing quality/repair path, without a second model.
+    action_key = _semantic_key(action)
+    topic_key = _semantic_key(approved_topic)
+    action_words = action_key.split()
+    stage_prop = next(
+        (
+            noun for noun in ("مفتاح", "كوب", "شمع", "حجر")
+            if any(word.startswith(noun) or word.startswith("ال" + noun) for word in action_words)
+        ),
+        "",
+    )
+    stage_surface = any(
+        word.startswith(surface) or word.startswith("ال" + surface)
+        for surface in ("طاوله", "مكتب", "رف", "سطح")
+        for word in action_words
+    )
+    if (
+        topic_key
+        and action_key.startswith("ضع ")
+        and stage_prop
+        and stage_surface
+        and stage_prop not in topic_key
+    ):
+        raise ShortFormatError("short_practical_action_unrelated_staged_prop")
     return action
 
 

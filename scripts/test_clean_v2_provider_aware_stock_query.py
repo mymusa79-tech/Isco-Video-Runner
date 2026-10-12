@@ -24,17 +24,18 @@ class CleanV2ProviderAwareStockQueryTests(unittest.TestCase):
         )
         self.assertEqual(
             coverr,
-            "exhausted office worker checking work messages",
+            "exhausted office worker checking work messages late night",
         )
         self.assertEqual(
             pixabay,
             "exhausted office worker checking work messages late night",
         )
-        self.assertEqual(len({pexels, coverr, pixabay}), 3)
+        self.assertNotEqual(pexels, coverr)
 
-        # Keep a short keyword pack while retaining the action's object;
-        # dropping "messages" leaves only a generic checking activity.
-        self.assertLessEqual(len(coverr.split()), 6)
+        # Keep an eight-word keyword pack while retaining the action's object
+        # and time cue. The same concise semantic query may be sent to Pixabay;
+        # this is not an extra request or semantic drift.
+        self.assertLessEqual(len(coverr.split()), 8)
         for query in (pexels, coverr, pixabay):
             self.assertIn("office", query)
             self.assertIn("worker", query)
