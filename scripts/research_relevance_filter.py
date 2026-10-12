@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-_STOPWORDS = frozenset({"في","من","على","الى","إلى","عن","مع","هذا","هذه","ذلك","تلك","كيف","لماذا","هل","ما","ماذا","كل","او","أو","و","ثم","بعد","قبل","عند","لدى","the","a","an","of","and","to","for"})
+_STOPWORDS = frozenset({"في","من","على","الى","إلى","عن","مع","هذا","هذه","ذلك","تلك","كيف","لماذا","هل","ما","ماذا","كل","او","أو","و","ثم","بعد","قبل","عند","لدى","لم","فيه","قد","ان","أن","الي","كان","كانت","the","a","an","of","and","to","for"})
 _TOKEN_RE = re.compile(r"[A-Za-z0-9%\u0600-\u06ff]+")
 
 def _normalize_token(value: str) -> str:
@@ -28,7 +28,12 @@ def market_sample_relevance(query: str, snippet: Mapping[str, Any]) -> tuple[boo
     query_tokens = relevance_tokens(query)
     if not query_tokens:
         return False, []
-    candidate_tokens = relevance_tokens(f"{snippet.get('title') or ''} {snippet.get('description') or ''}")
-    overlap = sorted(query_tokens & candidate_tokens)
-    minimum = 1 if len(query_tokens) <= 3 else 2
-    return len(overlap) >= minimum, overlap
+    # The snippet description is frequently a generic set of motivational
+    # hashtags/SEO phrases. It cannot alone prove that the VIDEO covers the
+    # search's specific issue. Require a meaningful title anchor and enough
+    # distinct query concepts across the title and description.
+    title_tokens = relevance_tokens(snippet.get("title"))
+    description_tokens = relevance_tokens(snippet.get("description"))
+    overlap = sorted(query_tokens & (title_tokens | description_tokens))
+    minimum = 1 if len(query_tokens) == 1 else 2
+    return bool(query_tokens & title_tokens) and len(overlap) >= minimum, overlap
