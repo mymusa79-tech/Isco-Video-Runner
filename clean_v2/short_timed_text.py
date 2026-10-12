@@ -873,6 +873,11 @@ def _rtl_gold_wipe_tag(
 
 
 def _font_size_for_event(item: TimedTextEvent) -> int:
+    from .simple_mode import is_simple_mode
+    if is_simple_mode():
+        # A stable phone-sized caption; long phrases split into two rows rather
+        # than ballooning over the footage on individual cards.
+        return 116
     words = len(_clean(item.text).split())
     size = ROLE_BASE_FONT_SIZE[item.role]
     if words <= 2:
@@ -926,6 +931,10 @@ def build_rich_ass(
     if len(hints) != len(validated):
         raise ShortTimedTextError("short_timed_text_layout_hint_count_mismatch")
 
+    from .simple_mode import is_simple_mode
+    simple_caption = is_simple_mode()
+    caption_style_size = 116 if simple_caption else BODY_FONT_SIZE
+    caption_outline = 3 if simple_caption else 4
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -937,7 +946,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{caption_style_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
