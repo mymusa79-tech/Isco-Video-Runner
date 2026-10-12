@@ -601,6 +601,12 @@ def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str]) -> list[str]:
                     break
             if choice == 0:
                 choice = 1  # A single long authored word must remain intact.
+            # A greedy full-width caption can strand its final word on a card
+            # lasting a fraction of a second. Borrow one word from the prior
+            # card, if possible, leaving two natural words in the final card.
+            # The two shorter cards retain the same order and two-row width.
+            if len(remaining) - choice == 1 and choice >= 3:
+                choice -= 1
             fitted.append(" ".join(remaining[:choice]))
             remaining = remaining[choice:]
     return fitted
