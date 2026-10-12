@@ -1135,7 +1135,10 @@ def _provider_stock_query(query: str, provider: str) -> str:
         adapted = compact_searchable_visual_intent(
             raw,
             drop_tokens=_PIXABAY_QUERY_DROP_TOKENS | frozenset({"showing", "many", "small", "over"}),
-            max_words=6,
+            # Run 125's six-word truncation lost the target object "cup" from
+            # "cluttered desk with empty coffee cup". Keep up to eight meaningful
+            # tokens, still one Coverr search within the existing 160-char cap.
+            max_words=8,
         )
         return _bounded_provider_query_chars(adapted or raw, 160)
 
