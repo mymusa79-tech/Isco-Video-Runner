@@ -1959,7 +1959,10 @@ class ShortTimedTextTests(unittest.TestCase):
                 },
             ]
         )
-        self.assertIn("هل تشعر بأنك استعدت طاقتك فعلًا؟", ass)
+        # Physical line wrapping must preserve the entire Arabic phrase logically.
+        first_dialogue = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
+        visible = first_dialogue.split("}", 1)[-1].replace(r"\N", " ")
+        self.assertEqual(" ".join(visible.split()), "هل تشعر بأنك استعدت طاقتك فعلًا؟")
         self.assertNotIn("\u200f", ass)
         self.assertNotIn("□", ass)
         self.assertNotIn("😀", ass)

@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 12
-RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v12"
+RICH_RENDERER_VERSION = "clean-v2-short-noto-bold-static-safe-unicode-v13"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Caption Lite: Noto Sans Arabic Bold for libass Arabic glyph reliability, warm off-white face,
@@ -32,7 +32,7 @@ FOCUS_FONT_SIZE = 166
 FOCUS_SCALE = 1.00
 BODY_WRAP_WORDS = 6
 MAX_CAPTION_LINES = 2
-ARABIC_WORD_GAP = " "  # Cairo handles natural Arabic spacing; avoid stretched thin-space gaps
+ARABIC_WORD_GAP = " "  # Natural Arabic word spacing; avoid stretched thin-space gaps
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
@@ -925,7 +925,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",

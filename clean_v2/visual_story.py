@@ -6,17 +6,7 @@ from typing import Any, Mapping
 
 
 CHANNEL_VISUAL_IDENTITY = (
-    "Grounded cinematic realism with quiet premium depth; restrained dark navy and charcoal shadows; "
-    "ivory-neutral highlights; warm gold only as a rare accent; moderate-to-deep natural exposure; "
-    "soft practical directional light; tactile real environments; no blanket blue wash; "
-    "a wakeful visual signature built on observable state-change from friction toward clarity, movement "
-    "or earned progress, never on one repeated prop; hope shown through effort and earned small wins "
-    "rather than glossy lifestyle brightness or forced melancholy; environments, hands, objects, routines, "
-    "back views and wide shots; no identifiable faces. Culturally respectful, globally "
-    "understandable, visually meaningful: modest dress, no sexualized or suggestive imagery; "
-    "a modestly dressed woman is allowed when the scene genuinely fits the idea; never "
-    "force Arab or Western styling without an editorial reason. Prefer universally "
-    "recognizable actions and meaningful visual change over generic regional scenery."
+    "Grounded cinematic realism: restrained dark navy and charcoal shadows, ivory-neutral highlights, rare gold accent, soft practical directional lighting, natural contrast and colors; no blanket blue wash. Show observable state change from friction toward clarity and earned progress, not repeated props, forced melancholy or glossy lifestyle. Prefer globally understandable, visually meaningful scenes, wide views, hands and objects; no identifiable faces. Respect Arabic and Islamic culture: modest dress, no suggestive or sexualized imagery; a modestly dressed woman is welcome where meaningful. Never force Arab or Western styling without a topic-specific reason."
 )
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
