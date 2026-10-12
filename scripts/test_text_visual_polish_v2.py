@@ -44,7 +44,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         ]
         ass = text_module.build_rich_ass(events)
         self.assertEqual(ass.count("Dialogue:"), len(events))
-        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
         self.assertIn(text_module.PRIMARY_ASS, ass)
         self.assertIn(r"\fad(140,200)", ass)
         self.assertNotIn("Style: Shadow", ass)
@@ -59,7 +59,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 8.0, "end": 12.0, "text": "الخطوة الصغيرة فتحت الطريق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
         self.assertIn("أمسكت", ass)
         self.assertIn("الفارغة", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events))
@@ -149,7 +149,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         self.assertNotIn(r"\clip(", ass)
         self.assertNotIn(r"\t(0,", ass)
         self.assertEqual(ass.count("Dialogue:"), len(events))
-        self.assertIn("Noto Sans Arabic", ass)
+        self.assertIn("Cairo", ass)
         self.assertIn(text_module.PRIMARY_ASS, ass)
         self.assertNotIn("\u202B", ass)
 
@@ -192,7 +192,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
         ass = build_sparse_ass(events, fmt="film")
         self.assertIn("PlayResX: 1920", ass)
         self.assertIn(text_module.PRIMARY_ASS, ass)
-        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
         self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Style: Extrusion", ass)
 
