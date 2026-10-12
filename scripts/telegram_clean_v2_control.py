@@ -839,6 +839,14 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
             {
                 "source_title": title,
                 "source_url": f"https://youtu.be/{video_id}",
+                # Provenance from the SAME existing videos.list response: the
+                # user can inspect market reach and known reaction strength.
+                "market_views": str(sample.get("views") or "") if sample.get("views") is not None else "",
+                "market_likes": str(sample.get("likes")) if sample.get("likes") is not None else "",
+                "market_like_percent": (
+                    str(sample["like_rate_percent"])
+                    if sample.get("like_rate_percent") is not None else ""
+                ),
                 "claim_scope": (
                     "عينة يوتيوب مرتبطة بموضوع البحث، تدعم تقدير الاهتمام بالسوق فقط؛ "
                     "عدد المشاهدات والإعجابات لا يثبت دقة النص أو التشخيص أو السببية أو أي ادعاء علمي."
@@ -1264,6 +1272,12 @@ def render_selection_confirmation(
             url = str(source.get("source_url") or "").strip()
             if url:
                 lines.append(f"   {url}")
+            views = str(source.get("market_views") or "").strip()
+            likes = str(source.get("market_likes") or "").strip()
+            if views:
+                metric = f"   👀 {views} مشاهدة"
+                metric += f" · 👍 {likes} إعجاب" if likes else " · الإعجابات غير معلنة"
+                lines.append(metric)
     lines.extend(
         [
             "",
