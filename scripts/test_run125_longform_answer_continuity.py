@@ -60,7 +60,7 @@ class Run125LongformAnswerContinuityTests(unittest.TestCase):
         self.assertIn("Except for the short pre-prayer identity bridge", prompt)
         self.assertIn("first one or two TOPIC sentences", prompt)
         self.assertIn("approved mechanism", prompt)
-        self.assertIn("concrete everyday example", prompt)
+        self.assertIn("concrete everyday example", " ".join(prompt.split()))
         self.assertIn("not a prompt engineered", prompt)
         self.assertIn("B carries the substance", prompt)
 
