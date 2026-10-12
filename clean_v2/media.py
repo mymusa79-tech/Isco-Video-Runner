@@ -4217,7 +4217,7 @@ def _trim_and_grade_clip(
         vf = (
             f"scale={width + dx}:{height + dy}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height}:"
-            f"x='(in_w-out_w)*(0.30+0.40*min(t/{max(1.0, float(seconds)):.3f},1))':"
+            "x='(in_w-out_w)/2+(in_w-out_w)/15*sin(t/4)':"
             "y='(in_h-out_h)/2',setsar=1,fps=30"
         )
     else:
