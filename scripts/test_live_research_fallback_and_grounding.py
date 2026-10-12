@@ -1,9 +1,13 @@
+import json
 import os
+import tempfile
 import unittest
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 from scripts import telegram_clean_v2_control as control
+from scripts import tavily_research_lite as sources
 
 ROWS_JSON = '{"candidates":[{"title":"فكرة جديدة","market_query":"عادات يومية","reason":"سبب"}]}'
 
@@ -51,6 +55,13 @@ class LiveResearchFallback(unittest.TestCase):
 
 
 class SelectionGrounding(unittest.TestCase):
+    def test_existing_idea_response_preserves_optional_knowledge_query(self):
+        rows = control._parse_candidate_rows(json.dumps({"candidates": [{
+            "title": "لماذا نقارن أنفسنا بالآخرين؟", "market_query": "المقارنة الاجتماعية",
+            "reason": "فهم أثر اختيار معيار المقارنة", "knowledge_query_en": "social comparison self evaluation",
+        }]}))
+        self.assertEqual(rows[0]["knowledge_query_en"], "social comparison self evaluation")
+
     def _state(self):
         state = control.default_state()
         state["ideas"].append({
@@ -77,6 +88,56 @@ class SelectionGrounding(unittest.TestCase):
             request = control.select_candidate(self._state(), "s1", 0)
         self.assertEqual(len(request["research_pack"]), 1)
 
+    def test_selected_excerpts_reach_each_format_and_are_bound_to_approval(self):
+        snippet = (
+            "Social comparison and self evaluation were associated in an observational sample of adult volunteers. "
+            "This association does not establish causality."
+        )
+        for scope, fmt in (("short", "short"), ("long", "film"), ("podcast", "podcast")):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
+                state = self._state()
+                state["sessions"]["s1"]["scope"] = scope
+                state["ideas"][0]["title"] = "لماذا نقارن أنفسنا بالآخرين؟"
+                state["ideas"][0]["knowledge_query_en"] = "social comparison self evaluation"
+                post = mock.Mock(return_value={"results": [{
+                    "title": "Comparison study", "url": "https://pubmed.ncbi.nlm.nih.gov/fixture", "content": snippet,
+                }]})
+                def collect(key, topic, **kwargs):
+                    return sources.collect_topic_sources(key, topic, post=post, **kwargs)
+                with mock.patch.dict(os.environ, {"TAVILY_API_KEY": "test-key"}), \
+                        mock.patch.object(control, "collect_topic_sources", side_effect=collect):
+                    request = control.select_candidate(state, "s1", 0)
+                self.assertEqual(post.call_count, 1)
+                confirmation = control.render_selection_confirmation(request)
+                self.assertLess(confirmation.index("Comparison study"), confirmation.index("مصدر يوتيوب"))
+                self.assertIn("📊 عينات اهتمام", confirmation)
+                digest = request["request_sha256"]
+                control.confirm_current(state)
+                control.mark_dispatched(state, request["request_id"], digest)
+                brief = control.materialize_brief(state, request["request_id"], digest, fmt, Path(tmp) / "brief.json")
+                self.assertEqual(brief["research_pack"][1]["source_excerpt"], snippet)
+                constraints = "\n".join(brief["hard_constraints"])
+                self.assertIn("CONTENT EVIDENCE USE", constraints)
+                self.assertIn("section purpose", constraints)
+                self.assertIn("shot_intent", constraints)
+                self.assertEqual(digest, control._request_hash(request))
+                request["research_pack"][1]["source_excerpt"] = "unapproved replacement"
+                with self.assertRaisesRegex(RuntimeError, "integrity mismatch"):
+                    control.materialize_brief(state, request["request_id"], digest, fmt, Path(tmp) / "tampered.json")
+
+    def test_missing_content_is_disclosed_and_legacy_briefs_remain_unchanged(self):
+        with mock.patch.dict(os.environ, {"TAVILY_API_KEY": ""}, clear=False):
+            request = control.select_candidate(self._state(), "s1", 0)
+        text = control.render_selection_confirmation(request)
+        self.assertIn("لم يتوفر مقتطف معرفي صالح", text)
+        self.assertIn("مصدر يوتيوب", text)
+        constraints = "\n".join(control._content_use_constraints(request["research_pack"], "short"))
+        self.assertIn("No substantive source excerpt", constraints)
+        self.assertEqual(control._content_use_constraints([
+            {"source_title": "legacy", "source_url": "https://youtu.be/legacy", "claim_scope": "market"},
+        ], "short"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
+

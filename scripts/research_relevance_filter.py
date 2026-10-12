@@ -3,19 +3,22 @@ import re
 from typing import Any, Mapping
 
 _STOPWORDS = frozenset({"في","من","على","الى","إلى","عن","مع","هذا","هذه","ذلك","تلك","كيف","لماذا","هل","ما","ماذا","كل","او","أو","و","ثم","بعد","قبل","عند","لدى","لم","فيه","قد","ان","أن","الي","كان","كانت","the","a","an","of","and","to","for"})
-_TOKEN_RE = re.compile(r"[A-Za-z0-9%\u0600-\u06ff]+")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9%\u0621-\u063a\u0641-\u064a\u0660-\u0669\u0671-\u06d3]+")
 
 def _normalize_token(value: str) -> str:
     token = value.strip().casefold()
     token = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", token)
     token = token.translate(str.maketrans({"أ":"ا","إ":"ا","آ":"ا","ى":"ي","ؤ":"و","ئ":"ي"}))
-    if token.startswith("ال") and len(token) > 4:
-        token = token[2:]
+    if len(token) > 4:
+        # Definite nouns keep the same anchor with common Arabic clitics:
+        # المقارنة / والمقارنة / بالمقارنة / للمقارنة.
+        token = re.sub(r"^(?:[وف])?(?:[بك]?ال|لل)", "", token)
     return token
 
 def relevance_tokens(value: object) -> set[str]:
     out: set[str] = set()
-    for raw in _TOKEN_RE.findall(str(value or "")):
+    text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", str(value or ""))
+    for raw in _TOKEN_RE.findall(text):
         token = _normalize_token(raw)
         if not token or token in _STOPWORDS:
             continue
@@ -37,3 +40,4 @@ def market_sample_relevance(query: str, snippet: Mapping[str, Any]) -> tuple[boo
     overlap = sorted(query_tokens & (title_tokens | description_tokens))
     minimum = 1 if len(query_tokens) == 1 else 2
     return bool(query_tokens & title_tokens) and len(overlap) >= minimum, overlap
+
