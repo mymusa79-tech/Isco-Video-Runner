@@ -6584,9 +6584,345 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-11T14:16:31Z"
+    },
+    {
+      "idea_id": "idea-ce5c251c13",
+      "title": "الاتحاد مع الذات: توقف عن محاربة نسختك القديمة",
+      "normalized_title": "الاتحاد مع الذات توقف عن محاربة نسختك القديمة",
+      "market_query": "التصالح مع الذات والسلام الداخلي",
+      "reason": "استعارة رمزية لكلمة الاتحاد لتطبيقها على التناغم الداخلي والتوقف عن جلد النفس حيال اختيارات سابقة ثبت خطؤها.",
+      "market_score": 0.6,
+      "market_evidence": {
+        "sample_count": 3,
+        "distinct_channels": 3,
+        "max_views_per_day": 1340.8,
+        "median_views_per_day": 257.7,
+        "top_samples": [
+          {
+            "video_id": "Gd-1Xbz5wEE",
+            "title": "سر التصالح مع الذات وراحة البال التي تبحث عنها | الدكتور مصطفى محمود",
+            "channel": "منارة الذات - Manaret El Zat",
+            "published_at": "2026-10-07T14:00:08Z",
+            "views": 6934,
+            "views_per_day": 1340.8,
+            "likes": 99,
+            "like_rate_percent": 1.43,
+            "market_sample_rank": 1710.77,
+            "relevance_overlap": [
+              "تصالح",
+              "داخلي",
+              "ذات",
+              "والسلام"
+            ]
+          },
+          {
+            "video_id": "G4aHRkTbTKk",
+            "title": "بودكاست| كيف تحقق الهدوء النفسي والسلام الداخلي؟ |  كلام يبرد القلب 🌿",
+            "channel": "استمر تنجح",
+            "published_at": "2026-10-06T15:08:16Z",
+            "views": 1578,
+            "views_per_day": 257.7,
+            "likes": 33,
+            "like_rate_percent": 2.09,
+            "market_sample_rank": 385.75,
+            "relevance_overlap": [
+              "تصالح",
+              "داخلي",
+              "ذات",
+              "والسلام"
+            ]
+          },
+          {
+            "video_id": "xs480xRTgko",
+            "title": "أشياء بسيطة غيّرت حياتي وأعادت لي راحتي النفسية 🌿 | بودكاست السلام الداخلي",
+            "channel": "نور الهداية",
+            "published_at": "2026-10-10T00:47:49Z",
+            "views": 688,
+            "views_per_day": 252.8,
+            "likes": 18,
+            "like_rate_percent": 2.62,
+            "market_sample_rank": 379.18,
+            "relevance_overlap": [
+              "داخلي",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:01Z"
+    },
+    {
+      "idea_id": "idea-23c1d291ba",
+      "title": "فخ المقارنة اليومي: قارن نفسك بماضيك وليس بقمة غيرك",
+      "normalized_title": "فخ المقارنة اليومي قارن نفسك بماضيك وليس بقمة غيرك",
+      "market_query": "التخلص من المقارنة بالآخرين وتطوير الذات",
+      "reason": "معالجة مشاعر الإحباط الناتجة عن مراقبة نجاحات الآخرين السريعة، وتوجيه البوصلة نحو التقدم الذاتي التراكمي.",
+      "market_score": 0.5,
+      "market_evidence": {
+        "sample_count": 3,
+        "distinct_channels": 3,
+        "max_views_per_day": 181.3,
+        "median_views_per_day": 124.7,
+        "top_samples": [
+          {
+            "video_id": "r7nYvz9AHQA",
+            "title": "ثق بنفسك : توقف عن مقارنة نفسك بالآخرين واستعد ثقتك | كتاب صوتي",
+            "channel": "الوعي المقروء",
+            "published_at": "2026-10-09T16:00:15Z",
+            "views": 560,
+            "views_per_day": 181.3,
+            "likes": 10,
+            "like_rate_percent": 1.79,
+            "market_sample_rank": 253.02,
+            "relevance_overlap": [
+              "بالاخرين",
+              "تخلص",
+              "ذات",
+              "مقارنة",
+              "وتطوير"
+            ]
+          },
+          {
+            "video_id": "jo_5nLqhFTs",
+            "title": "فخ المقارنة الصامت: لماذا مقارنة خطواتك بالآخرين  تدمر سلامك الداخلي وطموحك؟🛡️",
+            "channel": "بالعربي The Mind",
+            "published_at": "2026-09-26T15:40:07Z",
+            "views": 1776,
+            "views_per_day": 110.3,
+            "likes": 41,
+            "like_rate_percent": 2.31,
+            "market_sample_rank": 165.44,
+            "relevance_overlap": [
+              "بالاخرين",
+              "تخلص",
+              "ذات",
+              "مقارنة"
+            ]
+          },
+          {
+            "video_id": "Ye1A0Zv7N5k",
+            "title": "أنت تدمر ثقتك بنفسك كل يوم… بسبب هذه المقارنة!",
+            "channel": "كاريزما الشباب",
+            "published_at": "2026-10-03T09:30:57Z",
+            "views": 1167,
+            "views_per_day": 124.7,
+            "likes": 15,
+            "like_rate_percent": 1.29,
+            "market_sample_rank": 153.19,
+            "relevance_overlap": [
+              "بالاخرين",
+              "تخلص",
+              "ذات",
+              "مقارنة"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:02Z"
+    },
+    {
+      "idea_id": "idea-2c07255dde",
+      "title": "حين يقع ما لم تتوقعه: كيف تستعيد هدوءك بعد الصدمة المفاجئة؟",
+      "normalized_title": "حين يقع ما لم تتوقعه كيف تستعيد هدوءك بعد الصدمة المفاجية؟",
+      "market_query": "التعامل مع المواقف غير المتوقعة بهدوء",
+      "reason": "ربط فكرة الحوادث والاضطرابات المفاجئة بإرشاد عملي موجز يعلم المشاهد التنفس والانفصال المؤقت عن رد الفعل الاندفاعي.",
+      "market_score": 0.82,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 42834.7,
+        "median_views_per_day": 21527.9,
+        "top_samples": [
+          {
+            "video_id": "-nGccSySCEw",
+            "title": "ببغاء تيما ألشورمان يوبخها بطريقة غير متوقعة 😂.. الحوار قلب خناقة!",
+            "channel": "لحظة بلحظة",
+            "published_at": "2026-09-27T17:27:29Z",
+            "views": 643696,
+            "views_per_day": 42834.7,
+            "likes": 7230,
+            "like_rate_percent": 1.12,
+            "market_sample_rank": 50305.07,
+            "relevance_overlap": [
+              "غير",
+              "متوقعة",
+              "مواقف"
+            ]
+          },
+          {
+            "video_id": "YwnHcvPYWOU",
+            "title": "لما حبيبتك تصير مستشارة أزياء غصباً عنك 😂👟#مقاطع_مضحكة #مواقف_مضحكة #كوميديا #ضحك #شورتس#ضحك #مقالب",
+            "channel": "SENCİL3",
+            "published_at": "2026-09-15T13:36:07Z",
+            "views": 6010,
+            "views_per_day": 221.1,
+            "likes": 95,
+            "like_rate_percent": 1.58,
+            "market_sample_rank": 293.31,
+            "relevance_overlap": [
+              "غير",
+              "متوقعة",
+              "مواقف"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:00Z"
+    },
+    {
+      "idea_id": "idea-ea90f72282",
+      "title": "جرأة المبتدئ: كيف تواجه التحديات الكبيرة بدون خوف من الفشل؟",
+      "normalized_title": "جراة المبتدي كيف تواجه التحديات الكبيرة بدون خوف من الفشل؟",
+      "market_query": "بناء الشجاعة وتحدي المواقف الصعبة",
+      "reason": "مستلهم من صعود الرياضيات الشابات مثل أليكس إيلا لمنافسة الكبار، لترسيخ الثقة بالنفس والتركيز على التعلم بدلاً من الخوف من النتيجة.",
+      "market_score": 0.662,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 6679.6,
+        "median_views_per_day": 6679.6,
+        "top_samples": [
+          {
+            "video_id": "wp1voplycNU",
+            "title": "أهمية الشجاعة في حياتنا: كيف نتعلم الشجاعة ! - Ali bin Abi Talib",
+            "channel": "هابلثي",
+            "published_at": "2026-09-22T10:39:57Z",
+            "views": 135666,
+            "views_per_day": 6679.6,
+            "likes": 2197,
+            "like_rate_percent": 1.62,
+            "market_sample_rank": 8949.38,
+            "relevance_overlap": [
+              "شجاعة",
+              "مواقف"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:01Z"
+    },
+    {
+      "idea_id": "idea-a9fa2aefba",
+      "title": "قوة التكافل النفسي: لماذا لا يجب أن تخوض معاركك وحدك؟",
+      "normalized_title": "قوة التكافل النفسي لماذا لا يجب ان تخوض معاركك وحدك؟",
+      "market_query": "مفهوم التكافل الاجتماعي والدعم النفسي",
+      "reason": "استثمار ترند التكافل لتحويله إلى بعد إنساني يوضح أثر وجود شبكة دعم صادقة في تسريع التعافي وتقليل الإحساس بالوحدة.",
+      "market_score": 0.504,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 690.5,
+        "median_views_per_day": 690.5,
+        "top_samples": [
+          {
+            "video_id": "nnfs0ziW5e0",
+            "title": "فيديو يعكس أسمى معاني التكافل الاجتماعي وحسن الجوار.. حيث يُظهر جار وهو يرفع الحطب والأنقاض.",
+            "channel": "منصة لقطات shots",
+            "published_at": "2026-10-04T18:25:06Z",
+            "views": 5515,
+            "views_per_day": 690.5,
+            "likes": 203,
+            "like_rate_percent": 3.68,
+            "market_sample_rank": 1035.69,
+            "relevance_overlap": [
+              "اجتماعي",
+              "تكافل"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:06:59Z"
+    },
+    {
+      "idea_id": "idea-4e36d6db9d",
+      "title": "مهارة رسم الحدود: كيف تقول لا دون أن تشعر بالذنب؟",
+      "normalized_title": "مهارة رسم الحدود كيف تقول لا دون ان تشعر بالذنب؟",
+      "market_query": "كيفية وضع حدود شخصية صحية",
+      "reason": "فكرة مكثفة تعالج استنزاف الطاقة النفسية بأسلوب متفائل وواقعي يركز على احترام الأولويات الفردية دون إيذاء الآخرين.",
+      "market_score": 0.378,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 111.9,
+        "median_views_per_day": 111.9,
+        "top_samples": [
+          {
+            "video_id": "cfVGxTBYkKQ",
+            "title": "أخطر تصرف مع الشخصية النرجسية عند وضع الحدود | دليلك الكامل",
+            "channel": "Rogina Samir",
+            "published_at": "2026-09-30T18:33:16Z",
+            "views": 1341,
+            "views_per_day": 111.9,
+            "likes": 34,
+            "like_rate_percent": 2.54,
+            "market_sample_rank": 167.88,
+            "relevance_overlap": [
+              "حدود",
+              "شخصية",
+              "صحية",
+              "وضع"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:02Z"
+    },
+    {
+      "idea_id": "idea-b007197677",
+      "title": "عقلية الشوط الثاني: ماذا تفعل عندما تخسر الجولة الأولى من يومك؟",
+      "normalized_title": "عقلية الشوط الثاني ماذا تفعل عندما تخسر الجولة الاولي من يومك؟",
+      "market_query": "استعادة الطاقة بعد بداية يوم سيئة",
+      "reason": "مستوحى من أجواء المباريات الحاسمة كالاتحاد والنصر لبناء استعارة واقعية حول إمكانية تصحيح المسار وعدم إفساد اليوم بأكمله بسبب تعثر صباحي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:00Z"
+    },
+    {
+      "idea_id": "idea-b3e1cfd499",
+      "title": "الانضباط الصامت: ماذا تفعل حين تختفي رغبة البدايات؟",
+      "normalized_title": "الانضباط الصامت ماذا تفعل حين تختفي رغبة البدايات؟",
+      "market_query": "الالتزام بالروتين وبناء العادات المستمرة",
+      "reason": "فكرة تركز على الواقعية النفسية بأن الشغف ينطفئ ويحل محله الالتزام الهادئ، مما يمنح المشاهد دفعة وعي لاستكمال مساره.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-12T18:07:03Z"
     }
   ],
   "sessions": {
+    "6cd38921": {
+      "session_id": "6cd38921",
+      "scope": "short",
+      "idea_ids": [
+        "idea-ce5c251c13",
+        "idea-23c1d291ba",
+        "idea-2c07255dde"
+      ],
+      "created_at": "2026-10-12T18:07:03Z"
+    },
     "2a807c58": {
       "session_id": "2a807c58",
       "scope": "short",
@@ -7012,18 +7348,6 @@
       "source": "saved_library",
       "closed_at": "2026-09-29T22:13:44Z",
       "selected_index": 0
-    },
-    "1805f4a7": {
-      "session_id": "1805f4a7",
-      "scope": "podcast",
-      "idea_ids": [
-        "idea-d84ee01975",
-        "idea-4742ea0bc2",
-        "idea-e8c315d44a"
-      ],
-      "created_at": "2026-09-29T20:01:51Z",
-      "closed_at": "2026-09-29T20:02:35Z",
-      "selected_index": 2
     }
   },
   "requests": {
@@ -10465,6 +10789,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-12T18:06:14Z",
+  "updated_at": "2026-10-12T18:07:03Z",
   "provider_cooldown_until": "2026-10-11T20:29:11.717886Z"
 }
