@@ -891,7 +891,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -1013,7 +1013,7 @@ def render_progressive_text(
         "black_text_box": False,
         "font_weight": "bold",
         "font_family_contract": "Cairo Bold",
-        "outline_px": 4,
+        "outline_px": 2,
         "extrusion_offset": [0, 0],
         "shadow_offset": [0, 0],
         "provider_calls": 0,
@@ -1026,13 +1026,13 @@ def render_progressive_text(
         "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
-        "unicode_diagnostics": caption_character_diagnostics([item.text for item in validated]),
+        "unicode_diagnostics": caption_character_diagnostics([str(row.get("text") or "") for row in events if isinstance(row, Mapping)]),
         "post_render_libass_glyph_warnings": [
             line.strip()[:250] for line in ffmpeg_warnings.splitlines()
             if "glyph" in line.lower() or "font" in line.lower() and "not found" in line.lower()
         ][:25],
         "pixel_to_unicode_mapping_verified": False,
-        "shadow_policy": "black_outline4_no_shadow_no_extrusion_no_black_box",
+        "shadow_policy": "black_outline2_no_shadow_no_extrusion_no_black_box",
     }
 
 
@@ -1172,7 +1172,7 @@ def write_longform_caption_sidecars(
         "event_count": len(dialogues), "max_rows": 2,
         "burned_into_final_video": False,
         "timing": "estimated_phrases_inside_measured_voice_section_windows",
-        "unicode_diagnostics": caption_character_diagnostics([str(r["text"]) for r in events]),
+        "unicode_diagnostics": caption_character_diagnostics(list(sections.values())),
         "provider_calls_added": 0, "new_quality_gate": False,
     }
     (root / "caption-sidecars.json").write_text(
