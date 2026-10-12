@@ -204,6 +204,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertTrue(dispatch.exists())
             payload = json.loads(dispatch.read_text(encoding="utf-8"))
             self.assertEqual(payload["request_id"], "req-1")
+            self.assertEqual(state["requests"]["req-1"]["run_mode"], "simple")
 
     def test_provider_cooldown_blocks_dispatch_and_notifies_without_creating_file(self):
         """Telegram runs #79/81/83/84 (2026-10-04): ten dispatches fired back to
@@ -298,6 +299,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         state["current_request_id"] = request["request_id"]
         keyboard = control.selection_confirmation_keyboard(request)
         self.assertEqual(keyboard[0][0]["callback_data"], "confirm:req-current")
+        self.assertEqual(
+            [b["callback_data"] for row in keyboard for b in row if b["callback_data"].startswith("confirm:")],
+            ["confirm:req-current"],
+        )
         self.assertTrue(any(button.get("callback_data") == "main:saved" for row in keyboard for button in row))
 
         update = {
@@ -314,9 +319,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             control.handle_update(state, update, dispatch)
             self.assertTrue(dispatch.exists())
             self.assertEqual(state["requests"]["req-current"]["status"], "confirmed_pending_dispatch")
+            self.assertEqual(state["requests"]["req-current"]["run_mode"], "simple")
             self.assertIn("تم تأكيد الإنتاج", send.call_args.args[0])
 
-    def test_simple_confirm_button_sets_run_mode_without_changing_request_hash(self):
+    def test_single_confirm_and_legacy_simple_callback_use_simple_without_changing_request_hash(self):
         def make():
             state = control.default_state()
             request = {
@@ -332,8 +338,8 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
 
         state, request = make()
         sha = request["request_sha256"]
-        self.assertTrue(any(b["callback_data"] == "confirm:req-s:simple" for r in control.selection_confirmation_keyboard(request) for b in r))
-        for data, expected in (("confirm:req-s:simple", "simple"), ("confirm:req-s", None)):
+        self.assertFalse(any(b["callback_data"] == "confirm:req-s:simple" for r in control.selection_confirmation_keyboard(request) for b in r))
+        for data in ("confirm:req-s:simple", "confirm:req-s"):
             state, request = make()
             update = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": data}}
             with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -342,7 +348,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
                 dispatch = Path(tmp) / "d.json"
                 control.handle_update(state, update, dispatch)
                 self.assertTrue(dispatch.exists())
-                self.assertEqual(state["requests"]["req-s"].get("run_mode"), expected)
+                self.assertEqual(state["requests"]["req-s"].get("run_mode"), "simple")
                 self.assertEqual(state["requests"]["req-s"]["request_sha256"], sha)
         state, _ = make()
         bad = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s:bogus"}}
@@ -789,6 +795,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("مصدر ثان", text)
         self.assertNotIn("مصدر ثالث", text)
         self.assertIn(control.CONFIRM_TEXT, text)
+        self.assertIn("الوضع المبسّط (Simple)", text)
 
     def test_stats_copy_is_plain_arabic_without_internal_terms(self):
         stats = {
