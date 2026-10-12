@@ -362,7 +362,10 @@ def _prepare_canvas(source: Path, *, fmt: str):
     if fmt == "short":
         return _deep_grade(_crop(frame, 1080, 1920), fmt=fmt)
 
-    if frame.width / max(1, frame.height) >= 1.35:
+    from .simple_mode import is_simple_mode
+    # Match the crop reviewed for the video. A portrait collage could expose
+    # faces or lettering outside the approved landscape display window.
+    if is_simple_mode() or frame.width / max(1, frame.height) >= 1.35:
         return _deep_grade(_crop(frame, 1280, 720), fmt=fmt)
 
     background = _deep_grade(_crop(frame, 1280, 720), fmt=fmt).filter(ImageFilter.GaussianBlur(15))

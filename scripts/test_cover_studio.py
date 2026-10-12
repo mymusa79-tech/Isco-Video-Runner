@@ -123,6 +123,20 @@ class CoverStudioV2Tests(unittest.TestCase):
                     self.assertEqual((report["width"], report["height"]), size)
                     self.assertEqual(report["font_weight"], "Bold")
 
+    def test_simple_long_cover_keeps_unreviewed_portrait_edges_outside_crop(self) -> None:
+        from PIL import ImageDraw
+        from clean_v2 import cover_studio
+        frame = Image.new("RGB", (720, 1280), (90, 120, 140))
+        ImageDraw.Draw(frame).rectangle((0, 0, 719, 399), fill=(255, 0, 0))
+        with mock.patch.dict(os.environ, {"CLEAN_V2_SIMPLE_MODE": "1"}), \
+             mock.patch.object(cover_studio, "_extract_frame", return_value=frame), \
+             mock.patch.object(cover_studio, "_deep_grade", side_effect=lambda image, **_: image.convert("RGBA")):
+            for fmt in ("film", "podcast"):
+                with self.subTest(fmt=fmt):
+                    canvas = cover_studio._prepare_canvas(Path("portrait.mp4"), fmt=fmt)
+                    self.assertEqual(canvas.size, (1280, 720))
+                    self.assertEqual(canvas.getcolors(1280 * 720), [(1280 * 720, (90, 120, 140, 255))])
+
 
 if __name__ == "__main__":
     unittest.main()
