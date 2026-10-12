@@ -338,8 +338,13 @@ def _deep_grade(image, *, fmt: str):
             1.09, 0.91, 0.84, 0.89, 0.94, 0.012, 90
         )
     else:
+        from .simple_mode import is_simple_mode
+        # Short Simple Mode: keep real background detail, but subdue vivid
+        # lifestyle-stock reds/oranges instead of making them the channel look.
         contrast, color, high, mid, low, warm_mix, vignette = (
-            1.07, 0.94, 0.87, 0.91, 0.95, 0.014, 82
+            (1.08, 0.68, 0.78, 0.86, 0.92, 0.010, 88)
+            if is_simple_mode()
+            else (1.07, 0.94, 0.87, 0.91, 0.95, 0.014, 82)
         )
     image = ImageEnhance.Contrast(image.convert("RGB")).enhance(contrast)
     image = ImageEnhance.Color(image).enhance(color)
@@ -522,18 +527,23 @@ def render_cover_studio(
     draw = ImageDraw.Draw(canvas)
 
     if fmt == "short":
-        # Same Cover Studio text owner, but never allow a third visual line.
-        # Prefer one line at an honestly readable size, without cropping words.
+        # Two clean, readable lines, not giant cover lettering over the subject.
+        from .simple_mode import is_simple_mode
+        compact = is_simple_mode()
         x = width // 2
+        single_size = 130 if compact else 190
+        max_width = 850 if compact else 800
         rows = (
-            [_clean(text)] if _text_width(_clean(text), size=190) <= 800
+            [_clean(text)] if _text_width(_clean(text), size=single_size) <= max_width
             else _balanced_rows(text, maximum_rows=2)
         )
         for index, row in enumerate(rows):
             _render_line(
                 canvas, row, center_x=x,
-                center_y=640 if len(rows) == 1 else 570 + index * 200,
-                max_width=800, start_size=190 if len(rows) == 1 else 170,
+                center_y=(690 if compact else 640) if len(rows) == 1
+                else (640 + index * 162 if compact else 570 + index * 200),
+                max_width=max_width,
+                start_size=single_size if len(rows) == 1 else (126 if compact else 170),
                 gold=False, style="depth", font_path=FONT_BOLD,
             )
     else:
