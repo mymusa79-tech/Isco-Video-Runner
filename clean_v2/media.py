@@ -1290,7 +1290,7 @@ def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
         return True
 
     if (re.search(r"\b(?:hands only|no face visible|hands? close[ -]?up)\b", intent)
-            and re.search(r"\b(?:portrait|woman gazing|man gazing|woman looking out|man looking out)\b", description)):
+            and re.search(r"\b(?:portrait|(?:woman|man|person)\b.{0,90}\b(?:gazing|looking)\b|gazing out (?:a |the )?window)", description)):
         return True
     return False
 
