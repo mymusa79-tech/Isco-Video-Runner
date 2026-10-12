@@ -1236,6 +1236,7 @@ def render_selection_confirmation(
             "",
             "لم يبدأ الإنتاج بعد.",
             "إذا كان القرار نهائيًا اضغط زر «✅ تأكيد الإنتاج» أدناه،",
+            "سيعمل بالوضع المبسّط (Simple): دون مراجعة المطابقة البصرية بالذكاء الاصطناعي؛ قرار النشر لك.",
             f"أو أرسل حرفيًا:\n{CONFIRM_TEXT}",
         ]
     )
@@ -1248,7 +1249,6 @@ def selection_confirmation_keyboard(request: dict[str, Any]) -> list[list[dict[s
         raise RuntimeError("confirmation request id missing")
     return [
         [{"text": "✅ تأكيد الإنتاج", "callback_data": f"confirm:{request_id}"}],
-        [{"text": "⚡ تأكيد — الوضع المبسّط (Simple)", "callback_data": f"confirm:{request_id}:simple"}],
         [{"text": "📚 المحاولات السابقة / الاستئناف", "callback_data": "main:saved"}],
         [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
     ]
@@ -1991,8 +1991,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         if data.startswith("confirm:"):
             parts = data.split(":")
             expected_request_id = parts[1].strip() if len(parts) >= 2 else ""
-            run_mode = "simple" if len(parts) == 3 and parts[2] == "simple" else "standard"
-            if not expected_request_id or len(parts) > 3 or (len(parts) == 3 and run_mode != "simple"):
+            # Both the single new button and legacy :simple buttons use the
+            # same mode. Keep old callbacks valid for already-sent keyboards.
+            run_mode = "simple"
+            if not expected_request_id or len(parts) > 3 or (len(parts) == 3 and parts[2] != "simple"):
                 send_telegram("⚠️ زر التأكيد غير صالح. افتح آخر رسالة اختيار وحاول مجددًا.")
                 return
             _confirm_and_notify(
@@ -2269,7 +2271,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
-        _confirm_and_notify(state, dispatch_path)
+        # The typed confirmation and the inline button must agree on the mode.
+        _confirm_and_notify(state, dispatch_path, run_mode="simple")
         return
     send_telegram(
         "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. "
