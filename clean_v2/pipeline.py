@@ -4978,6 +4978,7 @@ def _validate_plan_for_brief(
                 validated_practical_action = validate_short_practical_action_specificity(
                     validated_practical_action,
                     topic_context=action_context,
+                    approved_topic=str(brief.get("approved_topic") or brief.get("topic") or ""),
                 )
         except ShortFormatError as exc:
             # An early action rejection must not hide simultaneous visual
