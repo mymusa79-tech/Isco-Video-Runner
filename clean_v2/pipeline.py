@@ -283,6 +283,9 @@ _PODCAST_FIXED_PROFILE = {
         "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
         "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
         "Questions must sound like something a real listener would ask, not prompts written to feed an answer. "
+        "After an answer, A can voice only the next genuine uncertainty or objection created by THAT answer, "
+        "not an interview-style topic transition. B must answer its precise new gap before explaining more; "
+        "one clear mechanism or distinction and a grounded everyday illustration usually beat several broad reassurances. "
         + HUMAN_VOICE_NO_FILLER
     ),
     "visual": (
@@ -6273,6 +6276,7 @@ LONGFORM_RETENTION_PREFLIGHT = """
 LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before returning JSON):
 - Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
 - The first spoken hook must open the SAME concrete hook_tension and stay topic-specific.
+- The first substantive content after identity must PAY DOWN that exact hook with a real partial answer, distinction, or observable fact. Do not make the listener wait through generic setup after a strong opening.
 - Every middle section must add one new explanatory job already supported by the approved brief/plan: mechanism, cause, distinction, consequence, or lived example. Do not drift into generic advice.
 - The final section must explicitly deliver or deepen the SAME payoff_answer. Generic advice, a slogan, or an unrelated practical tip is not a payoff.
 - Silent acceptance check — do NOT output these labels; rewrite before returning until all three are true:
@@ -6293,11 +6297,18 @@ and remains the established channel voice. Preserve explicit A:/B: labels only a
 A is sparse and short: normally one natural sentence, preferably 4-14 Arabic words, only when it unlocks
 the next layer. Every A turn must perform exactly one useful listener-proxy job: real question, plausible
 doubt, concrete objection, or request for clarification. B must answer the specific gap opened by A before
-another A turn appears. If removing an A turn would leave B saying essentially the same thing, remove that A
+another A turn appears. Except for the short pre-prayer identity bridge, B's first one or two TOPIC sentences
+must resolve A's immediate why/how/doubt directly; then deepen it with an approved mechanism, a concrete
+everyday example or a useful distinction, and the limits of the claim where needed. Do not echo the question,
+offer instant reassurance, or leap to general advice in place of an answer.
+If removing an A turn would leave B saying essentially the same thing, remove that A
 turn; do not manufacture dialogue merely to preserve alternation. B carries the substance in a fuller answer
 before A returns. Never alternate mechanically line-by-line. No greetings, names, host/guest framing, thanks,
 fake agreement, jokes inserted for chemistry, or staged interview filler. A must sound like a real listener
-thinking aloud, not a prompt engineered to feed B's answer. The first hook should normally be an A
+thinking aloud, not a prompt engineered to feed B's answer. Treat A as the listener's PRIVATE INNER QUESTION:
+a natural doubt in ordinary Arabic, rooted in a concrete moment, never a formal interviewer asking for chapter
+headings. Later A turns must arise from the exact unresolved implication of B's PREVIOUS answer; if a question
+could be asked before hearing that answer, consider omitting it. The first hook should normally be an A
 question/objection that a real listener could have thought before pressing play, and B's first topic sentence
 after prayer/identity must answer that SAME question immediately rather than restarting the episode. Keep both
 voices simple, deep, conversational, and non-theatrical.
@@ -6318,7 +6329,11 @@ def _script_prompt(
         length = (
             "For the main long episode, 10-20 minutes is the normal editorial range, never an acceptance gate. "
             "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
-            "a sound script merely to hit that range. Continue only while each section adds a new mechanism, "
+            "a sound script merely to hit that range. The first substantive section must return an observable insight "
+            "or honest partial answer to the specific hook before moving into the next section. "
+            "Every following section should reward the listener with a new supported distinction, useful example, "
+            "consequence or earned conclusion; a powerful hook followed by generic advice is incomplete. "
+            "Continue only while each section adds a new mechanism, "
             "consequence, example, distinction, or earned resolution.\n"
             + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
