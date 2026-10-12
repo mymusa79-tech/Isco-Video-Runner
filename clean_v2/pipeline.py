@@ -5895,7 +5895,7 @@ listener with the screen closed.
         "Keep one connected visual world; avoid repeated desks and writing props. "
         "Use hands, posture, back view, silhouette or distant blur; never a clear recognizable face. "
         "Pets, sleeping animals, travel maps and random gadgets are not metaphors for progress unless the topic involves them. "
-        "The alternate MUST move to a different relevant action family, never an unrelated scene."
+        "If primary repeats the previous section\'s dominant action family, alternate MUST change to another relevant family."
         if fmt == "short"
         else ""
     )
