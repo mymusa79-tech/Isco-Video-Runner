@@ -474,6 +474,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "- SPOKEN_NATURALNESS_LITE: grammatical, concrete, natural spoken Arabic; "
             "no fragments, false diagnoses, generic slogans. Check agreement and references.\n"
             f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
+            "Across s1/s2/s3, use visibly different dominant actions or states so the picture progresses. "
             "Distinct s1/s2/s3 actions. FIRST-SHOT GATE: s1 shows an action/event AND "
             "readable tension, never a generic desk, static figure or landscape. "
             "s3 depicts the earned result without repeated writing/desk coverage."
