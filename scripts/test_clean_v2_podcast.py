@@ -726,7 +726,7 @@ class PodcastVisualIdentityTests(unittest.TestCase):
         self.assertEqual([item["role"] for item in events], ["hook", "turn", "payoff"])
         ass = build_podcast_key_text_ass(events)
         self.assertIn("PlayResX: 1920", ass)
-        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
         self.assertIn("&H00EEF2F4", ass)
         self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Style: Extrusion", ass)

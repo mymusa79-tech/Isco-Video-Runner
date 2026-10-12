@@ -462,7 +462,7 @@ def _apply_sparse_key_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "font_family_contract": "Cairo Bold",
+        "font_family_contract": "Noto Sans Arabic Bold",
         "outline_px": 4,
         "shadow_offset": [0, 0],
         "extrusion_offset": [0, 0],

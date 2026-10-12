@@ -69,7 +69,20 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertNotIn("\u200f", ass)
                 self.assertIn("تَرى", ass)
                 self.assertIn("WrapStyle: 2", ass)
-                self.assertIn("Cairo", ass)
+                self.assertIn("Noto Sans Arabic", ass)
+
+    def test_run124_hook_is_split_into_legible_two_row_cards_without_word_loss(self):
+        from clean_v2.short_timed_text import _phrase_chunks, _caption_rows_and_size, _caption_width
+        source = "هل شعرت يومًا أن وفرة الخيارات أمامك تجعلك عاجزًا عن اختيار أي شيء على الإطلاق؟"
+        chunks = _phrase_chunks(source)
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(" ".join(chunks), source)
+        for chunk in chunks:
+            rows, size = _caption_rows_and_size(chunk, fmt="short", font_size=166)
+            self.assertLessEqual(len(rows), 2)
+            self.assertEqual(" ".join(rows), chunk)
+            self.assertGreaterEqual(size, 100)
+            self.assertTrue(all(_caption_width(row, size) <= 920 for row in rows))
 
     def test_shared_format_color_strengths_are_gentler_without_blue_wash(self):
         sample = media._RgbStats(168, 139, 120, 34, 35, 32)
@@ -141,7 +154,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertIn("فكرة جديدة", srt)
                 self.assertNotIn("اللهم", srt)
                 self.assertIn("WrapStyle: 2", ass)
-                self.assertIn("Style: Caption,Cairo", ass)
+                self.assertIn("Style: Caption,Noto Sans Arabic", ass)
                 self.assertTrue((root / "caption-sidecars.json").is_file())
 
     def test_world_identity_is_global_and_respects_modest_people(self):

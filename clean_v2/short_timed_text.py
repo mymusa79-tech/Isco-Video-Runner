@@ -17,7 +17,7 @@ SCHEMA_VERSION = 12
 RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v12"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Approved Caption Lite: Cairo Bold, large readable Arabic, warm off-white face,
+# Caption Lite: Noto Sans Arabic Bold for libass Arabic glyph reliability, warm off-white face,
 # crisp black outline, no gold sweep, no extrusion and no shadow. Timing stays
 # voice-owned and the only motion is a short fade at the event boundaries.
 PRIMARY_ASS = "&H00EEF2F4"  # RGB #F4F2EE warm off-white
@@ -25,7 +25,7 @@ ACCENT_ASS = PRIMARY_ASS  # compatibility alias; accent rendering is disabled
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = OUTLINE_ASS  # compatibility alias; extrusion rendering is disabled
 SHADOW_ASS = OUTLINE_ASS  # compatibility alias; shadow rendering is disabled
-BODY_FONT = "Cairo"
+BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 166
 FOCUS_FONT_SIZE = 166
@@ -211,7 +211,7 @@ def _phrase_chunks(text: object) -> list[str]:
             chunks.pop(index)
             continue
         index += 1
-    return chunks
+    return _fit_phrase_chunks_to_two_lines(chunks)
 
 
 def _section_phrase_events(
@@ -486,7 +486,7 @@ def _caption_font_path() -> str:
     """Use the installed Cairo font; do not rely on a silent Latin fallback."""
     try:
         result = subprocess.run(
-            ["fc-match", "-f", "%{file}", "Cairo:style=Bold"],
+            ["fc-match", "-f", "%{file}", "Noto Sans Arabic:style=Bold"],
             capture_output=True, text=True, timeout=4,
             env=_secret_free_subprocess_env(),
         )
@@ -516,7 +516,7 @@ def _caption_width(text: str, size: int) -> float:
 
 _CAPTION_FRAME_WIDTH = {"short": 1080, "film": 1920, "podcast": 1920}
 _CAPTION_MAX_WIDTH = {"short": 920, "film": 1560, "podcast": 1460}
-_CAPTION_FONT_MIN = {"short": 118, "film": 48, "podcast": 40}
+_CAPTION_FONT_MIN = {"short": 100, "film": 48, "podcast": 40}
 
 
 def _caption_rows_and_size(text: str, *, fmt: str, font_size: int) -> tuple[list[str], int]:
@@ -570,6 +570,35 @@ def caption_character_diagnostics(texts: Sequence[str]) -> dict[str, Any]:
         "font_requested": BODY_FONT,
         "source": "local_pre_render_unicode_inspection",
     }
+
+
+def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str]) -> list[str]:
+    """Make more timed phrases when one two-line caption cannot fit legibly.
+
+    Never drop an authored word or add a third visual row. The caller's existing
+    voice-owned timing partitions the measured section across resulting phrases.
+    """
+    fitted: list[str] = []
+    minimum = _CAPTION_FONT_MIN["short"]
+    width = _CAPTION_MAX_WIDTH["short"]
+    for chunk in chunks:
+        remaining = _clean(chunk).split()
+        while remaining:
+            choice = 0
+            for end in range(len(remaining), 0, -1):
+                candidate = " ".join(remaining[:end])
+                rows, _ = _caption_rows_and_size(
+                    candidate, fmt="short", font_size=minimum
+                )
+                if max((_caption_width(row, minimum) for row in rows), default=0.0) <= width:
+                    choice = end
+                    break
+            if choice == 0:
+                choice = 1  # A single long authored word must remain intact.
+            fitted.append(" ".join(remaining[:choice]))
+            remaining = remaining[choice:]
+    return fitted
+
 
 def _filter_escape_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
@@ -1017,7 +1046,7 @@ def render_progressive_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "font_family_contract": "Cairo Bold",
+        "font_family_contract": "Noto Sans Arabic Bold",
         "outline_px": 2,
         "extrusion_offset": [0, 0],
         "shadow_offset": [0, 0],
@@ -1028,7 +1057,7 @@ def render_progressive_text(
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
         "text_source_policy": "final_audited_script_with_render_safe_unicode_sanitation",
-        "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
+        "rtl_policy": "noto_arabic_libass_rtl_width_bounded_one_or_two_lines_preserve_all_words",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
         "unicode_diagnostics": caption_character_diagnostics([str(row.get("text") or "") for row in events if isinstance(row, Mapping)]),
