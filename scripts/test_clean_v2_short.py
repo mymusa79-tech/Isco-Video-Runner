@@ -2138,10 +2138,10 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
             self.assertGreaterEqual(len(events), 3)
-        self.assertEqual(
-            {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
-            {section["id"]: section["narration"] for section in script["sections"]},
-        )
+            self.assertEqual(
+                {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
+                {section["id"]: section["narration"] for section in script["sections"]},
+            )
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
