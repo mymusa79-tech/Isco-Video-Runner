@@ -1266,15 +1266,15 @@ def validate_short_practical_action_specificity(
     value: object,
     *,
     topic_context: object = "",
+    approved_topic: object = "",
 ) -> str:
-    """Reject only clearly-generic fresh Short actions before they become host locks.
+    """Reject generic and obviously staged actions before host locking.
 
-    The normal action validator remains the authority on grammar/shape. This
-    adds a deliberately narrow semantic floor: anonymous buckets such as
-    "أشياء/أمور" are never an acceptable action target, and the common
-    stand-ins مهمة/هدف/عادة/خطوة need at least one concrete word shared with
-    the approved topic/plan context. It does not try to solve Arabic semantics
-    locally or replace the downstream audit.
+    The existing grammar/shape validator remains authoritative. Anonymous
+    placeholders need concrete context; a prop-placement instruction with no
+    connection to the independently approved topic is not a behavioral payoff.
+    This is a narrow extension of the existing specificity check, not another
+    review stage, call, or general Arabic-semantic inference.
     """
     action = validate_short_practical_action(value)
     tokens = set(_semantic_key(action).split())
@@ -1286,6 +1286,25 @@ def validate_short_practical_action_specificity(
         approved_context = _short_action_context_tokens(topic_context)
         if not (action_context & approved_context):
             raise ShortFormatError("short_practical_action_too_generic_for_topic")
+
+    # Run 125: a scenic prop from Planning was also copied into the section
+    # purposes, so comparing the action against the plan "context" approved
+    # the self-referential but useless instruction to put a key on the table.
+    # Only reject the narrow, provably staged prop-placement case when that
+    # object is absent from the independently approved video topic. Other
+    # actions keep the existing quality/repair path, without a second model.
+    action_key = _semantic_key(action)
+    topic_key = _semantic_key(approved_topic)
+    stage_prop = re.search(r"\\b(?:مفتاح\\w*|المفتاح\\w*|كوب\\w*|الكوب\\w*|شمع\\w*|الشمع\\w*|حجر\\w*|الحجر\\w*)\\b", action_key)
+    stage_surface = re.search(r"\\b(?:الطاوله|طاوله|المكتب|مكتب|الرف|رف|سطح)\\b", action_key)
+    if (
+        topic_key
+        and action_key.startswith("ضع ")
+        and stage_prop
+        and stage_surface
+        and not re.search(re.escape(stage_prop.group()).rstrip("ا")[:4], topic_key)
+    ):
+        raise ShortFormatError("short_practical_action_unrelated_staged_prop")
     return action
 
 
