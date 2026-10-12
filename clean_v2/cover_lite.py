@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .contracts import atomic_write_json
-from .media import _run
+from .media import _run, _stock_metadata_context_conflict, _stock_metadata_semantic_score
 
 
 SCHEMA_VERSION = 1
@@ -121,6 +121,22 @@ def select_cover_source(
     # arbitrary frame as a cover merely because its contrast looks good.
     meaningful = [item for item in pool if str(item[2].get("source_actual") or "") != "generated_local"]
     pool = meaningful
+    # Simple Mode cannot claim that attractive lighting makes a cover relevant.
+    # Reuse the stock search metadata already in rights-manifest; when an asset
+    # clearly describes something else, use another asset or channel identity.
+    from .simple_mode import is_simple_mode
+    if is_simple_mode():
+        credible = []
+        for item in pool:
+            _, _, row = item
+            description = str(row.get("retrieval_description") or "").strip()
+            query = str(row.get("query") or "").strip()
+            if (description and query and
+                    (_stock_metadata_context_conflict(query, description)
+                     or _stock_metadata_semantic_score(query, description) < 0.15)):
+                continue
+            credible.append(item)
+        pool = credible
     if pool:
         # Local visual scoring inspects a small bounded pool of already-approved
         # assets. Five gives Cover Studio more room to find channel-fit depth
