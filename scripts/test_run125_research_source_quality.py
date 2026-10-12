@@ -81,9 +81,18 @@ class MarketRelevanceAndQualityTests(unittest.TestCase):
         self.assertEqual(supported["like_rate_percent"], 4.0)
         self.assertIsNone(undisclosed["likes"])
         self.assertIsNone(undisclosed["like_rate_percent"])
-        self.assertEqual({p["source_url"] for p in control._research_pack(evidence)}, {
+        pack = control._research_pack(evidence)
+        self.assertEqual({p["source_url"] for p in pack}, {
             "https://youtu.be/supported", "https://youtu.be/undisclosed"
         })
+        confirmation = control.render_selection_confirmation({
+            "scope": "short",
+            "approved_topic": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
+            "research_pack": pack,
+        })
+        self.assertIn("5000 مشاهدة", confirmation)
+        self.assertIn("200 إعجاب", confirmation)
+        self.assertIn("الإعجابات غير معلنة", confirmation)
 
     def test_all_weak_or_unrelated_samples_are_not_reported_as_market_evidence(self) -> None:
         date = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace("+00:00", "Z")
