@@ -131,7 +131,7 @@ def simple_visual_qa(
     production. Scores for attractive lighting or mood are advisory. Unavailable
     evidence never becomes approval. A provider outage disables later calls.
     """
-    from .media import create_fallback_visual, local_visual_recipe, _sha256, probe_duration
+    from .media import create_fallback_visual, local_visual_recipe, _sha256, probe_duration, _read_secret
     from .visual_qa import _apply_observed_visual_proof, _infrastructure_error, _review_display_durations
     from .visual_story import visual_review_context
 
@@ -147,7 +147,19 @@ def simple_visual_qa(
     display = _review_display_durations(Path(output_dir), rights, fmt) if rows and all(r.get("local_file") for r in rows) else {}
     reviews: list[dict[str, Any]] = []
     review_calls = 0
-    review_available = bool(os.environ.get("GEMINI_API_KEY"))
+    # Reuse the existing route that proves a free account BEFORE inference and
+    # shares the workflow's five-call ceiling. Never bypass production's Gemini
+    # skip policy or infer that another API key implies a zero-cost account.
+    ledger = None
+    review_available = (os.environ.get("CLOUDFLARE_VISION_FREE_ONLY", "").strip().lower() == "true"
+                        and bool(_read_secret("CLOUDFLARE_API_TOKEN"))
+                        and bool(_read_secret("CLOUDFLARE_ACCOUNT_ID")))
+    if review_available:
+        from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
+        from scripts import gold_cloudflare_vision_fallback as free_vision
+        from scripts.vision_stage_contract_v2 import VisionStageError
+        ledger = BudgetLedger(fmt, enforce=True)
+        review_available = free_vision.shared_vision_configured()
     previous_observation = ""
     for index, row in enumerate(rows):
         local_file = str(row.get("local_file") or "")
@@ -165,7 +177,11 @@ def simple_visual_qa(
             "lettering inside source pixels. Preserve an actual observable action/state "
             "from this narration; do not infer it from search metadata."
         )
-        context_hash = hashlib.sha256((narration + context).encode()).hexdigest()
+        context_hash = hashlib.sha256(json.dumps({
+            "narration": narration, "intent": context,
+            "display_seconds": display.get(local_file),
+            "display_aspect": "9:16" if fmt in {"short", "story", "moment"} else "16:9",
+        }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         source_hash = _sha256(clip)
         saved = row.get("visual_evidence") or {}
         audit: dict[str, Any] = {}
@@ -178,28 +194,31 @@ def simple_visual_qa(
             reason = "reused_exact_pixel_evidence"
         elif row.get("provider") != FALLBACK_PROVIDER and review_available:
             try:
-                from scripts.canonical_visual_evidence_v1 import build_canonical_visual_evidence, audit_gemini_canonical_evidence
+                from scripts.canonical_visual_evidence_v1 import build_canonical_visual_evidence
                 evidence = build_canonical_visual_evidence(
                     clip, Path(output_dir) / "visual-evidence" / f"simple-{index + 1:02d}",
                     narration_context=narration, intended_visual=context,
                     display_aspect_ratio=(9, 16) if fmt in {"short", "story", "moment"} else (16, 9),
                     duration_limit_seconds=display.get(local_file),
                 )
-                review_calls += 1
-                # Direct existing canonical reviewer: SDK retries are already
-                # disabled. Do not install the standard five-provider recovery mesh.
-                audit = audit_gemini_canonical_evidence(
-                    os.environ["GEMINI_API_KEY"], clip, canonical_evidence=evidence,
+                spec = TaskSpec(task_id=f"SIMPLE_VISUAL_AUDIT_{index + 1:03d}", kind="VISUAL_AUDIT",
+                                priority=Priority.P0, capability=Capability.VISION,
+                                max_provider_attempts=1, schema_repair_allowed=False,
+                                local_fallback=False, semantic_block_is_final=True)
+                ledger.register_task(spec)
+                # Call the existing single free route directly, without installing
+                # the standard recovery mesh or retrying a rejected scene.
+                audit = free_vision.run_shared_cloudflare_attempt(
+                    ledger, spec, preview=clip, canonical_visual_evidence=evidence,
                     narration_context=narration, intended_visual=context,
-                    model=os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash"),
                 )
                 provenance = {"source_sha256": source_hash, "context_sha256": context_hash,
                               "prompt_hash": evidence.prompt_hash, "frame_sha256": list(evidence.frame_sha256),
-                              "review_provider": "gemini", "audit": dict(audit)}
+                              "review_provider": free_vision.CLOUDFLARE_VISION_PROVIDER, "audit": dict(audit)}
                 reason = "single_canonical_pixel_review"
             except Exception as exc:
-                invalid_reply = isinstance(exc, ValueError) and str(exc).startswith("Gemini ")
-                if not (_infrastructure_error(exc) or is_known_infra_failure(exc) or invalid_reply):
+                if not (isinstance(exc, (free_vision.CloudflareGoldVisionUnavailable, VisionStageError))
+                        or _infrastructure_error(exc) or is_known_infra_failure(exc)):
                     raise
                 review_available = False
                 reason = f"review_unavailable:{type(exc).__name__}"
@@ -257,10 +276,13 @@ def simple_visual_qa(
 
     backgrounds = [row for row in primary if _is_bg(row)]
     extra_backgrounds = [row for row in extra if _is_bg(row)]
+    # Account for real inference attempts, not no-wire subscription/quota probes.
+    review_calls = ledger.to_summary()["provider_attempts"]["total"] if ledger is not None else 0
     report = {
         "status": "pass",
         "mode": "simple_single_pass_local_replacement",
-        "semantic_review": "single_pass" if review_calls else "not_performed",
+        "semantic_review": "single_pass" if review_calls else (
+            "reused_exact_pixel_evidence" if any(r.get("decision") == "observed_matched" for r in reviews) else "not_performed"),
         "clips": len(primary),
         "stock_clips": len(primary) - len(backgrounds),
         "fallback_backgrounds": len(backgrounds),
@@ -269,6 +291,8 @@ def simple_visual_qa(
         "extra_pacing_backgrounds": len(extra_backgrounds),
         "final_media_mutated": any(r.get("decision") in {"local_symbolic", "unverified_channel_only"} for r in reviews),
         "provider_calls_added": review_calls,
+        "review_provider": "cloudflare_workers_ai",
+        "zero_cost_policy": "existing_subscription_proof_and_shared_workflow_quota",
         "reviews": reviews,
         "observed_matched_clips": sum(r.get("decision") == "observed_matched" for r in reviews),
         "local_symbolic_clips": sum(r.get("decision") == "local_symbolic" for r in reviews),

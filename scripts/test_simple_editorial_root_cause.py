@@ -84,7 +84,7 @@ class SinglePassEvidenceTests(unittest.TestCase):
                 **{k: False for k in ("identifiable_person", "sensitive_trait_implication_risk", "prominent_logo_or_brand",
                                      "cultural_conflict", "cultural_islamic_suitability_risk", "advertiser_conflict", "obvious_synthetic_or_visual_artifact")}}
 
-    def run_qa(self, audits, count=1, credential=True, persisted_story=False, twice=False):
+    def run_qa(self, audits, count=1, credential=True, persisted_story=False, twice=False, proof_error=None, changed_window=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); (root / "visuals").mkdir()
             rights = []
@@ -96,9 +96,17 @@ class SinglePassEvidenceTests(unittest.TestCase):
             if persisted_story:
                 (root / "visual-story.json").write_text(json.dumps({"beats": [{"id": "b0", "section_id": "s2", "role": "body", "shot_intent": "hand moving one object", "semantic_must_have": ["moving object"]}]}))
             evidence = SimpleNamespace(prompt_hash="p", frame_sha256=("f1", "f2", "f3"))
-            with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "unit-test" if credential else ""}), \
+            with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "must-never-be-used", "CLEAN_V2_VISUAL_SKIP_GEMINI": "true",
+                 "CLOUDFLARE_VISION_FREE_ONLY": "true", "CLOUDFLARE_API_TOKEN": "unit-test" if credential else "",
+                 "CLOUDFLARE_ACCOUNT_ID": "a" * 32, "CLOUDFLARE_VISION_QUOTA_FILE": str(root / "quota.json")}), \
                  mock.patch("scripts.canonical_visual_evidence_v1.build_canonical_visual_evidence", return_value=evidence), \
-                 mock.patch("scripts.canonical_visual_evidence_v1.audit_gemini_canonical_evidence", side_effect=audits) as review, \
+                 mock.patch("scripts.canonical_visual_evidence_v1.audit_gemini_canonical_evidence", side_effect=AssertionError("Gemini is disabled")), \
+                 mock.patch("scripts.gold_cloudflare_vision_fallback._prove_workers_free", side_effect=proof_error), \
+                 mock.patch("scripts.gold_cloudflare_vision_fallback._prove_model_access"), \
+                 mock.patch("scripts.gold_cloudflare_vision_fallback._wire_call", side_effect=audits) as review, \
+                 mock.patch("clean_v2.visual_qa._review_display_durations", return_value={},
+                            side_effect=[{"0.mp4": 2.0}, {"0.mp4": 4.0}] if changed_window else None), \
+                 mock.patch.object(media, "probe_duration", return_value=60.0), \
                  mock.patch.object(media, "create_fallback_visual") as fallback:
                 report = simple_mode.simple_visual_qa(output_dir=root, plan={}, script={}, rights=rights, fmt="film")
                 if twice:
@@ -137,9 +145,23 @@ class SinglePassEvidenceTests(unittest.TestCase):
         self.assertEqual((calls, fallbacks), (0, 1))
         self.assertEqual(rights[0]["local_visual_recipe"], "independent_progress")
 
+    def test_unproven_free_account_never_performs_inference_or_uses_gemini(self):
+        from scripts.gold_cloudflare_vision_fallback import CloudflareGoldVisionUnavailable
+        report, rights, calls, fallbacks = self.run_qa([], count=3, proof_error=CloudflareGoldVisionUnavailable("unproven free account"))
+        self.assertEqual((calls, fallbacks, report["provider_calls_added"]), (0, 3, 0))
+
+    def test_shared_free_workflow_ceiling_is_not_raised_for_simple_mode(self):
+        report, rights, calls, fallbacks = self.run_qa([self.audit()] * 5, count=7)
+        self.assertEqual((calls, fallbacks, report["provider_calls_added"]), (5, 2, 5))
+
     def test_persisted_story_context_and_exact_evidence_are_reused_without_second_call(self):
         report, rights, calls, fallbacks = self.run_qa([self.audit()], persisted_story=True, twice=True)
         self.assertEqual((calls, fallbacks), (1, 0))
+        self.assertEqual(report["observed_matched_clips"], 1)
+
+    def test_changed_display_window_cannot_reuse_old_pixel_proof(self):
+        report, rights, calls, fallbacks = self.run_qa([self.audit(), self.audit()], twice=True, changed_window=True)
+        self.assertEqual((calls, fallbacks), (2, 0))
         self.assertEqual(report["observed_matched_clips"], 1)
 
 
