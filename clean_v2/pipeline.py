@@ -5887,11 +5887,13 @@ listener with the screen closed.
         else ""
     )
     short_visual_query_instruction = (
-        "For short: every section provides visual_query_en plus one different "
-        "visual_query_alt_en for the SAME meaning (not synonyms). No recognizable "
-        "front, profile or angled faces; use hands, back views, posture or distant "
-        "blurred figures. Repeated stationery/action families need a distinct "
-        "alternate that still proves the same idea."
+        "For short only: every section must provide TWO distinct visual intents: "
+        "visual_query_en and visual_query_alt_en for the SAME meaning (not synonyms). "
+        "Show visibly different dominant actions or states, not a repeated camera angle. "
+        "No recognizable front, profile or angled faces; use hands only, back views, "
+        "posture or distant blurred figures. Repeated stationery/action families need "
+        "a distinct alternate in a different dominant action family that still proves "
+        "the same idea."
         if fmt == "short"
         else ""
     )
