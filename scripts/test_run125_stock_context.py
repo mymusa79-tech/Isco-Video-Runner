@@ -93,6 +93,13 @@ class Run125StockContextTests(unittest.TestCase):
         self.assertEqual(selected["asset_id"], "11")
         fetch.assert_called_once()
 
+    def test_coverr_query_keeps_original_object_from_run125(self) -> None:
+        query = "person sitting at cluttered desk with empty coffee cup close up"
+        adapted = media._provider_stock_query(query, "coverr")
+        self.assertIn("cup", adapted.split())
+        self.assertLessEqual(len(adapted.split()), 8)
+        self.assertLessEqual(len(adapted), 160)
+
     def test_semantic_score_does_not_claim_image_validation(self) -> None:
         self.assertFalse(
             media._stock_metadata_context_conflict(
