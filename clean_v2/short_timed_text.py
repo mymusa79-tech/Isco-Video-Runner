@@ -1197,7 +1197,7 @@ def write_longform_caption_sidecars(
         "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
         "", "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,Cairo,{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},1",
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
         *dialogues, "",
