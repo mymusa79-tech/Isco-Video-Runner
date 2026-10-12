@@ -144,6 +144,21 @@ class SinglePassEvidenceTests(unittest.TestCase):
 
 
 class ArabicRegressionTests(unittest.TestCase):
+    def test_captions_copy_audited_script_verbatim_and_reject_a_missing_word(self):
+        script = {"sections": [{"id": "s1", "narration": "أَتُؤَجِّلُ البداية دائمًا؟"},
+                               {"id": "s2", "narration": "لا تقارن بدايتك بمنتصف طريق الآخرين، فلكل شخص ظروفه."},
+                               {"id": "s3", "narration": "لست في سباق مع أحد. اختر هدفًا واحدًا اليوم."}]}
+        timeline = {"status": "pass", "identity_events": [{"kind": "hook", "start": 0, "end": 3}, {"kind": "topic", "start": 10, "end": 24}],
+                    "section_events": [{"section_id": "s1", "start": 0, "end": 10},
+                                       {"section_id": "s2", "start": 10, "end": 18}, {"section_id": "s3", "start": 18, "end": 24}]}
+        events = short_timed_text.build_events_from_voice_timeline(script=script, timeline_report=timeline)
+        self.assertEqual(short_timed_text._clean(" ".join(str(e["text"]) for e in events)),
+                         short_timed_text._clean(" ".join(s["narration"] for s in script["sections"])))
+        self.assertTrue(all(e["end"] <= 3 or e["start"] >= 10 for e in events))
+        with mock.patch.object(short_timed_text, "_section_phrase_events", return_value=[{"text": "أَتُؤَجِّلُ", "start": 0, "end": 3, "role": "hook"}]):
+            with self.assertRaisesRegex(short_timed_text.ShortTimedTextError, "caption_words_differ"):
+                short_timed_text.build_events_from_voice_timeline(script=script, timeline_report=timeline)
+
     def test_arabic_marks_hamzas_numbers_and_all_words_survive_two_line_layout(self):
         texts = ["لست في سباق مع أحد.", "بمنتصف طريق الآخرين،", "أَؤَجِّلُ خطوةً؟ ٣٪ و١٢٣؛ إِلى الآن!"]
         events = [{"start": i, "end": i + 1, "text": t, "role": "hook" if i == 0 else "payoff" if i == 2 else "beat"} for i, t in enumerate(texts)]

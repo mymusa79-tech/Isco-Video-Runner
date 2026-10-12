@@ -425,14 +425,16 @@ def build_events_from_voice_timeline(
         narration = section.get("narration")
         if section_index == 0:
             narration = _select_event_text(narration, "hook")
-        events.extend(
-            _section_phrase_events(
-                narration,
-                section_index=section_index,
-                start=caption_window[0],
-                end=caption_window[1],
-            )
+        section_events = _section_phrase_events(
+            narration,
+            section_index=section_index,
+            start=caption_window[0],
+            end=caption_window[1],
         )
+        # Display splits may change lines/timing, never the audited source words.
+        if _clean(" ".join(str(e["text"]) for e in section_events)) != _clean(narration):
+            raise ShortTimedTextError("caption_words_differ_from_final_audited_script")
+        events.extend(section_events)
     validate_progressive_text(events)
     return events
 
@@ -1134,6 +1136,9 @@ def apply_short_timed_text(
     return {
         **report,
         "events": events,
+        "caption_word_source": "final_audited_script",
+        "caption_source_file": "script.json",
+        "caption_word_integrity_verified": timeline_path.is_file(),
         "final_file": Path(final_path).name,
     }
 
