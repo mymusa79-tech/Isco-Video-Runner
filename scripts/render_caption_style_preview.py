@@ -26,7 +26,7 @@ def _render_color_frame(*, size: str, ass: Path, at: float, output: Path) -> Non
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", f"color=c=#403A35:s={size}:r=30:d={duration}",
-            "-vf", f"ass={ass.resolve()}",
+            "-vf", f"ass={ass.resolve()}:shaping=complex",
             "-ss", f"{at:.2f}",
             "-frames:v", "1",
             str(output.resolve()),

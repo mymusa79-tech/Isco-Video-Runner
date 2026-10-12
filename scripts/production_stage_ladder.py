@@ -109,6 +109,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
     ),
     "P3": (
         "scripts.test_visual_evidence_selection",
+        "scripts.test_simple_editorial_root_cause",
         "scripts.test_media_trust_boundary_v2",
         "scripts.test_run92_opening_feasibility_guard",
         "scripts.test_run108_stock_candidate_isolation",

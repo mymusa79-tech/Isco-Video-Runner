@@ -20,6 +20,7 @@ on:
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_short.py"
       - "scripts/test_simple_mode.py"
+      - "scripts/test_simple_editorial_root_cause.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
       - "scripts/test_clean_v2_visual_pacing.py"
@@ -132,6 +133,7 @@ jobs:
             scripts.test_clean_v2_voice \
             scripts.test_clean_v2_short \
             scripts.test_simple_mode \
+            scripts.test_simple_editorial_root_cause \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             scripts.test_clean_v2_visual_pacing \
