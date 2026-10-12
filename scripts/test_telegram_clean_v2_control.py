@@ -204,7 +204,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertTrue(dispatch.exists())
             payload = json.loads(dispatch.read_text(encoding="utf-8"))
             self.assertEqual(payload["request_id"], "req-1")
-            self.assertNotIn("run_mode", state["requests"]["req-1"])
+            self.assertEqual(state["requests"]["req-1"]["run_mode"], "simple")
 
     def test_provider_cooldown_blocks_dispatch_and_notifies_without_creating_file(self):
         """Telegram runs #79/81/83/84 (2026-10-04): ten dispatches fired back to
@@ -319,10 +319,10 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             control.handle_update(state, update, dispatch)
             self.assertTrue(dispatch.exists())
             self.assertEqual(state["requests"]["req-current"]["status"], "confirmed_pending_dispatch")
-            self.assertNotIn("run_mode", state["requests"]["req-current"])
+            self.assertEqual(state["requests"]["req-current"]["run_mode"], "simple")
             self.assertIn("تم تأكيد الإنتاج", send.call_args.args[0])
 
-    def test_single_confirm_preserves_standard_and_legacy_simple_is_rejected(self):
+    def test_single_confirm_routes_simple_and_rejects_legacy_button(self):
         def make():
             state = control.default_state()
             request = {
@@ -347,7 +347,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             dispatch = Path(tmp) / "d.json"
             control.handle_update(state, update, dispatch)
             self.assertTrue(dispatch.exists())
-            self.assertNotIn("run_mode", state["requests"]["req-s"])
+            self.assertEqual(state["requests"]["req-s"]["run_mode"], "simple")
             self.assertEqual(state["requests"]["req-s"]["request_sha256"], sha)
 
         state, _ = make()
@@ -359,7 +359,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             control.handle_update(state, legacy, dispatch)
             self.assertFalse(dispatch.exists())
             self.assertEqual(state["requests"]["req-s"]["status"], "awaiting_confirmation")
-            self.assertIn("المطابقة البصرية", sent.call_args.args[0])
+            self.assertIn("زر قديم", sent.call_args.args[0])
         state, _ = make()
         bad = {"callback_query": {"from": {"id": 123}, "message": {"chat": {"id": 123}}, "data": "confirm:req-s:bogus"}}
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
@@ -676,6 +676,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             result = control._stage_confirmation_dispatch(state, dispatch)
             self.assertTrue(dispatch.exists())
             self.assertEqual(result["request"]["status"], "confirmed_pending_dispatch")
+            self.assertEqual(result["request"]["run_mode"], "simple")
 
     def test_latest_longform_split_distinguishes_podcast_by_outside_text_identity(self):
         videos = [
@@ -805,7 +806,8 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("مصدر ثان", text)
         self.assertNotIn("مصدر ثالث", text)
         self.assertIn(control.CONFIRM_TEXT, text)
-        self.assertIn("مراجعة المطابقة البصرية", text)
+        self.assertIn("Simple", text)
+        self.assertIn("لا تُجرى مراجعة AI", text)
 
     def test_stats_copy_is_plain_arabic_without_internal_terms(self):
         stats = {
