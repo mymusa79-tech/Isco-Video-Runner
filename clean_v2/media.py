@@ -1135,7 +1135,10 @@ def _provider_stock_query(query: str, provider: str) -> str:
         adapted = compact_searchable_visual_intent(
             raw,
             drop_tokens=_PIXABAY_QUERY_DROP_TOKENS | frozenset({"showing", "many", "small", "over"}),
-            max_words=6,
+            # Run 125's six-word truncation lost the target object "cup" from
+            # "cluttered desk with empty coffee cup". Keep up to eight meaningful
+            # tokens, still one Coverr search within the existing 160-char cap.
+            max_words=8,
         )
         return _bounded_provider_query_chars(adapted or raw, 160)
 
@@ -1255,6 +1258,41 @@ def _stock_rank_tokens(value: str) -> set[str]:
             token = token[:-2]
         tokens.add(token.rstrip("e") if len(token) > 3 else token)
     return tokens
+
+
+def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
+    """Skip obviously off-topic stock metadata before download or extra Vision work.
+
+    This is a conservative local ranking exclusion, NOT a semantic-pass verdict.
+    Run 125 returned a vaccination-calendar photo for a generic productivity
+    date, a grocery list for a task list, and a spinning toy for a key action.
+    Use descriptions already returned by providers; unknown metadata passes
+    through to the existing review/fallback path at zero extra cost.
+    """
+    intent = str(query or "").casefold()
+    description = urllib.parse.unquote(str(metadata or "")).casefold()
+    if not intent.strip() or not description.strip():
+        return False
+
+    medical = r"\b(?:vaccin\w*|syring\w*|inject\w*|medicin\w*|medicat\w*|pills?|hospital|pharmac\w*|immuniz\w*)\b"
+    medical_intent = r"\b(?:health|medical|vaccin\w*|syring\w*|inject\w*|medicin\w*|medicat\w*|pills?|hospital|pharmac\w*|immuniz\w*|clinic|doctor|nurse|patient|treatment|therapy)\b"
+    if re.search(medical, description) and not re.search(medical_intent, intent):
+        return True
+
+    task_list = bool(re.search(r"\b(?:to[ -]?do|tasks?|checklist|unfinished list)\b", intent))
+    grocery = bool(re.search(r"\b(?:grocer\w*|shopping list|recipe list)\b", description))
+    if task_list and grocery and not re.search(r"\b(?:grocer\w*|shopping|food|recipe)\b", intent):
+        return True
+
+    if (re.search(r"\bkeys?\b", intent)
+            and re.search(r"\b(?:spinning top|toy top|fidget spinner)\b", description)
+            and not re.search(r"\b(?:spinning top|toy top|fidget spinner)\b", intent)):
+        return True
+
+    if (re.search(r"\b(?:hands only|no face visible|hands? close[ -]?up)\b", intent)
+            and re.search(r"\b(?:portrait|(?:woman|man|person)\b.{0,90}\b(?:gazing|looking)\b|gazing out (?:a |the )?window)", description)):
+        return True
+    return False
 
 
 def _stock_metadata_semantic_score(query: str, metadata: str) -> float:
@@ -1533,6 +1571,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
             count = max(1, len(hits))
             for index, hit in enumerate(hits):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("coverr", hit)):
+                    continue
                 asset_id = str(hit.get("id") or "").strip()
                 identity = ("coverr", asset_id)
                 if not asset_id or identity in self._used:
@@ -1643,6 +1683,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
             count = max(1, len(photos))
             for index, photo in enumerate(photos):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pexels_photo", photo)):
+                    continue
                 identity = ("pexels_photo", str(photo.get("id") or ""))
                 if not identity[1] or identity in self._used:
                     continue
@@ -1741,6 +1783,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], str, tuple[str, str]]] = []
             count = max(1, len(hits))
             for index, hit in enumerate(hits):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pixabay_photo", hit)):
+                    continue
                 identity = ("pixabay_photo", str(hit.get("id") or ""))
                 if not identity[1] or identity in self._used:
                     continue
@@ -1834,6 +1878,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]] = []
             count = max(1, len(videos))
             for index, video in enumerate(videos):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pexels", video)):
+                    continue
                 identity = ("pexels", str(video.get("id") or ""))
                 selected = _pexels_file(video, portrait=portrait)
                 if identity in self._used or selected is None:
@@ -1915,6 +1961,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]] = []
             count = max(1, len(hits))
             for index, hit in enumerate(hits):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pixabay", hit)):
+                    continue
                 identity = ("pixabay", str(hit.get("id") or ""))
                 if identity in self._used:
                     continue
@@ -2670,6 +2718,8 @@ class StockVisualSource:
             )
             results = [item for item in (body.get("videos") or []) if isinstance(item, dict)]
             for index, video in enumerate(results):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pexels", video)):
+                    continue
                 if not isinstance(video, dict):
                     continue
                 identity = ("pexels", str(video.get("id") or ""))
@@ -2764,6 +2814,8 @@ class StockVisualSource:
             ranked: list[tuple[float, dict[str, Any], str, str]] = []
             count = max(1, len(hits))
             for index, hit in enumerate(hits):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("coverr", hit)):
+                    continue
                 asset_id = str(hit.get("id") or "").strip()
                 if not asset_id or ("coverr", asset_id) in self._used:
                     continue
@@ -2866,6 +2918,8 @@ class StockVisualSource:
             body = _get_json(f"https://pixabay.com/api/videos/?{params}")
             results = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
             for index, hit in enumerate(results):
+                if _stock_metadata_context_conflict(semantic_query, _stock_result_metadata("pixabay", hit)):
+                    continue
                 if not isinstance(hit, dict):
                     continue
                 identity = ("pixabay", str(hit.get("id") or ""))

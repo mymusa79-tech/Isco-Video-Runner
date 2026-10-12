@@ -283,6 +283,9 @@ _PODCAST_FIXED_PROFILE = {
         "The FIRST B answer must enter the central mechanism or claim immediately after the branded intro/prayer break: "
         "no greeting, no channel definition, no rephrasing A's question, and no generic warm-up sentence. "
         "Questions must sound like something a real listener would ask, not prompts written to feed an answer. "
+        "After an answer, A can voice only the next genuine uncertainty or objection created by THAT answer, "
+        "not an interview-style topic transition. B must answer its precise new gap before explaining more; "
+        "one clear mechanism or distinction and a grounded everyday illustration usually beat several broad reassurances. "
         + HUMAN_VOICE_NO_FILLER
     ),
     "visual": (
@@ -4978,6 +4981,7 @@ def _validate_plan_for_brief(
                 validated_practical_action = validate_short_practical_action_specificity(
                     validated_practical_action,
                     topic_context=action_context,
+                    approved_topic=str(brief.get("approved_topic") or brief.get("topic") or ""),
                 )
         except ShortFormatError as exc:
             # An early action rejection must not hide simultaneous visual
@@ -5906,7 +5910,9 @@ listener with the screen closed.
         "one concise Arabic imperative sentence containing exactly one practical action. "
         "Its concrete object/behavior MUST operationalize the EXACT s1 lived blockage and the earned s3 result; "
         "reject interchangeable tasks (such as writing any sentence regardless of topic) that could close an unrelated video. "
-        "This sentence becomes host-owned after Planning; Script must not author another action."
+        "This sentence becomes host-owned after Planning; Script must not author another action. "
+        "RUN125 REAL-ACTION TEST: placing a key, cup or book as a visual metaphor does not fix an unproductive day; "
+        "choose a directly relevant step before locking it."
         if fmt == "short"
         else ""
     )
@@ -6273,6 +6279,7 @@ LONGFORM_RETENTION_PREFLIGHT = """
 LONGFORM RETENTION PREFLIGHT (Film and Podcast — silent self-check before returning JSON):
 - Treat LOCKED_VISUAL_STORY.retention_thread as executable acceptance anchors, not decorative metadata.
 - The first spoken hook must open the SAME concrete hook_tension and stay topic-specific.
+- The first substantive content after identity must PAY DOWN that exact hook with a real partial answer, distinction, or observable fact. Do not make the listener wait through generic setup after a strong opening.
 - Every middle section must add one new explanatory job already supported by the approved brief/plan: mechanism, cause, distinction, consequence, or lived example. Do not drift into generic advice.
 - The final section must explicitly deliver or deepen the SAME payoff_answer. Generic advice, a slogan, or an unrelated practical tip is not a payoff.
 - Silent acceptance check — do NOT output these labels; rewrite before returning until all three are true:
@@ -6293,11 +6300,18 @@ and remains the established channel voice. Preserve explicit A:/B: labels only a
 A is sparse and short: normally one natural sentence, preferably 4-14 Arabic words, only when it unlocks
 the next layer. Every A turn must perform exactly one useful listener-proxy job: real question, plausible
 doubt, concrete objection, or request for clarification. B must answer the specific gap opened by A before
-another A turn appears. If removing an A turn would leave B saying essentially the same thing, remove that A
+another A turn appears. Except for the short pre-prayer identity bridge, B's first one or two TOPIC sentences
+must resolve A's immediate why/how/doubt directly; then deepen it with an approved mechanism, a concrete
+everyday example or a useful distinction, and the limits of the claim where needed. Do not echo the question,
+offer instant reassurance, or leap to general advice in place of an answer.
+If removing an A turn would leave B saying essentially the same thing, remove that A
 turn; do not manufacture dialogue merely to preserve alternation. B carries the substance in a fuller answer
 before A returns. Never alternate mechanically line-by-line. No greetings, names, host/guest framing, thanks,
 fake agreement, jokes inserted for chemistry, or staged interview filler. A must sound like a real listener
-thinking aloud, not a prompt engineered to feed B's answer. The first hook should normally be an A
+thinking aloud, not a prompt engineered to feed B's answer. Treat A as the listener's PRIVATE INNER QUESTION:
+a natural doubt in ordinary Arabic, rooted in a concrete moment, never a formal interviewer asking for chapter
+headings. Later A turns must arise from the exact unresolved implication of B's PREVIOUS answer; if a question
+could be asked before hearing that answer, consider omitting it. The first hook should normally be an A
 question/objection that a real listener could have thought before pressing play, and B's first topic sentence
 after prayer/identity must answer that SAME question immediately rather than restarting the episode. Keep both
 voices simple, deep, conversational, and non-theatrical.
@@ -6318,7 +6332,11 @@ def _script_prompt(
         length = (
             "For the main long episode, 10-20 minutes is the normal editorial range, never an acceptance gate. "
             "The actual synthesized voice owns the final duration completely: do not cut, pad, stretch, or fail "
-            "a sound script merely to hit that range. Continue only while each section adds a new mechanism, "
+            "a sound script merely to hit that range. The first substantive section must return an observable insight "
+            "or honest partial answer to the specific hook before moving into the next section. "
+            "Every following section should reward the listener with a new supported distinction, useful example, "
+            "consequence or earned conclusion; a powerful hook followed by generic advice is incomplete. "
+            "Continue only while each section adds a new mechanism, "
             "consequence, example, distinction, or earned resolution.\n"
             + CONTENT_DEPTH_GUIDANCE + "\n" + LONGFORM_RETENTION_PREFLIGHT + "\n" + GEMINI_SPOKEN_ARABIC_GUIDANCE
         )
@@ -6366,8 +6384,15 @@ def _script_prompt(
             else ""
         )
         length = (
-            "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
-            "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
+            "Write a complete miniature idea, not caption fragments: aim for roughly 85-115 meaningful authored Arabic words across all 3 sections, "
+            "usually 7-10 complete spoken sentences with natural variation; this is a quality target, not a new word-count gate. "
+            "Do not pad a complete idea, never add another point or unrelated example merely to reach this range. "
+            "Let s1 open with the strongest specific hook (one sentence under the existing hook limit), then ground the lived situation "
+            "with one observable detail and consequence. Let s2 add the causal turn or concrete distinction, show how it changes "
+            "the same situation, and make the listener genuinely understand something not present in s1. Let s3 deliver a specific "
+            "earned outcome, one brief practical example when supported, and a clean landing before the separate locked action. "
+            "A section made of a single slogan is underdeveloped, even if it satisfies the schema. "
+            "The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
             "understood on first listen. SHORT SEMANTIC SPINE: follow the selected template's writing_shape: "
             "s1 opens its exact topic-specific tension; s2 adds a specific why/how, event or interpretation "
@@ -6380,7 +6405,9 @@ def _script_prompt(
             "For micro_story, s2 must advance the SAME concrete scene with an event/turn; s3_payoff "
             "states what changed because of that turn. For every Short template, the payoff must depend "
             "on a specific detail established earlier. A practical action cannot substitute for that "
-            "payoff, and an unrelated prop/action cannot close the opening tension. Re-read the three "
+            "payoff, and an unrelated prop/action cannot close the opening tension. "
+            "If the locked action is visibly unrelated to the topic, do not invent a false story that makes it seem relevant; "
+            "preserve the locked input and let the existing Planning repair own the defect. Re-read the three "
             "sections together and fix drift before returning JSON; do not output this self-check. "
             "Do not repeat s2 as a generic payoff, claim an unsupported hidden psychological cause, "
             "or leave s3 as a dangling عندما/حين clause. Read all three sections together before returning. "

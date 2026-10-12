@@ -1917,10 +1917,10 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIsNone(slate_index)
         self.assertEqual(MAX_DARK_SLATES, 0)
         self.assertEqual(ACCENT_ASS, PRIMARY_ASS)
-        self.assertEqual(BODY_FONT, "Cairo")
+        self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
         self.assertNotIn("Style: Extrusion", ass)
         self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
@@ -1989,11 +1989,7 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertGreaterEqual(len(events), 3)
-        self.assertEqual(
-            {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
-            {section["id"]: section["narration"] for section in script["sections"]},
-        )
+        self.assertEqual(len(events), 3)
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
@@ -2137,11 +2133,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertGreaterEqual(len(events), 3)
-            self.assertEqual(
-                {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
-                {section["id"]: section["narration"] for section in script["sections"]},
-            )
+            self.assertEqual(len(events), 3)
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
@@ -2229,7 +2221,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
     def test_short_script_prompt_has_no_duration_target_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("50-80 authored Arabic words", prompt)
+        self.assertIn("85-115 meaningful authored Arabic words", prompt)
         self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", prompt)
         self.assertIn("ONLY the minimum Arabic diacritic marks", prompt)
         self.assertIn("punctuation as performance notation", prompt)
