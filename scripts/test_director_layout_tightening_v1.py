@@ -112,7 +112,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(text_module.FOCUS_FONT_SIZE, text_module.BODY_FONT_SIZE)
         self.assertEqual(text_module.FOCUS_SCALE, 1.00)
         self.assertEqual(text_module.ACCENT_ASS, text_module.PRIMARY_ASS)
-        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
+        self.assertIn("Style: Caption,Cairo", ass)
         self.assertIn(",1,4,0,5,", ass)
         self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Style: Extrusion", ass)
