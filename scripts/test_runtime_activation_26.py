@@ -376,7 +376,7 @@ class RuntimeActivation26Tests(unittest.TestCase):
                 ],
                 fmt=fmt,
             )
-            self.assertIn("Style: Caption,Cairo", ass)
+            self.assertIn("Style: Caption,Noto Sans Arabic", ass)
             self.assertNotIn("drawbox", ass)
 
     # 25: cover keeps editorial freedom but the font identity is locked locally.
