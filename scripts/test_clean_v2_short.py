@@ -2221,7 +2221,7 @@ class ShortPipelineSeamTests(unittest.TestCase):
     def test_short_script_prompt_has_no_duration_target_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("50-80 authored Arabic words", prompt)
+        self.assertIn("85-115 meaningful authored Arabic words", prompt)
         self.assertIn("GEMINI 3.8 SPOKEN ARABIC WRITING CONTRACT", prompt)
         self.assertIn("ONLY the minimum Arabic diacritic marks", prompt)
         self.assertIn("punctuation as performance notation", prompt)
