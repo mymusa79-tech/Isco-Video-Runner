@@ -531,6 +531,12 @@ def _caption_rows_and_size(text: str, *, fmt: str, font_size: int) -> tuple[list
         whole = " ".join(words)
         if _caption_width(whole, size) <= width:
             return [whole], size
+        # Prefer a genuinely readable single row over two rows when a modest
+        # reduction (at most 12%) is sufficient. Never shrink indefinitely.
+        single_floor = max(floor, int(font_size * 0.88))
+        for candidate_size in range(size - 2, single_floor - 1, -2):
+            if _caption_width(whole, candidate_size) <= width:
+                return [whole], candidate_size
         choices = [
             (max(_caption_width(" ".join(words[:i]), size),
                  _caption_width(" ".join(words[i:]), size)), i)
