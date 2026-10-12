@@ -1067,7 +1067,7 @@ def _stage_confirmation_dispatch(
     dispatch_path: Path,
     *,
     expected_request_id: str | None = None,
-    run_mode: str = "standard",
+    run_mode: str = "simple",
 ) -> dict[str, Any]:
     current_request_id = str(state.get("current_request_id") or "")
     if expected_request_id is not None and expected_request_id != current_request_id:
@@ -1283,7 +1283,7 @@ def render_selection_confirmation(
             "",
             "لم يبدأ الإنتاج بعد.",
             "إذا كان القرار نهائيًا اضغط زر «✅ تأكيد الإنتاج» أدناه،",
-            "يعمل التأكيد بالمسار القياسي مع مراجعة المطابقة البصرية ومعايير الجودة المعتادة.",
+            "يعمل التأكيد بوضع Simple المبسّط مع فحوصات السلامة والحقائق والحقوق والصوت؛ لا تُجرى مراجعة AI الدلالية للمشاهد، وقرار النشر لك.",
             f"أو أرسل حرفيًا:\n{CONFIRM_TEXT}",
         ]
     )
@@ -1991,7 +1991,7 @@ def _confirm_and_notify(
     dispatch_path: Path,
     *,
     expected_request_id: str | None = None,
-    run_mode: str = "standard",
+    run_mode: str = "simple",
 ) -> None:
     try:
         result = _stage_confirmation_dispatch(
@@ -2038,18 +2038,18 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         if data.startswith("confirm:"):
             parts = data.split(":")
             expected_request_id = parts[1].strip() if len(parts) >= 2 else ""
-            # One safe standard-mode confirmation. Older :simple keyboards
-            # must not silently bypass visual review or silently change mode.
+            # One Simple Mode confirmation for every format. Reject old two-button
+            # callbacks to avoid silently acting on outdated Telegram messages.
             if len(parts) == 3 and parts[2] == "simple" and expected_request_id:
                 send_telegram(
-                    "⚠️ أُلغي خيار التأكيد المبسّط حفاظًا على مراجعة المطابقة البصرية. "
-                    "اضغط زر «✅ تأكيد الإنتاج» العادي في رسالة الاختيار."
+                    "⚠️ هذا زر قديم. افتح رسالة اختيار جديدة واضغط «✅ تأكيد الإنتاج» "
+                    "لتشغيل الوضع المبسّط (Simple)."
                 )
                 return
             if not expected_request_id or len(parts) != 2:
                 send_telegram("⚠️ زر التأكيد غير صالح. افتح آخر رسالة اختيار وحاول مجددًا.")
                 return
-            run_mode = "standard"
+            run_mode = "simple"
             _confirm_and_notify(
                 state,
                 dispatch_path,
@@ -2324,9 +2324,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
-        # The typed confirmation and the only visible button both use standard
-        # review, including visual semantic matching.
-        _confirm_and_notify(state, dispatch_path, run_mode="standard")
+        # Text and the sole button select the same Simple Mode workflow.
+        _confirm_and_notify(state, dispatch_path, run_mode="simple")
         return
     send_telegram(
         "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. "
