@@ -70,7 +70,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertNotIn("\u200f", ass)
                 self.assertIn("تَرى", ass)
                 self.assertIn("WrapStyle: 2", ass)
-                self.assertIn("Noto Sans Arabic", ass)
+                self.assertIn("Cairo", ass)
 
     def test_run124_hook_is_split_into_legible_two_row_cards_without_word_loss(self):
         from clean_v2.short_timed_text import _phrase_chunks, _caption_rows_and_size, _caption_width
@@ -155,7 +155,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertIn("فكرة جديدة", srt)
                 self.assertNotIn("اللهم", srt)
                 self.assertIn("WrapStyle: 2", ass)
-                self.assertIn("Style: Caption,Noto Sans Arabic", ass)
+                self.assertIn("Style: Caption,Cairo", ass)
                 self.assertTrue((root / "caption-sidecars.json").is_file())
 
     def test_world_identity_is_global_and_respects_modest_people(self):
