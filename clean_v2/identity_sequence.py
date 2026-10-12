@@ -39,10 +39,10 @@ _TIMING_PROFILES = {
         # Short retention: one brief breath, one-second branded intro, then
         # the trusted prayer and a compact channel handoff. Identity must not
         # consume the first half of the Short.
-        "post_hook_silence_seconds": 0.60,
+        "post_hook_silence_seconds": 0.25,
         "intro_silence_seconds": 1.00,
-        "post_prayer_silence_seconds": 0.35,
-        "pre_topic_silence_seconds": 0.35,
+        "post_prayer_silence_seconds": 0.25,
+        "pre_topic_silence_seconds": 0.20,
         "final_silence_seconds": 1.25,
     },
     "film": {

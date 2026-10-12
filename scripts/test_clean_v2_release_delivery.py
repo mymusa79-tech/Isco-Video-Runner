@@ -205,6 +205,33 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
         self.assertIn("package_browser_download_url", results[0])
 
 
+    def test_manual_package_includes_existing_optional_arabic_subtitles_without_gate(self):
+        for kind, prefix in (("podcast", "podcast"), ("long", "film")):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                root = self._output(Path(folder))
+                (root / f"{prefix}-captions.srt").write_text(
+                    "1\\n00:00:00,000 --> 00:00:02,000\\nبداية واضحة\\n",
+                    encoding="utf-8",
+                )
+                (root / f"{prefix}-captions.ass").write_text(
+                    "[Script Info]\\nStyle: Caption,Noto Sans Arabic\\n",
+                    encoding="utf-8",
+                )
+                package, manifest = delivery._build_publish_package(
+                    root, kind=kind, topic="موضوع الاختبار",
+                )
+                self.assertEqual(
+                    sorted(manifest["optional_caption_files"]),
+                    [f"{prefix}-captions.ass", f"{prefix}-captions.srt"],
+                )
+                self.assertEqual(manifest["publication_mode"], "manual")
+                with zipfile.ZipFile(package) as archive:
+                    self.assertIn(f"{prefix}-captions.srt", archive.namelist())
+                    self.assertIn(f"{prefix}-captions.ass", archive.namelist())
+                    self.assertIn("بداية واضحة", archive.read(
+                        f"{prefix}-captions.srt"
+                    ).decode("utf-8"))
+
     def test_one_click_package_contains_publish_ready_assets_for_podcast(self):
         direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
         runner = FakeRunner(direct)

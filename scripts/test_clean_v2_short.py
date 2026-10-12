@@ -1917,10 +1917,10 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIsNone(slate_index)
         self.assertEqual(MAX_DARK_SLATES, 0)
         self.assertEqual(ACCENT_ASS, PRIMARY_ASS)
-        self.assertEqual(BODY_FONT, "Cairo")
+        self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertIn("Style: Caption,Cairo", ass)
+        self.assertIn("Style: Caption,Noto Sans Arabic", ass)
         self.assertNotIn("Style: Extrusion", ass)
         self.assertNotIn("Style: Shadow", ass)
         self.assertNotIn("Slate", ass)
@@ -1959,7 +1959,10 @@ class ShortTimedTextTests(unittest.TestCase):
                 },
             ]
         )
-        self.assertIn("هل تشعر بأنك استعدت طاقتك فعلًا؟", ass)
+        # Physical line wrapping must preserve the entire Arabic phrase logically.
+        first_dialogue = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
+        visible = first_dialogue.split("}", 1)[-1].replace(r"\N", " ")
+        self.assertEqual(" ".join(visible.split()), "هل تشعر بأنك استعدت طاقتك فعلًا؟")
         self.assertNotIn("\u200f", ass)
         self.assertNotIn("□", ass)
         self.assertNotIn("😀", ass)

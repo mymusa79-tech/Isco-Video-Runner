@@ -7,16 +7,17 @@ import re
 import subprocess
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
 SCHEMA_VERSION = 12
-RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v12"
+RICH_RENDERER_VERSION = "clean-v2-short-noto-bold-static-safe-unicode-v13"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Approved Caption Lite: Cairo Bold, large readable Arabic, warm off-white face,
+# Caption Lite: Noto Sans Arabic Bold for libass Arabic glyph reliability, warm off-white face,
 # crisp black outline, no gold sweep, no extrusion and no shadow. Timing stays
 # voice-owned and the only motion is a short fade at the event boundaries.
 PRIMARY_ASS = "&H00EEF2F4"  # RGB #F4F2EE warm off-white
@@ -24,14 +25,14 @@ ACCENT_ASS = PRIMARY_ASS  # compatibility alias; accent rendering is disabled
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = OUTLINE_ASS  # compatibility alias; extrusion rendering is disabled
 SHADOW_ASS = OUTLINE_ASS  # compatibility alias; shadow rendering is disabled
-BODY_FONT = "Cairo"
+BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 166
 FOCUS_FONT_SIZE = 166
 FOCUS_SCALE = 1.00
 BODY_WRAP_WORDS = 6
 MAX_CAPTION_LINES = 2
-ARABIC_WORD_GAP = " "  # Cairo handles natural Arabic spacing; avoid stretched thin-space gaps
+ARABIC_WORD_GAP = " "  # Natural Arabic word spacing; avoid stretched thin-space gaps
 CAPTION_MIN_WORDS = 2
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
@@ -126,13 +127,17 @@ def _clean(value: object) -> str:
             safe.append(" ")
             continue
         codepoint = ord(char)
+        if char in {"\u061c", "\u200c", "\u200d"}:
+            # Arabic letter mark and joining controls can change real Arabic text.
+            safe.append(char)
+            continue
         if 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF:
             continue
         category = unicodedata.category(char)
         # Arabic letters/marks, numbers and punctuation are retained. Format/control
         # characters, private-use glyphs, emoji and decorative symbols are not caption
         # content and are the main source of square/tofu boxes in libass fallback paths.
-        if category[:1] in {"L", "M", "N", "P"}:
+        if category[:1] in {"L", "M", "N", "P"} or category in {"Sc", "Sm"}:
             safe.append(char)
     return " ".join("".join(safe).split()).strip()
 
@@ -206,7 +211,7 @@ def _phrase_chunks(text: object) -> list[str]:
             chunks.pop(index)
             continue
         index += 1
-    return chunks
+    return _fit_phrase_chunks_to_two_lines(chunks)
 
 
 def _section_phrase_events(
@@ -476,19 +481,129 @@ def _rtl_row(words: Sequence[str]) -> str:
     return ARABIC_WORD_GAP.join(escaped)
 
 
-def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
+@lru_cache(maxsize=1)
+def _caption_font_path() -> str:
+    """Use the installed Cairo font; do not rely on a silent Latin fallback."""
+    try:
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}", "Noto Sans Arabic:style=Bold"],
+            capture_output=True, text=True, timeout=4,
+            env=_secret_free_subprocess_env(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+@lru_cache(maxsize=512)
+def _caption_width(text: str, size: int) -> float:
+    """Actual shaped width when Cairo/Pillow are available; safe local fallback."""
+    try:
+        from PIL import ImageFont
+        font_path = _caption_font_path()
+        if font_path:
+            font = ImageFont.truetype(font_path, size, layout_engine=ImageFont.Layout.RAQM)
+            if hasattr(font, "set_variation_by_name"):
+                try:
+                    font.set_variation_by_name("Bold")
+                except (OSError, ValueError):
+                    pass
+            return float(font.getlength(text, direction="rtl", language="ar"))
+    except (OSError, ImportError, AttributeError, ValueError):
+        pass
+    return len(text) * size * 0.60
+
+
+_CAPTION_FRAME_WIDTH = {"short": 1080, "film": 1920, "podcast": 1920}
+_CAPTION_MAX_WIDTH = {"short": 920, "film": 1560, "podcast": 1460}
+_CAPTION_FONT_MIN = {"short": 100, "film": 48, "podcast": 40}
+
+
+def _caption_rows_and_size(text: str, *, fmt: str, font_size: int) -> tuple[list[str], int]:
+    """One line when it really fits, else best two visual-width balanced lines."""
     words = _clean(text).split()
     if not words:
-        return ""
-    # Match the face layer exactly: preserve every word and use at most two
-    # balanced RTL rows so shadow/extrusion never form a different silhouette.
-    if len(words) <= maximum_words:
-        rows = [words]
-    else:
-        split_at = (len(words) + 1) // 2
-        rows = [words[:split_at], words[split_at:]]
-    lines = [_rtl_row(row) for row in rows]
-    return r"\N".join(lines)
+        return [], font_size
+    width = _CAPTION_MAX_WIDTH.get(fmt, _CAPTION_MAX_WIDTH["short"])
+    floor = _CAPTION_FONT_MIN.get(fmt, _CAPTION_FONT_MIN["short"])
+    size = font_size
+    while True:
+        whole = " ".join(words)
+        if _caption_width(whole, size) <= width:
+            return [whole], size
+        # Prefer a genuinely readable single row over two rows when a modest
+        # reduction (at most 12%) is sufficient. Never shrink indefinitely.
+        single_floor = max(floor, int(font_size * 0.88))
+        for candidate_size in range(size - 2, single_floor - 1, -2):
+            if _caption_width(whole, candidate_size) <= width:
+                return [whole], candidate_size
+        choices = [
+            (max(_caption_width(" ".join(words[:i]), size),
+                 _caption_width(" ".join(words[i:]), size)), i)
+            for i in range(1, len(words))
+        ]
+        if not choices:
+            return [whole], size
+        _, split = min(choices)
+        rows = [" ".join(words[:split]), " ".join(words[split:])]
+        if max(_caption_width(row, size) for row in rows) <= width or size <= floor:
+            return rows, size
+        size = max(floor, size - 4)
+
+
+def _ass_wrap_words(
+    text: str, *, maximum_words: int = BODY_WRAP_WORDS,
+    fmt: str = "short", font_size: int = BODY_FONT_SIZE,
+) -> str:
+    del maximum_words  # Width (not arbitrary word count) decides display rows.
+    rows, _ = _caption_rows_and_size(text, fmt=fmt, font_size=font_size)
+    return r"\N".join(_rtl_row(row.split()) for row in rows)
+
+
+def caption_character_diagnostics(texts: Sequence[str]) -> dict[str, Any]:
+    """Record actual changed codepoints before rendering, without blocking production."""
+    removed: set[str] = set()
+    for value in texts:
+        original = unicodedata.normalize("NFKC", str(value or "").replace("\n", " "))
+        for char in original:
+            if char.isspace():
+                continue
+            if not _clean(char):
+                removed.add(f"U+{ord(char):04X}")
+    return {
+        "removed_codepoints": sorted(removed),
+        "arabic_joining_controls_preserved": True,
+        "font_requested": BODY_FONT,
+        "source": "local_pre_render_unicode_inspection",
+    }
+
+
+def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str]) -> list[str]:
+    """Make more timed phrases when one two-line caption cannot fit legibly.
+
+    Never drop an authored word or add a third visual row. The caller's existing
+    voice-owned timing partitions the measured section across resulting phrases.
+    """
+    fitted: list[str] = []
+    minimum = _CAPTION_FONT_MIN["short"]
+    width = _CAPTION_MAX_WIDTH["short"]
+    for chunk in chunks:
+        remaining = _clean(chunk).split()
+        while remaining:
+            choice = 0
+            for end in range(len(remaining), 0, -1):
+                candidate = " ".join(remaining[:end])
+                rows, _ = _caption_rows_and_size(
+                    candidate, fmt="short", font_size=minimum
+                )
+                if max((_caption_width(row, minimum) for row in rows), default=0.0) <= width:
+                    choice = end
+                    break
+            if choice == 0:
+                choice = 1  # A single long authored word must remain intact.
+            fitted.append(" ".join(remaining[:choice]))
+            remaining = remaining[choice:]
+    return fitted
 
 
 def _filter_escape_path(path: Path) -> str:
@@ -808,7 +923,7 @@ def build_rich_ass(
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        "WrapStyle: 0",
+        "WrapStyle: 2",  # Never let libass silently wrap a third line.
         "ScaledBorderAndShadow: yes",
         "PlayResX: 1080",
         "PlayResY: 1920",
@@ -823,11 +938,12 @@ def build_rich_ass(
     ]
 
     for event_index, item in enumerate(validated):
-        plain = _plain_caption(item.text)
         hint = hints[event_index]
         x = int(hint.get("x") or CAPTION_X)
         y = int(hint.get("y") or CAPTION_Y)
         font_size = int(hint.get("font_size") or BODY_FONT_SIZE)
+        _, font_size = _caption_rows_and_size(item.text, fmt="short", font_size=font_size)
+        plain = _ass_wrap_words(item.text, fmt="short", font_size=font_size)
         start = _ass_time(item.start)
         end = _ass_time(item.end)
         motion = r"\fad(140,200)"
@@ -861,14 +977,15 @@ def render_progressive_text(
     vf = ",".join(filters)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_warnings = ""
     try:
-        subprocess.run(
+        render_result = subprocess.run(
             [
                 "ffmpeg",
                 "-y",
                 "-hide_banner",
                 "-loglevel",
-                "error",
+                "warning",
                 "-i",
                 str(Path(video).resolve()),
                 "-vf",
@@ -886,7 +1003,9 @@ def render_progressive_text(
             check=True,
             timeout=180,
             env=_secret_free_subprocess_env(),
+            capture_output=True, text=True,
         )
+        ffmpeg_warnings = render_result.stderr or ""
     finally:
         ass_path.unlink(missing_ok=True)
 
@@ -933,8 +1052,8 @@ def render_progressive_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "font_family_contract": "Cairo Bold",
-        "outline_px": 4,
+        "font_family_contract": "Noto Sans Arabic Bold",
+        "outline_px": 2,
         "extrusion_offset": [0, 0],
         "shadow_offset": [0, 0],
         "provider_calls": 0,
@@ -944,10 +1063,16 @@ def render_progressive_text(
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
         "text_source_policy": "final_audited_script_with_render_safe_unicode_sanitation",
-        "rtl_policy": "natural_libass_fribidi_rtl_balanced_two_line_full_phrase_unicode_thin_space_breathing",
+        "rtl_policy": "noto_arabic_libass_rtl_width_bounded_one_or_two_lines_preserve_all_words",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
-        "shadow_policy": "black_outline4_no_shadow_no_extrusion_no_black_box",
+        "unicode_diagnostics": caption_character_diagnostics([str(row.get("text") or "") for row in events if isinstance(row, Mapping)]),
+        "post_render_libass_glyph_warnings": [
+            line.strip()[:250] for line in ffmpeg_warnings.splitlines()
+            if "glyph" in line.lower() or "font" in line.lower() and "not found" in line.lower()
+        ][:25],
+        "pixel_to_unicode_mapping_verified": False,
+        "shadow_policy": "black_outline2_no_shadow_no_extrusion_no_black_box",
     }
 
 
@@ -993,3 +1118,104 @@ def apply_short_timed_text(
         "events": events,
         "final_file": Path(final_path).name,
     }
+
+
+def write_longform_caption_sidecars(
+    *, output_dir: Path, script: Mapping[str, Any], fmt: str,
+) -> dict[str, Any]:
+    """Optional Film/Podcast subtitles using the SAME Arabic caption normalizer.
+
+    Do not burn captions onto a quiet long-form master by default. Both files
+    travel alongside final.mp4 and can be enabled by the viewer/editor.
+    Timing is estimated within the measured voice-owned section boundaries,
+    never claimed as word-level speech alignment.
+    """
+    if fmt not in {"film", "podcast"}:
+        return {"status": "not_applicable", "format": fmt}
+    root = Path(output_dir)
+    timeline = json.loads((root / "timeline-first.json").read_text(encoding="utf-8"))
+    if timeline.get("status") != "pass":
+        raise ValueError("caption_sidecar_measured_timeline_required")
+    sections = {
+        str(row.get("id") or ""): str(row.get("narration") or "")
+        for row in (script.get("sections") or [])
+        if isinstance(row, Mapping)
+    }
+    # Protect the fixed intro, prayer, identity and outro images from captions.
+    allowed_windows = [
+        (float(row["start"]), float(row["end"]))
+        for row in (timeline.get("identity_events") or [])
+        if isinstance(row, Mapping) and row.get("kind") in {"hook", "topic"}
+    ]
+    events: list[dict[str, Any]] = []
+    for section in (timeline.get("section_events") or []):
+        if not isinstance(section, Mapping):
+            continue
+        text = sections.get(str(section.get("section_id") or ""), "")
+        if not text:
+            continue
+        section_start, section_end = float(section["start"]), float(section["end"])
+        for left, right in allowed_windows:
+            start, end = max(section_start, left), min(section_end, right)
+            if end <= start:
+                continue
+            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text))
+            if not chunks:
+                continue
+            weights = [max(1, len(_clean(chunk))) for chunk in chunks]
+            total_weight = sum(weights)
+            cursor = start
+            for index, (chunk, weight) in enumerate(zip(chunks, weights)):
+                boundary = end if index == len(chunks) - 1 else cursor + (end - start) * weight / total_weight
+                if boundary <= cursor:
+                    continue
+                events.append({"start": cursor, "end": boundary, "text": chunk})
+                cursor = boundary
+    if not events:
+        return {"status": "not_available", "format": fmt, "reason": "no_topic_caption_windows"}
+
+    font_size = 62 if fmt == "film" else 50
+    margin_v = 130 if fmt == "film" else 170
+    srt_lines: list[str] = []
+    dialogues: list[str] = []
+    for index, row in enumerate(events, 1):
+        rows, fitted = _caption_rows_and_size(str(row["text"]), fmt=fmt, font_size=font_size)
+        if not rows:
+            continue
+        srt_lines.append(
+            f'{index}\n{_srt_time(row["start"])} --> {_srt_time(row["end"])}\n'
+            + "\n".join(rows) + "\n"
+        )
+        rendered = r"\N".join(_rtl_row(value.split()) for value in rows)
+        dialogues.append(
+            f'Dialogue: 0,{_ass_time(row["start"])},{_ass_time(row["end"])},Caption,,0,0,0,,'
+            + r"{\fs" + str(fitted) + r"\fad(120,140)}" + rendered
+        )
+
+    ass = "\n".join([
+        "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2",
+        "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
+        "", "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},1",
+        "", "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+        *dialogues, "",
+    ])
+    srt_path = root / f"{fmt}-captions.srt"
+    ass_path = root / f"{fmt}-captions.ass"
+    srt_path.write_text("\n".join(srt_lines) + "\n", encoding="utf-8")
+    ass_path.write_text(ass, encoding="utf-8")
+    report = {
+        "status": "available_optional", "format": fmt,
+        "srt": srt_path.name, "ass": ass_path.name,
+        "event_count": len(dialogues), "max_rows": 2,
+        "burned_into_final_video": False,
+        "timing": "estimated_phrases_inside_measured_voice_section_windows",
+        "unicode_diagnostics": caption_character_diagnostics(list(sections.values())),
+        "provider_calls_added": 0, "new_quality_gate": False,
+    }
+    (root / "caption-sidecars.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return report

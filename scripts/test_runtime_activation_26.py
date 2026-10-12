@@ -350,8 +350,8 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertNotIn('("push", "pan", "pull")', body_source)
 
     # 24: in-video text has one shared readable identity, not boxes or 3+ lines.
-    def test_24_shared_cairo_two_line_video_typography_runtime(self) -> None:
-        self.assertEqual(short_timed_text.BODY_FONT, "Cairo")
+    def test_24_shared_arabic_two_line_video_typography_runtime(self) -> None:
+        self.assertEqual(short_timed_text.BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(short_timed_text.MAX_CAPTION_LINES, 2)
         wrapped = short_timed_text._plain_caption(
             "هذه جملة عربية واضحة تحمل فكرة كاملة وتبقى مقروءة على الشاشة دائمًا"
@@ -376,7 +376,7 @@ class RuntimeActivation26Tests(unittest.TestCase):
                 ],
                 fmt=fmt,
             )
-            self.assertIn("Style: Caption,Cairo", ass)
+            self.assertIn("Style: Caption,Noto Sans Arabic", ass)
             self.assertNotIn("drawbox", ass)
 
     # 25: cover keeps editorial freedom but the font identity is locked locally.

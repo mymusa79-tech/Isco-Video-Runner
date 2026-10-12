@@ -3759,6 +3759,10 @@ COLOR_MATCH_STRENGTH = 0.82
 COLOR_MATCH_SCALE_MIN = 0.94
 COLOR_MATCH_SCALE_MAX = 1.06
 COLOR_MATCH_OFFSET_MAX = 52.0
+# Keep the existing shared matcher but soften it by format. Fixed channel
+# targets are a reference, not permission to recolor skin or ordinary objects.
+COLOR_MATCH_FORMAT_FACTOR = {"short": 0.60, "film": 0.52, "podcast": 0.46}
+MASTER_LOOK_FORMAT_STRENGTH = {"short": 0.70, "film": 0.60, "podcast": 0.52}
 COLOR_TARGET_MEAN_R = 116.0
 COLOR_TARGET_MEAN_G = 116.0
 COLOR_TARGET_MEAN_B = 118.0
@@ -3891,8 +3895,10 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
     )
 
 
-def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
-    """Build one bounded RGB mean/std transfer for the entire source clip."""
+def _reference_match_filter(source: _RgbStats, reference: _RgbStats, *, fmt: str = "film") -> str:
+    """Build one bounded, gently format-scaled RGB transfer per source clip."""
+    factor = COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"])
+    strength = COLOR_MATCH_STRENGTH * factor
     expressions: list[str] = []
     for channel, source_mean, source_std, ref_mean, ref_std in (
         ("r", source.mean_r, source.std_r, reference.mean_r, reference.std_r),
@@ -3901,15 +3907,15 @@ def _reference_match_filter(source: _RgbStats, reference: _RgbStats) -> str:
     ):
         raw_ratio = (ref_std / source_std) if source_std >= 2.0 else 1.0
         scale = _clamp_color(
-            1.0 + ((raw_ratio - 1.0) * COLOR_MATCH_STRENGTH),
+            1.0 + ((raw_ratio - 1.0) * strength),
             COLOR_MATCH_SCALE_MIN,
             COLOR_MATCH_SCALE_MAX,
         )
-        target_mean = source_mean + ((ref_mean - source_mean) * COLOR_MATCH_STRENGTH)
+        target_mean = source_mean + ((ref_mean - source_mean) * strength)
         offset = _clamp_color(
             target_mean - (source_mean * scale),
-            -COLOR_MATCH_OFFSET_MAX,
-            COLOR_MATCH_OFFSET_MAX,
+            -(COLOR_MATCH_OFFSET_MAX * factor),
+            COLOR_MATCH_OFFSET_MAX * factor,
         )
         expressions.append(
             f"{channel}='clip(val*{scale:.6f}{offset:+.6f},0,255)'"
@@ -3932,6 +3938,8 @@ def _grade_clip_filter(path: Path) -> str:
 def _build_reference_color_plan(
     paths: list[Path],
     output_dir: Path,
+    *,
+    fmt: str = "film",
 ) -> dict[str, str]:
     """Match every measurable clip to one fixed channel palette target.
 
@@ -3965,7 +3973,9 @@ def _build_reference_color_plan(
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
         "method": "fixed_channel_rgb_mean_std_target_v1",
-        "match_strength": COLOR_MATCH_STRENGTH,
+        "match_strength": round(COLOR_MATCH_STRENGTH * COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"]), 3),
+        "format": fmt,
+        "natural_color_preservation": "bounded_format_aware_blend",
         "master_look": "channel_navy_gold_split_tone_v6",
         "measured_clip_count": len(measured),
         "reference_file": None,
@@ -3990,7 +4000,7 @@ def _build_reference_color_plan(
                     }
                 )
                 continue
-            fragment = _reference_match_filter(stats, target)
+            fragment = _reference_match_filter(stats, target, fmt=fmt)
             filters[key] = fragment
             rows.append(
                 {
@@ -4024,8 +4034,9 @@ def _build_reference_color_plan(
     return filters
 
 
-def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, float]:
-    """Shared navy-shadow / ivory-gold-highlight look with controlled highlight glow."""
+def _master_look_value(r: float, g: float, b: float, *, strength: float = 1.0) -> tuple[float, float, float]:
+    """Shared navy/ivory finish; partial strength keeps natural colors intact."""
+    original = (r, g, b)
     source_luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
 
     # Keep the palette restrained before shaping exposure. This removes the
@@ -4064,7 +4075,7 @@ def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, floa
         1.0,
     )
 
-    return (
+    graded = (
         _clamp_color(
             r
             + (MASTER_LOOK_SHADOW_R * shadow_weight)
@@ -4087,8 +4098,9 @@ def _master_look_value(r: float, g: float, b: float) -> tuple[float, float, floa
             1.0,
         ),
     )
+    return tuple(_clamp_color(base + (finish - base) * strength, 0.0, 1.0) for base, finish in zip(original, graded))
 
-def _write_master_look_lut(path: Path) -> Path:
+def _write_master_look_lut(path: Path, *, fmt: str = "film") -> Path:
     """Write a tiny deterministic Iridas .cube LUT; blue outer, red inner for FFmpeg."""
     size = MASTER_LOOK_LUT_SIZE
     if size < 2:
@@ -4106,7 +4118,9 @@ def _write_master_look_lut(path: Path) -> Path:
             g = g_index / denominator
             for r_index in range(size):
                 r = r_index / denominator
-                out_r, out_g, out_b = _master_look_value(r, g, b)
+                out_r, out_g, out_b = _master_look_value(
+                    r, g, b, strength=MASTER_LOOK_FORMAT_STRENGTH.get(fmt, MASTER_LOOK_FORMAT_STRENGTH["film"])
+                )
                 lines.append(f"{out_r:.7f} {out_g:.7f} {out_b:.7f}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
@@ -4385,7 +4399,7 @@ def render_video(
     # Every clip is normalized toward the fixed channel palette target. M8 has
     # already normalized technical color space; no episode stock clip can become
     # the creative color authority for the rest of the video.
-    grade_filters = _build_reference_color_plan(paths, output_dir)
+    grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
 
     opening_count = 3 if opening_enabled else 0
     opening_paths_for_render = paths[:opening_count]
@@ -4465,7 +4479,7 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube")
+        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"

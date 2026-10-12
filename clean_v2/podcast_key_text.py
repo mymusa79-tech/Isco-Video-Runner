@@ -19,7 +19,9 @@ from clean_v2.short_timed_text import (
     _ass_escape,
     _ass_time,
     _filter_escape_path,
-    _plain_caption,
+    _caption_rows_and_size,
+    _rtl_row,
+    _clean as _shared_arabic_clean,
     _secret_free_subprocess_env,
 )
 
@@ -58,7 +60,7 @@ class PodcastKeyTextError(RuntimeError):
 
 
 def _clean(value: object) -> str:
-    return " ".join(str(value or "").replace("\n", " ").split()).strip()
+    return _shared_arabic_clean(value)
 
 
 def _strip_speaker_label(value: object) -> str:
@@ -348,7 +350,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,100,100,0,1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -360,8 +362,9 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
             continue
         start = _ass_time(_seconds(item.get("start"), "start"))
         end = _ass_time(_seconds(item.get("end"), "end"))
-        plain = _plain_caption(text)
         event_size = _event_font_size(str(item.get("role") or "turn"), fmt=fmt)
+        rows, event_size = _caption_rows_and_size(text, fmt=fmt, font_size=event_size)
+        plain = r"\N".join(_rtl_row(row.split()) for row in rows)
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
             f"{{{common}\\pos({TEXT_X},{text_y})\\fs{event_size}\\c{PRIMARY_ASS}}}{plain}"
@@ -459,7 +462,7 @@ def _apply_sparse_key_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "font_family_contract": "Cairo Bold",
+        "font_family_contract": "Noto Sans Arabic Bold",
         "outline_px": 4,
         "shadow_offset": [0, 0],
         "extrusion_offset": [0, 0],

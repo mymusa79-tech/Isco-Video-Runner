@@ -62,6 +62,24 @@ def _rights(output_dir: Path) -> list[Mapping[str, Any]]:
     ] if isinstance(payload, Mapping) else []
 
 
+def _channel_cover_fallback(output_dir: Path, *, fmt: str) -> Path:
+    """Use a truthful local channel identity, never a random topic-less frame."""
+    from PIL import Image, ImageDraw
+    width, height = (1080, 1920) if fmt == "short" else (1280, 720)
+    image = Image.new("RGB", (width, height), (23, 32, 51))
+    draw = ImageDraw.Draw(image)
+    # Restrained charcoal/navy with one ivory-gold line; text stays with Cover Studio.
+    for y in range(height):
+        mix = y / max(1, height - 1)
+        tone = (int(23 - 4 * mix), int(32 - 5 * mix), int(51 - 6 * mix))
+        draw.line((0, y, width, y), fill=tone)
+    draw.line((int(width * .14), int(height * .82), int(width * .86), int(height * .82)),
+              fill=(169, 138, 84), width=3)
+    path = Path(output_dir) / ".cover-local-channel-identity.png"
+    image.save(path)
+    return path
+
+
 def select_cover_source(
     output_dir: Path,
     *,
@@ -99,6 +117,10 @@ def select_cover_source(
         target.append((score, path, row))
 
     pool = ranked or deferred
+    # Local generated fallback footage proves no specific topic. Do not reuse its
+    # arbitrary frame as a cover merely because its contrast looks good.
+    meaningful = [item for item in pool if str(item[2].get("source_actual") or "") != "generated_local"]
+    pool = meaningful
     if pool:
         # Local visual scoring inspects a small bounded pool of already-approved
         # assets. Five gives Cover Studio more room to find channel-fit depth
@@ -139,13 +161,14 @@ def select_cover_source(
                 "studio_source_fallback_reason": f"{type(exc).__name__}:{str(exc)[:180]}",
             }
 
-    fallback = Path(final_path) if final_path is not None else Path(output_dir) / "final.mp4"
-    if fallback.is_file() and fallback.stat().st_size > 0:
-        return fallback, {
-            "selection": "final_video_frame",
-            "source_exclusion_applied": bool(excluded),
-        }
-    raise RuntimeError("cover_source_missing")
+    if final_path is None or not Path(final_path).is_file():
+        raise RuntimeError("cover_source_missing")
+    return _channel_cover_fallback(output_dir, fmt=fmt), {
+        "selection": "channel_identity_local_fallback",
+        "source_exclusion_applied": bool(excluded),
+        "source_visual_score": None,
+        "reason": "no_topic_evidence_for_cover_background",
+    }
 
 
 def _dimensions(path: Path) -> tuple[int, int]:

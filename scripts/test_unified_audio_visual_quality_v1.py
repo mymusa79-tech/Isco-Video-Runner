@@ -86,7 +86,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         self.assertTrue(podcast_key_text._contains_prayer_text(prayer))
 
     def test_video_text_is_cairo_bold_box_free_and_two_lines_max(self) -> None:
-        self.assertEqual(short_timed_text.BODY_FONT, "Cairo")
+        self.assertEqual(short_timed_text.BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(short_timed_text.MAX_CAPTION_LINES, 2)
         short_ass = short_timed_text.build_rich_ass(
             [
@@ -95,7 +95,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
                 {"start": 4.0, "end": 6.0, "text": "ابدأ بحركة واحدة واضحة فقط", "role": "payoff"},
             ]
         )
-        self.assertIn("Style: Caption,Cairo", short_ass)
+        self.assertIn("Style: Caption,Noto Sans Arabic", short_ass)
         self.assertNotIn("BorderStyle,3", short_ass)
         self.assertLessEqual(short_ass.count(r"\N"), 3)
 
@@ -107,7 +107,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
                 ],
                 fmt=fmt,
             )
-            self.assertIn("Style: Caption,Cairo", ass)
+            self.assertIn("Style: Caption,Noto Sans Arabic", ass)
             self.assertIn(r"\fs", ass)
             dialogue = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
             self.assertTrue(dialogue)
@@ -142,7 +142,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
 
     def test_dark_navy_channel_world_is_shared(self) -> None:
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
-        self.assertIn("warm gold only as a rare accent", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("rare gold accent", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("no blanket blue wash", CHANNEL_VISUAL_IDENTITY)
 
     def test_reference_color_uses_fixed_channel_target_not_stock_medoid(self) -> None:
