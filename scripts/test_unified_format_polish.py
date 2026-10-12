@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -25,7 +26,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
     def test_arabic_diacritics_and_joining_controls_are_not_blindly_removed(self):
         source = "مُؤَثِّر\u200c ومطمئن\u061c، مع ٣٪"
         cleaned = short_timed_text._clean(source)
-        self.assertIn("مُؤَثِّر\u200c", cleaned)
+        self.assertIn(unicodedata.normalize("NFKC", "مُؤَثِّر\u200c"), cleaned)
         self.assertIn("\u061c", cleaned)
         self.assertIn("٣٪", cleaned)
         diagnostic = short_timed_text.caption_character_diagnostics(

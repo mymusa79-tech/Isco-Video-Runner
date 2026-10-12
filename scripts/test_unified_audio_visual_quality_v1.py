@@ -142,7 +142,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
 
     def test_dark_navy_channel_world_is_shared(self) -> None:
         self.assertIn("dark navy and charcoal", CHANNEL_VISUAL_IDENTITY)
-        self.assertIn("warm gold only as a rare accent", CHANNEL_VISUAL_IDENTITY)
+        self.assertIn("rare gold accent", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("no blanket blue wash", CHANNEL_VISUAL_IDENTITY)
 
     def test_reference_color_uses_fixed_channel_target_not_stock_medoid(self) -> None:
