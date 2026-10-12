@@ -454,7 +454,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words, "
             f"never more than {SHORT_HOOK_MAX_WORDS}, no greeting or clickbait. "
             "HOOK SHAPE: specific question, contrast or consequence. "
-            "HOOK SPECIFICITY SELF-CHECK: name the concrete issue, not a reusable opener.\n"
+            "HOOK SPECIFICITY SELF-CHECK: name the issue, not a generic opener.\n"
             "- s2: a genuinely NEW insight or cause/turn needed to understand s3, not a paraphrase or motivational lull.\n"
             "- s3: resolve s1/s2's SAME tension, not an unrelated payoff. "
             "Planning owns practical_action_ar; Script writes descriptive s3_payoff only. "
