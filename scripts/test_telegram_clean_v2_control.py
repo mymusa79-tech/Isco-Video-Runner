@@ -369,6 +369,39 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             control.handle_update(state, bad, dispatch)
             self.assertFalse(dispatch.exists())
 
+    def test_pending_legacy_simple_confirmation_switches_to_standard_review(self):
+        # Existing pending state from a previous two-button keyboard must never
+        # bypass visual QA when confirmed using the new single standard button.
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-old-simple",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "short",
+            "approved_by_user": True,
+            "approved_topic": "موضوع",
+            "research_pack": [],
+            "idea_id": "idea-old",
+            "selected_at": control.utc_now(),
+            "status": "confirmed_pending_dispatch",
+            "confirmed_at": control.utc_now(),
+            "dispatched_at": None,
+            "run_mode": "simple",
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"][request["request_id"]] = request
+        state["current_request_id"] = request["request_id"]
+        original_hash = request["request_sha256"]
+        with tempfile.TemporaryDirectory() as temp:
+            dispatch = Path(temp) / "dispatch.json"
+            result = control._stage_confirmation_dispatch(
+                state, dispatch, expected_request_id=request["request_id"], run_mode="standard"
+            )
+            self.assertTrue(dispatch.exists())
+            self.assertFalse(result["already_dispatched"])
+        self.assertNotIn("run_mode", request)
+        self.assertEqual(request["request_sha256"], original_hash)
+
     def test_stale_confirmation_button_cannot_confirm_newer_request(self):
         state = control.default_state()
         request = {
