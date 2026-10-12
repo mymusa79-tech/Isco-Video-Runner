@@ -1236,7 +1236,7 @@ def render_selection_confirmation(
             "",
             "لم يبدأ الإنتاج بعد.",
             "إذا كان القرار نهائيًا اضغط زر «✅ تأكيد الإنتاج» أدناه،",
-            "سيعمل بالوضع المبسّط (Simple): دون مراجعة المطابقة البصرية بالذكاء الاصطناعي؛ قرار النشر لك.",
+            "يعمل التأكيد بالمسار القياسي مع مراجعة المطابقة البصرية ومعايير الجودة المعتادة.",
             f"أو أرسل حرفيًا:\n{CONFIRM_TEXT}",
         ]
     )
@@ -1991,12 +1991,18 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         if data.startswith("confirm:"):
             parts = data.split(":")
             expected_request_id = parts[1].strip() if len(parts) >= 2 else ""
-            # Both the single new button and legacy :simple buttons use the
-            # same mode. Keep old callbacks valid for already-sent keyboards.
-            run_mode = "simple"
-            if not expected_request_id or len(parts) > 3 or (len(parts) == 3 and parts[2] != "simple"):
+            # One safe standard-mode confirmation. Older :simple keyboards
+            # must not silently bypass visual review or silently change mode.
+            if len(parts) == 3 and parts[2] == "simple" and expected_request_id:
+                send_telegram(
+                    "⚠️ أُلغي خيار التأكيد المبسّط حفاظًا على مراجعة المطابقة البصرية. "
+                    "اضغط زر «✅ تأكيد الإنتاج» العادي في رسالة الاختيار."
+                )
+                return
+            if not expected_request_id or len(parts) != 2:
                 send_telegram("⚠️ زر التأكيد غير صالح. افتح آخر رسالة اختيار وحاول مجددًا.")
                 return
+            run_mode = "standard"
             _confirm_and_notify(
                 state,
                 dispatch_path,
@@ -2271,8 +2277,9 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
-        # The typed confirmation and the inline button must agree on the mode.
-        _confirm_and_notify(state, dispatch_path, run_mode="simple")
+        # The typed confirmation and the only visible button both use standard
+        # review, including visual semantic matching.
+        _confirm_and_notify(state, dispatch_path, run_mode="standard")
         return
     send_telegram(
         "استخدم /research للبحث، /saved للمحفوظات، /used للمستعملة، و/stats للإحصائيات. "
