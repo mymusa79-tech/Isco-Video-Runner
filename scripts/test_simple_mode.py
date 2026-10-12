@@ -111,7 +111,8 @@ class SimpleModeUnitTests(unittest.TestCase):
             final = write_simple_report(Path(t), fmt="short")
             self.assertEqual(final["semantic_visual_review"], "not_performed")
             self.assertEqual(final["publish_decision"], "owner")
-            self.assertNotIn("matched", json.dumps(final).lower())
+            self.assertEqual(final["observed_matched_clips"], 0)
+            self.assertFalse(final["editorial_ready"])
             self.assertEqual(simple_opening_director()["status"], "skipped_simple_mode")
 
 
@@ -321,7 +322,7 @@ class SimpleModeEndToEndTests(unittest.TestCase):
             pipeline = pl.CleanV2Pipeline(
                 router=base._FakeRouter(),
                 voice_synthesizer=base._FakeVoice(),
-                visual_source=base._FakeVisuals(),
+                visual_source=self._section_owned_fixture_visuals(),
                 visual_qa=simple_visual_qa,
                 opening_director=simple_opening_director,
                 cinematic_layer=base._passing_cinematic_layer,
@@ -345,6 +346,24 @@ class SimpleModeEndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["opening_director_status"], "skipped_simple_mode")
             report = json.loads((out / "simple-mode-report.json").read_text(encoding="utf-8"))
             self.assertEqual(report["semantic_visual_review"], "not_performed")
+
+    @staticmethod
+    def _section_owned_fixture_visuals():
+        from clean_v2.media import create_fallback_visual
+        class Visuals:
+            events = []
+            def acquire(self, plan, output_dir, fmt, max_visuals, section_estimated_seconds=None):
+                output_dir.mkdir(parents=True, exist_ok=True)
+                paths, rights = [], []
+                for index, section in enumerate(plan["sections"]):
+                    path = output_dir / f"fixture-{index + 1}.mp4"
+                    create_fallback_visual(path, portrait=fmt == "short")
+                    paths.append(path)
+                    rights.append({"provider": "generated_local", "asset_id": str(index),
+                                   "local_file": path.name, "section_id": section["id"],
+                                   "beat_id": f"b{index + 1}", "role": "hook" if index == 0 else "body"})
+                return paths, rights
+        return Visuals()
 
 
 if __name__ == "__main__":

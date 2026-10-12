@@ -505,6 +505,17 @@ def _build_publish_package(
         "provider_calls_added": 0,
         "publication_mode": "manual",
     }
+    simple = _read_json(root / "simple-mode-report.json")
+    if simple:
+        shutil.copy2(root / "simple-mode-report.json", stage / "simple-mode-report.json")
+        manifest.update(render_success=bool(simple.get("render_success")),
+                        editorial_ready=bool(simple.get("editorial_ready")),
+                        editorial_status=simple.get("editorial_status"))
+        manifest["files"] = sorted(path.name for path in stage.iterdir() if path.is_file())
+        readme = stage / "README.txt"
+        readme.write_text(readme.read_text(encoding="utf-8") +
+                          "\nنجاح الرندر لا يعني الجاهزية للنشر. راجع المشاهد والغلاف قبل النشر؛ تفاصيل التحقق في simple-mode-report.json.\n",
+                          encoding="utf-8")
     (stage / "package-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

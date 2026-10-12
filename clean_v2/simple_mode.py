@@ -7,10 +7,11 @@ proven script/voice/resume/edit path, and changes three things only:
 
 1. Tone/naturalness verdicts are advisory unless they cite an objective problem
    (unverified religious quote, cultural dignity). Factuality stays blocking.
-2. Stock visuals are ranked and chosen once; a beat with no usable stock gets the
-   channel-colour background as the LAST resort. No per-clip semantic review gates
-   the run and the 0.85 floor is not applied in this mode.
-3. An honest report states what was NOT reviewed.
+2. Stock visuals are ranked once, then the existing canonical pixel reviewer is
+   called at most once per chosen asset. Missing proof or safety failure replaces
+   that source with a disclosed local symbolic scene, without search/review loops.
+   The existing subjective 0.85 score never gates this mode's production.
+3. An honest report separates technical completion from editorial readiness.
 
 The flag is set by the immutable Telegram request, never mid-run. The default path is
 untouched when the flag is absent.
@@ -18,6 +19,8 @@ untouched when the flag is absent.
 from __future__ import annotations
 
 import os
+import json
+import hashlib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -122,8 +125,130 @@ def simple_visual_qa(
     router: Any = None,
     visual_source: Any = None,
 ) -> dict[str, Any]:
-    """No semantic review. Records exactly what was selected, never claims a match."""
+    """One existing pixel review per selected asset; no recovery/search/retry loop.
+
+    Objective proof/policy failures replace that asset locally and do not stop
+    production. Scores for attractive lighting or mood are advisory. Unavailable
+    evidence never becomes approval. A provider outage disables later calls.
+    """
+    from .media import create_fallback_visual, local_visual_recipe, _sha256, probe_duration
+    from .visual_qa import _apply_observed_visual_proof, _infrastructure_error, _review_display_durations
+    from .visual_story import visual_review_context
+
     rows = [row for row in rights if isinstance(row, Mapping)]
+    scripts = {str(s.get("id")): str(s.get("narration") or "") for s in script.get("sections", []) if isinstance(s, Mapping)}
+    story = plan.get("visual_story") or {}
+    if not story:
+        try:
+            story = json.loads((Path(output_dir) / "visual-story.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            story = {}
+    beats = {str(b.get("id")): b for b in story.get("beats", []) if isinstance(b, Mapping)}
+    display = _review_display_durations(Path(output_dir), rights, fmt) if rows and all(r.get("local_file") for r in rows) else {}
+    reviews: list[dict[str, Any]] = []
+    review_calls = 0
+    review_available = bool(os.environ.get("GEMINI_API_KEY"))
+    previous_observation = ""
+    for index, row in enumerate(rows):
+        local_file = str(row.get("local_file") or "")
+        clip = Path(output_dir) / "visuals" / local_file
+        if not local_file or not clip.is_file():
+            reviews.append({"local_file": local_file, "decision": "evidence_missing"})
+            continue  # Structural render checks still reject an actually missing source.
+        beat = dict(beats.get(str(row.get("beat_id"))) or row)
+        narration = scripts.get(str(row.get("section_id")), "")
+        fallback_intent = str(row.get("shot_intent") or row.get("query") or "")
+        context = visual_review_context(story, str(row.get("beat_id")), fallback_intent, previous_observation=previous_observation) if beats else fallback_intent
+        context += (
+            " Mandatory source policy: no runway/fashion posing or aimless walking; "
+            "no unrelated animals, roads or landscape filler. No readable or pseudo "
+            "lettering inside source pixels. Preserve an actual observable action/state "
+            "from this narration; do not infer it from search metadata."
+        )
+        context_hash = hashlib.sha256((narration + context).encode()).hexdigest()
+        source_hash = _sha256(clip)
+        saved = row.get("visual_evidence") or {}
+        audit: dict[str, Any] = {}
+        provenance: dict[str, Any] = {}
+        reason = "local_source" if row.get("provider") == FALLBACK_PROVIDER else "visual_review_unavailable"
+        if (isinstance(saved, Mapping) and saved.get("source_sha256") == source_hash
+                and saved.get("context_sha256") == context_hash and saved.get("frame_sha256") and saved.get("prompt_hash")):
+            audit = dict(saved.get("audit") or {})
+            provenance = dict(saved)
+            reason = "reused_exact_pixel_evidence"
+        elif row.get("provider") != FALLBACK_PROVIDER and review_available:
+            try:
+                from scripts.canonical_visual_evidence_v1 import build_canonical_visual_evidence, audit_gemini_canonical_evidence
+                evidence = build_canonical_visual_evidence(
+                    clip, Path(output_dir) / "visual-evidence" / f"simple-{index + 1:02d}",
+                    narration_context=narration, intended_visual=context,
+                    display_aspect_ratio=(9, 16) if fmt in {"short", "story", "moment"} else (16, 9),
+                    duration_limit_seconds=display.get(local_file),
+                )
+                review_calls += 1
+                # Direct existing canonical reviewer: SDK retries are already
+                # disabled. Do not install the standard five-provider recovery mesh.
+                audit = audit_gemini_canonical_evidence(
+                    os.environ["GEMINI_API_KEY"], clip, canonical_evidence=evidence,
+                    narration_context=narration, intended_visual=context,
+                    model=os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash"),
+                )
+                provenance = {"source_sha256": source_hash, "context_sha256": context_hash,
+                              "prompt_hash": evidence.prompt_hash, "frame_sha256": list(evidence.frame_sha256),
+                              "review_provider": "gemini", "audit": dict(audit)}
+                reason = "single_canonical_pixel_review"
+            except Exception as exc:
+                invalid_reply = isinstance(exc, ValueError) and str(exc).startswith("Gemini ")
+                if not (_infrastructure_error(exc) or is_known_infra_failure(exc) or invalid_reply):
+                    raise
+                review_available = False
+                reason = f"review_unavailable:{type(exc).__name__}"
+        audit = _apply_observed_visual_proof(audit)
+        risk_fields = ("identifiable_person", "sensitive_trait_implication_risk", "prominent_logo_or_brand",
+                       "cultural_conflict", "cultural_islamic_suitability_risk", "advertiser_conflict", "obvious_synthetic_or_visual_artifact")
+        accepted = bool(
+            audit.get("observed_visual") and audit.get("observed_proof_status") == "matched"
+            and audit.get("observed_face_status") in {"none", "unrecognizable"}
+            and all(audit.get(k) is False for k in risk_fields)
+        )
+        if accepted:
+            from .media import _stock_metadata_context_conflict
+            if _stock_metadata_context_conflict(str(row.get("query") or ""), str(audit.get("observed_visual") or "")):
+                accepted = False
+                reason = "observed_source_policy_conflict"
+        if accepted and row.get("source_actual") == "stock_motion" and display.get(local_file) and probe_duration(clip) + .08 < display[local_file]:
+            accepted = False
+            reason = "source_too_short_without_replay"
+        if accepted:
+            row["visual_evidence"] = provenance
+            row["visual_verification"] = "observed_matched"
+            previous_observation = str(audit["observed_visual"])
+        else:
+            recipe = local_visual_recipe(beat)
+            create_fallback_visual(clip, portrait=fmt in {"short", "story", "moment"}, beat=beat,
+                                   seconds=max(1, display.get(local_file, 12.0)))
+            if visual_source is not None and getattr(visual_source, "media_preflight", None):
+                blocked = visual_source.media_preflight(clip)
+                if blocked is not None:
+                    raise RuntimeError("simple local source failed security preflight")
+            if visual_source is not None and getattr(visual_source, "media_transform", None):
+                visual_source.media_transform(clip)
+            rejected = {k: row.get(k) for k in ("provider", "asset_id", "source_url", "creator", "source_actual")}
+            row.update(provider=FALLBACK_PROVIDER, source_actual=FALLBACK_PROVIDER,
+                       asset_id=f"local-{row.get('beat_id') or index}", source_url="local://clean-v2-symbolic-scene",
+                       creator="Isco Clean V2 local construction", creator_url="", attribution_required=False,
+                       visual_verification="local_symbolic" if recipe != "channel_only" else "unverified_channel_only",
+                       local_visual_recipe=recipe, replacement_reason=reason, rejected_source=rejected)
+            row.pop("visual_evidence", None)
+            previous_observation = f"local symbolic scene: {recipe}"
+        reviews.append({"local_file": local_file, "decision": row.get("visual_verification"), "reason": reason,
+                        "observed_visual": audit.get("observed_visual"), "proof": audit.get("observed_proof_status"),
+                        "face": audit.get("observed_face_status"), "aesthetic_scores_advisory": True})
+    manifest_path = Path(output_dir) / "rights-manifest.json"
+    if manifest_path.is_file():
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["assets"] = rights
+        atomic_write_json(manifest_path, payload)
     primary = [row for row in rows if not row.get("pacing_auxiliary")]
     extra = [row for row in rows if row.get("pacing_auxiliary")]
 
@@ -134,16 +259,22 @@ def simple_visual_qa(
     extra_backgrounds = [row for row in extra if _is_bg(row)]
     report = {
         "status": "pass",
-        "mode": "simple_unreviewed",
-        "semantic_review": "not_performed",
+        "mode": "simple_single_pass_local_replacement",
+        "semantic_review": "single_pass" if review_calls else "not_performed",
         "clips": len(primary),
         "stock_clips": len(primary) - len(backgrounds),
         "fallback_backgrounds": len(backgrounds),
         "extra_pacing_clips": len(extra),
         "extra_pacing_stock": len(extra) - len(extra_backgrounds),
         "extra_pacing_backgrounds": len(extra_backgrounds),
-        "final_media_mutated": False,
-        "provider_calls_added": 0,
+        "final_media_mutated": any(r.get("decision") in {"local_symbolic", "unverified_channel_only"} for r in reviews),
+        "provider_calls_added": review_calls,
+        "reviews": reviews,
+        "observed_matched_clips": sum(r.get("decision") == "observed_matched" for r in reviews),
+        "local_symbolic_clips": sum(r.get("decision") == "local_symbolic" for r in reviews),
+        "uncertain_clips": sum(r.get("decision") in {"unverified_channel_only", "evidence_missing"} for r in reviews),
+        "recovery_searches": 0,
+        "review_attempts_per_clip_max": 1,
     }
     atomic_write_json(Path(output_dir) / "final-cut-visual-qa.json", report)
     return report
@@ -180,15 +311,25 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "fallback_share": share,
         "extra_pacing_clips": extra,
         "extra_pacing_backgrounds": extra_bg,
-        "semantic_visual_review": "not_performed",
+        "semantic_visual_review": qa.get("semantic_review", "not_performed"),
         "tone_audit": tone_audit_state(output_dir),
         "technically_complete": True,
+        "render_success": True,
+        "editorial_ready": False,
+        "editorial_status": "owner_visual_review_required",
+        "observed_matched_clips": int(qa.get("observed_matched_clips") or 0),
+        "local_symbolic_clips": int(qa.get("local_symbolic_clips") or 0),
+        "uncertain_clips": int(qa.get("uncertain_clips") or 0),
+        "visual_review_calls": int(qa.get("provider_calls_added") or 0),
         "publish_decision": "owner",
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
             f"{backgrounds} channel backgrounds"
             + (f" (plus {extra} extra pacing clips, {extra_bg} of them backgrounds)" if extra else "")
-            + ". Visual match was NOT reviewed; the owner decides whether to publish."
+            + f". {int(qa.get('observed_matched_clips') or 0)} assets have observed pixel proof; "
+            + f"{int(qa.get('local_symbolic_clips') or 0)} are disclosed local symbolic scenes. "
+            + "The finished composition is NOT certified editorial_ready; the owner must review it before publishing."
+            + (" Source visual match was not reviewed." if not qa.get("provider_calls_added") and not qa.get("observed_matched_clips") else "")
             + (" The tone audit was unavailable and was NOT passed." if report_tone == "unavailable" else "")
         ),
     }

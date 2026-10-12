@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 12
-RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v14"
+RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-complex-shaping-v15"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Caption Lite: Cairo Bold for consistent Arabic typography with the cover, warm off-white face,
@@ -946,7 +946,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{caption_style_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{caption_style_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,-1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -988,7 +988,10 @@ def render_progressive_text(
         encoding="utf-8",
     )
 
-    filters: list[str] = [f"subtitles='{_filter_escape_path(ass_path)}'"]
+    # The subtitles filter's default shaping dropped Cairo contextual glyphs
+    # (سباق -> سبالا, أحد -> احد) without emitting missing-glyph warnings.
+    # Force HarfBuzz complex shaping for the already-authored logical Arabic.
+    filters: list[str] = [f"ass='{_filter_escape_path(ass_path)}':shaping=complex"]
     vf = ",".join(filters)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1046,8 +1049,8 @@ def render_progressive_text(
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
-        "focus_font_size": FOCUS_FONT_SIZE,
-        "body_font_size": BODY_FONT_SIZE,
+        "focus_font_size": 116 if _font_size_for_event(validated[0]) == 116 else FOCUS_FONT_SIZE,
+        "body_font_size": 116 if _font_size_for_event(validated[0]) == 116 else BODY_FONT_SIZE,
         "body_wrap_words": BODY_WRAP_WORDS,
         "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
@@ -1212,7 +1215,7 @@ def write_longform_caption_sidecars(
         "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
         "", "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,120,120,{margin_v},-1",
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
         *dialogues, "",

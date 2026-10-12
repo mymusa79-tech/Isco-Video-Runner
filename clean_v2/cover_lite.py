@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .contracts import atomic_write_json
-from .media import _run, _stock_metadata_context_conflict, _stock_metadata_semantic_score
+from .media import _run
 
 
 SCHEMA_VERSION = 1
@@ -39,6 +39,16 @@ def _fallback(value: object) -> str:
 
 def resolve_cover_text(plan: Mapping[str, Any], *, section_id: str | None = None) -> str:
     sections = [row for row in (plan.get("sections") or []) if isinstance(row, Mapping)]
+    from .simple_mode import is_simple_mode
+    if is_simple_mode():
+        target = next((row for row in sections if str(row.get("id")) == section_id), {}) if section_id else plan
+        candidates = [target.get("cover_text"), target.get("heading"), plan.get("cover_text"), plan.get("title")]
+        for raw in candidates:
+            text = _clean(raw)
+            if 2 <= len(text.split()) <= 5:
+                return text
+            if text.startswith("لماذا ") and len(text.split()) == 6:
+                return text.removeprefix("لماذا ")
     if section_id:
         for row in sections:
             if str(row.get("id") or "") == str(section_id):
@@ -119,7 +129,8 @@ def select_cover_source(
     pool = ranked or deferred
     # Local generated fallback footage proves no specific topic. Do not reuse its
     # arbitrary frame as a cover merely because its contrast looks good.
-    meaningful = [item for item in pool if str(item[2].get("source_actual") or "") != "generated_local"]
+    meaningful = [item for item in pool if str(item[2].get("source_actual") or "") != "generated_local"
+                  or item[2].get("visual_verification") == "local_symbolic"]
     pool = meaningful
     # Simple Mode cannot claim that attractive lighting makes a cover relevant.
     # Reuse the stock search metadata already in rights-manifest; when an asset
@@ -129,13 +140,15 @@ def select_cover_source(
         credible = []
         for item in pool:
             _, _, row = item
-            description = str(row.get("retrieval_description") or "").strip()
-            query = str(row.get("query") or "").strip()
-            if (description and query and
-                    (_stock_metadata_context_conflict(query, description)
-                     or _stock_metadata_semantic_score(query, description) < 0.15)):
-                continue
-            credible.append(item)
+            from .media import _sha256
+            evidence = row.get("visual_evidence") or {}
+            verified = (row.get("visual_verification") == "observed_matched"
+                        and isinstance(evidence, Mapping)
+                        and evidence.get("source_sha256") == _sha256(item[1])
+                        and evidence.get("prompt_hash") and evidence.get("frame_sha256"))
+            constructed = row.get("visual_verification") == "local_symbolic" and row.get("local_visual_recipe") != "channel_only"
+            if verified or constructed:
+                credible.append(item)
         pool = credible
     if pool:
         # Local visual scoring inspects a small bounded pool of already-approved
@@ -256,9 +269,9 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Shadow,Cairo,{font},{WHITE},{WHITE},{SHADOW},{SHADOW},-1,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1
-Style: Depth,Cairo,{font},{DEPTH},{DEPTH},{DEPTH},{DEPTH},-1,0,0,0,100,100,0,0,1,2,0,5,40,40,0,1
-Style: Face,Cairo,{font},{WHITE},{WHITE},{EDGE},{EDGE},-1,0,0,0,100,100,0,0,1,3,0,5,40,40,0,1
+Style: Shadow,Cairo,{font},{WHITE},{WHITE},{SHADOW},{SHADOW},-1,0,0,0,100,100,0,0,1,0,0,5,40,40,0,-1
+Style: Depth,Cairo,{font},{DEPTH},{DEPTH},{DEPTH},{DEPTH},-1,0,0,0,100,100,0,0,1,2,0,5,40,40,0,-1
+Style: Face,Cairo,{font},{WHITE},{WHITE},{EDGE},{EDGE},-1,0,0,0,100,100,0,0,1,3,0,5,40,40,0,-1
 
 [Events]
 Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
@@ -281,7 +294,7 @@ def render_cover(source: Path, destination: Path, *, text: str, fmt: str) -> dic
     ass = destination.with_name(f".{destination.stem}.cover-lite.ass")
     width, height, profile = _write_ass(ass, text=text, fmt=fmt)
     source_width, source_height = _dimensions(source)
-    subtitle = f"subtitles='{_subtitle_path(ass)}'"
+    subtitle = f"ass='{_subtitle_path(ass)}':shaping=complex"
 
     if fmt == "short" and source_width >= source_height:
         filters = (

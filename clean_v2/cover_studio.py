@@ -351,15 +351,16 @@ def _deep_grade(image, *, fmt: str):
     mean = float(ImageStat.Stat(image.convert("L").resize((64, 64))).mean[0])
     brightness = high if mean > 145 else mid if mean > 118 else low
     image = ImageEnhance.Brightness(image).enhance(brightness)
-    warm = Image.new("RGB", image.size, (205, 143, 78))
-    image = Image.blend(image, warm, warm_mix)
+    navy = Image.new("RGB", image.size, (20, 31, 50))
+    image = Image.blend(image, navy, warm_mix)
     return _vignette(image.convert("RGBA"), strength=vignette)
 
 
 def _prepare_canvas(source: Path, *, fmt: str):
     Image, ImageDraw, _, ImageFilter, _, _ = _pil()
     frame = _extract_frame(source)
-    if fmt == "short":
+    from .simple_mode import is_simple_mode
+    if fmt == "short" or is_simple_mode():
         return _deep_grade(_crop(frame, 1080, 1920), fmt=fmt)
 
     if frame.width / max(1, frame.height) >= 1.35:
@@ -531,8 +532,8 @@ def render_cover_studio(
         from .simple_mode import is_simple_mode
         compact = is_simple_mode()
         x = width // 2
-        single_size = 130 if compact else 190
-        max_width = 850 if compact else 800
+        single_size = (130 if fmt == "short" else 96) if compact else 190
+        max_width = (850 if fmt == "short" else 1060) if compact else 800
         rows = (
             [_clean(text)] if _text_width(_clean(text), size=single_size) <= max_width
             else _balanced_rows(text, maximum_rows=2)
@@ -540,10 +541,10 @@ def render_cover_studio(
         for index, row in enumerate(rows):
             _render_line(
                 canvas, row, center_x=x,
-                center_y=(690 if compact else 640) if len(rows) == 1
-                else (640 + index * 162 if compact else 570 + index * 200),
+                center_y=((690 if fmt == "short" else 240) if compact else 640) if len(rows) == 1
+                else ((640 + index * 162 if fmt == "short" else 190 + index * 124) if compact else 570 + index * 200),
                 max_width=max_width,
-                start_size=single_size if len(rows) == 1 else (126 if compact else 170),
+                start_size=single_size if len(rows) == 1 else (single_size - 4 if compact else 170),
                 gold=False, style="depth", font_path=FONT_BOLD,
             )
     else:

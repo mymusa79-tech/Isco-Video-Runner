@@ -6096,6 +6096,10 @@ forbidden here; it belongs only to the dedicated prayer visual.
 stock_query_en remains a separate English retrieval fallback, unique per beat. One stock_query_alt_en at most:
 different action/environment/cue for the SAME meaning; no synonyms/query lists.
 STOCK FEASIBILITY: one common subject + action/state; 3-8 essential English words; no styling/emotions/multi-person staging.
+Build one coherent physical situation across neighboring beats: meaning -> observable action/state -> source.
+Do not translate personal progress into random roads, crossroads, clocks or confident walking.
+No fashion posing, aimless walking or generic typing. An actual task attempt, obstacle and result must be visible.
+Use ordinary text-free objects/actions; no generated lettering, labels or illegible pseudo-writing in source pixels.
 meaning_target holds full meaning; semantic_must_have is visible proof shared by both queries, not query-specific props.
 Static contrasts: stock_still; rare staging: existing ai_still budget.
 practical_action_ar is a real daily action, never arranging visual-metaphor props.
