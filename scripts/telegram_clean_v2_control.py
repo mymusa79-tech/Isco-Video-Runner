@@ -1073,11 +1073,16 @@ def _stage_confirmation_dispatch(
     if expected_request_id is not None and expected_request_id != current_request_id:
         raise RuntimeError("confirmation button is stale")
     result = confirm_current(state)
-    if not result["already_dispatched"] and run_mode == "simple":
-        # Lifecycle field, deliberately outside the immutable request hash.
-        result["request"]["run_mode"] = "simple"
     if result["already_dispatched"]:
         return result
+    if run_mode == "simple":
+        # Lifecycle field, deliberately outside the immutable request hash.
+        result["request"]["run_mode"] = "simple"
+    else:
+        # A pre-existing pending confirmation could carry an old Simple flag.
+        # The only current UI confirmation is standard: never inherit that flag
+        # and accidentally bypass visual semantic review on a delayed dispatch.
+        result["request"].pop("run_mode", None)
     remaining = resume_history.provider_cooldown_remaining_seconds(state)
     if remaining > 0:
         raise ProviderCooldownActive(remaining)
