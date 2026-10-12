@@ -5907,7 +5907,7 @@ listener with the screen closed.
         "one concise Arabic imperative sentence containing exactly one practical action. "
         "Its concrete object/behavior MUST operationalize the EXACT s1 lived blockage and the earned s3 result; "
         "reject interchangeable tasks (such as writing any sentence regardless of topic) that could close an unrelated video. "
-        "This sentence becomes host-owned after Planning; Script must not author another action. " 
+        "This sentence becomes host-owned after Planning; Script must not author another action. "
         "Never turn a scenic prop (placing a key, book or cup on a table) into the solution to a different real-life problem."
         if fmt == "short"
         else ""
