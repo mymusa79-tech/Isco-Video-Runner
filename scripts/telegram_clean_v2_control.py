@@ -533,7 +533,9 @@ def research_failure_reason() -> str:
     return " ".join(reasons)
 
 
-def youtube_search(query: str, *, max_results: int = 6) -> list[dict[str, Any]]:
+# Search quota is per search request, not per returned result: use the existing
+# single request to inspect more relevant candidates before local ranking.
+def youtube_search(query: str, *, max_results: int = 10) -> list[dict[str, Any]]:
     key = str(os.environ.get("YOUTUBE_API_KEY") or "").strip()
     if not key:
         _RESEARCH_FAILURES.add("youtube_key_missing")
@@ -544,7 +546,9 @@ def youtube_search(query: str, *, max_results: int = 6) -> list[dict[str, Any]]:
             "part": "snippet",
             "q": query[:180],
             "type": "video",
-            "order": "viewCount",
+            # Most-viewed-first can return superficially related viral content.
+            # Search for relevance; rank matched results by observed performance.
+            "order": "relevance",
             "regionCode": YOUTUBE_REGION,
             "relevanceLanguage": YOUTUBE_LANGUAGE,
             "publishedAfter": cutoff,
@@ -568,6 +572,13 @@ def youtube_search(query: str, *, max_results: int = 6) -> list[dict[str, Any]]:
     return [item for item in second.get("items", []) if isinstance(item, dict)]
 
 
+# Editorial evidence floor, not a production quality gate. A tiny or poorly
+# received video does not establish meaningful demand for this exact topic.
+# Apply only to existing YouTube statistics, without extra API requests.
+_MARKET_EVIDENCE_MIN_VIEWS = 250
+_MARKET_EVIDENCE_MIN_LIKE_RATE = 0.008
+
+
 def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
     try:
         videos = youtube_search(query)
@@ -587,13 +598,32 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
             views = int(stats.get("viewCount") or 0)
         except (ValueError, TypeError):
             continue
-        if views <= 0:
+        if views < _MARKET_EVIDENCE_MIN_VIEWS:
             continue
         relevant, relevance_overlap = market_sample_relevance(query, snippet)
         if not relevant:
             continue
+        # Missing likeCount means YouTube did not disclose it, NOT zero likes.
+        # When known, avoid promoting an extremely weakly received video as
+        # credible audience evidence (Run 125: 6 likes / ~1,400 views).
+        raw_likes = stats.get("likeCount")
+        try:
+            likes = max(0, int(raw_likes)) if raw_likes is not None else None
+        except (ValueError, TypeError):
+            likes = None
+        like_rate = likes / views if likes is not None else None
+        if like_rate is not None and like_rate < _MARKET_EVIDENCE_MIN_LIKE_RATE:
+            continue
         age = max(1.0, (now - dt).total_seconds() / 86400.0)
         velocity = views / age
+        # Select an informative, genuinely relevant market sample rather than
+        # the fastest viral hit. Missing engagement stays unknown, not "good".
+        confidence_weight = (
+            min(1.5, 0.8 + like_rate / 0.03)
+            if like_rate is not None
+            else 0.8
+        )
+        sample_rank = velocity * confidence_weight
         velocities.append(velocity)
         channel = str(snippet.get("channelTitle") or "").strip()
         if channel:
@@ -606,10 +636,13 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
                 "published_at": published,
                 "views": views,
                 "views_per_day": round(velocity, 1),
+                "likes": likes,
+                "like_rate_percent": round(like_rate * 100, 2) if like_rate is not None else None,
+                "market_sample_rank": round(sample_rank, 2),
                 "relevance_overlap": relevance_overlap,
             }
         )
-    rows.sort(key=lambda x: float(x["views_per_day"]), reverse=True)
+    rows.sort(key=lambda x: (float(x["market_sample_rank"]), float(x["views_per_day"])), reverse=True)
     if not velocities:
         return 0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []}
     best = min(1.0, math.log10(max(velocities) + 1.0) / 5.0)
@@ -806,9 +839,17 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
             {
                 "source_title": title,
                 "source_url": f"https://youtu.be/{video_id}",
+                # Provenance from the SAME existing videos.list response: the
+                # user can inspect market reach and known reaction strength.
+                "market_views": str(sample.get("views") or "") if sample.get("views") is not None else "",
+                "market_likes": str(sample.get("likes")) if sample.get("likes") is not None else "",
+                "market_like_percent": (
+                    str(sample["like_rate_percent"])
+                    if sample.get("like_rate_percent") is not None else ""
+                ),
                 "claim_scope": (
-                    "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ "
-                    "لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+                    "عينة يوتيوب مرتبطة بموضوع البحث، تدعم تقدير الاهتمام بالسوق فقط؛ "
+                    "عدد المشاهدات والإعجابات لا يثبت دقة النص أو التشخيص أو السببية أو أي ادعاء علمي."
                 ),
             }
         )
@@ -1231,6 +1272,12 @@ def render_selection_confirmation(
             url = str(source.get("source_url") or "").strip()
             if url:
                 lines.append(f"   {url}")
+            views = str(source.get("market_views") or "").strip()
+            likes = str(source.get("market_likes") or "").strip()
+            if views:
+                metric = f"   👀 {views} مشاهدة"
+                metric += f" · 👍 {likes} إعجاب" if likes else " · الإعجابات غير معلنة"
+                lines.append(metric)
     lines.extend(
         [
             "",
