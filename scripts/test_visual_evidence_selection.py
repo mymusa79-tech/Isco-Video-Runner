@@ -120,7 +120,8 @@ class StockEvidenceSelectionTests(unittest.TestCase):
     def test_recovery_ranks_whole_returned_page_before_six_item_limit(self):
         for provider in ("pexels", "pixabay", "coverr"):
             with self.subTest(provider=provider):
-                results = [video(provider, i, "ski gondola snow mountain") for i in range(1, 12)]
+                results = [video(provider, i, "ski gondola snow mountain" if i % 2 == 0
+                                 else "person holding empty backpack") for i in range(1, 12)]
                 results.append(video(provider, 12, BACKPACK, portrait=False))
                 response = {"videos" if provider == "pexels" else "hits": results}
                 with mock.patch.object(media, "_read_secret", return_value="test"), mock.patch.object(
@@ -130,6 +131,7 @@ class StockEvidenceSelectionTests(unittest.TestCase):
                         BACKPACK, portrait=True, limit=6)
                 self.assertEqual(pool[0]["asset_id"], "12")
                 self.assertEqual(len(pool), 6)
+                self.assertFalse({"2", "4", "6", "8", "10"} & {row["asset_id"] for row in pool})
                 self.assertEqual(get.call_count, 1)
                 params = urllib.parse.parse_qs(urllib.parse.urlparse(get.call_args.args[0]).query)
                 self.assertEqual(params.get("per_page", params.get("page_size")), ["12"])
@@ -428,7 +430,7 @@ class DisplayWindowEvidenceTests(unittest.TestCase):
                         evidence.build_canonical_visual_evidence(source, Path(root) / "bundle", narration_context="ctx", intended_visual="intent", duration_limit_seconds=limit)
                 frames.assert_not_called()
 
-    def test_measured_short_window_reuses_renderer_weights_and_hook_cap(self):
+    def test_measured_window_reuses_renderer_and_excludes_identity_in_every_format(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
             (root / "visual-story.json").write_text("{}")
@@ -436,18 +438,20 @@ class DisplayWindowEvidenceTests(unittest.TestCase):
             (root / "rights-manifest.json").write_text(json.dumps({"assets": rights}))
             (root / "timeline-first.json").write_text(json.dumps({"status": "pass", "voice_seconds_measured": 30,
                 "section_events": [{"section_id": "s1", "start": 0, "end": 18}, {"section_id": "s2", "start": 18, "end": 30}],
-                "identity_events": [{"kind": "hook", "start": 0, "end": 6}]}))
-            for fmt in ("short", "story", "moment"):
+                "identity_events": [{"kind": "hook", "start": 0, "end": 6},
+                                    {"kind": "intro", "start": 6, "end": 8},
+                                    {"kind": "prayer", "start": 8, "end": 14},
+                                    {"kind": "channel_identity", "start": 14, "end": 18},
+                                    {"kind": "topic", "start": 18, "end": 30}]}))
+            for fmt in ("short", "story", "moment", "film", "podcast"):
                 with self.subTest(fmt=fmt):
                     windows = visual_qa._review_display_durations(root, rights, fmt)
                     self.assertAlmostEqual(windows["v1.mp4"], 2.0)
                     self.assertAlmostEqual(windows["v2.mp4"], 2.0)
-                    self.assertAlmostEqual(windows["v3.mp4"], 14.36)
-                    self.assertAlmostEqual(windows["v4.mp4"], 6.12)
-            for fmt in ("film", "podcast"):
-                windows = visual_qa._review_display_durations(root, rights, fmt)
-                self.assertAlmostEqual(windows["v1.mp4"], 6.12)
-                self.assertAlmostEqual(windows["v5.mp4"], 6.12)
+                    self.assertAlmostEqual(windows["v3.mp4"], 2.0)
+                    self.assertAlmostEqual(windows["v4.mp4"], 6.0)
+                    self.assertAlmostEqual(windows["v5.mp4"], 6.0)
+                    self.assertAlmostEqual(sum(windows.values()), 18.0)
 
     def test_primary_and_replacement_keep_same_slot_window(self):
         with mock.patch.object(visual_qa, "_review_display_durations", return_value={"visual-03.mp4": 2.0}):
