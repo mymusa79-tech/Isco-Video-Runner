@@ -416,6 +416,17 @@ def _build_publish_package(
         encoding="utf-8",
     )
 
+    # Deliver optional, viewer-controlled Arabic captions with the same
+    # manual-publish package; no caption file may become a release gate.
+    caption_files: list[str] = []
+    caption_prefix = "film" if kind == "long" else kind
+    if caption_prefix in {"film", "podcast"}:
+        for suffix in (".srt", ".ass"):
+            candidate = root / f"{caption_prefix}-captions{suffix}"
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                shutil.copy2(candidate, stage / candidate.name)
+                caption_files.append(candidate.name)
+
     derived_included = False
     derived_status = "not_applicable"
     short_prefix = ""
@@ -461,6 +472,12 @@ def _build_publish_package(
         "publish.txt — العنوان والوصف والهاشتاقات والوسوم للنسخ واللصق",
         "publish.json — نفس بيانات النشر بصيغة منظمة",
     ]
+    if caption_files:
+        readme_lines.extend([
+            "",
+            "ملفات الترجمة العربية الاختيارية (SRT / ASS) — يختار الناشر استخدامها يدويًا.",
+            "توقيت العبارات تقديري حسب أقسام الصوت، وليس مزامنة لكل كلمة.",
+        ])
     if derived_included:
         readme_lines.extend(
             [
@@ -483,6 +500,7 @@ def _build_publish_package(
         "main_title": main_meta["title"],
         "derived_short_included": derived_included,
         "derived_short_status": derived_status,
+        "optional_caption_files": caption_files,
         "files": sorted(path.name for path in stage.iterdir() if path.is_file()),
         "provider_calls_added": 0,
         "publication_mode": "manual",
