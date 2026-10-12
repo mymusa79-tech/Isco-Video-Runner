@@ -503,6 +503,11 @@ def _caption_width(text: str, size: int) -> float:
         font_path = _caption_font_path()
         if font_path:
             font = ImageFont.truetype(font_path, size, layout_engine=ImageFont.Layout.RAQM)
+            if hasattr(font, "set_variation_by_name"):
+                try:
+                    font.set_variation_by_name("Bold")
+                except (OSError, ValueError):
+                    pass
             return float(font.getlength(text, direction="rtl", language="ar"))
     except (OSError, ImportError, AttributeError, ValueError):
         pass
