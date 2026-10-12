@@ -1989,7 +1989,11 @@ class ShortTimedTextTests(unittest.TestCase):
             ],
         }
         events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
-        self.assertEqual(len(events), 3)
+        self.assertGreaterEqual(len(events), 3)
+        self.assertEqual(
+            {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
+            {section["id"]: section["narration"] for section in script["sections"]},
+        )
         self.assertEqual(events[0]["start"], 0.0)
         self.assertEqual(events[-1]["end"], 15.0)
         self.assertEqual(events[0]["role"], "hook")
@@ -2133,7 +2137,11 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
             self.assertEqual(events[0]["role"], "hook")
             self.assertEqual(events[-1]["role"], "payoff")
-            self.assertEqual(len(events), 3)
+            self.assertGreaterEqual(len(events), 3)
+            self.assertEqual(
+                {section["id"]: " ".join(str(item["text"]) for item in events if item["section_id"] == section["id"]) for section in script["sections"]},
+                {section["id"]: section["narration"] for section in script["sections"]},
+            )
             for event in events:
                 self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
