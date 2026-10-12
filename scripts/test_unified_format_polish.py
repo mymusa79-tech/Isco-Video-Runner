@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from clean_v2 import media, short_timed_text
+from clean_v2 import media, short_timed_text, podcast_key_text
 from clean_v2.cover_lite import select_cover_source
 from clean_v2.identity_sequence import identity_timing_profile
 from clean_v2.visual_story import CHANNEL_VISUAL_IDENTITY
@@ -51,6 +51,25 @@ class UnifiedFormatPolishTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(" ".join(rows), original)
             self.assertGreaterEqual(size, 118)
+
+    def test_burned_film_podcast_key_text_uses_same_unicode_and_pixel_width_owner(self):
+        event = [{
+            "start": 3.0, "end": 7.0,
+            "text": "هل\u200f تَرى □ التقدم الحقيقي؟",
+            "role": "turn",
+        }]
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt):
+                with mock.patch.object(
+                    short_timed_text, "_caption_width",
+                    side_effect=lambda text, size: len(text) * size * .5,
+                ):
+                    ass = podcast_key_text.build_ass(event, fmt=fmt)
+                self.assertNotIn("□", ass)
+                self.assertNotIn("\u200f", ass)
+                self.assertIn("تَرى", ass)
+                self.assertIn("WrapStyle: 2", ass)
+                self.assertIn("Cairo", ass)
 
     def test_shared_format_color_strengths_are_gentler_without_blue_wash(self):
         sample = media._RgbStats(168, 139, 120, 34, 35, 32)
