@@ -50,7 +50,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
             )
             self.assertEqual(len(rows), 2)
             self.assertEqual(" ".join(rows), original)
-            self.assertGreaterEqual(size, 118)
+            self.assertGreaterEqual(size, short_timed_text._CAPTION_FONT_MIN["short"])
 
     def test_burned_film_podcast_key_text_uses_same_unicode_and_pixel_width_owner(self):
         event = [{
