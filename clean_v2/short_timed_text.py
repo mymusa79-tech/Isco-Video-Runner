@@ -14,10 +14,10 @@ from typing import Any, Mapping, Sequence
 from .media import probe_duration
 
 SCHEMA_VERSION = 12
-RICH_RENDERER_VERSION = "clean-v2-short-noto-bold-static-safe-unicode-v13"
+RICH_RENDERER_VERSION = "clean-v2-short-cairo-bold-static-safe-unicode-v14"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
-# Caption Lite: Noto Sans Arabic Bold for libass Arabic glyph reliability, warm off-white face,
+# Caption Lite: Cairo Bold for consistent Arabic typography with the cover, warm off-white face,
 # crisp black outline, no gold sweep, no extrusion and no shadow. Timing stays
 # voice-owned and the only motion is a short fade at the event boundaries.
 PRIMARY_ASS = "&H00EEF2F4"  # RGB #F4F2EE warm off-white
@@ -25,7 +25,7 @@ ACCENT_ASS = PRIMARY_ASS  # compatibility alias; accent rendering is disabled
 OUTLINE_ASS = "&H00000000"  # opaque black
 EXTRUSION_ASS = OUTLINE_ASS  # compatibility alias; extrusion rendering is disabled
 SHADOW_ASS = OUTLINE_ASS  # compatibility alias; shadow rendering is disabled
-BODY_FONT = "Noto Sans Arabic"
+BODY_FONT = "Cairo"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 166
 FOCUS_FONT_SIZE = 166
@@ -486,7 +486,7 @@ def _caption_font_path() -> str:
     """Use the installed Cairo font; do not rely on a silent Latin fallback."""
     try:
         result = subprocess.run(
-            ["fc-match", "-f", "%{file}", "Noto Sans Arabic:style=Bold"],
+            ["fc-match", "-f", "%{file}", "Cairo:weight=bold"],
             capture_output=True, text=True, timeout=4,
             env=_secret_free_subprocess_env(),
         )
@@ -1052,7 +1052,7 @@ def render_progressive_text(
         "depth_layers": 1,
         "black_text_box": False,
         "font_weight": "bold",
-        "font_family_contract": "Noto Sans Arabic Bold",
+        "font_family_contract": "Cairo Bold",
         "outline_px": 2,
         "extrusion_offset": [0, 0],
         "shadow_offset": [0, 0],
@@ -1063,7 +1063,7 @@ def render_progressive_text(
         "karaoke_mode": "disabled_static_caption",
         "karaoke_provider_calls": 0,
         "text_source_policy": "final_audited_script_with_render_safe_unicode_sanitation",
-        "rtl_policy": "noto_arabic_libass_rtl_width_bounded_one_or_two_lines_preserve_all_words",
+        "rtl_policy": "cairo_arabic_libass_rtl_width_bounded_one_or_two_lines_preserve_all_words",
         "voice_owned_event_timing_preserved": True,
         "caption_motion": "static_phrase_fade_140_200ms",
         "unicode_diagnostics": caption_character_diagnostics([str(row.get("text") or "") for row in events if isinstance(row, Mapping)]),
