@@ -1292,6 +1292,17 @@ def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
     if (re.search(r"\b(?:hands only|no face visible|hands? close[ -]?up)\b", intent)
             and re.search(r"\b(?:portrait|(?:woman|man|person)\b.{0,90}\b(?:gazing|looking)\b|gazing out (?:a |the )?window)", description)):
         return True
+    # Local metadata exclusions: never use unrelated pet/travel pictures as
+    # generic motivation B-roll. Explicit animal and travel topics remain valid.
+    unrelated_families = (
+        (r"\b(?:dogs?|pupp(?:y|ies)|cats?|kittens?|pets?|canine|feline|horses?|birds?|parrots?|hamsters?|rabbits?)\b",
+         r"\b(?:dogs?|pupp(?:y|ies)|cats?|kittens?|pets?|animals?|canine|feline|horses?|birds?|parrots?|hamsters?|rabbits?)\b"),
+        (r"\b(?:world map|travel map|geographic map|cartograph\w*|globe|passport|airport|airline|boarding pass|touris\w*|vacation|holiday trip|flight tickets?|travel tickets?)\b",
+         r"\b(?:maps?|geograph\w*|globe|travel|journey|touris\w*|vacation|holiday|airport|flight|passport|boarding|airline|ticket|route)\b"),
+    )
+    for off_topic, intentional in unrelated_families:
+        if re.search(off_topic, description) and not re.search(intentional, intent):
+            return True
     return False
 
 
@@ -4197,7 +4208,20 @@ def _trim_and_grade_clip(
     """Use real stock motion once; never restart/boomerang a clip to fill a slot."""
     grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
     source_seconds = max(0.01, probe_duration(source))
-    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
+    from clean_v2.simple_mode import is_simple_mode
+
+    if is_simple_mode() and width < height:
+        # Restrained punch-in and a gradual pan: cheap FFmpeg crop expressions.
+        # No additional clips, zoompan pass, AI requests, or altered voice timing.
+        dx, dy = max(2, (width // 30) // 2 * 2), max(2, (height // 30) // 2 * 2)
+        vf = (
+            f"scale={width + dx}:{height + dy}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height}:"
+            f"x='(in_w-out_w)*(0.30+0.40*min(t/{max(1.0, float(seconds)):.3f},1))':"
+            "y='(in_h-out_h)/2',setsar=1,fps=30"
+        )
+    else:
+        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
     if grade:
         vf = f"{vf},{grade}"
     hold_seconds = max(0.0, float(seconds) - source_seconds)
