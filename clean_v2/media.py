@@ -3473,6 +3473,10 @@ def create_fallback_visual(
             command += ["-filter_complex_threads", "1", "-filter_complex", vf, "-map", "[v]", "-t", f"{seconds:.3f}", "-r", "30", "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(path)]
             _run(command, timeout=max(90, seconds * 5))
         return path
+    # Run 132: channel-only clips are sometimes trimmed to ~1-3 seconds.
+    # The old fixed 12s source with 1s fade-in and 11s fade-out made the
+    # 45.8s and 50.3s topic/outro windows near-black. Keep the fallback visible
+    # for its entire requested duration; the compositor owns transitions.
     _run(
         [
             "ffmpeg",
@@ -3482,9 +3486,7 @@ def create_fallback_visual(
             "-f",
             "lavfi",
             "-i",
-            f"color=c=#172033:s={width}x{height}:r=30:d=12",
-            "-vf",
-            "fade=t=in:st=0:d=1,fade=t=out:st=11:d=1",
+            f"color=c=#283a54:s={width}x{height}:r=30:d={max(0.1, float(seconds)):.3f}",
             "-c:v",
             "libx264",
             "-preset",
