@@ -11070,14 +11070,14 @@
         "runner_sha": "9a68be672ac9152e2bf2be6c8f4dbd9f31596748",
         "engine_sha": "595f69a28ff6ddc5532291c9f113f334562292f9",
         "resume_cache_key": "clean-v2-resume-v6-Linux-9a68be672ac9152e2bf2be6c8f4dbd9f31596748-595f69a28ff6ddc5532291c9f113f334562292f9-91ade3f19d4886d461fc496552d8839b48cc7423559a5f7c15a43a564f2a7ee6-38352764045-1",
-        "last_job_status": "in_progress",
-        "manifest_status": "running",
-        "artifact_id": null,
-        "artifact_name": "",
-        "artifact_url": "",
+        "last_job_status": "failure",
+        "manifest_status": "failed",
+        "artifact_id": 11791532551,
+        "artifact_name": "clean-v2-telegram-130",
+        "artifact_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38352764045/artifacts/11791532551",
         "final_published": false,
         "started_at": "2026-10-13T05:42:34Z",
-        "finished_at": null
+        "finished_at": "2026-10-13T05:45:22Z"
       }
     }
   },
@@ -11431,6 +11431,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-13T05:42:34Z",
+  "updated_at": "2026-10-13T05:45:22Z",
   "provider_cooldown_until": "2026-10-11T20:29:11.717886Z"
 }
