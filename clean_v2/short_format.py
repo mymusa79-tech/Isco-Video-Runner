@@ -920,6 +920,11 @@ def materialize_short_s3(script: dict[str, Any]) -> dict[str, Any]:
         and not re.search(r"[،,؛;:؟!]", payoff)
     ):
         s3["narration"] = f"{payoff[:-1].rstrip()}، {action}"
+    elif payoff == "ومع وضوح الرؤية.":
+        # Run 132: the dependent prepositional lead-in needs the existing
+        # approved imperative to complete its spoken sentence. No new words,
+        # no change to the separately locked payoff or action fields.
+        s3["narration"] = f"ومع وضوح الرؤية، {action}"
     else:
         s3["narration"] = f"{payoff} {action}".strip()
     return report
@@ -1340,6 +1345,9 @@ def normalize_short_practical_action(value: object) -> str:
     # Run 103: repair this unambiguous agreement error before the action is
     # host-locked. This changes neither its meaning nor its one-action shape.
     original = re.sub(r"(?<![\w])هذه\s+الأسبوع(?![\w])", "هذا الأسبوع", original)
+    # Run 132: unambiguous numeral agreement before Planning locks the action.
+    # Keep the object and command unchanged (three lessons, not three new acts).
+    original = re.sub(r"(?<![\w])ثلاث\s+دروس(?![\w])", "ثلاثة دروس", original)
     # Provider prose occasionally leaves a decorative dash after the sentence
     # (Run 99). Strip only terminal dash glyphs; never alter authored words.
     original = re.sub(r"\s*[-–—]+\s*$", "", original).strip()
