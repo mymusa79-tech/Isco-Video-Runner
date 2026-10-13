@@ -36,7 +36,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertLessEqual(durations[1], 5.0)
         self.assertAlmostEqual(durations[0], 8.0 / 3.0, places=3)
         self.assertAlmostEqual(durations[1], 8.0 / 3.0, places=3)
-        self.assertAlmostEqual(sum(durations), 24.0)
+        self.assertAlmostEqual(sum(durations[:3]), 8.0)
+        self.assertAlmostEqual(sum(durations), 15.0)
+        # The removed 9s belong to identity, which the measured renderer fills
+        # independently; they must not remain on the third hook shot.
 
     def test_rule_2_and_7_all_formats_are_fully_opaque_and_final_frame_freezes(self) -> None:
         for fmt in ("short", "film", "podcast"):

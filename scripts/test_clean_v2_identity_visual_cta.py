@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import inspect
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from clean_v2.identity_sequence import (
     PODCAST_CHANNEL_DEFINITION,
@@ -95,14 +95,33 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(timing["final_silence_seconds"], 6.50)
 
     def test_podcast_v8_identity_uses_asset_sfx_without_second_brand_card(self) -> None:
-        source = inspect.getsource(timeline_render.render_identity_composition)
-        self.assertIn('if fmt == "podcast"', source)
-        self.assertNotIn('bounds("channel_identity")', source)
-        self.assertNotIn("[v2][identity]overlay=0:0", source)
-        self.assertIn("[v2][outro]overlay=0:0", source)
-        self.assertIn("[1:a]atrim", source)
-        self.assertIn("[3:a]atrim", source)
-        self.assertIn("[aout]", source)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = {kind: root / f"{kind}.mp4" for kind in ("intro", "prayer", "outro")}
+            for path in assets.values():
+                path.write_bytes(b"fixture" * 300)
+            timeline = {"voice_seconds_measured": 30.0, "identity_events": [
+                {"kind": "intro", "start": 5.0, "end": 11.0},
+                {"kind": "prayer", "start": 11.0, "end": 13.0},
+                {"kind": "post_prayer_silence", "start": 13.0, "end": 13.65},
+                {"kind": "outro", "start": 23.5, "end": 25.0},
+                {"kind": "final_silence", "start": 25.0, "end": 30.0},
+            ]}
+            with mock.patch.object(timeline_render, "identity_asset_paths", return_value=assets), \
+                 mock.patch.object(timeline_render.subprocess, "run") as run:
+                timeline_render.render_identity_composition(root / "source.mp4", root / "final.mp4",
+                                                           fmt="podcast", timeline=timeline)
+            command = run.call_args.args[0]
+            filters = command[command.index("-filter_complex") + 1]
+            self.assertNotIn("[channel]", filters)
+            self.assertNotIn("[identity]", filters)
+            self.assertIn("[v2][outro]overlay=0:0", filters)
+            self.assertIn("[1:a]atrim=duration=6.000", filters)
+            self.assertIn("[3:a]atrim", filters)
+            self.assertIn("[0:a][aintro][aoutro]amix", filters)
+            self.assertIn("between(t,11.000,13.650)", filters)
+            self.assertIn("[aout]", command)
+            self.assertEqual(command[command.index("-t") + 1], "30.000")
 
     def test_short_keeps_one_visual_only_social_cta(self) -> None:
         cases = (

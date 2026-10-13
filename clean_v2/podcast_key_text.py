@@ -350,7 +350,7 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,-1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -421,7 +421,7 @@ def _apply_sparse_key_text(
             [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(Path(final_path).resolve()),
-                "-vf", f"subtitles='{_filter_escape_path(ass_path)}'",
+                "-vf", f"ass='{_filter_escape_path(ass_path)}':shaping=complex",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-c:a", "copy", str(rendered.resolve()),
             ],

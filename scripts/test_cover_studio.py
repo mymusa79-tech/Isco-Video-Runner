@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import os
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image, features
 
@@ -107,6 +109,33 @@ class CoverStudioV2Tests(unittest.TestCase):
             self.assertEqual((film["width"], film["height"]), (1280, 720))
             self.assertIn(short["layout_family"], {"impact", "split", "stacked", "centered"})
             self.assertIn(film["layout_family"], {"impact", "split", "stacked", "centered"})
+
+    def test_simple_layout_keeps_each_formats_aspect_and_cairo_bold(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {"CLEAN_V2_SIMPLE_MODE": "1"}):
+            root = Path(temporary)
+            source = self._image(root / "source.jpg", value=105, accent=True)
+            for fmt, size in (("short", (1080, 1920)), ("film", (1280, 720)), ("podcast", (1280, 720))):
+                with self.subTest(fmt=fmt):
+                    output = root / f"{fmt}.jpg"
+                    report = render_cover_studio(source, output, text="لست في سباق", fmt=fmt)
+                    with Image.open(output) as image:
+                        self.assertEqual(image.size, size)
+                    self.assertEqual((report["width"], report["height"]), size)
+                    self.assertEqual(report["font_weight"], "Bold")
+
+    def test_simple_long_cover_keeps_unreviewed_portrait_edges_outside_crop(self) -> None:
+        from PIL import ImageDraw
+        from clean_v2 import cover_studio
+        frame = Image.new("RGB", (720, 1280), (90, 120, 140))
+        ImageDraw.Draw(frame).rectangle((0, 0, 719, 399), fill=(255, 0, 0))
+        with mock.patch.dict(os.environ, {"CLEAN_V2_SIMPLE_MODE": "1"}), \
+             mock.patch.object(cover_studio, "_extract_frame", return_value=frame), \
+             mock.patch.object(cover_studio, "_deep_grade", side_effect=lambda image, **_: image.convert("RGBA")):
+            for fmt in ("film", "podcast"):
+                with self.subTest(fmt=fmt):
+                    canvas = cover_studio._prepare_canvas(Path("portrait.mp4"), fmt=fmt)
+                    self.assertEqual(canvas.size, (1280, 720))
+                    self.assertEqual(canvas.getcolors(1280 * 720), [(1280 * 720, (90, 120, 140, 255))])
 
 
 if __name__ == "__main__":

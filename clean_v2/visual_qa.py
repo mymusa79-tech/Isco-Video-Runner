@@ -198,6 +198,9 @@ def _review_display_durations(output_dir: Path, rights: list[dict[str, Any]], fm
         _enforce_short_hook_shot_cap, _timeline_hook_end_seconds,
     )
     paths = [output_dir / "visuals" / str(row.get("local_file") or "") for row in rights]
+    if timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
+        from clean_v2.media import _voice_owned_visual_schedule
+        return {s["local_file"]: s["duration_seconds"] for s in _voice_owned_visual_schedule(output_dir, paths, timeline)}
     durations = _section_slot_durations(output_dir, paths, seconds)
     if fmt in {"short", "story", "moment"}:
         paths, durations = _enforce_short_hook_shot_cap(

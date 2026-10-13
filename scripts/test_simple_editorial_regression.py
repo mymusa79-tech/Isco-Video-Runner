@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 import unittest
@@ -9,12 +10,18 @@ from pathlib import Path
 from unittest import mock
 
 from clean_v2 import media
-from clean_v2.cover_lite import select_cover_source
+from clean_v2.cover_lite import select_cover_source, resolve_cover_text
 from clean_v2.short_timed_text import build_rich_ass, _font_size_for_event, TimedTextEvent
 from clean_v2.simple_mode import SIMPLE_MODE_ENV
 
 
 class SimpleEditorialRegressionTests(unittest.TestCase):
+    def test_cover_copies_accepted_arabic_instead_of_run128_planner_phrase(self):
+        plan = {"sections": [{"id": "s1", "cover_text": "الافتراض الخفي وراء الشعور بالخلف"}]}
+        script = {"title": "لماذا تشعر بأنك متأخر عن الجميع؟"}
+        with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
+            self.assertEqual(resolve_cover_text(plan, section_id="s1", script=script), script["title"])
+
     def test_unrelated_pet_and_travel_stock_are_skipped(self):
         conflict = media._stock_metadata_context_conflict
         query = "person reflecting on career progress in a quiet room"
@@ -38,22 +45,27 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
         self.assertEqual(ass.count("Dialogue: "), 3)
         self.assertNotIn(r"\\fs166", ass)
 
-    def test_stock_pan_is_bounded_and_only_simple_portrait(self):
+    def test_quiet_source_pan_is_bounded_and_moving_stock_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "input.mp4"
             destination = Path(temp) / "output.mp4"
-            with mock.patch.object(media, "probe_duration", return_value=4.0), mock.patch.object(media, "_run") as run:
+            with mock.patch.object(media, "probe_duration", return_value=4.0), mock.patch.object(media, "_run") as run, mock.patch.object(media, "_source_has_natural_motion", return_value=False) as motion:
                 with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
                     media._trim_and_grade_clip(source, destination, width=1080, height=1920, seconds=4.0, grade_filter="")
                 ffmpeg_filter = run.call_args.args[0][run.call_args.args[0].index("-vf") + 1]
-                self.assertIn("sin(t/4)", ffmpeg_filter)
+                self.assertIn("min(t/4.000,1)", ffmpeg_filter)
                 self.assertIn("crop=1080:1920", ffmpeg_filter)
                 self.assertNotIn("zoompan", ffmpeg_filter)
                 run.reset_mock()
                 with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "0"}):
                     media._trim_and_grade_clip(source, destination, width=1080, height=1920, seconds=4.0, grade_filter="")
                 ffmpeg_filter = run.call_args.args[0][run.call_args.args[0].index("-vf") + 1]
-                self.assertNotIn("sin(t/4)", ffmpeg_filter)
+                self.assertNotIn("min(t/4.000,1)", ffmpeg_filter)
+                motion.return_value = True
+                with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
+                    media._trim_and_grade_clip(source, destination, width=1080, height=1920, seconds=4.0, grade_filter="")
+                vf = run.call_args.args[0][run.call_args.args[0].index("-vf") + 1]
+                self.assertNotIn("min(t/", vf)
 
     def test_simple_cover_drops_off_topic_with_existing_rights(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -70,6 +82,8 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
                      "retrieval_description": "a dog resting on the floor"},
                     {"local_file": "progress.mp4", "section_id": "s1", "role": "body",
                      "source_actual": "stock_motion",
+                     "visual_verification": "observed_matched",
+                     "visual_evidence": {"source_sha256": hashlib.sha256(b"x" * 2048).hexdigest(), "prompt_hash": "p", "frame_sha256": ["f"]},
                      "query": "completed task notebook",
                      "retrieval_description": "a notebook containing completed task marks"},
                 ]

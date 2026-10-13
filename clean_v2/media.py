@@ -1271,6 +1271,8 @@ def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
     """
     intent = str(query or "").casefold()
     description = urllib.parse.unquote(str(metadata or "")).casefold()
+    if re.search(r"\b(?:catwalk|runway|fashion model|fashion shoot|posing|seductive|bikini|swimwear|lingerie)\b", description):
+        return True
     if not intent.strip() or not description.strip():
         return False
 
@@ -1303,6 +1305,10 @@ def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
     for off_topic, intentional in unrelated_families:
         if re.search(off_topic, description) and not re.search(intentional, intent):
             return True
+    # An ordinary walking query is not permission for catwalk/lifestyle footage.
+    if (re.search(r"\b(?:scenic|landscape|aerial|drone|highway|traffic|mountain|waterfall|beach)\b", description)
+            and not re.search(r"\b(?:landscape|aerial|drone|highway|traffic|mountain|waterfall|beach|nature|environment|travel)\b", intent)):
+        return True
     return False
 
 
@@ -1395,9 +1401,8 @@ def _enforce_short_hook_shot_cap(
 ) -> tuple[list[Path], list[float]]:
     """Fit the three authored s1 beats inside the measured Short hook.
 
-    The third hook beat may continue beneath the fixed identity sequence after
-    the hook; only the first two cut points are moved. Total section/video time
-    is preserved exactly and no new visual is fabricated.
+    Identity time is NOT hook footage. The renderer fills identity windows
+    separately; a section remainder must never be parked on the third shot.
     """
     if (
         hook_seconds <= 0
@@ -1422,21 +1427,15 @@ def _enforce_short_hook_shot_cap(
     if len(first_section_indexes) != 3:
         return result_paths, result_durations
 
-    section_total = sum(result_durations[index] for index in first_section_indexes)
     quick = min(
         SHORT_HOOK_MAX_SINGLE_SHOT_SECONDS,
         hook_seconds / 3.0,
     )
     if quick < SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
         return result_paths, result_durations
-    if section_total <= (quick * 2.0) + SHORT_HOOK_THREE_SHOT_MIN_SECONDS:
-        return result_paths, result_durations
-
     result_durations[0] = quick
     result_durations[1] = quick
-    # The Short planning contract supplies exactly three s1 beats. Keep any
-    # compatibility remainder on the third one so total timing is invariant.
-    result_durations[2] = section_total - (quick * 2.0)
+    result_durations[2] = hook_seconds - (quick * 2.0)
     return result_paths, result_durations
 
 
@@ -1654,6 +1653,7 @@ class StockVisualSource:
                     "metadata_semantic_score": round(
                         _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("coverr", hit)), 6
                     ),
+                    "retrieval_description": _stock_result_metadata("coverr", hit),
                     "media_kind": "video",
                     "attribution_required": True,
                     "local_rank_score": round(float(score), 6),
@@ -1937,6 +1937,7 @@ class StockVisualSource:
                     "metadata_semantic_score": round(
                         _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pexels", video)), 6
                     ),
+                    "retrieval_description": _stock_result_metadata("pexels", video),
                     "local_rank_score": round(float(score), 6),
                 }
             self._event("pexels", query, "empty", wire_attempted=True)
@@ -2038,6 +2039,7 @@ class StockVisualSource:
                     "metadata_semantic_score": round(
                         _stock_metadata_semantic_score(semantic_query, _stock_result_metadata("pixabay", hit)), 6
                     ),
+                    "retrieval_description": _stock_result_metadata("pixabay", hit),
                     "local_rank_score": round(float(score), 6),
                 }
             self._event("pixabay", query, "empty", wire_attempted=True)
@@ -2161,6 +2163,31 @@ class StockVisualSource:
                         "source_preference": "stock_motion",
                     }
                 )
+
+        # A first Film/Podcast section may also contain the first spoken answer.
+        # Its post-identity content needs a separate source, never a replayed hook.
+        from .simple_mode import is_simple_mode
+        if is_simple_mode() and fmt in {"film", "podcast"}:
+            try:
+                timeline = json.loads((output_dir.parent / "timeline-first.json").read_text(encoding="utf-8"))
+                script = json.loads((output_dir.parent / "script.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                timeline, script = {}, {}
+            topic = next((e for e in timeline.get("identity_events", []) if e.get("kind") == "topic"), {})
+            for section in timeline.get("section_events", [])[:1]:
+                sid = str(section.get("section_id"))
+                if (topic and float(section["end"]) > float(topic["start"])
+                        and not any(b["section_id"] == sid and b.get("role") != "hook" for b in beats)):
+                    from .identity_sequence import PRAYER_SENTENCE
+                    text = next((str(s.get("narration") or "") for s in script.get("sections", []) if s.get("id") == sid), "")
+                    answer = text.split(PRAYER_SENTENCE, 1)[-1].strip()
+                    beat = {"id": f"{sid}-topic", "section_id": sid, "role": "body",
+                            "viewer_intent": answer, "meaning_target": answer, "writer_anchor_ar": answer,
+                            "stock_query_en": "local symbolic first answer", "source_preference": "stock_motion",
+                            "hold_reason": "idea_continues", "environment_family": "local_symbolic",
+                            "_local_content_window": True}
+                    insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
+                    beats.insert(insertion, beat)
 
         ai_hook_reference: Path | None = None
         ai_route_available = True
@@ -2648,6 +2675,10 @@ class StockVisualSource:
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
             primary_query = specific or str(beat.get("stock_query_en") or "").strip()
             auxiliary = section_id in seen_sections
+            if simple_mode and beat.get("_local_content_window"):
+                _simple_background(beat, index, auxiliary=auxiliary)
+                seen_sections.add(section_id)
+                continue
             if not primary_query:
                 if simple_mode:
                     _simple_background(beat, index, auxiliary=auxiliary)
@@ -3361,9 +3392,68 @@ def concat_wav_parts(inputs: list[Path], output: Path) -> Path:
     return output
 
 
-def create_fallback_visual(path: Path, *, portrait: bool) -> Path:
+def local_visual_recipe(beat: Mapping[str, Any] | None) -> str:
+    """A small, explicit metaphor vocabulary; never invent a stock match."""
+    beat = beat or {}
+    meaning = " ".join(str(beat.get(k) or "") for k in ("meaning_target", "viewer_intent", "writer_anchor_ar"))
+    if re.search(r"مقارن|سبق|سباق|تأخر|توقيت|comparison|compar[ei]|behind|progress|pace", meaning, re.I):
+        return "independent_progress"
+    if re.search(r"تركيز|تشتت|هدف|أولوي|قرار|اختيار|focus|distraction|priorit|choice|goal", meaning, re.I):
+        return "one_clear_choice"
+    if re.search(r"فرص|بداية|انتقال|تغيير|فتح|change|opening|opportunity|beginning", meaning, re.I):
+        return "opening_space"
+    return "channel_only"
+
+
+def create_fallback_visual(
+    path: Path, *, portrait: bool, beat: Mapping[str, Any] | None = None,
+    seconds: float = 12.0,
+) -> Path:
     width, height = ((720, 1280) if portrait else (1280, 720))
     path.parent.mkdir(parents=True, exist_ok=True)
+    recipe = local_visual_recipe(beat)
+    if recipe != "channel_only":
+        # Extend the existing last-resort source with text-free, locally authored
+        # moving objects. These are disclosed symbolic scenes, not claimed photos.
+        from PIL import Image, ImageDraw
+        with tempfile.TemporaryDirectory(prefix="clean-v2-local-scene-") as temp:
+            root = Path(temp)
+            image = Image.new("RGB", (width, height), (19, 29, 46))
+            draw = ImageDraw.Draw(image)
+            for y in range(height):
+                light = max(0, 1 - abs(y / height - .40) * 2)
+                draw.line((0, y, width, y), fill=(int(19 + 7 * light), int(29 + 9 * light), int(46 + 12 * light)))
+            cy = int(height * .43)
+            margin, travel = int(width * .18), int(width * .55)
+            side = max(28, width // 18)
+            token = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            ImageDraw.Draw(token).rounded_rectangle((1, 1, side - 2, side - 2), radius=side // 6, fill=(235, 230, 214, 255))
+            motion = max(1.0, seconds)
+            if recipe == "independent_progress":
+                for offset in (-side * 2, side * 2):
+                    draw.rounded_rectangle((margin, cy + offset, margin + travel + side, cy + offset + side), radius=side // 5, fill=(43, 57, 75))
+                vf = (f"[0:v][1:v]overlay=x='{margin}+{travel}*min(t/{motion:.3f},1)*.72':y={cy - side * 2}[first];"
+                      f"[first][2:v]overlay=x='{margin}+{travel}*(.18+.44*min(t/{motion:.3f},1))':y={cy + side * 2}[v]")
+            elif recipe == "one_clear_choice":
+                for index in range(5):
+                    x = margin + index * travel // 5
+                    draw.rounded_rectangle((x, cy - side, x + side, cy + side), radius=6, fill=(49, 62, 79))
+                vf = (f"[0:v][1:v]overlay=x='{margin}+{travel}*.60':"
+                      f"y='{cy - side * 2}-{side}*.35*min(t/{motion:.3f},1)'[v]")
+            else:
+                draw.rectangle((width * .35, cy - height * .20, width * .65, cy + height * .20), fill=(180, 173, 145), outline=(88, 104, 123), width=5)
+                panel = Image.new("RGBA", (int(width * .30), int(height * .40)), (32, 46, 65, 255))
+                panel.save(root / "token.png")
+                vf = (f"[0:v][1:v]overlay=x='{width * .35}+{width * .19}*min(t/{motion:.3f},1)':y={cy - height * .20}[v]")
+            image.save(root / "background.png")
+            if not (root / "token.png").exists():
+                token.save(root / "token.png")
+            command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1", "-i", str(root / "background.png"), "-loop", "1", "-i", str(root / "token.png")]
+            if recipe == "independent_progress":
+                command += ["-loop", "1", "-i", str(root / "token.png")]
+            command += ["-filter_complex_threads", "1", "-filter_complex", vf, "-map", "[v]", "-t", f"{seconds:.3f}", "-r", "30", "-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(path)]
+            _run(command, timeout=max(90, seconds * 5))
+        return path
     _run(
         [
             "ffmpeg",
@@ -3702,7 +3792,16 @@ def _exact_section_seconds_from_timeline(
             return None
         if not section_id or end <= start:
             return None
-        result[section_id] = end - start
+        identity = payload.get("identity_events") or []
+        windows = [
+            event for event in identity
+            if isinstance(event, Mapping) and event.get("kind") in {"hook", "topic"}
+        ]
+        result[section_id] = (
+            sum(max(0.0, min(end, float(event["end"])) - max(start, float(event["start"])))
+                for event in windows)
+            if windows else end - start
+        )
     return result or None
 
 
@@ -3808,6 +3907,98 @@ def _section_slot_durations(
             allocated[section_id] += clip_seconds
         durations.append(clip_seconds + pad)
     return durations
+
+
+def _voice_owned_visual_schedule(
+    output_dir: Path, paths: list[Path], timeline: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Bind shots to measured content windows, never to identity time.
+
+    Authored anchors locate idea changes inside their own spoken section.
+    Their timing is a text-proportion estimate, not word-level forced alignment.
+    Global frame boundaries prevent cumulative per-clip rounding/padding drift.
+    """
+    section_ids = _pacing_section_ids(output_dir, paths)
+    if section_ids is None:
+        raise RuntimeError("timeline render requires selected visual section ownership")
+    windows = [e for e in timeline.get("identity_events", [])
+               if isinstance(e, Mapping) and e.get("kind") in {"hook", "topic"}]
+    assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
+    by_file = {str(a.get("local_file")): a for a in assets if isinstance(a, Mapping)}
+    try:
+        script = json.loads((output_dir / "script.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        script = {}
+    narration = {str(s.get("id")): str(s.get("narration") or "")
+                 for s in script.get("sections", []) if isinstance(s, Mapping)}
+
+    def words(value: str) -> list[str]:
+        # Ignore punctuation/diacritics for matching; displayed words are untouched.
+        value = re.sub(r"[\u064B-\u065F\u0670]", "", value)
+        return re.findall(r"[\u0621-\u064A\u0660-\u0669A-Za-z0-9]+", value)
+
+    slots: list[dict[str, Any]] = []
+    for section in timeline.get("section_events", []):
+        sid = str(section.get("section_id") or "")
+        indexes = [i for i, value in enumerate(section_ids) if value == sid]
+        content = []
+        for window in windows:
+            start = max(float(section["start"]), float(window["start"]))
+            end = min(float(section["end"]), float(window["end"]))
+            if end > start:
+                content.append((start, end, str(window["kind"])))
+        for start, end, kind in content:
+            selected = [i for i in indexes if
+                        (str(by_file.get(paths[i].name, {}).get("role") or "") == "hook") == (kind == "hook")]
+            if not selected:
+                selected = indexes if len(content) == 1 else []
+            if not selected:
+                raise RuntimeError(f"timeline content visual missing: {sid}/{kind}")
+            selected_paths = [paths[i] for i in selected]
+            raw_text = narration.get(sid, "")
+            if kind == "hook" and raw_text:
+                from .short_timed_text import _select_event_text
+                raw_text = _select_event_text(raw_text, "hook")
+            elif kind == "topic" and start > float(section["start"]) and raw_text:
+                from .identity_sequence import PRAYER_SENTENCE
+                raw_text = raw_text.split(PRAYER_SENTENCE, 1)[-1].strip()
+                try:
+                    identity = json.loads((output_dir / "narrative-identity.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    identity = {}
+                definition = str(identity.get("definition") or "")
+                if definition and raw_text.startswith(definition):
+                    raw_text = raw_text[len(definition):].strip()
+            raw_text = re.sub(r"(?<!\S)[AB]:\s*", "", raw_text)
+            spoken = words(raw_text)
+            positions = [0]
+            for i in selected[1:]:
+                anchor = words(str(by_file.get(paths[i].name, {}).get("writer_anchor_ar") or ""))
+                found = next((p for p in range(positions[-1] + 1, len(spoken))
+                              if anchor and spoken[p:p + len(anchor)] == anchor), None)
+                if found is None:
+                    positions = []
+                    break
+                positions.append(found)
+            if positions and spoken:
+                boundaries = [start + (end - start) * p / len(spoken) for p in positions] + [end]
+                basis = "measured_section_with_authored_anchor_proportions"
+            else:
+                holds = _section_slot_durations(output_dir, selected_paths, end - start, pad=0.0)
+                boundaries = [start]
+                for hold in holds:
+                    boundaries.append(boundaries[-1] + hold)
+                boundaries[-1] = end
+                basis = "measured_content_window_with_hold_weights"
+            for path, left, right in zip(selected_paths, boundaries, boundaries[1:]):
+                # Quantize ABSOLUTE times, not each independently rounded duration.
+                left, right = round(left * 30) / 30, round(right * 30) / 30
+                if right <= left:
+                    raise RuntimeError("timeline visual slot below one output frame")
+                slots.append({"path": path, "local_file": path.name, "section_id": sid,
+                              "kind": kind, "start": left, "end": right,
+                              "duration_seconds": right - left, "timing_basis": basis})
+    return sorted(slots, key=lambda s: s["start"])
 
 
 # Same crossfade duration as the Engine's own M9 live-binding dissolve
@@ -3962,7 +4153,8 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
 
 def _reference_match_filter(source: _RgbStats, reference: _RgbStats, *, fmt: str = "film") -> str:
     """Build one bounded, gently format-scaled RGB transfer per source clip."""
-    factor = COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"])
+    from .simple_mode import is_simple_mode
+    factor = (1.0 if is_simple_mode() else COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"]))
     strength = COLOR_MATCH_STRENGTH * factor
     expressions: list[str] = []
     for channel, source_mean, source_std, ref_mean, ref_std in (
@@ -4031,6 +4223,10 @@ def _build_reference_color_plan(
 
     filters: dict[str, str] = {}
     target = _channel_target_stats()
+    from .simple_mode import is_simple_mode
+    simple = is_simple_mode()
+    asset_rows = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
+    local_sources = {str(r.get("local_file")) for r in asset_rows if isinstance(r, Mapping) and r.get("provider") == "generated_local"}
     report: dict[str, Any] = {
         "schema_version": 2,
         "source": "clean-v2-fixed-channel-palette-match",
@@ -4038,7 +4234,7 @@ def _build_reference_color_plan(
         "ai_calls_added": 0,
         "technical_color_normalization_owner": "M8_BT709_SDR_before_render",
         "method": "fixed_channel_rgb_mean_std_target_v1",
-        "match_strength": round(COLOR_MATCH_STRENGTH * COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"]), 3),
+        "match_strength": round(COLOR_MATCH_STRENGTH * (1.0 if simple else COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"])), 3),
         "format": fmt,
         "natural_color_preservation": "bounded_format_aware_blend",
         "master_look": "channel_navy_gold_split_tone_v6",
@@ -4066,6 +4262,8 @@ def _build_reference_color_plan(
                 )
                 continue
             fragment = _reference_match_filter(stats, target, fmt=fmt)
+            if simple and path.name in local_sources:
+                fragment = ""  # Locally constructed navy scenes already own the palette.
             filters[key] = fragment
             rows.append(
                 {
@@ -4196,6 +4394,22 @@ def _ffmpeg_filter_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
+def _source_has_natural_motion(source: Path, seconds: float) -> bool:
+    """Cheap measured motion, never semantic approval; failure preserves the source."""
+    try:
+        sample = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(source),
+             "-vf", f"fps={2 / max(.1, seconds):.6f},scale=64:64,format=gray", "-frames:v", "3",
+             "-an", "-f", "rawvideo", "pipe:1"], capture_output=True, timeout=15, check=True).stdout
+        frames = [sample[i:i + 4096] for i in range(0, len(sample), 4096) if len(sample[i:i + 4096]) == 4096]
+        if len(frames) < 2:
+            return True
+        return max(sum(abs(a - b) for a, b in zip(left, right)) / 4096
+                   for left, right in zip(frames, frames[1:])) > 1.5
+    except (OSError, subprocess.SubprocessError):
+        return True
+
+
 def _trim_and_grade_clip(
     source: Path,
     destination: Path,
@@ -4210,14 +4424,14 @@ def _trim_and_grade_clip(
     source_seconds = max(0.01, probe_duration(source))
     from clean_v2.simple_mode import is_simple_mode
 
-    if is_simple_mode() and width < height:
-        # Restrained punch-in and a gradual pan: cheap FFmpeg crop expressions.
-        # No additional clips, zoompan pass, AI requests, or altered voice timing.
+    if is_simple_mode() and not _source_has_natural_motion(source, min(seconds, source_seconds)):
+        # Still/quiet sources get one bounded linear drift, never cyclic movement.
+        # Preserve a moving source, including Film/Podcast, without a second zoom.
         dx, dy = max(2, (width // 30) // 2 * 2), max(2, (height // 30) // 2 * 2)
         vf = (
             f"scale={width + dx}:{height + dy}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height}:"
-            "x='(in_w-out_w)/2+(in_w-out_w)/15*sin(t/4)':"
+            f"x='(in_w-out_w)/2+(in_w-out_w)/8*(min(t/{max(.1, seconds):.3f},1)-.5)':"
             "y='(in_h-out_h)/2',setsar=1,fps=30"
         )
     else:
@@ -4415,7 +4629,7 @@ def render_video(
         except (OSError, json.JSONDecodeError):
             opening_report = {}
 
-    opening_enabled = (
+    opening_enabled = not timeline and (
         opening_report.get("status") == "pass"
         and opening_report.get("mode") == "legacy_first_30_three_audited_shots"
         and len(visual_paths) >= 3
@@ -4463,7 +4677,12 @@ def render_video(
         paths = [Path(item) for item in visual_paths]
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
-    if fmt == "short":
+    visual_schedule: list[dict[str, Any]] = []
+    if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
+        visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
+        paths = [slot["path"] for slot in visual_schedule]
+        durations = [slot["duration_seconds"] for slot in visual_schedule]
+    elif fmt == "short":
         short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
         paths, durations = _enforce_short_hook_shot_cap(
             paths,
@@ -4500,6 +4719,38 @@ def render_video(
             body_section_ids,
             editorial_signals,
         )
+        if visual_schedule:
+            # Identity owns the gaps. Never play a stock scene invisibly through
+            # an overlay and accidentally reveal its remainder in the topic.
+            gap_source = work_dir / "identity-base.mp4"
+            create_fallback_visual(gap_source, portrait=portrait)
+            timed_paths: list[Path] = []
+            timed_durations: list[float] = []
+            timed_ids: list[str] = []
+            cursor = 0.0
+            for slot in visual_schedule:
+                if slot["start"] > cursor + 0.001:
+                    timed_paths.append(gap_source)
+                    timed_durations.append(slot["start"] - cursor)
+                    timed_ids.append("__identity__")
+                elif slot["start"] < cursor - 0.001:
+                    raise RuntimeError("timeline visual windows overlap")
+                timed_paths.append(slot["path"])
+                timed_durations.append(slot["duration_seconds"])
+                timed_ids.append(slot["section_id"])
+                cursor = slot["end"]
+            terminal = round(duration * 30) / 30
+            if terminal > cursor + 0.001:
+                timed_paths.append(gap_source)
+                timed_durations.append(terminal - cursor)
+                timed_ids.append("__identity__")
+            timed_decisions = _editorial_boundary_decisions(timed_paths, timed_ids, editorial_signals)
+            for index, decision in enumerate(timed_decisions):
+                if "__identity__" in {timed_ids[index], timed_ids[index + 1]}:
+                    decision.update(decision="CUT", reason="measured_identity_boundary")
+            body_paths_for_render, body_durations_for_render = timed_paths, timed_durations
+            body_section_ids, body_boundary_decisions = timed_ids, timed_decisions
+            grade_filters[str(gap_source)] = ""
         if body_paths_for_render:
             body_segments = _build_section_body_segments(
                 work_dir,
@@ -4621,7 +4872,7 @@ def render_video(
                 )
             finally:
                 body_path.unlink(missing_ok=True)
-        _write_edit_decision_contract(
+        edit_report = _write_edit_decision_contract(
             output_dir,
             fmt=fmt,
             paths=paths,
@@ -4629,6 +4880,13 @@ def render_video(
             opening_enabled=opening_enabled,
             body_boundary_decisions=body_boundary_decisions,
         )
+        if visual_schedule:
+            edit_report["shot_timing_owner"] = "measured_content_windows_and_authored_anchors"
+            edit_report["identity_time_excluded_from_shots"] = True
+            edit_report["slots"] = [{k: v for k, v in slot.items() if k != "path"} for slot in visual_schedule]
+            edit_report["timing_precision"] = "section_exact_anchor_proportional_frame_quantized"
+            (output_dir / "edit-decision-contract.json").write_text(
+                json.dumps(edit_report, ensure_ascii=False, indent=2), encoding="utf-8")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
     return output_path
