@@ -476,12 +476,11 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "motivational slogans. Check agreement, references and sentence completeness.\n"
             f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
             "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
-            "scroll-stop visual beat; it must read instantly and must not feel visually flat. "
+            "scroll-stop beat. "
             "FIRST-SHOT GATE: s1 names a visible "
             "action/event AND tension/consequence, not quiet thinking, generic desk, static person or "
             "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage. "
-            "SCENE OWNERSHIP: show the unresolved choice and its consequence through s1/s2; do not visually reveal the successful choice or final solution in s2 before the spoken s3 payoff. "
-            "When the hook names concrete objects (for example coffee versus tea), prefer those same objects and observable hand actions over generic faces, hands covering eyes, or unrelated lifestyle footage."
+            "Keep s2 visually unresolved; show the chosen result only in s3. Reuse hook objects, not unrelated faces."
         )
     return (
         "SHORT_FORMAT_CONTRACT:\n"
