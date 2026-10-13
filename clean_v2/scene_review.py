@@ -124,7 +124,7 @@ def _contact_sheet(thumbs: list[tuple[int, Path]], destination: Path) -> None:
     try:
         font = ImageFont.truetype("DejaVuSans-Bold.ttf", 54)
     except OSError:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=54)
     draw = ImageDraw.Draw(sheet)
     for slot, (number, path) in enumerate(thumbs):
         x = (slot % 3) * (cell_w + gap)
