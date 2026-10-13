@@ -691,7 +691,11 @@ def _parse_candidate_rows(text: str) -> list[dict[str, str]]:
         query = " ".join(str(row.get("market_query") or "").split())[:120]
         reason = " ".join(str(row.get("reason") or "").split())[:240]
         if title and query:
-            result.append({"title": title, "market_query": query, "reason": reason})
+            row_data = {"title": title, "market_query": query, "reason": reason}
+            knowledge_query = " ".join(str(row.get("knowledge_query_en") or "").split())[:160]
+            if knowledge_query:
+                row_data["knowledge_query_en"] = knowledge_query
+            result.append(row_data)
     return result[:8]
 
 
@@ -703,9 +707,13 @@ def _research_prompt(trends: list[str], scope: str) -> str:
 اقترح 8 أفكار أصلية مناسبة للنطاق المطلوب. تجنب التشخيص الطبي والوعود المبالغ فيها والتكرار.
 استخدم إشارات Google Trends التالية كخلفية فقط إذا كانت ذات صلة، ولا تجبرها على المجال:
 {trend_text}
-لكل فكرة أعد title وmarket_query وreason. market_query عبارة بحث عربية محايدة من 2-7 كلمات.
+لكل فكرة أعد title وmarket_query وreason وknowledge_query_en.
+market_query عبارة بحث عربية محايدة من 2-7 كلمات لقياس الاهتمام فقط.
+knowledge_query_en عبارة إنجليزية محددة من 3-8 كلمات تبحث عن تفسير أو تمييز أو مثال قابل للتحقق لنفس الفكرة.
+اجعل reason يحدد موقفًا يوميًا ملموسًا وما سيفهمه المشاهد بعد الحلقة؛ تجنب العبارات التحفيزية العامة.
+عبارة البحث ليست معلومة ولا مصدرًا؛ لا تختلق فيها نتائج أو أسماء دراسات أو أرقامًا.
 أعد JSON فقط بالشكل:
-{{"candidates":[{{"title":"...","market_query":"...","reason":"..."}}]}}"""
+{{"candidates":[{{"title":"...","market_query":"...","reason":"...","knowledge_query_en":"..."}}]}}"""
 
 
 def _http_status(exc: BaseException) -> int:
@@ -839,6 +847,8 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
             {
                 "source_title": title,
                 "source_url": f"https://youtu.be/{video_id}",
+                "source_type": "youtube_market_sample",
+                "source_role": "market_interest",
                 # Provenance from the SAME existing videos.list response: the
                 # user can inspect market reach and known reaction strength.
                 "market_views": str(sample.get("views") or "") if sample.get("views") is not None else "",
@@ -849,7 +859,8 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
                 ),
                 "claim_scope": (
                     "عينة يوتيوب مرتبطة بموضوع البحث، تدعم تقدير الاهتمام بالسوق فقط؛ "
-                    "عدد المشاهدات والإعجابات لا يثبت دقة النص أو التشخيص أو السببية أو أي ادعاء علمي."
+                    "عدد المشاهدات والإعجابات لا يثبت دقة النص أو التشخيص أو السببية أو أي ادعاء علمي. "
+                    "العنوان والغلاف والأسلوب لا يقدّمون معلومة للنص أو مرجعًا لاختيار المشاهد."
                 ),
             }
         )
@@ -897,6 +908,7 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
                 "title": title,
                 "normalized_title": normalize_title(title),
                 "market_query": str(raw.get("market_query") or title)[:120],
+                "knowledge_query_en": str(raw.get("knowledge_query_en") or "")[:160],
                 "reason": reason[:320],
                 "market_score": score,
                 "market_evidence": evidence,
@@ -986,11 +998,12 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     pack = _research_pack(idea.get("market_evidence") or {})
     if not pack:
         raise RuntimeError("selected candidate has no usable research evidence")
-    # Topic-grounded web sources (fail-open): the Writer sees their quoted snippets
-    # inside claim_scope. YouTube market evidence stays first and unchanged.
+    # Keep archival order for compatibility. Each source now declares its role;
+    # content excerpts are shown before market samples in the confirmation UI.
     pack = pack + collect_topic_sources(
         str(os.environ.get("TAVILY_API_KEY") or "").strip(),
         str(idea.get("title") or ""),
+        query_hint=str(idea.get("knowledge_query_en") or ""),
     )
     idea["research_pack"] = pack
     idea["selected"] = True
@@ -1265,19 +1278,33 @@ def render_selection_confirmation(
     ]
     if spacing_warning:
         lines.extend(["", spacing_warning])
-    if pack:
-        lines.extend(["", "🔎 أهم المصادر قبل التأكيد:"])
-        for index, source in enumerate(pack[:2], 1):
+    def append_sources(heading: str, sources: list[dict[str, Any]], *, show_excerpt: bool = False) -> None:
+        if not sources:
+            return
+        lines.extend(["", heading])
+        for index, source in enumerate(sources[:2], 1):
             lines.append(f"{index}) {str(source.get('source_title') or 'مصدر')}")
             url = str(source.get("source_url") or "").strip()
             if url:
                 lines.append(f"   {url}")
+            excerpt = " ".join(str(source.get("source_excerpt") or "").split())
+            if show_excerpt and excerpt:
+                lines.append("   " + (excerpt[:180].rsplit(" ", 1)[0] + "…" if len(excerpt) > 180 else excerpt))
             views = str(source.get("market_views") or "").strip()
             likes = str(source.get("market_likes") or "").strip()
             if views:
                 metric = f"   👀 {views} مشاهدة"
                 metric += f" · 👍 {likes} إعجاب" if likes else " · الإعجابات غير معلنة"
                 lines.append(metric)
+    if any(source.get("source_role") for source in pack):
+        content_sources = [source for source in pack if source.get("source_role") == "content_evidence"]
+        if content_sources:
+            append_sources("📚 مقتطفات مرتبطة بالموضوع:", content_sources, show_excerpt=True)
+        else:
+            lines.extend(["", "لم يتوفر مقتطف معرفي صالح؛ سيُبنى الطرح على مثال يومي واضح دون ادعاءات علمية."])
+        append_sources("📊 عينات اهتمام بالموضوع:", [source for source in pack if source.get("source_role") == "market_interest"])
+    elif pack:
+        append_sources("🔎 أهم المصادر قبل التأكيد:", pack)
     lines.extend(
         [
             "",
@@ -2333,6 +2360,33 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     )
 
 
+def _content_use_constraints(pack: list[dict[str, Any]], fmt: str) -> list[str]:
+    # New selections freeze the source roles in the existing research_pack/hash.
+    # Legacy requests keep their original brief content for resume compatibility.
+    if not any(isinstance(source, dict) and source.get("source_role") for source in pack):
+        return []
+    has_content = any(
+        isinstance(source, dict) and source.get("source_role") == "content_evidence"
+        and str(source.get("source_excerpt") or "").strip()
+        for source in pack
+    )
+    pacing = {
+        "short": "s1 opens one concrete blockage; s2 adds a supported distinction/example that changes its meaning; s3 derives the earned result and the existing single practical action from s2.",
+        "film": "Each section adds a new supported distinction, example or consequence to the same inquiry; reward the hook early and use the existing selected narrative format.",
+        "podcast": "Each answer advances the same central listener question with a new distinction, example or objection; the explanation must work with the screen closed and visuals stay sparse.",
+    }[fmt]
+    return [
+        "CONTENT EVIDENCE USE: market_interest / youtube_market_sample entries measure interest only. Their titles, thumbnails, views, likes and style supply no factual explanation or visual reference for production.",
+        (
+            "Use a relevant content_evidence source_excerpt within its claim_scope to explain one useful, specific distinction or example in natural Arabic. Preserve the source's uncertainty and context; do not infer causation from association or imitate its wording/style."
+            if has_content else
+            "No substantive source excerpt was retrieved. Use a concrete observable everyday situation, a measured interpretation and an illustrative practical example; do not invent studies, hidden psychological causes or source-backed claims."
+        ),
+        "In the existing section purpose fields, identify what NEW idea each section contributes. Build situation -> explanation/distinction -> consequence/resolution; generic encouragement or synonymous restatement cannot repay the hook. " + pacing,
+        "Ground each existing visual_story shot_intent in an observable action, detail or changed state of that same idea. Preserve a connected setting while the idea unfolds; a scenic background, book cover or microphone does not prove the explanation. Label invented everyday examples as illustrative, never a real reported event.",
+    ]
+
+
 def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: str, fmt: str, output: Path) -> dict[str, Any]:
     request = state.get("requests", {}).get(request_id)
     if not isinstance(request, dict):
@@ -2364,6 +2418,7 @@ def materialize_brief(state: dict[str, Any], request_id: str, request_sha256: st
         "hard_constraints": [
             "No fabricated facts.",
             "Use research_pack only within each source claim_scope.",
+            *_content_use_constraints(list(request.get("research_pack") or []), fmt),
             "Gemini 3.8 is the only voice provider: Charon is the primary narrator; Orus is allowed only when Planning selects dialogue_qa.",
             *(
                 [

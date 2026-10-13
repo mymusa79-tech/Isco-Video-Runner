@@ -10,10 +10,36 @@ from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
 from scripts import telegram_clean_v2_control as control
-from scripts.research_relevance_filter import market_sample_relevance
+from scripts.research_relevance_filter import market_sample_relevance, relevance_tokens
 
 
 class MarketRelevanceAndQualityTests(unittest.TestCase):
+    def test_arabic_topic_anchors_survive_diacritics_clitics_and_punctuation(self) -> None:
+        self.assertEqual(relevance_tokens("المقارنة"), relevance_tokens("والمُقارنة؟"))
+        self.assertEqual(relevance_tokens("المقارنة"), relevance_tokens("بالمقارنة،"))
+        self.assertEqual(relevance_tokens("المقارنة"), relevance_tokens("للمقارنة"))
+
+    def test_screenshot_samples_remain_interest_data_without_content_claims(self) -> None:
+        now = datetime.now(timezone.utc)
+        videos = [{
+            "id": video_id,
+            "snippet": {"title": title, "description": "", "channelTitle": video_id,
+                        "publishedAt": (now - timedelta(days=days)).isoformat()},
+            "statistics": {"viewCount": str(views), "likeCount": str(likes)},
+        } for video_id, title, views, likes, days in [
+            ("book", "ثق بنفسك: توقف عن مقارنة نفسك بالآخرين واستعد قوتك", 560, 9, 3),
+            ("landscape", "فخ المقارنة الصامت: لماذا مقارنة خطواتك بالآخرين", 1700, 40, 14),
+        ]]
+        with mock.patch.object(control, "youtube_search", return_value=videos):
+            _, evidence = control.market_evidence("مقارنة الآخرين")
+        self.assertEqual(evidence["sample_count"], 2)
+        pack = control._research_pack(evidence)
+        self.assertTrue(all(source["source_role"] == "market_interest" for source in pack))
+        self.assertTrue(all("source_excerpt" not in source for source in pack))
+        self.assertIn("لم يتوفر مقتطف معرفي صالح", control.render_selection_confirmation({
+            "scope": "short", "approved_topic": "المقارنة", "research_pack": pack,
+        }))
+
     def test_generic_description_cannot_launder_unrelated_video_title(self) -> None:
         query = "التعامل مع يوم بدون إنجاز"
         unrelated = {
