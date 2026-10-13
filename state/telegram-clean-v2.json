@@ -11018,10 +11018,11 @@
       ],
       "idea_id": "idea-aeaf0857f5",
       "selected_at": "2026-10-13T02:01:45Z",
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-13T02:02:14Z",
       "dispatched_at": null,
-      "request_sha256": "b529dd7ec836ee60e27085f6a52f381c145799c49a79ba72463dbade39bbb366"
+      "request_sha256": "b529dd7ec836ee60e27085f6a52f381c145799c49a79ba72463dbade39bbb366",
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-9a9ae135318a",
@@ -11374,6 +11375,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-13T02:01:46Z",
+  "updated_at": "2026-10-13T02:02:14Z",
   "provider_cooldown_until": "2026-10-11T20:29:11.717886Z"
 }
