@@ -11079,9 +11079,30 @@
         "started_at": "2026-10-13T05:42:34Z",
         "finished_at": "2026-10-13T05:45:22Z"
       }
+    },
+    "req-bdd9f8d4df70": {
+      "schema_version": 1,
+      "request_id": "req-bdd9f8d4df70",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "شلل الاختيار: لماذا يتردد عقلك في اتخاذ القرارات البسيطة؟",
+      "research_pack": [
+        {
+          "source_title": "لا تدع التردد يوقف حياتك #نمو_مستمر #الثقة_بالنفس #علم_النفس #كتب #تحفيز #تطوير_الذات #viral #النجاح",
+          "source_url": "https://youtu.be/yCb9QEADf6Q",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-b8afcc1868",
+      "selected_at": "2026-10-13T10:06:27Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "3eb7dcab9855569900839db89a7edd9c4239b47417912672af1cff65b45c7bd0"
     }
   },
-  "current_request_id": "req-1e599a94630a",
+  "current_request_id": "req-bdd9f8d4df70",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -11431,6 +11452,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-13T10:05:41Z",
+  "updated_at": "2026-10-13T10:06:28Z",
   "provider_cooldown_until": "2026-10-11T20:29:11.717886Z"
 }
