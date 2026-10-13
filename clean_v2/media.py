@@ -1287,6 +1287,14 @@ def _stock_metadata_context_conflict(query: str, metadata: str) -> bool:
     if not intent.strip() or not description.strip():
         return False
 
+    # Run 131: a Pexels clip of someone covering ANOTHER person's eyes
+    # matched a query for hesitation with hands on one's own face.
+    # The literal title explicitly contradicts the intended action.
+    if (re.search(r"\b(?:overwhelmed|confus\w*|hesitat\w*|indecis\w*|options?|choic\w*|decision)\b", intent)
+            and re.search(r"\bcovering[- ]the[- ]eyes[- ]of[- ](?:a[- ])?(?:man|woman|person)\b", description)
+            and not re.search(r"\bcovering[- ]the[- ]eyes[- ]of[- ](?:a[- ])?(?:man|woman|person)\b", intent)):
+        return True
+
     medical = r"\b(?:vaccin\w*|syring\w*|inject\w*|medicin\w*|medicat\w*|pills?|hospital|pharmac\w*|immuniz\w*)\b"
     medical_intent = r"\b(?:health|medical|vaccin\w*|syring\w*|inject\w*|medicin\w*|medicat\w*|pills?|hospital|pharmac\w*|immuniz\w*|clinic|doctor|nurse|patient|treatment|therapy)\b"
     if re.search(medical, description) and not re.search(medical_intent, intent):
