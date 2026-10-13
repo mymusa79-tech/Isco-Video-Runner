@@ -6954,9 +6954,308 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-12T18:07:03Z"
+    },
+    {
+      "idea_id": "idea-aeaf0857f5",
+      "title": "نقد الذات القاسي لا يصنع انضباطاً حقيقياً",
+      "normalized_title": "نقد الذات القاسي لا يصنع انضباطاً حقيقياً",
+      "market_query": "التخلص من جلد الذات والتأنيب",
+      "knowledge_query_en": "self compassion vs self criticism procrastination",
+      "reason": "عندما يتأخر الشخص عن إنجاز مهمة فيبدأ في توجيه لوم شديد لنفسه ظناً أن القسوة ستدفعه للعمل بينما ينتهي به الأمر بالمماطلة أكثر؛ سيفهم المشاهد أن المحاسبة الواقعية بدون تحقير داخلي هي التي تعيد توجيه السلوك بفاعلية.",
+      "market_score": 0.641,
+      "market_evidence": {
+        "sample_count": 5,
+        "distinct_channels": 5,
+        "max_views_per_day": 1312.4,
+        "median_views_per_day": 192.6,
+        "top_samples": [
+          {
+            "video_id": "kswsE_aUI4Y",
+            "title": "ازاي تتخلصي من صوت جلد الذات والتفكير الزائد في ٤ خصوات تقدري تنفذيها من دلوقتي",
+            "channel": "Dr. Ahmed Ezzat د. أحمد عزت",
+            "published_at": "2026-09-17T20:29:55Z",
+            "views": 33111,
+            "views_per_day": 1312.4,
+            "likes": 2036,
+            "like_rate_percent": 6.15,
+            "market_sample_rank": 1968.56,
+            "relevance_overlap": [
+              "جلد",
+              "ذات"
+            ]
+          },
+          {
+            "video_id": "wzn_BLimT-A",
+            "title": "جلد الذات وتأنيب الضمير… لما تبقى أقسى واحد على نفسك! #misterpsycho #مستر_سايكو",
+            "channel": "مستر سايكو | Mister Psycho",
+            "published_at": "2026-10-06T16:58:39Z",
+            "views": 1478,
+            "views_per_day": 231.8,
+            "likes": 35,
+            "like_rate_percent": 2.37,
+            "market_sample_rank": 347.68,
+            "relevance_overlap": [
+              "تانيب",
+              "جلد",
+              "ذات"
+            ]
+          },
+          {
+            "video_id": "4k3ZsPsnnas",
+            "title": "جلد الذات: أخطأت لا يعني أنني خطأ",
+            "channel": "نسخة منك",
+            "published_at": "2026-10-07T09:55:40Z",
+            "views": 1092,
+            "views_per_day": 192.6,
+            "likes": 16,
+            "like_rate_percent": 1.47,
+            "market_sample_rank": 248.12,
+            "relevance_overlap": [
+              "جلد",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:55Z"
+    },
+    {
+      "idea_id": "idea-43cb611924",
+      "title": "التنازلات المجهرية: كيف تسقط حدودك ببطء؟",
+      "normalized_title": "التنازلات المجهرية كيف تسقط حدودك ببطء؟",
+      "market_query": "كيفية الحفاظ على الحدود الشخصية",
+      "knowledge_query_en": "slippery slope personal boundary erosion psychology",
+      "reason": "عندما يوافق الشخص يومياً على طلبات عمل إضافية خارج أوقات الدوام بحجة التعاون حتى يجد وقته الخاص قد تلاشى تماماً؛ سيفهم المشاهد أن الحدود لا تُخترق فجأة بل عبر سلسلة من التنازلات اليومية الصغيرة التي تتطلب انتباهاً مبكراً.",
+      "market_score": 0.342,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 35.8,
+        "median_views_per_day": 27.0,
+        "top_samples": [
+          {
+            "video_id": "-cYkH34vUI0",
+            "title": "إزاي تحط حدود صح تحافظ بها على راحتك النفسية؟",
+            "channel": "فكر بشكل ايجابي",
+            "published_at": "2026-09-23T04:19:10Z",
+            "views": 712,
+            "views_per_day": 35.8,
+            "likes": null,
+            "like_rate_percent": null,
+            "market_sample_rank": 28.62,
+            "relevance_overlap": [
+              "حدود",
+              "شخصية",
+              "علي"
+            ]
+          },
+          {
+            "video_id": "pBX3v65SSXE",
+            "title": "عشر حدود يجب ان تضعيها في حياتك🧐",
+            "channel": "MAMA FATEN ماما فاتن",
+            "published_at": "2026-09-28T11:37:59Z",
+            "views": 267,
+            "views_per_day": 18.3,
+            "likes": 10,
+            "like_rate_percent": 3.75,
+            "market_sample_rank": 27.43,
+            "relevance_overlap": [
+              "حدود",
+              "شخصية"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:54Z"
+    },
+    {
+      "idea_id": "idea-4f6f660211",
+      "title": "فخ العلاقات على الورق: هل تبحث عن الحضور أم الصورة؟",
+      "normalized_title": "فخ العلاقات علي الورق هل تبحث عن الحضور ام الصورة؟",
+      "market_query": "أسباب البحث عن القبول الاجتماعي",
+      "knowledge_query_en": "performative relationships social validation psychological need",
+      "reason": "عندما يحرص الشخص على التقاط الصور وتلميع تفاصيل مناسبة اجتماعية بدلاً من خوض المحادثات الحقيقية مع الحاضرين؛ سيفهم المشاهد كيف يؤدي السعي خلف التأكيد الخارجي إلى خلق علاقات شكلية تفتقر للدعم النفسي الفعلي.",
+      "market_score": 0.324,
+      "market_evidence": {
+        "sample_count": 3,
+        "distinct_channels": 1,
+        "max_views_per_day": 57.5,
+        "median_views_per_day": 43.1,
+        "top_samples": [
+          {
+            "video_id": "QyFqkbkHajU",
+            "title": "اذ كنت غير مؤهل في الضمان الاجتماعي المطور وانت مستحق لدعم تابع الفديو هذا",
+            "channel": "أبو سهيل الحربي للخدمات الالكترونيه",
+            "published_at": "2026-10-06T19:42:17Z",
+            "views": 360,
+            "views_per_day": 57.5,
+            "likes": 3,
+            "like_rate_percent": 0.83,
+            "market_sample_rank": 61.95,
+            "relevance_overlap": [
+              "اجتماعي",
+              "اسباب",
+              "قبول"
+            ]
+          },
+          {
+            "video_id": "XAgcYeSiTr0",
+            "title": "التابع في الضمان الاجتماعي غير مؤهل | بعد الزيارة الميدانيه التابع غير مؤهل في الضمان المطور",
+            "channel": "أبو سهيل الحربي للخدمات الالكترونيه",
+            "published_at": "2026-09-30T17:06:31Z",
+            "views": 533,
+            "views_per_day": 43.1,
+            "likes": 5,
+            "like_rate_percent": 0.94,
+            "market_sample_rank": 47.94,
+            "relevance_overlap": [
+              "اجتماعي",
+              "قبول"
+            ]
+          },
+          {
+            "video_id": "1IVF-GNBM_w",
+            "title": "غير مؤهل بضمان الاجتماعي بسبب تأكيد طلب انضمام التابعين | رفض الضمان المطور بسبب التابعين",
+            "channel": "أبو سهيل الحربي للخدمات الالكترونيه",
+            "published_at": "2026-09-19T11:24:06Z",
+            "views": 572,
+            "views_per_day": 24.2,
+            "likes": 6,
+            "like_rate_percent": 1.05,
+            "market_sample_rank": 27.85,
+            "relevance_overlap": [
+              "اجتماعي",
+              "قبول"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:53Z"
+    },
+    {
+      "idea_id": "idea-f56d79420e",
+      "title": "إغراء الكلمة الأخيرة: متى يكون الصمت انتصاراً؟",
+      "normalized_title": "اغراء الكلمة الاخيرة متي يكون الصمت انتصاراً؟",
+      "market_query": "فن إدارة الخلافات اليومية بهدوء",
+      "knowledge_query_en": "need to have last word conflict resolution",
+      "reason": "عندما يصر الشخص على مواصلة نقاش استنزافي مع زميل لمجرد الرغبة في إثبات خطأ الآخر وإنهاء الحوار لصالحه؛ سيفهم المشاهد أن التخلي عن الحاجة للفوز اللفظي الفوري يحمي طاقته ويظهر نضجاً عاطفياً يتجاوز إرضاء الأنا.",
+      "market_score": 0.284,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 28.0,
+        "median_views_per_day": 28.0,
+        "top_samples": [
+          {
+            "video_id": "oDepROnZT8E",
+            "title": "فن إدارة المحادثات الصعبة: 4 خطوات للهدوء والوصول إلى نتيجة",
+            "channel": "عمر فهد الباشا",
+            "published_at": "2026-09-24T19:20:12Z",
+            "views": 511,
+            "views_per_day": 28.0,
+            "likes": 31,
+            "like_rate_percent": 6.07,
+            "market_sample_rank": 41.93,
+            "relevance_overlap": [
+              "ادارة",
+              "بهدوء",
+              "خلافات",
+              "فن",
+              "يومية"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:56Z"
+    },
+    {
+      "idea_id": "idea-03461159d2",
+      "title": "إشارة الإنذار المبكر قبل الانفجار العصبي",
+      "normalized_title": "اشارة الانذار المبكر قبل الانفجار العصبي",
+      "market_query": "علامات الغضب الجسدية المبكرة",
+      "knowledge_query_en": "somatic markers physiological anger early signs",
+      "reason": "عندما يدخل الشخص في نقاش عائلي أو مهني حاد ويشعر بانقباض في فكّه أو تسارع في أنفاسه قبل التفوه بكلمات جارحة؛ سيفهم المشاهد كيف يراقب الإشارات البيولوجية المبكرة كمنبه للتوقف والانسحاب المؤقت قبل فقدان السيطرة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:52Z"
+    },
+    {
+      "idea_id": "idea-25d561c571",
+      "title": "خزان الوقود النفسي قبل إدارة الوقت",
+      "normalized_title": "خزان الوقود النفسي قبل ادارة الوقت",
+      "market_query": "إدارة الطاقة اليومية وتجنب الإرهاق",
+      "knowledge_query_en": "energy management vs time management psychology",
+      "reason": "عندما يمتلك الشخص ساعات فراغ كافية لإنجاز مشروعه الشخصي لكنه يجد نفسه عاجزاً عن التركيز ويفضل التشتت؛ سيفهم المشاهد أن المشكلة ليست في تنظيم الجدول الزمني بل في استنزاف مخزون الطاقة الذهنية وضرورة شحنها أولاً.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:53Z"
+    },
+    {
+      "idea_id": "idea-3290e0f6cd",
+      "title": "متلازمة تفقد الأخبار المستمر: متى يتحول الحذر إلى قلق؟",
+      "normalized_title": "متلازمة تفقد الاخبار المستمر متي يتحول الحذر الي قلق؟",
+      "market_query": "التوقف عن متابعة الأخبار المقلقة",
+      "knowledge_query_en": "doomscrolling psychological effects nervous system arousal",
+      "reason": "عندما يمسك الشخص هاتفه فور استيقاظه لقراءة الأخبار العاجلة بحثاً عن الاطمئنان لكنه يبدأ يومه بانقباض وتوتر مستمر؛ سيفهم المشاهد كيف يفسر العقل تدفق الأخبار كخطر محيط مباشر وكيف يساعد تقنين المتابعة على استعادة التوازن العصبي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:54Z"
+    },
+    {
+      "idea_id": "idea-eae18c4dbb",
+      "title": "وهم القفزة الكبرى وقوة التراكم الهادئ",
+      "normalized_title": "وهم القفزة الكبري وقوة التراكم الهادي",
+      "market_query": "بناء العادات اليومية بالتدريج",
+      "knowledge_query_en": "compounding effect micro habits behavioral change",
+      "reason": "عندما يبدأ الشخص هدفاً جديداً مثل القراءة أو الرياضة ثم يتوقف بعد أسبوعين بسبب عدم رؤية تغيير جذري في حياته؛ سيفهم المشاهد أن التغيير المستدام يعتمد على التراكم البسيط غير المرئي يومياً وليس على التحولات السحرية السريعة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-13T02:00:55Z"
     }
   ],
   "sessions": {
+    "c4e779c0": {
+      "session_id": "c4e779c0",
+      "scope": "short",
+      "idea_ids": [
+        "idea-aeaf0857f5",
+        "idea-43cb611924",
+        "idea-4f6f660211"
+      ],
+      "created_at": "2026-10-13T02:00:56Z"
+    },
     "6cd38921": {
       "session_id": "6cd38921",
       "scope": "short",
@@ -7382,17 +7681,6 @@
       "created_at": "2026-09-29T23:50:23Z",
       "source": "saved_library",
       "closed_at": "2026-09-29T23:50:23Z",
-      "selected_index": 0
-    },
-    "6315ec87": {
-      "session_id": "6315ec87",
-      "scope": "podcast",
-      "idea_ids": [
-        "idea-d84ee01975"
-      ],
-      "created_at": "2026-09-29T22:13:44Z",
-      "source": "saved_library",
-      "closed_at": "2026-09-29T22:13:44Z",
       "selected_index": 0
     }
   },
@@ -10958,6 +11246,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-12T19:56:50Z",
+  "updated_at": "2026-10-13T02:00:56Z",
   "provider_cooldown_until": "2026-10-11T20:29:11.717886Z"
 }
