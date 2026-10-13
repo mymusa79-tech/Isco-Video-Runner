@@ -2220,6 +2220,7 @@ class StockVisualSource:
             auxiliary: bool,
             as_still: bool,
             query_variant_index: int,
+            human: bool = False,
         ) -> bool:
             provider = str(candidate.get("provider") or "unknown")
             beat_id = str(beat.get("id") or f"b{len(clips) + 1}")
@@ -2256,7 +2257,9 @@ class StockVisualSource:
                         )
                         destination.unlink(missing_ok=True)
                         return False
-                if fmt == "short":
+                if fmt == "short" and not human:
+                    # The owner's explicit pick is honoured; only automatic picks
+                    # are filtered by the palette heuristic.
                     color_ok, color_reason = _short_visual_color_compatible(destination)
                     if not color_ok:
                         self._event(
@@ -2313,6 +2316,8 @@ class StockVisualSource:
             admitted["audio_energy"] = str(beat.get("audio_energy") or "")
             admitted["query_variant_index"] = int(query_variant_index)
             admitted["query_evolution_used"] = bool(query_variant_index)
+            if human:
+                admitted["human_choice"] = "candidate"
             if auxiliary:
                 admitted["pacing_auxiliary"] = True
                 admitted["story_beat_auxiliary"] = True
@@ -2648,7 +2653,24 @@ class StockVisualSource:
 
         simple_mode = is_simple_mode()
 
-        def _simple_background(beat: dict[str, Any], index: int, *, auxiliary: bool) -> None:
+        # Owner scene review (Short, Simple Mode only). Phase 1 only collects
+        # candidates; phase 2 applies the owner's saved choices to this same loop.
+        from clean_v2 import scene_review as _scene_review
+
+        review_collect = simple_mode and _scene_review.collect_mode(fmt)
+        human_review = _scene_review.load_choices(fmt) if simple_mode else None
+        human_choices: dict[str, Any] = (human_review or {}).get("choices", {})
+        if review_collect:
+            self.review_pack = []
+            self._review_taken = set()
+        for _entry in human_choices.values():
+            _picked = _entry.get("candidate") if isinstance(_entry, dict) else None
+            if _picked:
+                self._used.add((str(_picked["provider"]), str(_picked["asset_id"])))
+
+        def _simple_background(
+            beat: dict[str, Any], index: int, *, auxiliary: bool, human_choice: str = ""
+        ) -> None:
             # Simple Mode: the channel-colour background is the LAST resort and takes
             # the failed beat's own slot, so narrative order is never rearranged.
             beat_id = str(beat.get("id") or f"b{index}")
@@ -2679,6 +2701,8 @@ class StockVisualSource:
                 "pause_intent": str(beat.get("pause_intent") or ""),
                 "audio_energy": str(beat.get("audio_energy") or ""),
             }
+            if human_choice:
+                row["human_choice"] = human_choice
             if auxiliary:
                 row["pacing_auxiliary"] = True
                 row["story_beat_auxiliary"] = True
@@ -2694,6 +2718,35 @@ class StockVisualSource:
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
             primary_query = specific or str(beat.get("stock_query_en") or "").strip()
             auxiliary = section_id in seen_sections
+            if review_collect:
+                self.review_pack.append(
+                    self._review_entry(beat, primary_query, portrait=portrait)
+                )
+                seen_sections.add(section_id)
+                continue
+            owner_choice = human_choices.get(str(beat.get("id") or ""))
+            if owner_choice is not None:
+                if owner_choice.get("mode") == "candidate":
+                    picked = dict(owner_choice["candidate"])
+                    picked["provider_competition_used"] = False
+                    admitted_pick = _admit_stock_candidate(
+                        picked,
+                        str(picked.get("query") or primary_query),
+                        section_id,
+                        beat,
+                        auxiliary=auxiliary,
+                        as_still=False,
+                        query_variant_index=0,
+                        human=True,
+                    )
+                else:
+                    admitted_pick = False
+                if not admitted_pick:
+                    _simple_background(
+                        beat, index, auxiliary=auxiliary, human_choice="background"
+                    )
+                seen_sections.add(section_id)
+                continue
             if simple_mode and beat.get("_local_content_window"):
                 _simple_background(beat, index, auxiliary=auxiliary)
                 seen_sections.add(section_id)
@@ -2710,10 +2763,20 @@ class StockVisualSource:
                 beat,
                 auxiliary=auxiliary,
             ):
+                if human_review is not None and rights:
+                    rights[-1].setdefault("human_choice", "auto")
                 seen_sections.add(section_id)
             elif simple_mode:
-                _simple_background(beat, index, auxiliary=auxiliary)
+                _simple_background(
+                    beat, index, auxiliary=auxiliary,
+                    human_choice="auto" if human_review is not None else "",
+                )
                 seen_sections.add(section_id)
+
+        if review_collect:
+            # Phase 1 renders nothing: the caller turns review_pack into the
+            # owner's contact sheets and stops the run cleanly.
+            return [], []
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
@@ -3055,6 +3118,64 @@ class StockVisualSource:
                 reason=str(exc)[:80],
             )
         return candidates
+
+    def _review_entry(
+        self, beat: Mapping[str, Any], primary_query: str, *, portrait: bool
+    ) -> dict[str, Any]:
+        """Candidate shortlist for ONE beat (owner review phase 1; no download here).
+
+        Reuses the same recovery pools and query ladder the automatic path uses, so
+        the owner sees real alternatives, never a new source. Candidates already
+        shown for an earlier beat are skipped so the sheets never repeat a clip.
+        """
+        wanted = 9  # a few spare: some previews can fail and are dropped later
+        found: list[dict[str, Any]] = []
+        queries = _stock_query_ladder(primary_query, beat) if primary_query else ()
+        for raw in queries[:2]:
+            if len(found) >= wanted:
+                break
+            query = _hook_stock_retrieval_query(raw, beat)
+            if self.query_normalizer is not None and query:
+                query = self.query_normalizer(query)
+            query = _channel_stock_query(query)
+            if not query:
+                continue
+            pools = (
+                self._pexels_recovery_pool(query, portrait=portrait, limit=4),
+                self._pixabay_recovery_pool(query, portrait=portrait, limit=4),
+                self._coverr_recovery_pool(query, portrait=portrait, limit=4),
+            )
+            position = 0
+            while len(found) < wanted:
+                added = False
+                for pool in pools:
+                    if position >= len(pool) or len(found) >= wanted:
+                        continue
+                    added = True
+                    candidate = pool[position]
+                    identity = (
+                        str(candidate.get("provider") or ""),
+                        str(candidate.get("asset_id") or ""),
+                    )
+                    if (
+                        not identity[0]
+                        or not identity[1]
+                        or identity in self._used
+                        or identity in self._review_taken
+                    ):
+                        continue
+                    self._review_taken.add(identity)
+                    found.append(dict(candidate))
+                if not added:
+                    break
+                position += 1
+        return {
+            "id": str(beat.get("id") or ""),
+            "role": str(beat.get("role") or ""),
+            "text_ar": str(beat.get("writer_anchor_ar") or beat.get("display_text_ar") or ""),
+            "shot_intent": str(beat.get("shot_intent") or ""),
+            "candidates": found,
+        }
 
     def acquire_replacement_candidates(
         self,

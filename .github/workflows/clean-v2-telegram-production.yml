@@ -174,6 +174,21 @@ jobs:
             echo "CLEAN_V2_SIMPLE_MODE=1" >> "$GITHUB_ENV"
             echo "::notice title=run-mode::Simple Mode (visual match not reviewed; owner decides publication)"
           fi
+          # Owner scene review (Short only). collect = phase 1, stop after the saved
+          # voice; selected = phase 2, apply the owner's saved choices.
+          review_status="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].scene_review.status // empty' "$state")"
+          case "$review_status" in
+            collect|awaiting)
+              echo "CLEAN_V2_SCENE_REVIEW=collect" >> "$GITHUB_ENV"
+              echo "::notice title=scene-review::phase 1 - collecting scene candidates, stopping after the saved voice"
+              ;;
+            selected)
+              choices="$RUNNER_TEMP/scene-choices.json"
+              jq -c --arg id "$REQUEST_ID" '.requests[$id].scene_review as $s | {schema_version:1, review_id:$s.review_id, auto_all:($s.auto_all == true), choices:($s.choices // {})}' "$state" > "$choices"
+              echo "CLEAN_V2_SCENE_CHOICES=$choices" >> "$GITHUB_ENV"
+              echo "::notice title=scene-review::phase 2 - applying the owner's saved scene choices"
+              ;;
+          esac
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
@@ -348,6 +363,14 @@ jobs:
             cleanup_notify
             trap - RETURN
 
+            # Phase 1 of the owner scene review stops on purpose: no video, no
+            # terminal message and no "published" record. The review is sent below.
+            if [ "$status" -eq 0 ] && [ "$(jq -r '.status // empty' "$out/run-manifest.json" 2>/dev/null)" = "awaiting_scene_review" ]; then
+              echo "CLEAN_V2_SCENE_REVIEW_PENDING=1" >> "$GITHUB_ENV"
+              echo "CLEAN_V2_SCENE_REVIEW_OUT=$out" >> "$GITHUB_ENV"
+              return 0
+            fi
+
             local job_status="success"
             if [ "$status" -ne 0 ]; then job_status="failure"; fi
             if python scripts/telegram_clean_v2_notify.py terminal \
@@ -466,7 +489,7 @@ jobs:
           retention-days: 7
 
       - name: Deliver final video through unified GitHub Release
-        if: success()
+        if: success() && env.CLEAN_V2_SCENE_REVIEW_PENDING != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -508,7 +531,7 @@ jobs:
             *) exit 0 ;;
           esac
           final_published=false
-          if [ "$TELEGRAM_JOB_STATUS" = "success" ]; then
+          if [ "$TELEGRAM_JOB_STATUS" = "success" ] && [ "${CLEAN_V2_SCENE_REVIEW_PENDING:-}" != "1" ]; then
             final_published=true
           fi
           git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.name "isco-clean-v2-telegram"
@@ -541,3 +564,32 @@ jobs:
             fi
           done
           test "$recorded" = "true"
+
+      - name: Record owner scene review and send it to Telegram
+        if: success() && env.CLEAN_V2_SCENE_REVIEW_PENDING == '1'
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$TELEGRAM_REQUEST_STATE_ROOT" config user.email "actions@users.noreply.github.com"
+          recorded=false
+          for attempt in 1 2 3; do
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" fetch --quiet origin "$STATE_BRANCH"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" reset --quiet --hard "origin/$STATE_BRANCH"
+            python scripts/telegram_clean_v2_control.py record-scene-review \
+              --state "$TELEGRAM_REQUEST_STATE" \
+              --request-id "$REQUEST_ID" \
+              --request-sha256 "$REQUEST_SHA256" \
+              --review "$CLEAN_V2_SCENE_REVIEW_OUT/scene-review.json"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" add "$STATE_FILE"
+            git -C "$TELEGRAM_REQUEST_STATE_ROOT" commit -m "state: record owner scene review"
+            if git -C "$TELEGRAM_REQUEST_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"; then
+              recorded=true
+              break
+            fi
+          done
+          test "$recorded" = "true"
+          # Send only after the state is durable, so a fast reply can never race it.
+          python scripts/telegram_scene_review.py send --output "$CLEAN_V2_SCENE_REVIEW_OUT"

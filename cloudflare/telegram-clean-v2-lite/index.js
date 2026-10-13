@@ -424,6 +424,11 @@ async function dispatchControl(env, update) {
   }
 }
 
+// Owner scene review reply: «مشاهد 2 1 0 - 4 1 3». One message = one atomic decision.
+function isSceneReviewReply(text) {
+  return /^\s*(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$/.test(String(text || ""));
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -519,6 +524,8 @@ export default {
           current.callbackId,
           "⏳ أسجل الاختيار؛ انتظر رسالة «تم اختيار الفكرة» قبل التأكيد.",
         ));
+      } else if (current.data.startsWith("sceneauto:")) {
+        ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أعتمد الاختيار الآلي…"));
       } else if (current.data.startsWith("confirm:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "⏳ أتحقق من التأكيد…"));
       } else if (/^(historyscope|history|resumevoice|resume|restart):/.test(current.data)) {
@@ -618,6 +625,17 @@ export default {
       );
       return new Response("OK");
     }
+    if (isSceneReviewReply(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير اختيار المشاهد إلى GitHub. أعد إرسال الرسالة.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
     if (text === CONFIRM_TEXT) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
@@ -641,6 +659,7 @@ export default {
 };
 
 export {
+  isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,
   releaseLibraryRecords,
