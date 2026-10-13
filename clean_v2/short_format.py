@@ -479,7 +479,9 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "scroll-stop visual beat; it must read instantly and must not feel visually flat. "
             "FIRST-SHOT GATE: s1 names a visible "
             "action/event AND tension/consequence, not quiet thinking, generic desk, static person or "
-            "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage."
+            "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage. "
+            "SCENE OWNERSHIP: show the unresolved choice and its consequence through s1/s2; do not visually reveal the successful choice or final solution in s2 before the spoken s3 payoff. "
+            "When the hook names concrete objects (for example coffee versus tea), prefer those same objects and observable hand actions over generic faces, hands covering eyes, or unrelated lifestyle footage."
         )
     return (
         "SHORT_FORMAT_CONTRACT:\n"
@@ -529,8 +531,6 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "LOCAL FIRST-SHOT GATE: visual_query_en for s1 must name an observable action/event AND a readable tension/consequence "
         "(for example stopping mid-action + unfinished task, rushing + deadline, ringing alarm + missed work). "
         "Quiet thinking, a generic desk, a static person, or a landscape establishing shot alone is rejected. "
-        "SCENE OWNERSHIP: show the unresolved choice and its consequence through s1/s2; do not visually reveal the successful choice or final solution in s2 before the spoken s3 payoff. "
-        "When the hook names concrete objects (for example coffee versus tea), prefer those same objects and observable hand actions over generic faces, hands covering eyes, or unrelated lifestyle footage. "
         "For s3 depict the single payoff action itself or its immediate visible result with a clear sense of release/completion; never repeat the same writing/desk action used earlier."
     )
 
