@@ -22,6 +22,33 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
             self.assertEqual(resolve_cover_text(plan, section_id="s1", script=script), script["title"])
 
+    def test_run131_cover_keeps_the_complete_question(self):
+        # The accepted title and locked action are longer than the compact
+        # preference. Run131 used to clip the seven-word planner heading at
+        # five words and actually published "لماذا يتردد عقلك حتى في".
+        plan = {"sections": [{"id": "s1", "heading": "لماذا يتردد عقلك حتى في القرارات البسيطة؟"}]}
+        script = {
+            "title": "شلل الاختيار: كيف تتغلب على تردد عقلك في القرارات الصغيرة",
+            "sections": [{"id": "s3", "s3_locked_action": "حدد خيارًا واحدًا فقط قبل أن تبدأ في الاختيار."}],
+        }
+        with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
+            self.assertEqual(
+                resolve_cover_text(plan, section_id="s1", script=script),
+                "لماذا يتردد عقلك حتى في القرارات البسيطة؟",
+            )
+
+    def test_simple_cover_does_not_use_an_unfinished_prepositional_phrase(self):
+        plan = {"sections": [{"id": "s1", "heading": "لماذا يتردد عقلك حتى في"}]}
+        script = {"title": "شلل الاختيار وكيفية فهم التردد في القرارات اليومية الصغيرة"}
+        with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
+            self.assertEqual(resolve_cover_text(plan, section_id="s1", script=script), script["title"])
+
+    def test_simple_cover_can_fail_soft_instead_of_publishing_cut_off_copy(self):
+        plan = {"sections": [{"id": "s1", "heading": "لماذا يتردد عقلك حتى في"}]}
+        with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
+            with self.assertRaisesRegex(ValueError, "simple_cover_no_complete_text"):
+                resolve_cover_text(plan, section_id="s1", script={})
+
     def test_unrelated_pet_and_travel_stock_are_skipped(self):
         conflict = media._stock_metadata_context_conflict
         query = "person reflecting on career progress in a quiet room"
