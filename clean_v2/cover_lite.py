@@ -37,10 +37,22 @@ def _fallback(value: object) -> str:
     return " ".join(words[:5]).rstrip("،؛:.-!?؟") if words else ""
 
 
-def resolve_cover_text(plan: Mapping[str, Any], *, section_id: str | None = None) -> str:
+def resolve_cover_text(plan: Mapping[str, Any], *, section_id: str | None = None,
+                       script: Mapping[str, Any] | None = None) -> str:
     sections = [row for row in (plan.get("sections") or []) if isinstance(row, Mapping)]
     from .simple_mode import is_simple_mode
     if is_simple_mode():
+        # Reuse complete accepted Arabic, not an unreviewed planner translation.
+        # A six/seven-word question fits two lines without deleting its grammar.
+        accepted = script or {}
+        title = _clean(accepted.get("title"))
+        if 2 <= len(title.split()) <= 7:
+            return title
+        for row in reversed(list(accepted.get("sections") or [])):
+            if isinstance(row, Mapping):
+                action = _clean(row.get("s3_locked_action"))
+                if 2 <= len(action.split()) <= 5:
+                    return action
         target = next((row for row in sections if str(row.get("id")) == section_id), {}) if section_id else plan
         candidates = [target.get("cover_text"), target.get("heading"), plan.get("cover_text"), plan.get("title")]
         for raw in candidates:
@@ -347,7 +359,16 @@ def build_cover_lite(
     if fmt == "short" and section_id is None:
         sections = [row for row in (plan.get("sections") or []) if isinstance(row, Mapping)]
         section_id = str(sections[0].get("id") or "") if sections else None
-    text = resolve_cover_text(plan, section_id=section_id)
+    accepted_script = {}
+    from .simple_mode import is_simple_mode
+    if is_simple_mode():
+        try:
+            loaded = json.loads((output_dir / "script.json").read_text(encoding="utf-8"))
+            if isinstance(loaded, Mapping):
+                accepted_script = loaded
+        except (OSError, ValueError):
+            pass
+    text = resolve_cover_text(plan, section_id=section_id, script=accepted_script)
     if not text:
         raise RuntimeError("cover_text_missing")
     source, selection = select_cover_source(
