@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "نقد الذات القاسي لا يصنع انضباطاً حقيقياً",
-  "stage": "⚡ الشورت · 2/6 النص ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38334980047",
-  "result": "",
-  "updated_at": 1791857040
+  "result": "failure",
+  "updated_at": 1791857065
 }
