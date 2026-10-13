@@ -529,6 +529,8 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "LOCAL FIRST-SHOT GATE: visual_query_en for s1 must name an observable action/event AND a readable tension/consequence "
         "(for example stopping mid-action + unfinished task, rushing + deadline, ringing alarm + missed work). "
         "Quiet thinking, a generic desk, a static person, or a landscape establishing shot alone is rejected. "
+        "SCENE OWNERSHIP: show the unresolved choice and its consequence through s1/s2; do not visually reveal the successful choice or final solution in s2 before the spoken s3 payoff. "
+        "When the hook names concrete objects (for example coffee versus tea), prefer those same objects and observable hand actions over generic faces, hands covering eyes, or unrelated lifestyle footage. "
         "For s3 depict the single payoff action itself or its immediate visible result with a clear sense of release/completion; never repeat the same writing/desk action used earlier."
     )
 
@@ -906,9 +908,21 @@ def materialize_short_s3(script: dict[str, Any]) -> dict[str, Any]:
     )
     s3["s3_payoff"] = report["s3_payoff"]
     s3["s3_locked_action"] = report["s3_locked_action"]
-    s3["narration"] = (
-        f"{report['s3_payoff']} {report['s3_locked_action']}".strip()
-    )
+    payoff = report["s3_payoff"]
+    action = report["s3_locked_action"]
+    # Run 131: "عندما تدرك أن ... . حدد ..." is an unfinished
+    # subordinate clause. Join that exact, unpunctuated one-clause shape
+    # to the already-approved action; change no word or locked field.
+    # A complete conditional with an internal comma is left untouched.
+    if (
+        re.match(r"^(?:عندما|حين|إذا)\s+\S+", payoff)
+        and payoff.endswith(".")
+        and payoff.count(".") == 1
+        and not re.search(r"[،,؛;:؟!]", payoff)
+    ):
+        s3["narration"] = f"{payoff[:-1].rstrip()}، {action}"
+    else:
+        s3["narration"] = f"{payoff} {action}".strip()
     return report
 
 
