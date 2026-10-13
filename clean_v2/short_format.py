@@ -476,10 +476,11 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "motivational slogans. Check agreement, references and sentence completeness.\n"
             f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
             "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
-            "scroll-stop visual beat; it must read instantly and must not feel visually flat. "
+            "scroll-stop visual beat; must not feel visually flat. "
             "FIRST-SHOT GATE: s1 names a visible "
             "action/event AND tension/consequence, not quiet thinking, generic desk, static person or "
-            "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage."
+            "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage. "
+            "Keep s2 visually unresolved; show the chosen result only in s3. Reuse hook objects, not unrelated faces."
         )
     return (
         "SHORT_FORMAT_CONTRACT:\n"
@@ -906,9 +907,21 @@ def materialize_short_s3(script: dict[str, Any]) -> dict[str, Any]:
     )
     s3["s3_payoff"] = report["s3_payoff"]
     s3["s3_locked_action"] = report["s3_locked_action"]
-    s3["narration"] = (
-        f"{report['s3_payoff']} {report['s3_locked_action']}".strip()
-    )
+    payoff = report["s3_payoff"]
+    action = report["s3_locked_action"]
+    # Run 131: "عندما تدرك أن ... . حدد ..." is an unfinished
+    # subordinate clause. Join that exact, unpunctuated one-clause shape
+    # to the already-approved action; change no word or locked field.
+    # A complete conditional with an internal comma is left untouched.
+    if (
+        re.match(r"^(?:عندما|حين|إذا)\s+\S+", payoff)
+        and payoff.endswith(".")
+        and payoff.count(".") == 1
+        and not re.search(r"[،,؛;:؟!]", payoff)
+    ):
+        s3["narration"] = f"{payoff[:-1].rstrip()}، {action}"
+    else:
+        s3["narration"] = f"{payoff} {action}".strip()
     return report
 
 

@@ -11,6 +11,7 @@ from unittest import mock
 
 from clean_v2 import media
 from clean_v2.cover_lite import select_cover_source, resolve_cover_text
+from clean_v2.short_format import materialize_short_s3, short_prompt_context
 from clean_v2.short_timed_text import build_rich_ass, _font_size_for_event, TimedTextEvent
 from clean_v2.simple_mode import SIMPLE_MODE_ENV
 
@@ -57,6 +58,54 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
         self.assertFalse(conflict("veterinarian caring for a dog", "golden retriever dog in clinic"))
         self.assertFalse(conflict("traveler planning route using world map", "world map and airline tickets"))
         self.assertFalse(conflict(query, ""))  # unknown metadata remains non-blocking
+
+    def test_run131_s3_conditional_is_spoken_as_one_complete_sentence(self):
+        action = "حدد خيارًا واحدًا فقط قبل أن تبدأ في الاختيار."
+        payoff = "عندما تدرك أن التردد هو مجرد خوف من الندم."
+        script = {"sections": [
+            {"id": "s1", "narration": "هوك"},
+            {"id": "s2", "narration": "الشرح"},
+            {"id": "s3", "s3_payoff": payoff, "s3_locked_action": action},
+        ]}
+        materialize_short_s3(script)
+        s3 = script["sections"][2]
+        self.assertEqual(s3["s3_payoff"], payoff)
+        self.assertEqual(s3["s3_locked_action"], action)
+        self.assertEqual(s3["narration"],
+                         "عندما تدرك أن التردد هو مجرد خوف من الندم، " + action)
+
+    def test_completed_conditional_and_standalone_s3_unchanged(self):
+        action = "حدد خيارًا واحدًا فقط قبل أن تبدأ في الاختيار."
+        for payoff in (
+            "عندما تزدحم الخيارات، تصبح المقارنة أصعب.",
+            "المقارنة الطويلة قد تزيد التردد.",
+        ):
+            with self.subTest(payoff=payoff):
+                script = {"sections": [
+                    {"id": "s1", "narration": "هوك"},
+                    {"id": "s2", "narration": "الشرح"},
+                    {"id": "s3", "s3_payoff": payoff, "s3_locked_action": action},
+                ]}
+                materialize_short_s3(script)
+                self.assertEqual(script["sections"][2]["narration"], payoff + " " + action)
+
+    def test_run131_metadata_rejects_eyes_covering_prank_not_real_choice(self):
+        query = "person overwhelmed by too many options with hands covering face close up"
+        observed = "https://www.pexels.com/video/a-woman-covering-the-eyes-of-a-man-with-her-hands-6134334/"
+        self.assertTrue(media._stock_metadata_context_conflict(query, observed))
+        self.assertFalse(media._stock_metadata_context_conflict(
+            "person intentionally covering the eyes of a man during a surprise", observed))
+        self.assertFalse(media._stock_metadata_context_conflict(
+            query, "hands hesitating between coffee and tea cups"))
+        self.assertFalse(media._stock_metadata_context_conflict(query, ""))
+
+    def test_short_planning_requests_payoff_visual_only_in_s3(self):
+        instruction = short_prompt_context(
+            {"approved_topic": "لماذا نتردد بين القهوة والشاي؟"},
+            for_planning=True,
+        )
+        self.assertIn("Keep s2 visually unresolved", instruction)
+        self.assertIn("Reuse hook objects", instruction)
 
     def test_simple_caption_has_stable_smaller_cairo_type(self):
         events = [
