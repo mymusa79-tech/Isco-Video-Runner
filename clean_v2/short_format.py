@@ -476,7 +476,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "motivational slogans. Check agreement, references and sentence completeness.\n"
             f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
             "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
-            "scroll-stop visual beat. "
+            "scroll-stop visual beat; must not feel visually flat. "
             "FIRST-SHOT GATE: s1 names a visible "
             "action/event AND tension/consequence, not quiet thinking, generic desk, static person or "
             "landscape alone. s3 shows the payoff action/result with release/completion, never repeated writing/desk coverage. "
