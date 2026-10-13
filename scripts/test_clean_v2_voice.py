@@ -154,6 +154,40 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [33.0])
         self.assertFalse(synth.fallback_used)
 
+    def test_service_503_waits_once_within_existing_two_attempts(self) -> None:
+        for hint in (30.0, None):
+            with self.subTest(retry_after=hint), tempfile.TemporaryDirectory() as temporary:
+                error = TtsProviderError("gemini_3_8_http_503", http_status=503,
+                                         retry_after_seconds=hint)
+                calls = []
+                def tts(_key, _text, path, **kwargs):
+                    calls.append(kwargs)
+                    if len(calls) == 1:
+                        raise error
+                    return _write_audio(Path(path))
+                synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+                with patch("clean_v2.media._gemini38_synthesize", side_effect=tts), \
+                     patch("clean_v2.media.time.sleep") as sleep:
+                    synth.synthesize("أستأنف الصوت نفسه.", Path(temporary) / "out.wav")
+                sleep.assert_called_once_with(30.0)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(calls[0], calls[1])
+                self.assertEqual(synth.charon_attempts, 2)
+                self.assertFalse(synth.fallback_used)
+
+    def test_persistent_or_long_service_503_never_loops(self) -> None:
+        for hint, attempts, waits in ((30.0, 2, [30.0]), (90.0, 1, [])):
+            with self.subTest(retry_after=hint), tempfile.TemporaryDirectory() as temporary:
+                synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+                error = TtsProviderError("gemini_3_8_http_503", http_status=503,
+                                         retry_after_seconds=hint)
+                with patch("clean_v2.media._gemini38_synthesize", side_effect=error) as tts, \
+                     patch("clean_v2.media.time.sleep") as sleep:
+                    with self.assertRaises(VoiceInfrastructureError):
+                        synth.synthesize("نص محفوظ.", Path(temporary) / "out.wav")
+                self.assertEqual(tts.call_count, attempts)
+                self.assertEqual([c.args[0] for c in sleep.call_args_list], waits)
+
     def test_daily_quota_text_keeps_the_short_ceiling(self) -> None:
         class _DailyQuota(RuntimeError):
             http_status = 429

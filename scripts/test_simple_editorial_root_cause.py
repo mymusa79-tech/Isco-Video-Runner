@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import os
 import tempfile
 import unittest
@@ -10,6 +11,66 @@ from types import SimpleNamespace
 from unittest import mock
 
 from clean_v2 import media, simple_mode, short_timed_text
+
+
+class AuditedStoryResumeTests(unittest.TestCase):
+    @staticmethod
+    def saved_story(fmt):
+        from clean_v2 import pipeline
+        from scripts.test_clean_v2_unified_visual_story import _brief, _planning_value
+        plan = pipeline._validate_plan_for_brief(_planning_value(fmt), _brief(fmt))
+        story = plan.pop("visual_story")
+        if fmt == "short":
+            story = pipeline._bound_short_visual_story(story)
+            target = story["beats"][2]
+            previous = story["beats"][1]
+            target["stock_query_en"] = previous["stock_query_en"]
+            target["shot_intent"] = previous["shot_intent"]
+        else:
+            target = copy.deepcopy(story["beats"][0])
+            target.update(id="b1_detail", role="body", source_preference="stock_motion",
+                          viewer_intent="يرى تفصيلًا آخر للفكرة نفسها")
+            story["beats"].insert(1, target)
+        for beat in story["beats"]:
+            beat["writer_anchor_ar"] = "كلمات النص النهائي المقبول"
+        return plan, story
+
+    def test_audited_resume_keeps_queries_anchors_and_hook_ownership_in_all_formats(self):
+        from clean_v2.pipeline import _validate_resumed_visual_story
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt):
+                plan, story = self.saved_story(fmt)
+                with self.assertRaisesRegex(ValueError, "stock_query_en values must be distinct"):
+                    _validate_resumed_visual_story(story, plan, router=SimpleNamespace(events=[]))
+                restored = _validate_resumed_visual_story(story, plan, router=SimpleNamespace(events=[]),
+                                                         from_checkpoint=True)
+                for before, after in zip(story["beats"], restored["beats"]):
+                    for field in ("id", "role", "section_id", "meaning_target", "shot_intent",
+                                  "stock_query_en", "writer_anchor_ar", "semantic_must_have"):
+                        self.assertEqual(before[field], after[field], field)
+
+    def test_bound_resume_still_requires_structural_and_visual_safety(self):
+        from clean_v2.pipeline import _validate_resumed_visual_story
+        changes = [
+            {"semantic_must_have": ["soft navy cinematic lighting"]},
+            {"stock_query_en": "لقطة يد"},
+            {"source_preference": "unknown_provider"},
+            {"section_id": "s2"},  # A saved hook may not move into the topic.
+        ]
+        for change in changes:
+            with self.subTest(change=change):
+                plan, story = self.saved_story("short")
+                story["beats"][1].update(change)
+                with self.assertRaises(ValueError):
+                    _validate_resumed_visual_story(story, plan, router=SimpleNamespace(events=[]),
+                                                 from_checkpoint=True)
+
+    def test_model_cannot_claim_it_is_an_audited_checkpoint(self):
+        from clean_v2.visual_story import validate_visual_story
+        plan, story = self.saved_story("short")
+        story["from_checkpoint"] = True
+        with self.assertRaisesRegex(ValueError, "stock_query_en values must be distinct"):
+            validate_visual_story(story, plan)
 
 
 class MeasuredSceneOwnershipTests(unittest.TestCase):

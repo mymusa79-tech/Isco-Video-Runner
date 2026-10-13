@@ -5250,11 +5250,12 @@ def _validate_resumed_visual_story(
     plan: Mapping[str, Any],
     *,
     router: Any,
+    from_checkpoint: bool = False,
 ) -> dict[str, Any]:
     resume_plan = dict(plan)
     resume_plan["_visual_identity_contract"] = "navy_gold_v1"
     try:
-        return validate_visual_story(value, resume_plan)
+        return validate_visual_story(value, resume_plan, from_checkpoint=from_checkpoint)
     except VisualWorldIdentityError:
         if not isinstance(value, Mapping):
             raise
@@ -5273,7 +5274,7 @@ def _validate_resumed_visual_story(
                 "wire_attempted": False,
             },
         )
-        return validate_visual_story(repaired, resume_plan)
+        return validate_visual_story(repaired, resume_plan, from_checkpoint=from_checkpoint)
 
 
 def _validate_plan_with_visual_world_recovery(
@@ -7274,6 +7275,9 @@ class CleanV2Pipeline:
                         _read_json_object(output_dir / "visual-story.json"),
                         plan,
                         router=self.router,
+                        # The loader already verified each listed artifact. Its
+                        # normalized roles/queries are not a fresh model response.
+                        from_checkpoint="visual-story.json" in resume[1]["artifacts"],
                     )
                 elif resume_source_story_path.is_file():
                     _copy_resume_artifact(
@@ -7283,6 +7287,7 @@ class CleanV2Pipeline:
                         _read_json_object(output_dir / "visual-story-source.json"),
                         plan,
                         router=self.router,
+                        from_checkpoint="visual-story-source.json" in resume[1]["artifacts"],
                     )
                     atomic_write_json(output_dir / "visual-story.json", visual_story)
                 else:
@@ -7379,6 +7384,7 @@ class CleanV2Pipeline:
                         _read_json_object(output_dir / "visual-story-source.json"),
                         plan,
                         router=self.router,
+                        from_checkpoint="visual-story-source.json" in resume[1]["artifacts"],
                     )
                     atomic_write_json(output_dir / "visual-story.json", visual_story)
                     script = _validate_script_for_brief(

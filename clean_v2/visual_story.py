@@ -857,9 +857,11 @@ def repair_short_family_overuse(value: Any, plan: Mapping[str, Any]) -> Any:
     return {**value, "beats": beats} if changed else value
 
 
-def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+def validate_visual_story(
+    value: Any, plan: Mapping[str, Any], *, from_checkpoint: bool = False,
+) -> dict[str, Any]:
     try:
-        return _validate_visual_story(value, plan)
+        return _validate_visual_story(value, plan, from_checkpoint=from_checkpoint)
     except ValueError as exc:
         # The gate still raises its exact original rejection. Report the other
         # visible conflicts too so its bounded provider correction fixes them
@@ -871,7 +873,9 @@ def validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]
         raise
 
 
-def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_visual_story(
+    value: Any, plan: Mapping[str, Any], *, from_checkpoint: bool = False,
+) -> dict[str, Any]:
     if value is None:
         return fallback_visual_story(plan)
     if not isinstance(value, Mapping):
@@ -960,7 +964,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
             semantic_must_have = [shot_intent[:120]]
         role = (
             _beat_role(index - 1, len(raw_beats))
-            if explicit_retention_contract
+            if explicit_retention_contract and not from_checkpoint
             else str(raw.get("role") or _beat_role(index - 1, len(raw_beats))).strip()
         )
         explicit_stock_query = "stock_query_en" in raw
@@ -1052,7 +1056,8 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
         # semantically stronger alternate locally; otherwise reject the fresh plan
         # before any media retrieval so quality cannot silently drop downstream.
         if (
-            str(plan.get("_visual_semantic_strength_contract") or "") == "v1_post_hook"
+            not from_checkpoint
+            and str(plan.get("_visual_semantic_strength_contract") or "") == "v1_post_hook"
             and section_order.get(section_id, 0) > 0
             and _is_weak_generic_productivity_scene(shot_intent or stock_query_en)
         ):
@@ -1074,6 +1079,10 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
                 stock_query_alt_en = ""
         if role not in BEAT_ROLES:
             raise ValueError(f"visual_story beat {beat_id} has invalid role")
+        if from_checkpoint and role == "hook" and section_id != section_ids[0]:
+            raise ValueError("visual_story hook must stay in the first section")
+        if from_checkpoint and role == "payoff" and section_id != section_ids[-1]:
+            raise ValueError("visual_story payoff must stay in the last section")
         if source_preference not in SOURCE_PREFERENCES:
             raise ValueError(
                 f"visual_story beat {beat_id} source_preference must be stock_motion, stock_still, or ai_still"
@@ -1099,7 +1108,10 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
         query_key = _query_key(stock_query_en)
         intent_key = _viewer_intent_key(viewer_intent)
         if explicit_retention_contract and explicit_stock_query:
-            if query_key in seen_queries:
+            # Writer binding can reuse retrieval terms for different compositions
+            # of one meaning. This is not approval of repeated media: acquisition
+            # and pixel review still own the selected assets. Fresh plans remain strict.
+            if not from_checkpoint and query_key in seen_queries:
                 fallback_query = _fallback_stock_query(
                     section_by_id.get(section_id) or {},
                     beat_in_section=per_section[section_id] - 1,
@@ -1113,7 +1125,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
                 ):
                     stock_query_en = fallback_query
                     query_key = fallback_key
-            if not query_key or query_key in seen_queries:
+            if not query_key or (not from_checkpoint and query_key in seen_queries):
                 error = ValueError(
                     "visual_story stock_query_en values must be distinct per beat"
                 )
@@ -1165,7 +1177,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
     # Fresh Short plans fail early when one action family dominates the story.
     # This keeps a provider from passing Planning with seven distinct query strings
     # that are still visually the same stationery/writing scene.
-    if str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
+    if not from_checkpoint and str(plan.get("_short_visual_diversity_contract") or "") == "v1_max2":
         family_uses: dict[str, int] = {}
         for beat in beats:
             family = _beat_action_family(beat)
@@ -1214,7 +1226,7 @@ def _validate_visual_story(value: Any, plan: Mapping[str, Any]) -> dict[str, Any
             raise ValueError("visual_story first beat role must be hook")
         if beats[-1]["role"] != "payoff":
             raise ValueError("visual_story final beat role must be payoff")
-        if any(beat["role"] != "body" for beat in beats[1:-1]):
+        if not from_checkpoint and any(beat["role"] != "body" for beat in beats[1:-1]):
             raise ValueError("visual_story middle beat roles must be body")
 
     return {
