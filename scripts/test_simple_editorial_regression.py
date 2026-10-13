@@ -11,7 +11,7 @@ from unittest import mock
 
 from clean_v2 import media
 from clean_v2.cover_lite import select_cover_source, resolve_cover_text
-from clean_v2.short_format import materialize_short_s3, short_prompt_context
+from clean_v2.short_format import materialize_short_s3, short_prompt_context, normalize_short_practical_action
 from clean_v2.short_timed_text import build_rich_ass, _font_size_for_event, TimedTextEvent
 from clean_v2.simple_mode import SIMPLE_MODE_ENV
 
@@ -106,6 +106,46 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
         )
         self.assertIn("Keep s2 visually unresolved", instruction)
         self.assertIn("Reuse hook objects", instruction)
+
+    def test_run132_locked_action_agreement_before_voice(self):
+        # Plan's exact phrase must be corrected before host-lock and TTS.
+        raw = "اكتب ثلاث دروس تعلمتها من آخر خطأ ارتكبته"
+        corrected = normalize_short_practical_action(raw)
+        self.assertEqual(corrected, "اكتب ثلاثة دروس تعلمتها من آخر خطأ ارتكبته")
+        self.assertEqual(
+            normalize_short_practical_action("اكتب ثلاث كلمات عن آخر خطأ"),
+            "اكتب ثلاث كلمات عن آخر خطأ",
+        )
+
+    def test_run132_payoff_and_action_make_complete_spoken_sentence(self):
+        corrected = normalize_short_practical_action(
+            "اكتب ثلاث دروس تعلمتها من آخر خطأ ارتكبته"
+        )
+        script = {"sections": [
+            {"id": "s1", "narration": "هوك"},
+            {"id": "s2", "narration": "الشرح"},
+            {"id": "s3", "s3_payoff": "ومع وضوح الرؤية.", "s3_locked_action": corrected},
+        ]}
+        materialize_short_s3(script)
+        closing = script["sections"][2]
+        self.assertEqual(closing["s3_payoff"], "ومع وضوح الرؤية.")
+        self.assertEqual(closing["s3_locked_action"], corrected)
+        self.assertEqual(
+            closing["narration"],
+            "ومع وضوح الرؤية، اكتب ثلاثة دروس تعلمتها من آخر خطأ ارتكبته",
+        )
+
+    def test_run132_channel_only_does_not_fade_to_black(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "visual-06.mp4"
+            with mock.patch.object(media, "_run") as ffmpeg_run:
+                media.create_fallback_visual(target, portrait=True, beat={}, seconds=1.6)
+            command = ffmpeg_run.call_args.args[0]
+            source = command[command.index("-i") + 1]
+            self.assertIn("color=c=#283a54:", source)
+            self.assertIn("d=1.600", source)
+            self.assertNotIn("fade=t=in", " ".join(command))
+            self.assertNotIn("fade=t=out", " ".join(command))
 
     def test_simple_caption_has_stable_smaller_cairo_type(self):
         events = [
