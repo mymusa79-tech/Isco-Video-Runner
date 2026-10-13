@@ -78,7 +78,7 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
         action = "حدد خيارًا واحدًا فقط قبل أن تبدأ في الاختيار."
         for payoff in (
             "عندما تزدحم الخيارات، تصبح المقارنة أصعب.",
-            "المقارنة الطويلة قد تجعل القرار أصعب.",
+            "المقارنة الطويلة قد تزيد التردد.",
         ):
             with self.subTest(payoff=payoff):
                 script = {"sections": [
