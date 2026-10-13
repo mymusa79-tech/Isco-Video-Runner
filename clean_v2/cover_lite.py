@@ -57,10 +57,20 @@ def resolve_cover_text(plan: Mapping[str, Any], *, section_id: str | None = None
         candidates = [target.get("cover_text"), target.get("heading"), plan.get("cover_text"), plan.get("title")]
         for raw in candidates:
             text = _clean(raw)
-            if 2 <= len(text.split()) <= 5:
+            # A word limit must not turn a complete question into "لماذا ... في".
+            # Cover Studio already fits whole phrases into two rendered lines.
+            if 2 <= len(text.split()) <= 10 and (
+                text.split()[-1].rstrip("،؛:.-!?؟") not in _STOPWORDS
+            ):
                 return text
-            if text.startswith("لماذا ") and len(text.split()) == 6:
-                return text.removeprefix("لماذا ")
+        # Use an intact, possibly longer title instead of manufacturing a
+        # broken fragment. If even that is unavailable, the existing fail-soft
+        # cover stage can skip the cover without blocking the video.
+        for raw in (title, *candidates):
+            text = _clean(raw)
+            if text and text.split()[-1].rstrip("،؛:.-!?؟") not in _STOPWORDS:
+                return text
+        raise ValueError("simple_cover_no_complete_text")
     if section_id:
         for row in sections:
             if str(row.get("id") or "") == str(section_id):
