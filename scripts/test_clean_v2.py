@@ -2828,6 +2828,20 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(checkpoint["completed_stage"], TEXT_AUDIT_STAGE)
             self.assertTrue((first_output / "audit-checkpoint.json").is_file())
 
+            # Run129: the local Writer binder can persist equal retrieval terms
+            # for distinct beats. The audited checkpoint must retain those bytes
+            # instead of treating them as a new Planning response on resume.
+            from clean_v2.pipeline import _write_resume_checkpoint
+            story_path = first_output / "visual-story.json"
+            saved_story = json.loads(story_path.read_text(encoding="utf-8"))
+            saved_story["beats"][1]["stock_query_en"] = saved_story["beats"][0]["stock_query_en"]
+            saved_story["beats"][1]["shot_intent"] = saved_story["beats"][0]["shot_intent"]
+            story_path.write_text(json.dumps(saved_story, ensure_ascii=False), encoding="utf-8")
+            accepted_script = (first_output / "script.json").read_bytes()
+            _write_resume_checkpoint(first_output, completed_stage=TEXT_AUDIT_STAGE,
+                                     approved_brief_sha256=approved, engine_sha="a" * 40,
+                                     runner_sha="b" * 40, max_visuals=2)
+
             second_output = root / "second"
             second = CleanV2Pipeline(
                 router=_ForbiddenRouter(),
@@ -2867,6 +2881,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                     POST_TEXT_VISUAL_BIND_STAGE,
                 ],
             )
+            self.assertEqual((second_output / "script.json").read_bytes(), accepted_script)
+            restored_story = json.loads((second_output / "visual-story.json").read_text(encoding="utf-8"))
+            self.assertEqual([b["stock_query_en"] for b in restored_story["beats"]],
+                             [b["stock_query_en"] for b in saved_story["beats"]])
 
     def test_tampered_resume_checkpoint_fails_closed_to_normal_routing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

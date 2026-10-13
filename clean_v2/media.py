@@ -293,6 +293,11 @@ def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
         if retry_after > ceiling:
             return None
         return retry_after
+    if status == 503:
+        # A short service-overload window can heal inside the existing second
+        # attempt. Do not apply the daily-quota ceiling to a temporary 503.
+        delay = retry_after if retry_after is not None else 30.0
+        return delay if delay <= MAX_TTS_RATE_WINDOW_RETRY_AFTER_SECONDS else None
     if retry_after is not None:
         if retry_after > MAX_SHORT_TTS_RETRY_AFTER_SECONDS:
             return None
@@ -745,6 +750,12 @@ class GeminiOnlyVoiceSynthesizer:
                     delay = _charon_retry_delay(exc, attempt - 1)
                     if delay is None:
                         break
+                    print(
+                        "Clean V2 Gemini TTS retry scheduled: "
+                        f"model={self.tts_model} wait_seconds={delay:g} "
+                        f"next_attempt={attempt + 1}/{CHARON_MAX_ATTEMPTS}",
+                        flush=True,
+                    )
                     time.sleep(delay)
 
         reason = _tts_failure_reason(last_error, missing="missing_api_key")
