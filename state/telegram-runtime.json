@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "شلل الاختيار: لماذا يتردد عقلك في اتخاذ القرارات البسيطة؟",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38381306844",
-  "result": "",
-  "updated_at": 1791886706
+  "result": "success",
+  "updated_at": 1791886761
 }
