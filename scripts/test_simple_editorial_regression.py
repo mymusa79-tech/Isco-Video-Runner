@@ -104,8 +104,8 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
             {"approved_topic": "لماذا نتردد بين القهوة والشاي؟"},
             for_planning=True,
         )
-        self.assertIn("do not visually reveal the successful choice", instruction)
-        self.assertIn("concrete objects", instruction)
+        self.assertIn("Keep s2 visually unresolved", instruction)
+        self.assertIn("Reuse hook objects", instruction)
 
     def test_simple_caption_has_stable_smaller_cairo_type(self):
         events = [
