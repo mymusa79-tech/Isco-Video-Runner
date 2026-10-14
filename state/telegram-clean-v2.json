@@ -12196,7 +12196,7 @@
         "runner_sha": "6c3489e3a14d4bde0d77e1a0b38e239cc88013c6",
         "engine_sha": "595f69a28ff6ddc5532291c9f113f334562292f9",
         "resume_cache_key": "clean-v2-resume-v6-Linux-6c3489e3a14d4bde0d77e1a0b38e239cc88013c6-595f69a28ff6ddc5532291c9f113f334562292f9-faf18865ee3e528a009d04c04bb3d367a3aecb42039af270dff088e7ed7b0c17-38557339888-1",
-        "last_job_status": "failure",
+        "last_job_status": "voice_resume_requested",
         "manifest_status": "quality_pending",
         "artifact_id": 11891105269,
         "artifact_name": "clean-v2-telegram-135",
@@ -12204,7 +12204,7 @@
         "final_published": false,
         "started_at": "2026-10-14T11:33:13Z",
         "finished_at": "2026-10-14T11:35:53Z",
-        "resume_requested_at": "2026-10-14T11:32:53Z",
+        "resume_requested_at": "2026-10-14T12:05:40Z",
         "resume_requested_from_stage": "voice"
       }
     }
@@ -12559,6 +12559,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T12:05:12Z",
+  "updated_at": "2026-10-14T12:05:40Z",
   "provider_cooldown_until": "2026-10-13T16:39:09.213076Z"
 }
