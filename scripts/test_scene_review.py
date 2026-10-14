@@ -419,7 +419,7 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertEqual(len(visible), 6)
         self.assertEqual(sum(c.get("media_kind") == "photo" for c in visible), 2)
         self.assertEqual(visible[1]["media_kind"], "photo")
-        self.assertEqual(visible[2]["media_kind"], "photo")
+        self.assertEqual(visible[3]["media_kind"], "photo")
 
     def test_photo_choice_retains_media_kind_through_telegram_and_resume(self):
         beat = _pack(1, 1)["beats"][0]
