@@ -12506,9 +12506,40 @@
         "started_at": "2026-10-14T17:53:32Z",
         "finished_at": "2026-10-14T17:56:46Z"
       }
+    },
+    "req-d0a4d70167a8": {
+      "schema_version": 1,
+      "request_id": "req-d0a4d70167a8",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فن قول «لا» بذكاء ودون شعور بالذنب",
+      "research_pack": [
+        {
+          "source_title": "Master the Art of Choosing Yourself Without Guilt, Fear, or Explanation | Machiavelli",
+          "source_url": "https://youtu.be/f9XXjzawCTM",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "EVITA estos ERRORES al HABLAR: Cómo Ganar AUTORIDAD y RESPETO | Audiolibro Completo",
+          "source_url": "https://youtu.be/L4bukTObiDs",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "El LENGUAJE del PODER: Cómo HABLAR con ELEGANCIA | Audiolibro Completo",
+          "source_url": "https://youtu.be/u0qIhqeXV9E",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-91ca350ff2",
+      "selected_at": "2026-10-14T19:31:26Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "cea251ef315360e3042964beb1d8c361642b1d3f09b18b2fda824e189295d89e"
     }
   },
-  "current_request_id": "req-626a3a9e7c09",
+  "current_request_id": "req-d0a4d70167a8",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -12896,6 +12927,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T19:31:05Z",
+  "updated_at": "2026-10-14T19:31:26Z",
   "provider_cooldown_until": "2026-10-14T18:16:46.828114Z"
 }
