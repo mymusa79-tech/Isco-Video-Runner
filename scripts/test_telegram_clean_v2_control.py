@@ -70,6 +70,51 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertTrue(selected["research_pack"])
         self.assertIn("source_title", selected["research_pack"][0])
 
+    def test_owner_typed_topic_uses_the_same_gates_and_does_not_dispatch(self):
+        evidence = {
+            "sample_count": 2,
+            "distinct_channels": 2,
+            "top_samples": [
+                {"video_id": "v1", "title": "مصدر", "channel": "قناة",
+                 "published_at": "2026-09-20T00:00:00Z", "views": 1000, "views_per_day": 250}
+            ],
+        }
+        title = "لماذا تعرف ما يجب فعله ولا تفعله؟"
+        self.assertEqual(control.parse_custom_topic("بودكاست: " + title), ("podcast", title))
+        self.assertEqual(control.parse_custom_topic("خارج النص:" + title), ("podcast", title))
+        self.assertEqual(control.parse_custom_topic("شورت : " + title), ("short", title))
+        self.assertIsNone(control.parse_custom_topic("مشاهد 1 2 3"))
+        self.assertIsNone(control.parse_custom_topic("بودكاست"))
+
+        state = control.default_state()
+        with mock.patch.object(control, "market_evidence", return_value=(0.7, evidence)), \
+                mock.patch.object(control, "_release_library_records", return_value=[]), \
+                mock.patch.object(control, "collect_topic_sources", return_value=[]):
+            request = control.select_custom_topic(state, "podcast", title)
+        self.assertEqual(request["status"], "awaiting_confirmation")
+        self.assertEqual(request["scope"], "podcast")
+        self.assertEqual(request["approved_topic"], title)
+        self.assertIsNone(request["dispatched_at"])
+        self.assertTrue(request["research_pack"])
+        self.assertEqual(state["ideas"][0]["source"], "owner_typed")
+
+    def test_owner_typed_topic_rejections_start_nothing(self):
+        state = control.default_state()
+        no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})
+        with mock.patch.object(control, "market_evidence", return_value=no_evidence), \
+                mock.patch.object(control, "_release_library_records", return_value=[]):
+            with self.assertRaises(ValueError):
+                control.select_custom_topic(state, "podcast", "لماذا تعرف ما يجب فعله ولا تفعله؟")
+        with self.assertRaises(ValueError):
+            control.select_custom_topic(state, "podcast", "قصير")
+        with mock.patch.object(control, "_release_library_records",
+                               return_value=[{"kind": control._library_kind_for_scope("podcast"),
+                                              "topic": "لماذا تعرف ما يجب فعله ولا تفعله؟"}]):
+            with self.assertRaises(ValueError):
+                control.select_custom_topic(state, "podcast", "لماذا تعرف ما يجب فعله ولا تفعله؟")
+        self.assertEqual(state["requests"], {})
+        self.assertEqual(state["ideas"], [])
+
     def test_selection_does_not_dispatch_and_confirmation_is_separate(self):
         state = control.default_state()
         idea = {

@@ -433,6 +433,11 @@ function isSceneReviewReply(text) {
   return /^[0-9٠-٩\-،,\s]+$/.test(value) && value.replace(/[\s،,]/g, "").length >= 2;
 }
 
+// Owner-typed topic: «بودكاست: عنوان الموضوع». The control script validates it.
+function isCustomTopicText(text) {
+  return /^(?:بودكاست|خارج النص|podcast|شورت|short|فيلم|طويل|long)\s*[:：]\s*\S.{9,}$/i.test(String(text || "").trim());
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -629,6 +634,17 @@ export default {
       );
       return new Response("OK");
     }
+    if (isCustomTopicText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير الموضوع إلى GitHub. أعد إرسال الرسالة. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
     if (isSceneReviewReply(text)) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
@@ -663,6 +679,7 @@ export default {
 };
 
 export {
+  isCustomTopicText,
   isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,

@@ -1938,6 +1938,72 @@ def select_saved_candidate(state: dict[str, Any], scope: str, idea_id: str) -> d
     return select_candidate(state, session_id, 0)
 
 
+_CUSTOM_TOPIC_SCOPES = {
+    "بودكاست": "podcast", "خارج النص": "podcast", "podcast": "podcast",
+    "شورت": "short", "short": "short",
+    "فيلم": "long", "طويل": "long", "long": "long",
+}
+_CUSTOM_TOPIC_RE = re.compile(r"^(بودكاست|خارج النص|podcast|شورت|short|فيلم|طويل|long)\s*[:：]\s*(.+)$", re.IGNORECASE)
+
+
+def parse_custom_topic(text: str) -> tuple[str, str] | None:
+    """«بودكاست: عنوانك» -> (scope, title); None when the message is not that form."""
+    match = _CUSTOM_TOPIC_RE.match(str(text or "").strip())
+    if not match:
+        return None
+    key = match.group(1).strip()
+    return (_CUSTOM_TOPIC_SCOPES.get(key) or _CUSTOM_TOPIC_SCOPES[key.lower()]), match.group(2).strip()
+
+
+def select_custom_topic(state: dict[str, Any], scope: str, title: str) -> dict[str, Any]:
+    """Owner-typed topic: same evidence, source and confirmation gates as a researched one.
+
+    Nothing is produced here. The topic must still find real market evidence (the
+    research pack is built from it), must not repeat a used topic, and the owner
+    still confirms the final production button.
+    """
+    if scope not in SCOPES:
+        raise ValueError("نوع المحتوى غير مدعوم.")
+    clean = " ".join(str(title or "").split())
+    if len(clean) < 12 or len(clean.split()) < 3 or len(clean) > 160:
+        raise ValueError("اكتب الموضوع كجملة واضحة (3 كلمات على الأقل، ولا تتجاوز 160 حرفًا).")
+    kind = _library_kind_for_scope(scope)
+    used_titles = [
+        str(item.get("topic") or "")
+        for item in _release_library_records()
+        if item.get("kind") == kind
+    ]
+    if any(same_topic(clean, used) for used in used_titles):
+        raise ValueError("هذا الموضوع أُنتج من قبل.")
+    score, evidence = market_evidence(clean)
+    if not int(evidence.get("sample_count", 0)):
+        raise ValueError("لم أجد عينات سوق حقيقية لهذا العنوان، فلا يمكن بناء حزمة مصادر له. جرّب صياغة أقرب للمشكلة.")
+    idea = {
+        "idea_id": "idea-" + secrets.token_hex(5),
+        "title": clean,
+        "normalized_title": normalize_title(clean),
+        "market_query": clean[:120],
+        "knowledge_query_en": "",
+        "reason": "موضوع كتبه المالك",
+        "market_score": score,
+        "market_evidence": evidence,
+        "research_pack": [],
+        "selected": False,
+        "created_at": utc_now(),
+        "source": "owner_typed",
+    }
+    state["ideas"].append(idea)
+    session_id = secrets.token_hex(4)
+    state["sessions"][session_id] = {
+        "session_id": session_id,
+        "scope": scope,
+        "idea_ids": [idea["idea_id"]],
+        "created_at": utc_now(),
+        "source": "owner_typed",
+    }
+    return select_candidate(state, session_id, 0)
+
+
 def latest_release_delivery() -> dict[str, str]:
     payload = _github_release_json("releases?per_page=50")
     if not isinstance(payload, list):
@@ -2369,6 +2435,25 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     ):
         # Bare digits count only while a review is waiting; otherwise they are chatter.
         _apply_scene_review(state, dispatch_path, text=text)
+        return
+    custom = parse_custom_topic(text)
+    if custom is not None:
+        try:
+            request = select_custom_topic(state, custom[0], custom[1])
+        except ValueError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        except Exception as exc:
+            print(f"Telegram custom topic failed: {type(exc).__name__}")
+            send_telegram("⚠️ تعذر تجهيز هذا الموضوع الآن. لم يبدأ أي إنتاج.")
+            return
+        send_telegram(
+            render_selection_confirmation(
+                request,
+                spacing_warning=_safe_publication_spacing_warning(request),
+            ),
+            selection_confirmation_keyboard(request),
+        )
         return
     if text in {"/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "الرئيسية"}:
         send_telegram(render_main_menu(), main_menu_keyboard())
