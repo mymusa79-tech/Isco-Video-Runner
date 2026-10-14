@@ -2779,7 +2779,7 @@ class StockVisualSource:
                         section_id,
                         beat,
                         auxiliary=auxiliary,
-                        as_still=False,
+                        as_still=str(picked.get("media_kind") or "video") == "photo",
                         query_variant_index=0,
                         human=True,
                     )
@@ -3239,6 +3239,34 @@ class StockVisualSource:
             for bucket in buckets:
                 if bucket and len(found) < wanted:
                     found.append(bucket.pop(0))
+        # One bounded photo query per existing free stock provider, in addition
+        # to the real video shortlist. Mix the visual *medium* for editorial
+        # choice, not only search synonyms for more of the same B-roll.
+        # Never manufacture a photo match if descriptive metadata is weak.
+        photos: list[dict[str, Any]] = []
+        if searched:
+            for finder in (self._pexels_photo, self._pixabay_photo):
+                candidate = finder(searched[0], portrait=portrait)
+                if not candidate or not _stock_review_semantic_fit(searched[0], candidate):
+                    continue
+                identity = (str(candidate.get("provider") or ""), str(candidate.get("asset_id") or ""))
+                if not all(identity) or identity in self._review_taken:
+                    continue
+                self._review_taken.add(identity)
+                photo = dict(candidate)
+                photo["media_kind"] = "photo"
+                photos.append(photo)
+        if photos:
+            # Show both motion and still imagery within the first six visible
+            # slots instead of burying relevant photos after nine video results.
+            mixed: list[dict[str, Any]] = []
+            if found:
+                mixed.append(found.pop(0))
+            for photo in photos:
+                mixed.append(photo)
+                if found:
+                    mixed.append(found.pop(0))
+            found = (mixed + found)[:wanted]
         return {
             "id": str(beat.get("id") or ""),
             "role": str(beat.get("role") or ""),
@@ -3854,6 +3882,7 @@ def _editorial_signals_by_local_file(
             "audio_energy": str(item.get("audio_energy") or "").strip(),
             "shot_role": str(item.get("shot_role") or "").strip(),
             "environment_family": str(item.get("environment_family") or "").strip(),
+            "source_actual": str(item.get("source_actual") or "").strip(),
         }
     return result
 
@@ -3907,6 +3936,15 @@ def _editorial_boundary_decisions(
         elif right_hold == "idea_continues" and same_environment:
             decision = "DISSOLVE"
             reason = "semantic_continuity_confirmed_by_environment"
+        elif right_hold == "idea_continues" and (
+            left_signal.get("source_actual") in {"stock_still", "generated_background", "generated_local"}
+            or right_signal.get("source_actual") in {"stock_still", "generated_background", "generated_local"}
+        ):
+            # Softly bridge a still/locally-authored composition into a moving
+            # clip when the *same idea* continues. Identity boundaries, hooks
+            # and topic changes above remain hard cuts.
+            decision = "DISSOLVE"
+            reason = "continuing_idea_mixed_media_bridge"
         elif right_hold == "idea_continues" and environment_changed:
             reason = "semantic_continuity_with_environment_change"
         elif right_hold == "idea_continues":
