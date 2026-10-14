@@ -418,6 +418,95 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertTrue(all("human_choice" not in r for r in rights))
 
 
+class MixedMediaReviewTests(unittest.TestCase):
+    def test_stock_photo_and_video_are_both_in_first_six_candidates(self):
+        from clean_v2.media import StockVisualSource
+        source = StockVisualSource()
+        source._review_taken = set()
+        query = "person closes door after conversation"
+        videos = [
+            {"provider": "pexels", "asset_id": f"v{i}",
+             "download_url": f"https://media.invalid/v{i}.mp4",
+             "query": query, "retrieval_description": query}
+            for i in range(6)
+        ]
+        photo = {
+            "provider": "pixabay", "asset_id": "photo1",
+            "download_url": "https://pixabay.com/photo.jpg",
+            "query": query, "retrieval_description": query,
+            "media_kind": "photo",
+        }
+        with mock.patch.object(source, "_pexels_recovery_pool", return_value=videos), \
+                mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_coverr_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_pexels_photo", return_value=None), \
+                mock.patch.object(source, "_pixabay_photo", return_value=photo):
+            entry = source._review_entry(
+                {"id": "b1", "role": "body", "shot_intent": query}, query, portrait=True)
+        self.assertEqual(entry["candidates"][1]["media_kind"], "photo")
+        self.assertTrue(any(c.get("media_kind") != "photo" for c in entry["candidates"][:6]))
+        self.assertEqual(len(entry["candidates"]), 7)
+
+    def test_photo_choice_survives_telegram_export_and_scene_review_load(self):
+        pack = _pack(2, 1)
+        pack["beats"][0]["candidates"][0]["media_kind"] = "photo"
+        state, _ = _state()
+        tsr.record_review(state, "req-1", "sha", pack)
+        request, choices, auto = tsr.prepare_choice(state, text="1 0")
+        self.assertFalse(auto)
+        self.assertEqual(choices["b1"]["candidate"]["media_kind"], "photo")
+        tsr.commit_choice(request, choices, auto)
+        with tempfile.TemporaryDirectory() as temp:
+            filename = Path(temp) / "choices.json"
+            self.assertTrue(tsr.export_choices(state, "req-1", filename))
+            with mock.patch.dict(os.environ, {sr.CHOICES_ENV: str(filename)}):
+                saved = sr.load_choices("short")
+        self.assertEqual(saved["choices"]["b1"]["candidate"]["media_kind"], "photo")
+
+    def test_photo_reviewer_renders_still_preview_without_video_decoding(self):
+        from PIL import Image
+        from clean_v2 import media as media_module
+
+        class Source:
+            review_pack = []
+
+            def acquire(self, *_args):
+                self.review_pack = [{
+                    "id": "b1", "role": "body", "text_ar": "صور",
+                    "candidates": [{"provider": "pixabay", "asset_id": "x",
+                                    "download_url": "https://pixabay.com/a.jpg",
+                                    "retrieval_description": "relevant illustration",
+                                    "media_kind": "photo"}],
+                }]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "image.jpg"
+            Image.new("RGB", (500, 800), (80, 90, 100)).save(sample)
+            output = Path(tmp) / "out"
+
+            def fake_download(_url, destination):
+                Path(destination).write_bytes(sample.read_bytes())
+
+            with mock.patch.object(media_module, "_download_media", side_effect=fake_download):
+                pack = sr.collect(Source(), {}, output / "visuals", "short", 2, output)
+            self.assertEqual(pack["beats"][0]["candidates"][0]["media_kind"], "photo")
+            self.assertTrue((output / "scene-review" / "b1.jpg").is_file())
+
+    def test_editorial_bridges_still_to_video_but_not_hook_or_section_change(self):
+        from clean_v2.media import _editorial_boundary_decisions
+        a, b = Path("a.mp4"), Path("b.mp4")
+        left = {"environment_family": "indoor", "source_actual": "stock_still"}
+        right = {"environment_family": "outdoor", "source_actual": "stock_motion",
+                 "hold_reason": "idea_continues"}
+        same = _editorial_boundary_decisions([a, b], ["s1", "s1"], {"a.mp4": left, "b.mp4": right})
+        self.assertEqual(same[0]["decision"], "DISSOLVE")
+        changed = _editorial_boundary_decisions([a, b], ["s1", "s2"], {"a.mp4": left, "b.mp4": right})
+        self.assertEqual(changed[0]["decision"], "CUT")
+        right["hold_reason"] = "hook_progression"
+        hook = _editorial_boundary_decisions([a, b], ["s1", "s1"], {"a.mp4": left, "b.mp4": right})
+        self.assertEqual(hook[0]["decision"], "CUT")
+
+
 class SceneReportCoverageTests(unittest.TestCase):
     def test_auxiliary_choices_and_failed_picks_are_counted(self):
         with tempfile.TemporaryDirectory() as temp:
