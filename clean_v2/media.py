@@ -2183,10 +2183,10 @@ class StockVisualSource:
                     }
                 )
 
-        # A first Film/Podcast section may also contain the first spoken answer.
+        # A first Film/Podcast/Short section may also contain the first spoken answer.
         # Its post-identity content needs a separate source, never a replayed hook.
         from .simple_mode import is_simple_mode
-        if is_simple_mode() and fmt in {"film", "podcast"}:
+        if is_simple_mode() and fmt in {"film", "podcast", "short"}:
             try:
                 timeline = json.loads((output_dir.parent / "timeline-first.json").read_text(encoding="utf-8"))
                 script = json.loads((output_dir.parent / "script.json").read_text(encoding="utf-8"))
@@ -2718,6 +2718,11 @@ class StockVisualSource:
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
             primary_query = specific or str(beat.get("stock_query_en") or "").strip()
             auxiliary = section_id in seen_sections
+            if review_collect and beat.get("_local_content_window"):
+                # Added automatically for the spoken first answer; never offered to
+                # the owner and rendered as the disclosed channel background.
+                seen_sections.add(section_id)
+                continue
             if review_collect:
                 self.review_pack.append(
                     self._review_entry(beat, primary_query, portrait=portrait)

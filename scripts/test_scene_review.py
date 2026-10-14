@@ -243,6 +243,55 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertEqual(len(shown), len(set(shown)), "a clip must never be offered twice")
         self.assertTrue(all(b["candidates"] for b in source.review_pack))
 
+    def _first_answer_fixture(self, root):
+        # Real Run 135 shape: topic speech starts inside s1 (15.7 < s1 end 19.94).
+        from clean_v2.identity_sequence import PRAYER_SENTENCE
+        (root / "timeline-first.json").write_text(json.dumps({
+            "identity_events": [{"kind": "hook", "start": 0.0, "end": 5.36}, {"kind": "topic", "start": 15.7, "end": 54.0}],
+            "section_events": [{"section_id": "s1", "start": 0.0, "end": 19.94}],
+        }), encoding="utf-8")
+        (root / "script.json").write_text(json.dumps({
+            "sections": [{"id": "s1", "narration": f"افتتاح. {PRAYER_SENTENCE} الجواب الأول يبدأ هنا."}],
+        }, ensure_ascii=False), encoding="utf-8")
+
+    def _acquire_with_timeline(self, env):
+        media_module, source, plan, vp = self._source()
+        for beat in plan["visual_story"]["beats"]:
+            beat["role"] = "hook"  # as planned in Runs 127/131/135: every s1 beat is a hook beat
+
+        def pool(query, *, portrait, limit):
+            return [vp._candidate("pexels", f"r{abs(hash(query)) % 999}-{i}") for i in range(limit)]
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root_name:
+            root = Path(root_name)
+            self._first_answer_fixture(root)
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(source, "_pexels", side_effect=lambda q, *, portrait: vp._candidate("pexels", f"a{abs(hash(q)) % 999}")), \
+                    mock.patch.object(source, "_pixabay", return_value=None), \
+                    mock.patch.object(source, "_pexels_recovery_pool", side_effect=pool), \
+                    mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                    mock.patch.object(source, "_coverr_recovery_pool", return_value=[]), \
+                    mock.patch.object(media_module, "_download_media", side_effect=fake_download), \
+                    mock.patch.object(media_module, "_short_visual_color_compatible", return_value=(True, "ok")):
+                result = source.acquire(plan, root / "visuals", "short", 5)
+            return result, source
+
+    def test_short_first_answer_gets_its_own_background_after_the_hook_beats(self):
+        (_clips, rights), _ = self._acquire_with_timeline({SIMPLE_MODE_ENV: "1"})
+        ids = [r["beat_id"] for r in rights]
+        self.assertEqual(ids, ["b1", "b2", "b3", "s1-topic"])
+        self.assertEqual(rights[-1]["provider"], "generated_local")
+        self.assertEqual(rights[-1]["role"], "body")  # a non-hook visual covers the topic window
+
+    def test_review_never_offers_the_automatic_first_answer_scene(self):
+        (clips, rights), source = self._acquire_with_timeline({SIMPLE_MODE_ENV: "1", sr.COLLECT_ENV: "collect"})
+        self.assertEqual((clips, rights), ([], []))
+        self.assertEqual([b["id"] for b in source.review_pack], ["b1", "b2", "b3"])
+
     def test_review_entry_carries_the_spoken_text(self):
         _, source, _plan, _vp_mod = self._source()
         source.review_pack, source._review_taken = [], set()
