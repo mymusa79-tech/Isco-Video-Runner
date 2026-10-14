@@ -360,9 +360,11 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
             + (" Source visual match was not reviewed." if not qa.get("provider_calls_added") and not qa.get("observed_matched_clips") else "")
             + (" The tone audit was unavailable and was NOT passed." if report_tone == "unavailable" else "")
             + (
-                f" Owner scene review: {scene_review_report.get('human_chosen_clips', 0)} chosen, "
+                f" Owner scene review (all visual slots): {scene_review_report.get('human_chosen_clips', 0)} chosen, "
                 f"{scene_review_report.get('human_background', 0)} channel background, "
-                f"{scene_review_report.get('kept_automatic', 0)} left automatic."
+                f"{scene_review_report.get('kept_automatic', 0)} left automatic, "
+                f"{scene_review_report.get('human_choice_failed', 0)} selected clips unavailable, "
+                f"{scene_review_report.get('unmarked_visual_slots', 0)} unmarked."
                 if scene_review_report.get("mode") == "human_reviewed"
                 else (" Scenes were NOT reviewed by a human (owner chose automatic selection)."
                       if scene_review_report.get("mode") == "auto_all_by_owner_decision" else "")
