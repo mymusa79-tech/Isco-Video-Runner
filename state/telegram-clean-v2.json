@@ -12875,8 +12875,27 @@
         "likes": 0,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-14T19:28:30Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 65,
+      "hidden_subscribers": false,
+      "total_views": 41690,
+      "video_count": 153,
+      "last_long": null,
+      "last_podcast": null,
+      "last_short": {
+        "video_id": "gXbL8rBeZ9A",
+        "title": "حين تفقد بوصلتك… كيف تجد طريقك من جديد؟ | نداء اليقظة #shorts",
+        "published_at": "2026-10-14T17:47:14Z",
+        "duration_seconds": 7,
+        "views": 10,
+        "likes": 0,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-14T19:28:01Z",
+  "updated_at": "2026-10-14T19:28:31Z",
   "provider_cooldown_until": "2026-10-14T18:16:46.828114Z"
 }
