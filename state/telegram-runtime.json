@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
   "topic": "فخ المقارنة السريعة: لماذا لا يقاس نضجك بإيقاع الآخرين؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38541130699",
-  "result": "success",
-  "updated_at": 1791969645
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38557339888",
+  "result": "",
+  "updated_at": 1791977599
 }
