@@ -1019,6 +1019,41 @@ def _mistral_planning_validator_retry_prompt(
     return retry_prompt
 
 
+
+def _reuse_certified_short_action_after_visual_retry(
+    candidate: Any,
+    previous_error: Exception,
+    current_error: Exception,
+    validator: Callable[[Any], Any],
+) -> Any | None:
+    """Keep a previously validated Short action when visual repair regresses it.
+
+    A prior visual-family rejection proves that Planning already accepted this
+    action's grammar AND topic-specificity. If the next model response fixes the
+    visuals but returns an invalid action, restore only that earlier approved
+    field and run the ORIGINAL complete validator again. Never synthesize an
+    action, relax a gate, mutate provider data or spend an extra provider call.
+    """
+    if (
+        type(current_error).__name__ != "ShortFormatError"
+        or not str(current_error).startswith("short_practical_action_")
+        or not str(previous_error).startswith("visual_story Short visual family exceeds two beats:")
+        or not isinstance(candidate, Mapping)
+    ):
+        return None
+    approved = getattr(previous_error, "planning_validated_short_action_ar", None)
+    if not isinstance(approved, str) or not approved.strip():
+        return None
+    patched = dict(candidate)
+    patched["practical_action_ar"] = approved
+    try:
+        return validator(patched)
+    except (ValueError, RuntimeError) as exc:
+        if getattr(exc, "terminal_provider_fallback", False):
+            raise
+        return None
+
+
 def _mistral_script_patch_validator_retry_prompt(
     prompt: str,
     exc: Exception,
@@ -2571,6 +2606,23 @@ class ProviderRouter:
                         try:
                             normalized = validator(retry_candidate)
                         except Exception as retry_exc:
+                            recovered = (
+                                _reuse_certified_short_action_after_visual_retry(
+                                    retry_candidate, exc, retry_exc, validator,
+                                )
+                                if stage == "planning" else None
+                            )
+                            if recovered is not None:
+                                self._event(
+                                    stage=stage,
+                                    provider=adapter.name,
+                                    result="success",
+                                    wire_attempted=True,
+                                    reason="short_prior_action_preserved_after_visual_retry",
+                                    provider_attempt=provider_attempt,
+                                    stage_wire_attempt=wire_count,
+                                )
+                                return recovered
                             if getattr(retry_exc, "terminal_provider_fallback", False):
                                 self._event(
                                     stage=stage, provider=adapter.name, result="invalid_output",
