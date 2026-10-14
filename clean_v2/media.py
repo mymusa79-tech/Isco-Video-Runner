@@ -3265,13 +3265,19 @@ class StockVisualSource:
         found: list[dict[str, Any]] = []
         if photo_first:
             found.extend(photos)
-        if motion:
-            found.extend(motion[:2])
-            if not photo_first:
-                found.extend(photos)
+            found.extend(motion)
+        else:
+            # Alternate video and photo in the *visible* first six slots,
+            # rather than clumping all stills after two motion clips.
+            if motion:
+                found.append(motion[0])
+            if photos:
+                found.append(photos[0])
+            if len(motion) > 1:
+                found.append(motion[1])
+            if len(photos) > 1:
+                found.append(photos[1])
             found.extend(motion[2:])
-        elif not photo_first:
-            found.extend(photos)
         return_found: list[dict[str, Any]] = found[:wanted]
         return {
             "id": str(beat.get("id") or ""),
