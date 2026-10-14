@@ -11652,7 +11652,474 @@
       "request_sha256": "faf18865ee3e528a009d04c04bb3d367a3aecb42039af270dff088e7ed7b0c17",
       "run_mode": "simple",
       "scene_review": {
-        "status": "collect"
+        "status": "awaiting",
+        "review_id": "fcfbd5c9",
+        "beats": [
+          {
+            "id": "b1",
+            "index": 1,
+            "role": "hook",
+            "text_ar": "عندما تلمس ساعة يدك وتجد نفسك تبحث",
+            "sheet": "b1.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "13801280",
+                "download_url": "https://videos.pexels.com/video-files/13801280/13801280-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-concerned-businessman-looking-at-his-watch-13801280/",
+                "creator": "Mizuno K",
+                "creator_url": "https://www.pexels.com/@mizunokozuki",
+                "query": "person looking frustrated while comparing their watch to others watches close up"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "397",
+                "download_url": "https://cdn.pixabay.com/video/2015/08/12/397-136134968_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-397/",
+                "creator": "FlickrVideos",
+                "query": "person looking frustrated"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "7579578",
+                "download_url": "https://videos.pexels.com/video-files/7579578/7579578-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/man-watching-at-the-stocks-using-an-ipad-7579578/",
+                "creator": "Tima Miroshnichenko",
+                "creator_url": "https://www.pexels.com/@tima-miroshnichenko",
+                "query": "person looking frustrated while comparing their watch to others watches close up"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "129421",
+                "download_url": "https://cdn.pixabay.com/video/2022/08/28/129421-744370587_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-129421/",
+                "creator": "SYG_Anime",
+                "query": "person looking frustrated"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "34324889",
+                "download_url": "https://videos.pexels.com/video-files/34324889/14541736_720_1280_50fps.mp4",
+                "source_url": "https://www.pexels.com/video/gold-watch-on-tattooed-arm-in-artistic-setting-34324889/",
+                "creator": "Slava  Kol",
+                "creator_url": "https://www.pexels.com/@slava-kol-2154185140",
+                "query": "person looking frustrated while comparing their watch to others watches close up"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "126560",
+                "download_url": "https://cdn.pixabay.com/video/2022/08/03/126560-736345309_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-126560/",
+                "creator": "SoyKhaler",
+                "query": "person looking frustrated"
+              }
+            ]
+          },
+          {
+            "id": "b2",
+            "index": 2,
+            "role": "hook",
+            "text_ar": "عن ساعات الآخرين في المقهى. هل تسأل نفسك",
+            "sheet": "b2.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "8444039",
+                "download_url": "https://videos.pexels.com/video-files/8444039/8444039-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-man-putting-a-cup-of-coffee-down-on-a-table-8444039/",
+                "creator": "Ron Lach",
+                "creator_url": "https://www.pexels.com/@ron-lach",
+                "query": "person putting watch down on table with a calmer expression close up"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "61292",
+                "download_url": "https://cdn.pixabay.com/video/2021/01/06/61292-498228530_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-61292/",
+                "creator": "Engin_Akyurt",
+                "query": "person putting watch down table calmer expression"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "3626399",
+                "download_url": "https://videos.pexels.com/video-files/3626399/3626399-hd_720_1366_50fps.mp4",
+                "source_url": "https://www.pexels.com/video/man-putting-down-his-camera-and-uses-his-laptop-3626399/",
+                "creator": "cottonbro studio",
+                "creator_url": "https://www.pexels.com/@cottonbro",
+                "query": "person putting watch down on table with a calmer expression close up"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "111286",
+                "download_url": "https://cdn.pixabay.com/video/2022/03/19/111286-691216280_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-111286/",
+                "creator": "RoyBuri",
+                "query": "person putting watch down table calmer expression"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "17805787",
+                "download_url": "https://videos.pexels.com/video-files/17805787/17805787-hd_720_1280_50fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-is-using-a-smartwatch-on-a-table-17805787/",
+                "creator": "iam hogir",
+                "creator_url": "https://www.pexels.com/@iamhogir",
+                "query": "person putting watch down on table with a calmer expression close up"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "15629",
+                "download_url": "https://cdn.pixabay.com/video/2018/04/16/15629-265015278_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-15629/",
+                "creator": "wastedgeneration",
+                "query": "person putting watch down table calmer expression"
+              }
+            ]
+          },
+          {
+            "id": "b3",
+            "index": 3,
+            "role": "hook",
+            "text_ar": "لماذا لا تشعر بالرضا رغم كل ما حققته؟",
+            "sheet": "b3.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "7698438",
+                "download_url": "https://videos.pexels.com/video-files/7698438/7698438-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-writing-on-a-notebook-7698438/",
+                "creator": "MART  PRODUCTION",
+                "creator_url": "https://www.pexels.com/@mart-production",
+                "query": "hands writing in a small notebook no face visible close up"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "10822",
+                "download_url": "https://cdn.pixabay.com/video/2017/07/23/10822-226624975_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-10822/",
+                "creator": "Coverr-Free-Footage",
+                "query": "hands writing small notebook no face visible"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "38096973",
+                "download_url": "https://videos.pexels.com/video-files/38096973/16175298_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/man-writing-in-notebook-at-office-desk-38096973/",
+                "creator": "Jakub Zerdzicki",
+                "creator_url": "https://www.pexels.com/@jakubzerdzicki",
+                "query": "hands writing in a small notebook no face visible close up"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "4952",
+                "download_url": "https://cdn.pixabay.com/video/2016/09/05/4952-181538531_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-4952/",
+                "creator": "klimkin",
+                "query": "hands writing small notebook no face visible"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "6245719",
+                "download_url": "https://videos.pexels.com/video-files/6245719/6245719-hd_720_1366_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-close-up-of-a-person-writing-in-a-notebook-6245719/",
+                "creator": "Monstera Production",
+                "creator_url": "https://www.pexels.com/@gabby-k",
+                "query": "hands writing in a small notebook no face visible close up"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "12040",
+                "download_url": "https://cdn.pixabay.com/video/2017/09/17/12040-236265335_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-12040/",
+                "creator": "chayka1270",
+                "query": "hands writing small notebook no face visible"
+              }
+            ]
+          },
+          {
+            "id": "b4",
+            "index": 4,
+            "role": "body",
+            "text_ar": "المقارنات السريعة لا تقيس نضجك بل تسرق وقتك. عندما تركز على إيقاع الآخرين تفقد القدرة على رؤية تقدمك الخاص.",
+            "sheet": "b4.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "36141231",
+                "download_url": "https://videos.pexels.com/video-files/36141231/15326810_720_1280_60fps.mp4",
+                "source_url": "https://www.pexels.com/video/walking-through-a-summer-field-path-36141231/",
+                "creator": "Mohammad Kheir",
+                "creator_url": "https://www.pexels.com/@mohammad-kheir-213166482",
+                "query": "person walking on a path with a determined stride"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "231259",
+                "download_url": "https://cdn.pixabay.com/video/2024/09/13/231259_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-231259/",
+                "creator": "santorihan",
+                "query": "person walking path determined stride"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "34299476",
+                "download_url": "https://videos.pexels.com/video-files/34299476/14531240_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/walking-through-autumn-path-in-vibrant-forest-34299476/",
+                "creator": "iPhone Snaps 🇨🇦",
+                "creator_url": "https://www.pexels.com/@iphone-snaps-161197057",
+                "query": "person walking on a path with a determined stride"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "202753",
+                "download_url": "https://cdn.pixabay.com/video/2024/03/03/202753-918944243_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-202753/",
+                "creator": "Matthias_Groeneveld",
+                "query": "person walking path determined stride"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "39796008",
+                "download_url": "https://videos.pexels.com/video-files/39796008/16971909_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/walking-through-autumn-leaves-on-a-path-39796008/",
+                "creator": "Marina Endzhirgli",
+                "creator_url": "https://www.pexels.com/@marina-endzhirgli-725723515",
+                "query": "person walking on a path with a determined stride"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "202743",
+                "download_url": "https://cdn.pixabay.com/video/2024/03/03/202743-918944206_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-202743/",
+                "creator": "Matthias_Groeneveld",
+                "query": "person walking path determined stride"
+              }
+            ]
+          },
+          {
+            "id": "b5",
+            "index": 5,
+            "role": "body",
+            "text_ar": "الدراسات تشير إلى أن المقارنات الصاعدة – تلك التي تجعلنا ننظر إلى من هم أفضل منّا – لا تؤدي إلا إلى انخفاض تقدير الذات. لكن الحقيقة هي أن لكل شخص إيقاعًا مختلفًا وأن النضج لا يقاس بالساعات بل بالخطوات التي تتخذها أنت.",
+            "sheet": "b5.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "36906603",
+                "download_url": "https://videos.pexels.com/video-files/36906603/15634178_720_1280_60fps.mp4",
+                "source_url": "https://www.pexels.com/video/gardener-planting-seedling-in-rich-soil-36906603/",
+                "creator": "Nothing Ahead",
+                "creator_url": "https://www.pexels.com/@ian-panelo",
+                "query": "person planting a seedling in soil with focused hands"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "23",
+                "download_url": "https://cdn.pixabay.com/video/2015/08/07/23-135711658_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-23/",
+                "creator": "DistillVideos",
+                "query": "person planting seedling soil focused hands"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "39724576",
+                "download_url": "https://videos.pexels.com/video-files/39724576/16937948_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/gardening-scene-planting-in-fresh-soil-39724576/",
+                "creator": "Semanur    Çoban",
+                "creator_url": "https://www.pexels.com/@semanurcoban",
+                "query": "person planting a seedling in soil with focused hands"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "260395",
+                "download_url": "https://cdn.pixabay.com/video/2025/02/23/260395_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-260395/",
+                "creator": "adege",
+                "query": "person planting seedling soil focused hands"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "6963395",
+                "download_url": "https://videos.pexels.com/video-files/6963395/6963395-hd_720_1280_50fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-holding-a-eucalyptus-plant-with-soil-6963395/",
+                "creator": "Cup of  Couple",
+                "creator_url": "https://www.pexels.com/@cup-of-couple",
+                "query": "person planting a seedling in soil with focused hands"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "72884",
+                "download_url": "https://cdn.pixabay.com/video/2021/05/02/72884-545276933_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-72884/",
+                "creator": "AlexKopeykin",
+                "query": "person planting seedling soil focused hands"
+              }
+            ]
+          },
+          {
+            "id": "b6",
+            "index": 6,
+            "role": "body",
+            "text_ar": "تفهم أن نضجك ليس في مقارنة الساعات.",
+            "sheet": "b6.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "7713880",
+                "download_url": "https://videos.pexels.com/video-files/7713880/7713880-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-woman-fixing-soil-in-a-seedling-tray-7713880/",
+                "creator": "Greta Hoffman",
+                "creator_url": "https://www.pexels.com/@greta-hoffman",
+                "query": "person observing a growing seedling"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "6508511",
+                "download_url": "https://videos.pexels.com/video-files/6508511/6508511-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-man-putting-soil-in-the-pot-6508511/",
+                "creator": "Tima Miroshnichenko",
+                "creator_url": "https://www.pexels.com/@tima-miroshnichenko",
+                "query": "person observing a growing seedling"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "8543967",
+                "download_url": "https://videos.pexels.com/video-files/8543967/8543967-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-planting-on-a-pot-8543967/",
+                "creator": "Mikhail Nilov",
+                "creator_url": "https://www.pexels.com/@mikhail-nilov",
+                "query": "person observing a growing seedling"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "180516",
+                "download_url": "https://cdn.pixabay.com/video/2023/09/14/180516-864532648_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-180516/",
+                "creator": "NickyPe",
+                "query": "person observing growing seedling"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "8543962",
+                "download_url": "https://videos.pexels.com/video-files/8543962/8543962-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/two-people-holding-a-sprout-8543962/",
+                "creator": "Mikhail Nilov",
+                "creator_url": "https://www.pexels.com/@mikhail-nilov",
+                "query": "person observing a growing seedling"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "5635",
+                "download_url": "https://cdn.pixabay.com/video/2016/09/22/5635-183850259_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-5635/",
+                "creator": "Coverr-Free-Footage",
+                "query": "person observing growing seedling"
+              }
+            ]
+          },
+          {
+            "id": "b7",
+            "index": 7,
+            "role": "payoff",
+            "text_ar": "حدد هدفًا شخصيًا واحدًا اليوم.",
+            "sheet": "b7.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "36300252",
+                "download_url": "https://videos.pexels.com/video-files/36300252/15393109_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-picking-orange-from-tree-on-sunny-day-36300252/",
+                "creator": "Letícia Alvares",
+                "creator_url": "https://www.pexels.com/@leticia-alvares-1805702",
+                "query": "person picking a fruit from a tree"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "27462",
+                "download_url": "https://cdn.pixabay.com/video/2019/10/02/27462-363961173_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-27462/",
+                "creator": "TheMarcKnight",
+                "query": "person picking fruit from tree"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "34606933",
+                "download_url": "https://videos.pexels.com/video-files/34606933/14666826_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/picking-a-vibrant-cashew-fruit-on-a-sunny-day-34606933/",
+                "creator": "Angelo",
+                "creator_url": "https://www.pexels.com/@angelo-2150545840",
+                "query": "person picking a fruit from a tree"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "33687",
+                "download_url": "https://cdn.pixabay.com/video/2020/03/14/33687-398256859_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-33687/",
+                "creator": "adege",
+                "query": "person picking fruit from tree"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "32299199",
+                "download_url": "https://videos.pexels.com/video-files/32299199/13774578_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/hand-picking-apples-from-a-tree-in-fall-32299199/",
+                "creator": "Zeynep Gül Ceylan",
+                "creator_url": "https://www.pexels.com/@zeynep-gul-ceylan-753067026",
+                "query": "person picking a fruit from a tree"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "1230",
+                "download_url": "https://cdn.pixabay.com/video/2015/10/31/1230-144234732_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-1230/",
+                "creator": "Vimeo-Free-Videos",
+                "query": "person picking fruit from tree"
+              }
+            ]
+          }
+        ],
+        "created_at": "2026-10-14T09:20:50+00:00"
       },
       "production": {
         "run_id": "38541130699",
@@ -12022,6 +12489,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T09:20:47Z",
+  "updated_at": "2026-10-14T09:20:50Z",
   "provider_cooldown_until": "2026-10-13T16:39:09.213076Z"
 }
