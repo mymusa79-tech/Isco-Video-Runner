@@ -181,6 +181,7 @@ def collect(source: Any, plan: Mapping[str, Any], visuals_dir: Path, fmt: str,
                 "role": beat.get("role", ""),
                 "text_ar": beat.get("text_ar", ""),
                 "shot_intent": beat.get("shot_intent", ""),
+                "search_queries": beat.get("search_queries", []),
                 "sheet": sheet_name,
                 "candidates": kept,
             }
@@ -201,15 +202,29 @@ def report_block(output_dir: Path) -> dict[str, Any]:
         rows = json.loads((Path(output_dir) / "rights-manifest.json").read_text(encoding="utf-8")).get("assets") or []
     except (OSError, ValueError):
         rows = []
-    marks = [str(r.get("human_choice") or "") for r in rows if isinstance(r, dict) and not r.get("story_beat_auxiliary")]
+    # Every planned beat can contribute to the final cut, including repeats of
+    # the same section flagged as auxiliary for pacing. Omitting them caused the
+    # Short report to undercount the owner's actual Telegram choices.
+    assets = [r for r in rows if isinstance(r, dict)]
+    marks = [str(r.get("human_choice") or "") for r in assets]
     if not any(marks):
         return {"mode": "not_applicable"}
     chosen = marks.count("candidate")
     background = marks.count("background")
+    failed = marks.count("candidate_failed")
     auto = marks.count("auto")
+    unmarked = marks.count("")
+    auxiliary = sum(
+        bool(row.get("story_beat_auxiliary")) and bool(row.get("human_choice"))
+        for row in assets
+    )
     return {
-        "mode": "human_reviewed" if (chosen or background) else "auto_all_by_owner_decision",
+        "mode": "human_reviewed" if (chosen or background or failed) else "auto_all_by_owner_decision",
         "human_chosen_clips": chosen,
         "human_background": background,
+        "human_choice_failed": failed,
         "kept_automatic": auto,
+        "unmarked_visual_slots": unmarked,
+        "auxiliary_slots_counted": auxiliary,
+        "total_visual_slots": len(assets),
     }
