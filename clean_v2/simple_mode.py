@@ -326,6 +326,9 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     extra_bg = int(qa.get("extra_pacing_backgrounds") or 0)
     share = round(backgrounds / scenes, 3) if scenes else 0.0
     report_tone = tone_audit_state(output_dir)
+    from .scene_review import report_block
+
+    scene_review_report = report_block(output_dir)
     report = {
         "mode": "simple",
         "format": fmt,
@@ -346,6 +349,7 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "uncertain_clips": int(qa.get("uncertain_clips") or 0),
         "visual_review_calls": int(qa.get("provider_calls_added") or 0),
         "publish_decision": "owner",
+        "scene_review": scene_review_report,
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
             f"{backgrounds} channel backgrounds"
@@ -355,6 +359,14 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
             + "The finished composition is NOT certified editorial_ready; the owner must review it before publishing."
             + (" Source visual match was not reviewed." if not qa.get("provider_calls_added") and not qa.get("observed_matched_clips") else "")
             + (" The tone audit was unavailable and was NOT passed." if report_tone == "unavailable" else "")
+            + (
+                f" Owner scene review: {scene_review_report.get('human_chosen_clips', 0)} chosen, "
+                f"{scene_review_report.get('human_background', 0)} channel background, "
+                f"{scene_review_report.get('kept_automatic', 0)} left automatic."
+                if scene_review_report.get("mode") == "human_reviewed"
+                else (" Scenes were NOT reviewed by a human (owner chose automatic selection)."
+                      if scene_review_report.get("mode") == "auto_all_by_owner_decision" else "")
+            )
         ),
     }
     atomic_write_json(output_dir / REPORT_FILE, report)

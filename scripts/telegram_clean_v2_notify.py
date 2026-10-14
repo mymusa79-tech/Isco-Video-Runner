@@ -18,7 +18,7 @@ MILESTONES = (
     ("render", "المونتاج"),
     ("final_master_qc", "الفحص النهائي"),
 )
-TERMINAL = {"pass", "failed", "quality_pending"}
+TERMINAL = {"pass", "failed", "quality_pending", "awaiting_scene_review"}
 RUNTIME_BRANCH = "clean-v2-telegram-runtime-state"
 RUNTIME_PATH = "state/telegram-runtime.json"
 

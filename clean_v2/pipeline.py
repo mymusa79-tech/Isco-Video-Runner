@@ -48,6 +48,7 @@ from .media import (
     render_derived_short,
     render_video,
 )
+from .scene_review import PENDING_STATUS as PENDING_SCENE_REVIEW_STATUS, SceneReviewPending
 from .structural_ai import structural_ai_flags
 from .short_format import (
     ShortFormatError,
@@ -7771,6 +7772,23 @@ class CleanV2Pipeline:
                 CINEMATIC_STAGE,
             ]
             journal._write()
+            from clean_v2 import scene_review
+
+            if scene_review.collect_mode(str(brief["format"])):
+                # Owner scene review, phase 1: the script and voice are already
+                # checkpointed above. Collect candidates, write the review pack and
+                # stop cleanly; nothing is rendered or published.
+                review_plan = dict(plan)
+                review_plan["visual_story"] = visual_story
+                review_pack = scene_review.collect(
+                    self.visual_source,
+                    review_plan,
+                    visuals_dir,
+                    str(brief["format"]),
+                    max_visuals,
+                    output_dir,
+                )
+                raise scene_review.SceneReviewPending(review_pack["review_id"])
             if resume is not None and _resume_includes(resume[1], "visuals"):
                 _copy_resume_artifact(
                     resume[0], output_dir, "rights-manifest.json"
@@ -8256,6 +8274,18 @@ class CleanV2Pipeline:
                 "podcast_short_cover_status": podcast_short_cover_report.get("status"),
                 "long_short_status": long_short_report.get("status"),
                 "long_short_cover_status": long_short_cover_report.get("status"),
+            }
+        except SceneReviewPending as pending:
+            # Not a failure: the run stopped on purpose so the owner can pick scenes.
+            journal.payload["status"] = PENDING_SCENE_REVIEW_STATUS
+            journal.payload["finished_at"] = _utc_now()
+            journal.payload["scene_review_id"] = str(pending)
+            journal._write()
+            self._write_runtime_events(output_dir)
+            return {
+                "status": PENDING_SCENE_REVIEW_STATUS,
+                "output_dir": str(output_dir),
+                "scene_review_id": str(pending),
             }
         except Exception:
             self._write_runtime_events(output_dir)

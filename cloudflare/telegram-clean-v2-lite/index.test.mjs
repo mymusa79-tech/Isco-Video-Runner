@@ -7,6 +7,7 @@ const workerModule = await import(`data:text/javascript;base64,${Buffer.from(wor
 
 const {
   default: worker,
+  isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
   renderLibraryMenu,
@@ -223,4 +224,53 @@ test("production history and resume callbacks reach the durable control owner", 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("scene review reply is recognised narrowly and forwarded as one atomic update", () => {
+  for (const ok of ["مشاهد 2 1 0 - 4 1 3", "مشاهد ٢ ١ ٠ -", "مشهد 1 2", "  مشاهد 1،2،3 "]) {
+    assert.equal(isSceneReviewReply(ok), true, ok);
+  }
+  for (const no of ["تأكيد الإنتاج", "مشاهد جميلة", "1 2 3", "/status", "مشاهد", ""]) {
+    assert.equal(isSceneReviewReply(no), false, no);
+  }
+});
+
+test("worker dispatches scene review replies and the auto button to the control workflow", async () => {
+  const dispatched = [];
+  const answered = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/dispatches")) dispatched.push(JSON.parse(init.body));
+    if (String(url).includes("answerCallbackQuery")) answered.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ ok: true, result: {} }), { status: String(url).includes("/dispatches") ? 204 : 200 });
+  };
+  const env = {
+    TELEGRAM_BOT_TOKEN: "t", TELEGRAM_CHAT_ID: "42", TELEGRAM_WEBHOOK_SECRET: "s",
+    GITHUB_CONTROL_TOKEN: "g", GITHUB_REPO: "o/r",
+  };
+  const waits = [];
+  const ctx = { waitUntil: (p) => waits.push(p) };
+  const send = (update) =>
+    worker.fetch(
+      new Request("https://w.example/telegram", {
+        method: "POST",
+        headers: { "X-Telegram-Bot-Api-Secret-Token": "s", "content-type": "application/json" },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+  try {
+    await send({ update_id: 1, message: { text: "مشاهد 1 2 0", from: { id: 42 }, chat: { id: 42 } } });
+    await send({
+      update_id: 2,
+      callback_query: { id: "cb", data: "sceneauto:abcd1234", from: { id: 42 }, message: { chat: { id: 42 }, message_id: 7 } },
+    });
+    await send({ update_id: 3, message: { text: "مشاهد جميلة", from: { id: 42 }, chat: { id: 42 } } });
+    await Promise.all(waits);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(dispatched.length, 2, "reply and auto button dispatch once each; chatter does not");
+  assert.ok(answered.some((a) => String(a.text || "").includes("الآلي")));
 });

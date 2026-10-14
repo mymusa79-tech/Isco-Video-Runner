@@ -22,10 +22,12 @@ try:
     from scripts.research_relevance_filter import market_sample_relevance
     from scripts.tavily_research_lite import collect_topic_sources
     from scripts import telegram_resume_history as resume_history
+    from scripts import telegram_scene_review as scene_review
 except ModuleNotFoundError:
     from research_relevance_filter import market_sample_relevance
     from tavily_research_lite import collect_topic_sources
     import telegram_resume_history as resume_history
+    import telegram_scene_review as scene_review
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -1089,6 +1091,9 @@ def _stage_confirmation_dispatch(
     if not result["already_dispatched"] and run_mode == "simple":
         # Lifecycle field, deliberately outside the immutable request hash.
         result["request"]["run_mode"] = "simple"
+        if result["request"].get("scope") == "short" and not result["request"].get("scene_review"):
+            # Shorts stop after the saved voice so the owner can pick scenes.
+            result["request"]["scene_review"] = {"status": "collect"}
     if result["already_dispatched"]:
         return result
     remaining = resume_history.provider_cooldown_remaining_seconds(state)
@@ -2056,6 +2061,50 @@ def _confirm_and_notify(
     )
 
 
+def _apply_scene_review(
+    state: dict[str, Any],
+    dispatch_path: Path,
+    *,
+    text: str = "",
+    auto_review_id: str = "",
+) -> None:
+    """Accept the owner's scene decision exactly once and start phase 2.
+
+    The reply and the auto button share this path. Validation and the voice-resume
+    check both happen before any state change, so a typo, a stale button or an
+    unavailable voice never consumes the review.
+    """
+    try:
+        request, choices, auto = scene_review.prepare_choice(
+            state, text=text, auto_review_id=auto_review_id
+        )
+    except LookupError as exc:
+        send_telegram(str(exc))
+        return
+    except ValueError as exc:
+        send_telegram(str(exc))
+        return
+    try:
+        decision = stage_voice_resume_dispatch(state, request["request_id"], dispatch_path)
+    except Exception as exc:
+        print(f"Scene review dispatch failed: {type(exc).__name__}")
+        send_telegram("⚠️ تعذر تجهيز المرحلة الثانية. لم يُعتمد الاختيار؛ أعد الإرسال بعد قليل.")
+        return
+    if decision.get("available") is not True:
+        send_telegram(
+            "⛔ لا يمكن إكمال الإنتاج الآن: " + str(decision.get("reason") or "الصوت المحفوظ غير صالح.")
+            + "\nلم يُعتمد الاختيار."
+        )
+        return
+    scene_review.commit_choice(request, choices, auto)
+    kept = sum(1 for _ in choices)
+    send_telegram(
+        "▶️ اعتُمد الاختيار وبدأت المرحلة الثانية بالصوت المحفوظ (دون توليد جديد).\n"
+        + ("بالاختيار الآلي الكامل؛ سيُوسم التقرير بأن المشاهد لم تُراجع بشريًا." if auto
+           else f"تم تعديل {kept} مشهدًا يدويًا والباقي آلي.")
+    )
+
+
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
     if not authorized(update):
         raise RuntimeError("unauthorized Telegram update")
@@ -2082,6 +2131,12 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
                 dispatch_path,
                 expected_request_id=expected_request_id,
                 run_mode=run_mode,
+            )
+            return
+        if data.startswith(scene_review.AUTO_CALLBACK_PREFIX):
+            _apply_scene_review(
+                state, dispatch_path,
+                auto_review_id=data[len(scene_review.AUTO_CALLBACK_PREFIX):],
             )
             return
         if data.startswith("main:"):
@@ -2309,6 +2364,9 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
 
     message = update.get("message") or {}
     text = _normalize_user_command_text(str(message.get("text") or ""))
+    if scene_review.is_reply_text(text):
+        _apply_scene_review(state, dispatch_path, text=text)
+        return
     if text in {"/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "الرئيسية"}:
         send_telegram(render_main_menu(), main_menu_keyboard())
         return
@@ -2495,6 +2553,17 @@ def main() -> int:
     record_terminal.add_argument("--artifact-url", default="")
     record_terminal.add_argument("--final-published", choices=("true", "false"), required=True)
 
+    record_review = sub.add_parser("record-scene-review")
+    record_review.add_argument("--state", type=Path, required=True)
+    record_review.add_argument("--request-id", required=True)
+    record_review.add_argument("--request-sha256", required=True)
+    record_review.add_argument("--review", type=Path, required=True)
+
+    export_choices = sub.add_parser("export-scene-choices")
+    export_choices.add_argument("--state", type=Path, required=True)
+    export_choices.add_argument("--request-id", required=True)
+    export_choices.add_argument("--output", type=Path, required=True)
+
     args = parser.parse_args()
     state = load_state(args.state)
 
@@ -2535,6 +2604,15 @@ def main() -> int:
         )
         save_state(args.state, state)
         print(json.dumps({"request_id": updated["request_id"], "production": updated["production"]}, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.command == "record-scene-review":
+        pack = json.loads(args.review.read_text(encoding="utf-8"))
+        request = scene_review.record_review(state, args.request_id, args.request_sha256, pack)
+        save_state(args.state, state)
+        print(json.dumps({"request_id": request["request_id"], "scene_review": request["scene_review"]["status"]}))
+        return 0
+    if args.command == "export-scene-choices":
+        print("exported" if scene_review.export_choices(state, args.request_id, args.output) else "none")
         return 0
     if args.command == "record-production-terminal":
         request = state.get("requests", {}).get(args.request_id)
