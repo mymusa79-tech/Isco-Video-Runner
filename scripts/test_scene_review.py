@@ -392,6 +392,47 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertEqual(len({c["asset_id"] for c in first_six}), 6)
         self.assertEqual(len(queries_seen), 2)
 
+
+    def test_review_interleaves_real_photos_with_video_results(self):
+        from clean_v2 import media as media_module
+        source = media_module.StockVisualSource()
+        source._review_taken = set()
+        query = "person declining invitation with raised hand"
+        def pool(q, *, portrait, limit):
+            return [{"provider": "pexels", "asset_id": f"motion-{i}",
+                     "download_url": f"https://example.invalid/{i}.mp4",
+                     "retrieval_description": q}
+                    for i in range(4)]
+        def photo(provider):
+            return {"provider": provider, "asset_id": provider + "-still",
+                    "download_url": "https://example.invalid/scene.jpg",
+                    "media_kind": "photo",
+                    "retrieval_description": query}
+        with mock.patch.object(source, "_pexels_recovery_pool", side_effect=pool), \
+                mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_coverr_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_pexels_photo", return_value=photo("pexels")), \
+                mock.patch.object(source, "_pixabay_photo", return_value=photo("pixabay")):
+            entry = source._review_entry({"id": "b1", "role": "body",
+                    "shot_intent": query}, query, portrait=True)
+        visible = entry["candidates"][:6]
+        self.assertEqual(len(visible), 6)
+        self.assertEqual(sum(c.get("media_kind") == "photo" for c in visible), 2)
+        self.assertEqual(visible[1]["media_kind"], "photo")
+        self.assertEqual(visible[3]["media_kind"], "photo")
+
+    def test_photo_choice_retains_media_kind_through_telegram_and_resume(self):
+        beat = _pack(1, 1)["beats"][0]
+        beat["candidates"][0]["media_kind"] = "photo"
+        selected = tsr.parse_reply("1", [beat])
+        self.assertEqual(selected["b1"]["candidate"]["media_kind"], "photo")
+        with tempfile.TemporaryDirectory() as root:
+            file = Path(root) / "choices.json"
+            file.write_text(json.dumps({"schema_version": 1, "choices": selected}))
+            with mock.patch.dict(os.environ, {sr.CHOICES_ENV: str(file)}):
+                loaded = sr.load_choices("short")
+        self.assertEqual(loaded["choices"]["b1"]["candidate"]["media_kind"], "photo")
+
     def test_owner_choices_are_applied_in_beat_order(self):
         vp = _vp()
         picked = {k: vp._candidate("pexels", "chosen")[k] for k in ("provider", "asset_id", "download_url")}
@@ -407,6 +448,36 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertEqual(rights[1]["provider"], "generated_local")
         self.assertEqual(rights[2]["human_choice"], "auto")
         self.assertEqual(len(clips), 3)
+
+
+    def test_owner_selected_photo_is_rendered_as_a_moving_still(self):
+        from clean_v2 import media as media_module
+        vp = _vp()
+        chosen = {"provider": "pexels", "asset_id": "still-photo",
+                  "media_kind": "photo", "download_url": "https://example.invalid/photo.jpg"}
+        choices = {"schema_version": 1, "review_id": "x", "auto_all": False,
+                   "choices": {"b1": {"mode": "candidate", "candidate": chosen}}}
+        media_module, source, plan, _ = self._source()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "choices.json"
+            path.write_text(json.dumps(choices))
+            def download(_url, dest):
+                Path(dest).parent.mkdir(parents=True, exist_ok=True)
+                Path(dest).write_bytes(b"J" * 4096)
+            def animate(_src, dest, *, fmt):
+                self.assertEqual(fmt, "short")
+                Path(dest).write_bytes(b"V" * 4096)
+                return Path(dest)
+            with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1", sr.CHOICES_ENV: str(path)}), \
+                    mock.patch.object(media_module, "_download_media", side_effect=download), \
+                    mock.patch.object(media_module, "_render_ai_still", side_effect=animate), \
+                    mock.patch.object(source, "_pexels", return_value=None), \
+                    mock.patch.object(source, "_pixabay", return_value=None):
+                clips, rights = source.acquire(plan, Path(root) / "visuals", "short", 5)
+            self.assertEqual(len(clips), 3)
+            self.assertEqual(rights[0]["source_actual"], "stock_still")
+            self.assertEqual(rights[0]["human_choice"], "candidate")
+            self.assertEqual(rights[0]["asset_id"], "still-photo")
 
     def test_auto_all_marks_every_scene_unreviewed_by_human_choice(self):
         choices = {"schema_version": 1, "review_id": "x", "auto_all": True, "choices": {}}
@@ -443,6 +514,30 @@ class SceneReportCoverageTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg required")
 class CollectPackTests(unittest.TestCase):
+
+    def test_collect_photo_thumbnail_and_media_kind_are_preserved(self):
+        from PIL import Image
+        from clean_v2 import media as media_module
+
+        class Source:
+            def acquire(self, *_args):
+                self.review_pack = [{"id": "b1", "role": "body", "text_ar": "قرار واضح",
+                    "candidates": [{"provider": "pexels", "asset_id": "still1",
+                        "download_url": "https://test.invalid/photo.jpg", "media_kind": "photo"}]}]
+                return [], []
+        with tempfile.TemporaryDirectory() as root:
+            original = Path(root) / "photo.jpg"
+            Image.new("RGB", (240, 360), (35, 60, 90)).save(original)
+            out = Path(root) / "output"
+            with mock.patch.object(media_module, "_download_media",
+                    side_effect=lambda _url, dest: Path(dest).write_bytes(original.read_bytes())):
+                pack = sr.collect(Source(), {}, out / "visuals", "short", 5, out)
+            self.assertEqual(pack["beats"][0]["candidates"][0]["media_kind"], "photo")
+            self.assertTrue((out / "scene-review" / "b1.jpg").is_file())
+            state, _request = _state()
+            tsr.record_review(state, "req-1", "sha", pack)
+            self.assertEqual(state["requests"]["req-1"]["scene_review"]["beats"][0]["candidates"][0]["media_kind"], "photo")
+
     def test_collect_writes_numbered_contact_sheets_and_pack(self):
         import subprocess
         from clean_v2 import media as media_module

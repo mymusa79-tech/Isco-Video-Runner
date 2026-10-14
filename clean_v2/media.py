@@ -2779,7 +2779,7 @@ class StockVisualSource:
                         section_id,
                         beat,
                         auxiliary=auxiliary,
-                        as_still=False,
+                        as_still=str(picked.get("media_kind") or "video") == "photo",
                         query_variant_index=0,
                         human=True,
                     )
@@ -3232,20 +3232,60 @@ class StockVisualSource:
                 position += 1
             buckets.append(bucket)
 
-        # Interleave the two meaning-preserving search variants. The six visible
-        # candidates therefore include both visual interpretations where possible.
-        found: list[dict[str, Any]] = []
-        while len(found) < wanted and any(buckets):
+        # Interleave the two meaning-preserving motion searches, then expose a
+        # bounded pair of REAL photographs through the existing stock-photo
+        # finders. A photo is a scene option, not merely a fallback thumbnail.
+        motion: list[dict[str, Any]] = []
+        while len(motion) < wanted and any(buckets):
             for bucket in buckets:
-                if bucket and len(found) < wanted:
-                    found.append(bucket.pop(0))
+                if bucket and len(motion) < wanted:
+                    motion.append(bucket.pop(0))
+        photos: list[dict[str, Any]] = []
+        if searched:
+            photo_query = searched[0]
+            photo_finders = (self._pexels_photo, self._pixabay_photo)
+            for finder in photo_finders:
+                candidate = finder(photo_query, portrait=portrait)
+                if candidate is None or not _stock_review_semantic_fit(photo_query, candidate):
+                    continue
+                identity = (
+                    str(candidate.get("provider") or ""),
+                    str(candidate.get("asset_id") or ""),
+                )
+                if not identity[0] or not identity[1] or identity in self._review_taken:
+                    continue
+                self._review_taken.add(identity)
+                photo = dict(candidate)
+                photo["media_kind"] = "photo"
+                photos.append(photo)
+        # Keep photos in the first six slots even when motion sources have
+        # supplied nine hits; reserve no mandatory slot for a weak image.
+        # Photo-first editorial plans keep their intended image preference.
+        photo_first = str(beat.get("source_preference") or "") in {"stock_still", "ai_still"}
+        found: list[dict[str, Any]] = []
+        if photo_first:
+            found.extend(photos)
+            found.extend(motion)
+        else:
+            # Alternate video and photo in the *visible* first six slots,
+            # rather than clumping all stills after two motion clips.
+            if motion:
+                found.append(motion[0])
+            if photos:
+                found.append(photos[0])
+            if len(motion) > 1:
+                found.append(motion[1])
+            if len(photos) > 1:
+                found.append(photos[1])
+            found.extend(motion[2:])
+        return_found: list[dict[str, Any]] = found[:wanted]
         return {
             "id": str(beat.get("id") or ""),
             "role": str(beat.get("role") or ""),
             "text_ar": str(beat.get("writer_anchor_ar") or beat.get("display_text_ar") or ""),
             "shot_intent": str(beat.get("shot_intent") or ""),
             "search_queries": searched,
-            "candidates": found,
+            "candidates": return_found,
         }
 
     def acquire_replacement_candidates(
@@ -3854,6 +3894,8 @@ def _editorial_signals_by_local_file(
             "audio_energy": str(item.get("audio_energy") or "").strip(),
             "shot_role": str(item.get("shot_role") or "").strip(),
             "environment_family": str(item.get("environment_family") or "").strip(),
+            "source_actual": str(item.get("source_actual") or "").strip(),
+            "role": str(item.get("role") or "").strip(),
         }
     return result
 
@@ -3907,6 +3949,19 @@ def _editorial_boundary_decisions(
         elif right_hold == "idea_continues" and same_environment:
             decision = "DISSOLVE"
             reason = "semantic_continuity_confirmed_by_environment"
+        elif (
+            right_hold == "idea_continues"
+            and left_section and right_section and left_section == right_section
+            and right_signal.get("role") != "hook"
+            and (
+                left_signal.get("source_actual") in {"stock_still", "ai_still", "generated_background", "generated_local"}
+                or right_signal.get("source_actual") in {"stock_still", "ai_still", "generated_background", "generated_local"}
+            )
+        ):
+            # Give a still/video or locally constructed/stock handoff a soft,
+            # voice-timing-preserving join. Do not override topic/identity breaks.
+            decision = "DISSOLVE"
+            reason = "mixed_source_semantic_continuity"
         elif right_hold == "idea_continues" and environment_changed:
             reason = "semantic_continuity_with_environment_change"
         elif right_hold == "idea_continues":
@@ -4800,7 +4855,14 @@ def _build_section_body_segments(
                     merged,
                     trimmed[member_index],
                     work_dir / f"dissolve-{group_index:02d}-{member_index:02d}.mp4",
-                    dissolve_seconds=dissolve_seconds,
+                    dissolve_seconds=(
+                        max(dissolve_seconds, 0.24)
+                        if boundary_decisions is not None
+                        and group[member_index] > 0
+                        and group[member_index] - 1 < len(boundary_decisions)
+                        and boundary_decisions[group[member_index] - 1].get("reason") == "mixed_source_semantic_continuity"
+                        else dissolve_seconds
+                    ),
                 )
             except RuntimeError:
                 segments.append(merged)
