@@ -117,6 +117,48 @@ class SimpleModeUnitTests(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class OwnerPickSurvivesAutomaticReviewTests(unittest.TestCase):
+    def _clip(self, root, name):
+        import subprocess
+        (root / "visuals").mkdir(exist_ok=True)
+        path = root / "visuals" / name
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "color=c=red:s=270x480:d=2", "-pix_fmt", "yuv420p", str(path)], check=True)
+        return path
+
+    def _run(self, rows, audit=None):
+        from clean_v2 import visual_qa
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            for row in rows:
+                self._clip(root, row["local_file"])
+            patched = (lambda a: dict(audit)) if audit is not None else visual_qa._apply_observed_visual_proof
+            with mock.patch.object(visual_qa, "_apply_observed_visual_proof", patched):
+                report = simple_visual_qa(output_dir=root, plan={}, script={}, rights=rows, fmt="short")
+        return report, rows
+
+    def test_unproven_owner_pick_is_kept_and_auto_pick_is_replaced(self):
+        rows = [
+            {"provider": "pexels", "asset_id": "1", "local_file": "a.mp4", "beat_id": "b1", "human_choice": "candidate"},
+            {"provider": "pexels", "asset_id": "2", "local_file": "b.mp4", "beat_id": "b2", "human_choice": "auto"},
+        ]
+        report, rows = self._run(rows)
+        self.assertEqual(rows[0]["provider"], "pexels")
+        self.assertEqual(rows[0]["visual_verification"], "owner_chosen_unverified")
+        self.assertNotEqual(rows[1]["provider"], "pexels")
+        self.assertEqual(report["owner_chosen_unverified_clips"], 1)
+        self.assertEqual(report["local_symbolic_clips"] + report["uncertain_clips"], 1)
+
+    def test_owner_pick_with_objective_risk_is_still_replaced(self):
+        rows = [{"provider": "pexels", "asset_id": "1", "local_file": "a.mp4", "beat_id": "b1", "human_choice": "candidate"}]
+        audit = {"observed_visual": "a person", "observed_proof_status": "matched", "observed_face_status": "identifiable",
+                 "identifiable_person": True}
+        report, rows = self._run(rows, audit)
+        self.assertNotEqual(rows[0]["provider"], "pexels")
+        self.assertEqual(report["owner_chosen_unverified_clips"], 0)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class SimpleModeBeatOrderTests(unittest.TestCase):
     """A failed beat keeps its own slot; nothing is moved, duplicated or lost."""
 
