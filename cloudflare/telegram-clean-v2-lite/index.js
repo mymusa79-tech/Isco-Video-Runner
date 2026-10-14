@@ -424,9 +424,13 @@ async function dispatchControl(env, update) {
   }
 }
 
-// Owner scene review reply: «مشاهد 2 1 0 - 4 1 3». One message = one atomic decision.
+// Owner scene review reply: «مشاهد 2 1 0 - 4 1 3» or just digits «5354400». One message =
+// one atomic decision. Bare digits are forwarded too (the Worker has no state); the
+// control script only acts on them while a review is actually waiting.
 function isSceneReviewReply(text) {
-  return /^\s*(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$/.test(String(text || ""));
+  const value = String(text || "").trim();
+  if (/^(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$/.test(value)) return true;
+  return /^[0-9٠-٩\-،,\s]+$/.test(value) && value.replace(/[\s،,]/g, "").length >= 2;
 }
 
 function isStartText(text) {

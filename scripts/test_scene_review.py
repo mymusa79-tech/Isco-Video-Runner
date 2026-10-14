@@ -57,8 +57,18 @@ class ParseReplyTests(unittest.TestCase):
 
     def test_reply_detection_is_narrow(self):
         self.assertTrue(tsr.is_reply_text("مشاهد 1 2 0 -"))
-        for other in ("تأكيد الإنتاج", "مشاهد جميلة", "1 2 3", "/status"):
+        for other in ("تأكيد الإنتاج", "مشاهد جميلة", "5", "-", "/status", "ok 123"):
             self.assertFalse(tsr.is_reply_text(other))
+
+    def test_bare_digits_are_accepted_like_the_owner_typed_them(self):
+        # Real case (Run on 2026-10-14): the owner sent 5354400 without the word.
+        for ok in ("5354400", "٥٣٥٤٤٠٠", "1 2 3", "53-4400"):
+            self.assertTrue(tsr.is_reply_text(ok), ok)
+        beats = _pack(7, 6)["beats"]
+        out = tsr.parse_reply("5354400", beats)
+        self.assertEqual([out[f"b{i}"]["candidate"]["asset_id"] for i in range(1, 6)], ["15", "23", "35", "44", "54"])
+        self.assertEqual(out["b6"], {"mode": "background"})
+        self.assertEqual(out["b7"], {"mode": "background"})
 
 
 class StateMachineTests(unittest.TestCase):
@@ -131,6 +141,22 @@ class ControlIntegrationTests(unittest.TestCase):
                 mock.patch.object(control, "stage_voice_resume_dispatch", return_value={"available": False, "reason": "x"}):
             control._apply_scene_review(state, Path(t) / "d.json", text="مشاهد 1 2 0")
         self.assertEqual(state["requests"]["req-1"]["scene_review"]["status"], "awaiting")
+
+    def test_bare_digits_act_only_while_a_review_is_waiting(self):
+        state, _ = _state()
+        sent = []
+        with tempfile.TemporaryDirectory() as t, \
+                mock.patch.object(control, "send_telegram", lambda text, kb=None: sent.append(text)), \
+                mock.patch.object(control, "stage_voice_resume_dispatch", return_value={"available": True}) as stage:
+            update = lambda text: {"message": {"text": text, "from": {"id": 1}, "chat": {"id": 1}}}
+            with mock.patch.object(control, "authorized", return_value=True):
+                control.handle_update(state, update("5354400"), Path(t) / "d.json")  # nothing waiting
+                stage.assert_not_called()
+                self.assertIn("استخدم /research", sent[-1])
+                tsr.record_review(state, "req-1", "sha", _pack(7, 6))
+                control.handle_update(state, update("5354400"), Path(t) / "d.json")
+        self.assertEqual(stage.call_count, 1)
+        self.assertEqual(state["requests"]["req-1"]["scene_review"]["status"], "selected")
 
     def test_typo_dispatches_nothing(self):
         state = self._ready_state()
