@@ -12539,7 +12539,546 @@
       "request_sha256": "cea251ef315360e3042964beb1d8c361642b1d3f09b18b2fda824e189295d89e",
       "run_mode": "simple",
       "scene_review": {
-        "status": "collect"
+        "status": "awaiting",
+        "review_id": "259a14b3",
+        "beats": [
+          {
+            "id": "b1",
+            "index": 1,
+            "role": "hook",
+            "text_ar": "هل تشعر بضيق في صدرك كلما حاولت رفض طلب بسيط",
+            "sheet": "b1.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "34164185",
+                "download_url": "https://videos.pexels.com/video-files/34164185/14483899_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/barista-handing-iced-coffee-at-cafe-counter-34164185/",
+                "creator": "Airam Dato-on",
+                "creator_url": "https://www.pexels.com/@airamdphoto",
+                "query": "person extending hand to offer coffee then hesitates with tense posture close up"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "13687671",
+                "download_url": "https://videos.pexels.com/video-files/13687671/13687671-hd_720_1280_60fps.mp4",
+                "source_url": "https://www.pexels.com/video/hand-picking-up-coffee-in-paper-cup-13687671/",
+                "creator": "Erik Mclean",
+                "creator_url": "https://www.pexels.com/@introspectivedsgn",
+                "query": "close-up of hands placing down a cup with slow movement"
+              },
+              {
+                "n": 3,
+                "provider": "pixabay",
+                "asset_id": "1046",
+                "download_url": "https://cdn.pixabay.com/video/2015/10/16/1046-142621379_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-1046/",
+                "creator": "Coverr-Free-Footage",
+                "query": "person extending hand offer coffee"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "3012",
+                "download_url": "https://cdn.pixabay.com/video/2016/05/04/3012-165457856_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-3012/",
+                "creator": "InspiredImages",
+                "query": "close-up hands placing down cup slow movement"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "9465639",
+                "download_url": "https://videos.pexels.com/video-files/9465639/9465639-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/close-up-video-of-a-hand-9465639/",
+                "creator": "ROCKETMANN TEAM",
+                "creator_url": "https://www.pexels.com/@rocketmann-prod",
+                "query": "person extending hand to offer coffee then hesitates with tense posture close up"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "37542103",
+                "download_url": "https://videos.pexels.com/video-files/37542103/15907071_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/close-up-of-coffee-cup-swirling-on-wooden-table-37542103/",
+                "creator": "Narmin Aslanli",
+                "creator_url": "https://www.pexels.com/@narmin-aslanli-701641061",
+                "query": "close-up of hands placing down a cup with slow movement"
+              }
+            ]
+          },
+          {
+            "id": "b2",
+            "index": 2,
+            "role": "hook",
+            "text_ar": "وكأنك ترتكب خطأً فادحاً بحق الآخرين؟",
+            "sheet": "b2.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "15689210",
+                "download_url": "https://videos.pexels.com/video-files/15689210/15689210-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/an-elderly-man-using-his-phone-while-sitting-at-a-cafe-15689210/",
+                "creator": "Ali  Alcántara",
+                "creator_url": "https://www.pexels.com/@alialcantara",
+                "query": "person sitting looking at phone while another leans in to speak close up"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "15689201",
+                "download_url": "https://videos.pexels.com/video-files/15689201/15689201-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/close-up-view-of-a-person-using-a-smartphone-15689201/",
+                "creator": "Ali  Alcántara",
+                "creator_url": "https://www.pexels.com/@alialcantara",
+                "query": "back view of person typing message while someone waits close up"
+              },
+              {
+                "n": 3,
+                "provider": "pixabay",
+                "asset_id": "83866",
+                "download_url": "https://cdn.pixabay.com/video/2021/08/04/83866-584870618_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-83866/",
+                "creator": "SYG_Anime",
+                "query": "person sitting looking phone while another leans speak"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "3188",
+                "download_url": "https://cdn.pixabay.com/video/2016/05/12/3188-166339073_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-3188/",
+                "creator": "Coverr-Free-Footage",
+                "query": "back person typing message while someone waits"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "4962723",
+                "download_url": "https://videos.pexels.com/video-files/4962723/4962723-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/pretty-woman-checking-her-mobile-phone-4962723/",
+                "creator": "Tima Miroshnichenko",
+                "creator_url": "https://www.pexels.com/@tima-miroshnichenko",
+                "query": "person sitting looking at phone while another leans in to speak close up"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "7279035",
+                "download_url": "https://videos.pexels.com/video-files/7279035/7279035-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-receiving-a-message-on-a-smartphone-7279035/",
+                "creator": "MART  PRODUCTION",
+                "creator_url": "https://www.pexels.com/@mart-production",
+                "query": "back view of person typing message while someone waits close up"
+              }
+            ]
+          },
+          {
+            "id": "b3",
+            "index": 3,
+            "role": "hook",
+            "text_ar": "هذا الشعور بالذنب ليس نابعاً من تقصيرك بل من افتراض خفي بأن الرفض يعني بالضرورة إنهاء العلاقة أو جرح مشاعر الطرف الآخر.",
+            "sheet": "b3.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "7362704",
+                "download_url": "https://videos.pexels.com/video-files/7362704/7362704-hd_720_1280_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-texting-a-message-7362704/",
+                "creator": "RDNE Stock project",
+                "creator_url": "https://www.pexels.com/@rdne",
+                "query": "person typing a short message with confident posture close up"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "6962433",
+                "download_url": "https://videos.pexels.com/video-files/6962433/6962433-hd_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-typing-on-a-cellphone-6962433/",
+                "creator": "Eva Bronzini",
+                "creator_url": "https://www.pexels.com/@eva-bronzini",
+                "query": "close-up of hands typing on phone with steady movement"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "6245717",
+                "download_url": "https://videos.pexels.com/video-files/6245717/6245717-hd_720_1366_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/close-up-of-person-typing-on-laptop-6245717/",
+                "creator": "Monstera Production",
+                "creator_url": "https://www.pexels.com/@gabby-k",
+                "query": "person typing a short message with confident posture close up"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "3176",
+                "download_url": "https://cdn.pixabay.com/video/2016/05/12/3176-166338965_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-3176/",
+                "creator": "Coverr-Free-Footage",
+                "query": "close-up hands typing phone steady movement"
+              },
+              {
+                "n": 5,
+                "provider": "pixabay",
+                "asset_id": "3174",
+                "download_url": "https://cdn.pixabay.com/video/2016/05/12/3174-166338976_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-3174/",
+                "creator": "Coverr-Free-Footage",
+                "query": "person typing short message confident posture"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "8480682",
+                "download_url": "https://videos.pexels.com/video-files/8480682/8480682-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-typing-on-a-keyboard-8480682/",
+                "creator": "ArtHouse Studio",
+                "creator_url": "https://www.pexels.com/@arthousestudio",
+                "query": "close-up of hands typing on phone with steady movement"
+              }
+            ]
+          },
+          {
+            "id": "s1-topic",
+            "index": 4,
+            "role": "body",
+            "text_ar": "هنا نداء اليقظة؛ وعيٌ أوضح للحياة اليومية. هذا الشعور بالذنب ليس نابعاً من تقصيرك، بل من افتراض خفي بأن الرفض يعني بالضرورة إنهاء العلاقة أو جرح مشاعر الطرف الآخر.",
+            "sheet": "s1-topic.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "6801665",
+                "download_url": "https://videos.pexels.com/video-files/6801665/6801665-hd_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-placing-cup-over-table-6801665/",
+                "creator": "Artem Podrez",
+                "creator_url": "https://www.pexels.com/@artempodrez",
+                "query": "close-up of hands placing a cup down slowly with visible tension in posture"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "39116",
+                "download_url": "https://cdn.pixabay.com/video/2020/05/15/39116-420985147_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-39116/",
+                "creator": "Josh_Malic",
+                "query": "close-up hands placing cup down slowly visible tension"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "30211503",
+                "download_url": "https://videos.pexels.com/video-files/30211503/12952868_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/black-and-white-close-up-of-hand-holding-cup-30211503/",
+                "creator": "Sergei Starostin",
+                "creator_url": "https://www.pexels.com/@sejio402",
+                "query": "close-up of hands placing a cup down slowly with visible tension in posture"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "39120",
+                "download_url": "https://cdn.pixabay.com/video/2020/05/15/39120-421020144_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-39120/",
+                "creator": "Josh_Malic",
+                "query": "close-up hands placing cup down slowly visible tension"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "6931578",
+                "download_url": "https://videos.pexels.com/video-files/6931578/6931578-hd_720_1280_50fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-holding-coffee-cup-6931578/",
+                "creator": "Mikhail Nilov",
+                "creator_url": "https://www.pexels.com/@mikhail-nilov",
+                "query": "close-up of hands placing a cup down slowly with visible tension in posture"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "4854",
+                "download_url": "https://cdn.pixabay.com/video/2016/08/31/4854-180863259_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-4854/",
+                "creator": "klimkin",
+                "query": "close-up hands placing cup down slowly visible tension"
+              }
+            ]
+          },
+          {
+            "id": "b4",
+            "index": 5,
+            "role": "body",
+            "text_ar": "الفرق الحقيقي يكمن في التمييز بين الرفض الشخصي والرفض الذكي. الرفض الشخصي هو رد فعل عاطفي متوتر",
+            "sheet": "b4.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "5989769",
+                "download_url": "https://videos.pexels.com/video-files/5989769/5989769-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/man-and-woman-talking-and-discussing-with-each-other-5989769/",
+                "creator": "Jack Sparrow",
+                "creator_url": "https://www.pexels.com/@jack-sparrow",
+                "query": "two people at cafe table with one speaking and the other listening respectfully"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "7199212",
+                "download_url": "https://videos.pexels.com/video-files/7199212/7199212-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/man-and-woman-talking-while-sitting-on-the-couch-7199212/",
+                "creator": "SHVETS production",
+                "creator_url": "https://www.pexels.com/@shvets-production",
+                "query": "person sitting calmly while another person talks nearby"
+              },
+              {
+                "n": 3,
+                "provider": "pixabay",
+                "asset_id": "1623",
+                "download_url": "https://cdn.pixabay.com/video/2015/12/11/1623-148613540_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-1623/",
+                "creator": "Life-Of-Vids",
+                "query": "two people cafe table one speaking"
+              },
+              {
+                "n": 4,
+                "provider": "pixabay",
+                "asset_id": "1112",
+                "download_url": "https://cdn.pixabay.com/video/2015/10/19/1112-142930259_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-1112/",
+                "creator": "DistillVideos",
+                "query": "person sitting calmly while another person talks nearby"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "8441761",
+                "download_url": "https://videos.pexels.com/video-files/8441761/8441761-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-couple-talking-and-eating-cake-at-a-cafe-8441761/",
+                "creator": "Ron Lach",
+                "creator_url": "https://www.pexels.com/@ron-lach",
+                "query": "two people at cafe table with one speaking and the other listening respectfully"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "10252430",
+                "download_url": "https://videos.pexels.com/video-files/10252430/10252430-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/couple-sitting-and-talking-10252430/",
+                "creator": "cottonbro studio",
+                "creator_url": "https://www.pexels.com/@cottonbro",
+                "query": "person sitting calmly while another person talks nearby"
+              }
+            ]
+          },
+          {
+            "id": "b5",
+            "index": 6,
+            "role": "body",
+            "text_ar": "بينما الرفض الذكي هو قرار هادئ يحمي وقتك وطاقتك دون الحاجة لتقديم تبريرات طويلة. عندما تدرك أن قول «لا» لطلب معين ليس هجوماً على الشخص يتحول الموقف من صراع داخلي إلى تواصل واضح ومحترم.",
+            "sheet": "b5.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "6607905",
+                "download_url": "https://videos.pexels.com/video-files/6607905/6607905-hd_720_1366_24fps.mp4",
+                "source_url": "https://www.pexels.com/video/video-of-a-woman-smiling-6607905/",
+                "creator": "Anastasia  Shuraeva",
+                "creator_url": "https://www.pexels.com/@anastasia-shuraeva",
+                "query": "person subtly smiling while declining a request with relaxed posture"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "6626475",
+                "download_url": "https://videos.pexels.com/video-files/6626475/6626475-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/hands-in-a-notebook-6626475/",
+                "creator": "cottonbro studio",
+                "creator_url": "https://www.pexels.com/@cottonbro",
+                "query": "close-up of hands placing down a notebook with a smile"
+              },
+              {
+                "n": 3,
+                "provider": "pixabay",
+                "asset_id": "171044",
+                "download_url": "https://cdn.pixabay.com/video/2023/07/11/171044-844787782_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-171044/",
+                "creator": "magicmore",
+                "query": "person subtly smiling while declining request relaxed posture"
+              },
+              {
+                "n": 4,
+                "provider": "pexels",
+                "asset_id": "8705260",
+                "download_url": "https://videos.pexels.com/video-files/8705260/8705260-hd_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-sticking-photo-on-a-notebook-8705260/",
+                "creator": "Katya Wolf",
+                "creator_url": "https://www.pexels.com/@katya-wolf",
+                "query": "close-up of hands placing down a notebook with a smile"
+              },
+              {
+                "n": 5,
+                "provider": "pexels",
+                "asset_id": "9187815",
+                "download_url": "https://videos.pexels.com/video-files/9187815/9187815-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/woman-walking-and-smiling-9187815/",
+                "creator": "Darina Belonogova",
+                "creator_url": "https://www.pexels.com/@darina-belonogova",
+                "query": "person subtly smiling while declining a request with relaxed posture"
+              },
+              {
+                "n": 6,
+                "provider": "pixabay",
+                "asset_id": "4952",
+                "download_url": "https://cdn.pixabay.com/video/2016/09/05/4952-181538531_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-4952/",
+                "creator": "klimkin",
+                "query": "close-up hands placing down notebook smile"
+              }
+            ]
+          },
+          {
+            "id": "b6",
+            "index": 7,
+            "role": "body",
+            "text_ar": "بمجرد أن تضع حداً واضحاً ستكتشف أن الآخرين غالباً ما يحترمون حدودك أكثر مما كنت تتوقع.",
+            "sheet": "b6.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "6143546",
+                "download_url": "https://videos.pexels.com/video-files/6143546/6143546-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/faceless-person-clicking-a-pen-over-a-notebook-6143546/",
+                "creator": "cottonbro studio",
+                "creator_url": "https://www.pexels.com/@cottonbro",
+                "query": "person closing a notebook confidently with pen on top"
+              },
+              {
+                "n": 2,
+                "provider": "pixabay",
+                "asset_id": "12040",
+                "download_url": "https://cdn.pixabay.com/video/2017/09/17/12040-236265335_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-12040/",
+                "creator": "chayka1270",
+                "query": "close-up hands closing notebook pen"
+              },
+              {
+                "n": 3,
+                "provider": "pexels",
+                "asset_id": "7698438",
+                "download_url": "https://videos.pexels.com/video-files/7698438/7698438-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-writing-on-a-notebook-7698438/",
+                "creator": "MART  PRODUCTION",
+                "creator_url": "https://www.pexels.com/@mart-production",
+                "query": "person closing a notebook confidently with pen on top"
+              },
+              {
+                "n": 4,
+                "provider": "pexels",
+                "asset_id": "7252717",
+                "download_url": "https://videos.pexels.com/video-files/7252717/7252717-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/sticky-notes-on-a-notebook-7252717/",
+                "creator": "Ivan S",
+                "creator_url": "https://www.pexels.com/@ivan-s",
+                "query": "close-up of hands closing a notebook with a pen"
+              },
+              {
+                "n": 5,
+                "provider": "pixabay",
+                "asset_id": "130645",
+                "download_url": "https://cdn.pixabay.com/video/2022/09/08/130645-747868363_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-130645/",
+                "creator": "SYG_Anime",
+                "query": "person closing notebook confidently pen top"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "8519540",
+                "download_url": "https://videos.pexels.com/video-files/8519540/8519540-hd_720_1280_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-writing-on-a-notebook-8519540/",
+                "creator": "Artem Podrez",
+                "creator_url": "https://www.pexels.com/@artempodrez",
+                "query": "close-up of hands closing a notebook with a pen"
+              }
+            ]
+          },
+          {
+            "id": "b7",
+            "index": 8,
+            "role": "payoff",
+            "text_ar": "الرفض هنا ليس نهاية للحوار. حدد أول طلب سترفضه بثقة.",
+            "sheet": "b7.jpg",
+            "candidates": [
+              {
+                "n": 1,
+                "provider": "pexels",
+                "asset_id": "7585179",
+                "download_url": "https://videos.pexels.com/video-files/7585179/7585179-hd_720_1280_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-student-holding-his-notebook-and-laptop-7585179/",
+                "creator": "Mikhail Nilov",
+                "creator_url": "https://www.pexels.com/@mikhail-nilov",
+                "query": "person walking away confidently after closing a notebook"
+              },
+              {
+                "n": 2,
+                "provider": "pexels",
+                "asset_id": "6187209",
+                "download_url": "https://videos.pexels.com/video-files/6187209/6187209-hd_720_1366_30fps.mp4",
+                "source_url": "https://www.pexels.com/video/placing-open-notebook-on-table-beside-highlighters-6187209/",
+                "creator": "KATRIN  BOLOVTSOVA",
+                "creator_url": "https://www.pexels.com/@ekaterina-bolovtsova",
+                "query": "close-up of hands placing closed notebook on table"
+              },
+              {
+                "n": 3,
+                "provider": "pixabay",
+                "asset_id": "2302",
+                "download_url": "https://cdn.pixabay.com/video/2016/02/29/2302-157183630_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-2302/",
+                "creator": "Coverr-Free-Footage",
+                "query": "person walking away confidently after closing notebook"
+              },
+              {
+                "n": 4,
+                "provider": "pexels",
+                "asset_id": "5881551",
+                "download_url": "https://videos.pexels.com/video-files/5881551/5881551-hd_720_1366_25fps.mp4",
+                "source_url": "https://www.pexels.com/video/a-person-writing-on-a-notebook-5881551/",
+                "creator": "https://kaboompics.com/",
+                "creator_url": "https://www.pexels.com/@karola-g",
+                "query": "close-up of hands placing closed notebook on table"
+              },
+              {
+                "n": 5,
+                "provider": "pixabay",
+                "asset_id": "1632",
+                "download_url": "https://cdn.pixabay.com/video/2015/12/11/1632-148614391_medium.mp4",
+                "source_url": "https://pixabay.com/videos/id-1632/",
+                "creator": "Coverr-Free-Footage",
+                "query": "person walking away confidently after closing notebook"
+              },
+              {
+                "n": 6,
+                "provider": "pexels",
+                "asset_id": "8706269",
+                "download_url": "https://videos.pexels.com/video-files/8706269/8706269-hd_720_1280_60fps.mp4",
+                "source_url": "https://www.pexels.com/video/person-writing-on-a-notebook-with-a-pen-8706269/",
+                "creator": "Katya Wolf",
+                "creator_url": "https://www.pexels.com/@katya-wolf",
+                "query": "close-up of hands placing closed notebook on table"
+              }
+            ]
+          }
+        ],
+        "created_at": "2026-10-14T19:35:53+00:00"
       },
       "production": {
         "run_id": "38624446893",
@@ -12947,6 +13486,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T19:35:51Z",
+  "updated_at": "2026-10-14T19:35:53Z",
   "provider_cooldown_until": "2026-10-14T18:16:46.828114Z"
 }
