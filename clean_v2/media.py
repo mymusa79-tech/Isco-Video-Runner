@@ -2200,9 +2200,20 @@ class StockVisualSource:
                     from .identity_sequence import PRAYER_SENTENCE
                     text = next((str(s.get("narration") or "") for s in script.get("sections", []) if s.get("id") == sid), "")
                     answer = text.split(PRAYER_SENTENCE, 1)[-1].strip()
+                    # Give the Short reviewer a real, section-grounded alternative
+                    # for the spoken answer. Automatic production still uses the
+                    # existing local fallback for this window when left unchanged.
+                    section_visual = section_by_id.get(sid, {})
+                    answer_query = str(
+                        section_visual.get("visual_query_alt_en")
+                        or section_visual.get("visual_query_en")
+                        or ""
+                    ).strip()
+                    answer_alt = str(section_visual.get("visual_query_en") or "").strip()
                     beat = {"id": f"{sid}-topic", "section_id": sid, "role": "body",
                             "viewer_intent": answer, "meaning_target": answer, "writer_anchor_ar": answer,
-                            "stock_query_en": "local symbolic first answer", "source_preference": "stock_motion",
+                            "shot_intent": answer_query, "stock_query_en": answer_query,
+                            "stock_query_alt_en": answer_alt, "source_preference": "stock_motion",
                             "hold_reason": "idea_continues", "environment_family": "local_symbolic",
                             "_local_content_window": True}
                     insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
@@ -2718,11 +2729,6 @@ class StockVisualSource:
             specific = _specific_beat_stock_query(beat.get("shot_intent"))
             primary_query = specific or str(beat.get("stock_query_en") or "").strip()
             auxiliary = section_id in seen_sections
-            if review_collect and beat.get("_local_content_window"):
-                # Added automatically for the spoken first answer; never offered to
-                # the owner and rendered as the disclosed channel background.
-                seen_sections.add(section_id)
-                continue
             if review_collect:
                 self.review_pack.append(
                     self._review_entry(beat, primary_query, portrait=portrait)
@@ -2748,7 +2754,11 @@ class StockVisualSource:
                     admitted_pick = False
                 if not admitted_pick:
                     _simple_background(
-                        beat, index, auxiliary=auxiliary, human_choice="background"
+                        beat, index, auxiliary=auxiliary,
+                        human_choice=(
+                            "candidate_failed" if owner_choice.get("mode") == "candidate"
+                            else "background"
+                        ),
                     )
                 seen_sections.add(section_id)
                 continue
@@ -3133,28 +3143,33 @@ class StockVisualSource:
         the owner sees real alternatives, never a new source. Candidates already
         shown for an earlier beat are skipped so the sheets never repeat a clip.
         """
-        wanted = 9  # a few spare: some previews can fail and are dropped later
-        found: list[dict[str, Any]] = []
+        wanted = 9  # six previews plus a few spares for unavailable downloads
         queries = _stock_query_ladder(primary_query, beat) if primary_query else ()
-        for raw in queries[:2]:
-            if len(found) >= wanted:
-                break
+        buckets: list[list[dict[str, Any]]] = []
+        searched: list[str] = []
+        for variant_index, raw in enumerate(queries[:2]):
             query = _hook_stock_retrieval_query(raw, beat)
             if self.query_normalizer is not None and query:
                 query = self.query_normalizer(query)
             query = _channel_stock_query(query)
             if not query:
                 continue
+            searched.append(query)
+            # Two different authored intents should both reach the contact sheet.
+            # Previously the first search filled all nine slots and the alternate
+            # was never attempted, creating six nearly identical stock results.
+            cap = wanted if len(queries) == 1 else (5 if variant_index == 0 else 4)
+            bucket: list[dict[str, Any]] = []
             pools = (
                 self._pexels_recovery_pool(query, portrait=portrait, limit=4),
                 self._pixabay_recovery_pool(query, portrait=portrait, limit=4),
                 self._coverr_recovery_pool(query, portrait=portrait, limit=4),
             )
             position = 0
-            while len(found) < wanted:
+            while len(bucket) < cap:
                 added = False
                 for pool in pools:
-                    if position >= len(pool) or len(found) >= wanted:
+                    if position >= len(pool) or len(bucket) >= cap:
                         continue
                     added = True
                     candidate = pool[position]
@@ -3170,15 +3185,27 @@ class StockVisualSource:
                     ):
                         continue
                     self._review_taken.add(identity)
-                    found.append(dict(candidate))
+                    item = dict(candidate)
+                    item.setdefault("query", query)
+                    bucket.append(item)
                 if not added:
                     break
                 position += 1
+            buckets.append(bucket)
+
+        # Interleave the two meaning-preserving search variants. The six visible
+        # candidates therefore include both visual interpretations where possible.
+        found: list[dict[str, Any]] = []
+        while len(found) < wanted and any(buckets):
+            for bucket in buckets:
+                if bucket and len(found) < wanted:
+                    found.append(bucket.pop(0))
         return {
             "id": str(beat.get("id") or ""),
             "role": str(beat.get("role") or ""),
             "text_ar": str(beat.get("writer_anchor_ar") or beat.get("display_text_ar") or ""),
             "shot_intent": str(beat.get("shot_intent") or ""),
+            "search_queries": searched,
             "candidates": found,
         }
 
