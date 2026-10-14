@@ -65,6 +65,74 @@ class PlanningVisualRepairFeedbackTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def test_run137_visual_repair_preserves_earlier_validated_action(self):
+        """One visual fix must not regress an already-approved Short action."""
+        first = family_conflict()
+        repaired_visuals = healthy_plan()
+        repaired_visuals["practical_action_ar"] = "اختر مهمة الآن."
+        original = copy.deepcopy(repaired_visuals)
+        brief = _brief("short")
+        with self.assertRaisesRegex(ValueError, "visual family exceeds two beats") as first_error:
+            pipeline._validate_plan_for_brief(first, brief, enforce_visual_identity=True)
+        self.assertEqual(
+            first_error.exception.planning_validated_short_action_ar,
+            first["practical_action_ar"],
+        )
+        with self.assertRaisesRegex(
+            Exception, "short_practical_action_too_generic_for_topic",
+        ):
+            pipeline._validate_plan_for_brief(repaired_visuals, brief, enforce_visual_identity=True)
+
+        calls = []
+
+        def invoke(prompt, max_tokens, stage):
+            self.assertEqual(stage, "planning")
+            calls.append(prompt)
+            return copy.deepcopy(first if len(calls) == 1 else repaired_visuals)
+
+        router = ProviderRouter((
+            ProviderAdapter("mistral", invoke, stages=frozenset({"planning"}), accepts_stage=True),
+        ))
+        result = router.route(
+            stage="planning",
+            prompt=pipeline._planning_prompt(brief),
+            max_tokens=3000,
+            validator=lambda value: pipeline._validate_plan_for_brief(
+                value, brief, enforce_visual_identity=True,
+            ),
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result["practical_action_ar"], first["practical_action_ar"])
+        self.assertEqual(repaired_visuals, original)  # never mutate the provider draft
+        self.assertEqual(
+            [event["result"] for event in router.events], ["retrying", "success"],
+        )
+        self.assertEqual(
+            router.events[-1]["reason"],
+            "short_prior_action_preserved_after_visual_retry",
+        )
+
+    def test_run137_reused_action_must_still_pass_full_visual_validator(self):
+        from clean_v2.providers import _reuse_certified_short_action_after_visual_retry
+        from clean_v2.short_format import ShortFormatError
+
+        first = family_conflict()
+        brief = _brief("short")
+        with self.assertRaises(ValueError) as caught:
+            pipeline._validate_plan_for_brief(first, brief, enforce_visual_identity=True)
+        invalid = copy.deepcopy(first)
+        invalid["practical_action_ar"] = "اختر مهمة الآن."
+        recovered = _reuse_certified_short_action_after_visual_retry(
+            invalid,
+            caught.exception,
+            ShortFormatError("short_practical_action_too_generic_for_topic"),
+            lambda value: pipeline._validate_plan_for_brief(
+                value, brief, enforce_visual_identity=True,
+            ),
+        )
+        self.assertIsNone(recovered)  # family overuse is still rejected
+        self.assertEqual(invalid["practical_action_ar"], "اختر مهمة الآن.")
+
     def test_first_semantic_rejection_also_identifies_hidden_family_conflicts(self):
         value = combined_conflict()
         original = copy.deepcopy(value)
