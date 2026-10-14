@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "فخ المقارنة السريعة: لماذا لا يقاس نضجك بإيقاع الآخرين؟",
-  "stage": "⚡ الشورت · 3/6 الصوت ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38541130699",
-  "result": "",
-  "updated_at": 1791969594
+  "result": "success",
+  "updated_at": 1791969645
 }
