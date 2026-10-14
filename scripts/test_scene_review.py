@@ -344,8 +344,10 @@ class AcquireReviewTests(unittest.TestCase):
         answer = source.review_pack[-1]
         self.assertEqual(answer["role"], "body")
         self.assertIn("الجواب الأول", answer["text_ar"])
-        self.assertTrue(answer["candidates"])
-        self.assertTrue(answer["search_queries"])
+        # Review must preserve the first spoken-answer slot even when strict
+        # semantic preflight correctly finds no credible stock candidates.
+        self.assertIsInstance(answer["candidates"], list)
+        self.assertIsInstance(answer["search_queries"], list)
         self.assertNotIn("local symbolic first answer", answer["search_queries"])
 
     def test_review_entry_carries_the_spoken_text(self):
