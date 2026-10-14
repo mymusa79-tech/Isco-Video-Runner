@@ -26,7 +26,7 @@ CANDIDATES_PER_BEAT = 6
 AUTO_CALLBACK_PREFIX = "sceneauto:"
 _PREFIXED_RE = re.compile(r"^\s*(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$")
 _BARE_RE = re.compile(r"^[0-9٠-٩\-،,\s]+$")
-_KEEP = ("provider", "asset_id", "download_url", "source_url", "creator", "creator_url", "query")
+_KEEP = ("provider", "asset_id", "download_url", "source_url", "creator", "creator_url", "query", "media_kind")
 
 
 def utc_now() -> str:
@@ -231,10 +231,12 @@ def send_review(output: Path) -> int:
     total = len(beats)
     for beat in beats:
         count = len(beat["candidates"])
+        photos = sum(c.get("media_kind") == "photo" for c in beat["candidates"])
         caption = (
             f"🎬 مشهد {beat['index']}/{total}"
             + (f" — {beat['role']}" if beat.get("role") else "")
             + f"\n«{beat.get('text_ar') or ''}»\n"
+            + (f"الخيارات: {photos} صورة و{count - photos} فيديو (IMG/VID).\n" if count else "")
             + (f"اختر 1–{count}، أو 0 للخلفية، أو - لإبقاء الاختيار الآلي."
                if count else "لا مرشحين بملاءمة موثقة لهذا المشهد: اختر 0 لخلفية القناة، أو - للاختيار الآلي غير المراجع.")
         )[:1000]
