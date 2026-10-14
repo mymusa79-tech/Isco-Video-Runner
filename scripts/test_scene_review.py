@@ -287,10 +287,16 @@ class AcquireReviewTests(unittest.TestCase):
         self.assertEqual(rights[-1]["provider"], "generated_local")
         self.assertEqual(rights[-1]["role"], "body")  # a non-hook visual covers the topic window
 
-    def test_review_never_offers_the_automatic_first_answer_scene(self):
+    def test_first_answer_window_is_offered_for_review_without_changing_auto_behavior(self):
         (clips, rights), source = self._acquire_with_timeline({SIMPLE_MODE_ENV: "1", sr.COLLECT_ENV: "collect"})
         self.assertEqual((clips, rights), ([], []))
-        self.assertEqual([b["id"] for b in source.review_pack], ["b1", "b2", "b3"])
+        self.assertEqual([b["id"] for b in source.review_pack], ["b1", "b2", "b3", "s1-topic"])
+        answer = source.review_pack[-1]
+        self.assertEqual(answer["role"], "body")
+        self.assertIn("الجواب الأول", answer["text_ar"])
+        self.assertTrue(answer["candidates"])
+        self.assertTrue(answer["search_queries"])
+        self.assertNotIn("local symbolic first answer", answer["search_queries"])
 
     def test_review_entry_carries_the_spoken_text(self):
         _, source, _plan, _vp_mod = self._source()
@@ -304,6 +310,34 @@ class AcquireReviewTests(unittest.TestCase):
             )
         self.assertEqual(entry["text_ar"], "لماذا تتجمد أحياناً")
         self.assertEqual(entry["candidates"], [])
+
+    def test_review_alternate_query_appears_in_first_six_candidates(self):
+        from clean_v2 import media as media_module
+        source = media_module.StockVisualSource()
+        source._review_taken = set()
+        queries_seen = []
+
+        def pool(query, *, portrait, limit):
+            queries_seen.append(query)
+            return [
+                {"provider": "pexels", "asset_id": f"{query}-{i}",
+                 "download_url": f"https://media.invalid/{i}.mp4", "query": query}
+                for i in range(limit)
+            ]
+
+        beat = {"id": "b1", "role": "body", "writer_anchor_ar": "النص",
+                "shot_intent": "notebook being closed",
+                "stock_query_alt_en": "alarm clock showing time"}
+        with mock.patch.object(source, "_pexels_recovery_pool", side_effect=pool), \
+                mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_coverr_recovery_pool", return_value=[]):
+            entry = source._review_entry(beat, "notebook being closed", portrait=True)
+        self.assertEqual(len(entry["search_queries"]), 2)
+        self.assertEqual(len(entry["candidates"]), 8)
+        first_six = entry["candidates"][:6]
+        self.assertEqual(len({c["query"] for c in first_six}), 2)
+        self.assertEqual(len({c["asset_id"] for c in first_six}), 6)
+        self.assertEqual(len(queries_seen), 2)
 
     def test_owner_choices_are_applied_in_beat_order(self):
         vp = _vp()
@@ -329,6 +363,29 @@ class AcquireReviewTests(unittest.TestCase):
     def test_without_simple_mode_or_files_nothing_changes(self):
         (_clips, rights), _ = self._acquire({}, choices=None)
         self.assertTrue(all("human_choice" not in r for r in rights))
+
+
+class SceneReportCoverageTests(unittest.TestCase):
+    def test_auxiliary_choices_and_failed_picks_are_counted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            (output / "rights-manifest.json").write_text(json.dumps({
+                "assets": [
+                    {"human_choice": "candidate"},
+                    {"human_choice": "background", "story_beat_auxiliary": True},
+                    {"human_choice": "candidate_failed", "story_beat_auxiliary": True},
+                    {"human_choice": "auto", "story_beat_auxiliary": True},
+                    {"provider": "generated_local"},
+                ]
+            }), encoding="utf-8")
+            report = sr.report_block(output)
+        self.assertEqual(report["human_chosen_clips"], 1)
+        self.assertEqual(report["human_background"], 1)
+        self.assertEqual(report["human_choice_failed"], 1)
+        self.assertEqual(report["kept_automatic"], 1)
+        self.assertEqual(report["auxiliary_slots_counted"], 3)
+        self.assertEqual(report["unmarked_visual_slots"], 1)
+        self.assertEqual(report["total_visual_slots"], 5)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg required")
