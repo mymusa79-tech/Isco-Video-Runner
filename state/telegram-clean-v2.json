@@ -7649,9 +7649,224 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-14T09:15:22Z"
+    },
+    {
+      "idea_id": "idea-4d7826ca16",
+      "title": "كيف تتحول العادات الصغيرة إلى تغيير كبير في حياتك؟",
+      "normalized_title": "كيف تتحول العادات الصغيرة الي تغيير كبير في حياتك؟",
+      "market_query": "تغيير عادات يومية نتائج",
+      "knowledge_query_en": "how micro habits compound into significant behavioral change",
+      "reason": "يشرح كيف يمكن للمشاهد تحويل عادات بسيطة مثل شرب كوب من الماء عند الاستيقاظ أو كتابة هدف واحد يوميًا إلى تغييرات كبيرة في الطاقة والتركيز على المدى الطويل، باستخدام مثال واقعي مثل تنظيم الوقت بشكل أفضل دون الشعور بالإرهاق.",
+      "market_score": 0.692,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 6728.1,
+        "median_views_per_day": 3378.0,
+        "top_samples": [
+          {
+            "video_id": "XFu1u0RVmrA",
+            "title": "قوة العادات: كيف تغيّر حياتك خطوة بخطوة؟ | كتاب صوتي لتطوير الذات ",
+            "channel": "رشفة قراءة",
+            "published_at": "2026-10-12T11:39:30Z",
+            "views": 15070,
+            "views_per_day": 6728.1,
+            "likes": 323,
+            "like_rate_percent": 2.14,
+            "market_sample_rank": 10092.16,
+            "relevance_overlap": [
+              "تغيير",
+              "عادات",
+              "نتايج",
+              "يومية"
+            ]
+          },
+          {
+            "video_id": "QvR1x4Mn1_I",
+            "title": "كيف تغير حياتك بالكامل في دقائق؟ | ملخص العادات الذرية",
+            "channel": "عقل مسموع_3a9loMasmo3",
+            "published_at": "2026-10-01T16:00:24Z",
+            "views": 365,
+            "views_per_day": 28.0,
+            "likes": 7,
+            "like_rate_percent": 1.92,
+            "market_sample_rank": 40.23,
+            "relevance_overlap": [
+              "تغيير",
+              "عادات",
+              "نتايج",
+              "يومية"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:53Z"
+    },
+    {
+      "idea_id": "idea-5175b9fa25",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "knowledge_query_en": "",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.431,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 117.4,
+        "median_views_per_day": 113.8,
+        "top_samples": [
+          {
+            "video_id": "tNufxop0J1k",
+            "title": "فقدان الشغف مش معناه ضعف إيمانك 💔❗",
+            "channel": "Iheb itv",
+            "published_at": "2026-10-04T13:35:44Z",
+            "views": 1119,
+            "views_per_day": 110.1,
+            "likes": 38,
+            "like_rate_percent": 3.4,
+            "market_sample_rank": 165.22,
+            "relevance_overlap": [
+              "حماس",
+              "فقدان"
+            ]
+          },
+          {
+            "video_id": "CYd7qbJ_Pzw",
+            "title": "ليه بتحس بالحماس أول الأسبوع وبيختفي بعد يومين؟ | السر اللي محدش بيقولهولك",
+            "channel": "ذاكرة التاريخ",
+            "published_at": "2026-10-03T09:00:23Z",
+            "views": 1333,
+            "views_per_day": 117.4,
+            "likes": 20,
+            "like_rate_percent": 1.5,
+            "market_sample_rank": 152.69,
+            "relevance_overlap": [
+              "حماس",
+              "فقدان"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:56Z"
+    },
+    {
+      "idea_id": "idea-8e8dc3f2a4",
+      "title": "لماذا تفشل الجهود الكبرى بينما تنجح المشاريع الصغيرة؟",
+      "normalized_title": "لماذا تفشل الجهود الكبري بينما تنجح المشاريع الصغيرة؟",
+      "market_query": "مشروعات صغيرة نجاح أكبر",
+      "knowledge_query_en": "why small projects succeed where big initiatives fail",
+      "reason": "يوضح كيف أن المشروعات الصغيرة أو الأهداف المحدودة تزيد من احتمالية النجاح بسبب انخفاض مقاومة التغيير والتركيز على النتائج الفورية، مثل البدء بمشروع كتاب واحد بدلاً من كتاب كامل.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:54Z"
+    },
+    {
+      "idea_id": "idea-006d67afe3",
+      "title": "الاختيار الصامت: كيف تقرر ما لا تقوله؟",
+      "normalized_title": "الاختيار الصامت كيف تقرر ما لا تقوله؟",
+      "market_query": "قرارات صامتة تأثيرها",
+      "knowledge_query_en": "impact of silent decisions on mental well-being",
+      "reason": "يشرح كيف أن بعض القرارات الأكثر أهمية هي تلك التي لا نعلن عنها، مثل رفض دعوة غير مرغوب فيها أو عدم المشاركة في مناقشات سلبية، وكيف تؤثر هذه القرارات على السلام النفسي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:54Z"
+    },
+    {
+      "idea_id": "idea-8b9b1f5a34",
+      "title": "لماذا تشعر بالملل حتى عندما تكون مشغولًا؟",
+      "normalized_title": "لماذا تشعر بالملل حتي عندما تكون مشغولًا؟",
+      "market_query": "ملل despite busyness",
+      "knowledge_query_en": "why boredom occurs during high activity periods",
+      "reason": "يحلل سبب شعور الناس بالملل حتى في أيامهم المزدحمة، مثل عدم وجود أهداف واضحة أو روتين مثير للاهتمام، ويقدم حلولًا مثل تقسيم الوقت إلى فترات عمل وراحة فعالة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:54Z"
+    },
+    {
+      "idea_id": "idea-15a5149c9c",
+      "title": "كيف تتعلم من الناس الذين لا تحبهم؟",
+      "normalized_title": "كيف تتعلم من الناس الذين لا تحبهم؟",
+      "market_query": "تعلم من الأشخاص غير المرغوب فيهم",
+      "knowledge_query_en": "extracting lessons from difficult interpersonal relationships",
+      "reason": "يشرح كيف يمكن للمشاهد استخراج الدروس القيمة من العلاقات السلبية، مثل فهم نقاط الضعف الشخصية أو التعلم من أخطاء الآخرين دون الانخراط عاطفيًا.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:55Z"
+    },
+    {
+      "idea_id": "idea-8f0e9b64f9",
+      "title": "الوقت المفقود: لماذا نضيعه ولماذا لا نستطيع إيقافه؟",
+      "normalized_title": "الوقت المفقود لماذا نضيعه ولماذا لا نستطيع ايقافه؟",
+      "market_query": "نضيع الوقت أسباب نفسية",
+      "knowledge_query_en": "psychological reasons behind time wastage",
+      "reason": "يحلل أسباب فقدان الوقت غير المتحكم فيه، مثل التشتت الرقمي أو عدم تحديد الأولويات، ويقدم طرقًا واقعية مثل استخدام تقنيات مثل Pomodoro أو تحديد مهام رئيسية يوميًا.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:55Z"
+    },
+    {
+      "idea_id": "idea-799a7254da",
+      "title": "كيف تتعامل مع الانتقادات دون أن تتحول إلى حواجز؟",
+      "normalized_title": "كيف تتعامل مع الانتقادات دون ان تتحول الي حواجز؟",
+      "market_query": "استقبال النقد بدون دفاع",
+      "knowledge_query_en": "turning criticism into constructive feedback",
+      "reason": "يشرح كيف يمكن للمشاهد تحويل النقد إلى فرصة للنمو بدلاً من الشعور بالتهديد، مثل استخدام أساليب الاستماع النشط وفصل النقد عن الهوية الشخصية.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T17:24:56Z"
     }
   ],
   "sessions": {
+    "d5615483": {
+      "session_id": "d5615483",
+      "scope": "short",
+      "idea_ids": [
+        "idea-4d7826ca16",
+        "idea-5175b9fa25"
+      ],
+      "created_at": "2026-10-14T17:24:56Z"
+    },
     "8538777d": {
       "session_id": "8538777d",
       "scope": "short",
@@ -8079,18 +8294,6 @@
       "created_at": "2026-09-30T12:00:01Z",
       "closed_at": "2026-09-30T12:01:01Z",
       "selected_index": 2
-    },
-    "209faa7d": {
-      "session_id": "209faa7d",
-      "scope": "short",
-      "idea_ids": [
-        "idea-771285b119",
-        "idea-d87bff94f6",
-        "idea-00ad9dc353"
-      ],
-      "created_at": "2026-09-30T09:40:17Z",
-      "closed_at": "2026-09-30T09:41:03Z",
-      "selected_index": 0
     }
   },
   "requests": {
@@ -12559,6 +12762,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T12:12:21Z",
+  "updated_at": "2026-10-14T17:24:57Z",
   "provider_cooldown_until": "2026-10-13T16:39:09.213076Z"
 }
