@@ -2364,7 +2364,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
 
     message = update.get("message") or {}
     text = _normalize_user_command_text(str(message.get("text") or ""))
-    if scene_review.is_reply_text(text):
+    if scene_review.is_reply_text(text) and (
+        scene_review.has_prefix(text) or scene_review.find_awaiting(state) is not None
+    ):
+        # Bare digits count only while a review is waiting; otherwise they are chatter.
         _apply_scene_review(state, dispatch_path, text=text)
         return
     if text in {"/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "الرئيسية"}:

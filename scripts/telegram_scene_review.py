@@ -24,7 +24,8 @@ from typing import Any, Mapping
 
 CANDIDATES_PER_BEAT = 6
 AUTO_CALLBACK_PREFIX = "sceneauto:"
-_REPLY_RE = re.compile(r"^\s*(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$")
+_PREFIXED_RE = re.compile(r"^\s*(?:مشاهد|مشهد)\s+[0-9٠-٩\-،,\s]+$")
+_BARE_RE = re.compile(r"^[0-9٠-٩\-،,\s]+$")
 _KEEP = ("provider", "asset_id", "download_url", "source_url", "creator", "creator_url", "query")
 
 
@@ -32,8 +33,16 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def has_prefix(text: str) -> bool:
+    return bool(_PREFIXED_RE.match(str(text or "").strip()))
+
+
 def is_reply_text(text: str) -> bool:
-    return bool(_REPLY_RE.match(str(text or "")))
+    """«مشاهد 2 1 0» or bare digits like «5354400» (at least two characters)."""
+    value = str(text or "").strip()
+    if has_prefix(value):
+        return True
+    return bool(_BARE_RE.match(value)) and len(re.sub(r"[\s،,]", "", value)) >= 2
 
 
 def _candidate(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -240,8 +249,8 @@ def send_review(output: Path) -> int:
     example = " ".join(["1"] * total)
     text = (
         f"✅ جاهز: {total} مشاهد للمراجعة. الصوت محفوظ ولن يُعاد توليده.\n\n"
-        "أرسل رسالة واحدة برقم لكل مشهد بالترتيب، مثال:\n"
-        f"مشاهد {example}\n"
+        "أرسل رسالة واحدة برقم لكل مشهد بالترتيب (الأرقام فقط تكفي)، مثال:\n"
+        f"{example}\n"
         "(1–6 مرشح، 0 خلفية القناة، - إبقاء الاختيار الآلي). تُعتمد الرسالة مرة واحدة فقط.\n\n"
         "أو اضغط الزر لإنتاج الفيديو بالاختيار الآلي دون مراجعة."
     )

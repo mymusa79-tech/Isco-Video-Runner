@@ -230,7 +230,10 @@ test("scene review reply is recognised narrowly and forwarded as one atomic upda
   for (const ok of ["مشاهد 2 1 0 - 4 1 3", "مشاهد ٢ ١ ٠ -", "مشهد 1 2", "  مشاهد 1،2،3 "]) {
     assert.equal(isSceneReviewReply(ok), true, ok);
   }
-  for (const no of ["تأكيد الإنتاج", "مشاهد جميلة", "1 2 3", "/status", "مشاهد", ""]) {
+  for (const bare of ["5354400", "٥٣٥٤٤٠٠", "1 2 3", "53-4400"]) {
+    assert.equal(isSceneReviewReply(bare), true, bare);
+  }
+  for (const no of ["تأكيد الإنتاج", "مشاهد جميلة", "5", "-", "/status", "مشاهد", "", "ok 123"]) {
     assert.equal(isSceneReviewReply(no), false, no);
   }
 });
