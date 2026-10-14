@@ -192,6 +192,56 @@ def _vp():
     return vp
 
 
+
+class SemanticShortlistTests(unittest.TestCase):
+    def test_generic_filler_and_unknown_metadata_are_not_review_candidates(self):
+        from clean_v2.media import StockVisualSource
+        source = StockVisualSource()
+        source._review_taken = set()
+        query = "person declines invitation with raised palm"
+        bad = [
+            {"provider": "pexels", "asset_id": "coffee",
+             "download_url": "https://example.invalid/a.mp4",
+             "retrieval_description": "coffee cup poured on cafe table"},
+            {"provider": "pexels", "asset_id": "slug",
+             "download_url": "https://example.invalid/b.mp4",
+             "retrieval_description": ""},
+        ]
+        with mock.patch.object(source, "_pexels_recovery_pool", return_value=bad), \
+                mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_coverr_recovery_pool", return_value=[]):
+            result = source._review_entry(
+                {"id": "b1", "role": "body", "shot_intent": query}, query, portrait=True)
+        self.assertEqual(result["candidates"], [])
+        self.assertEqual(len(result["search_queries"]), 1)
+
+    def test_relevant_action_survives_without_filling_six_slots(self):
+        from clean_v2.media import StockVisualSource
+        source = StockVisualSource()
+        source._review_taken = set()
+        query = "person declines invitation with raised palm"
+        good = {"provider": "pexels", "asset_id": "no",
+                "download_url": "https://example.invalid/no.mp4",
+                "retrieval_description": "person declines invitation raising palm to visitor"}
+        with mock.patch.object(source, "_pexels_recovery_pool", return_value=[good]), \
+                mock.patch.object(source, "_pixabay_recovery_pool", return_value=[]), \
+                mock.patch.object(source, "_coverr_recovery_pool", return_value=[]):
+            result = source._review_entry(
+                {"id": "b1", "role": "body", "shot_intent": query}, query, portrait=True)
+        self.assertEqual([r["asset_id"] for r in result["candidates"]], ["no"])
+
+    def test_generic_notebook_prompt_cannot_supply_review_filler(self):
+        from clean_v2.media import StockVisualSource
+        source = StockVisualSource()
+        source._review_taken = set()
+        with mock.patch.object(source, "_pexels_recovery_pool") as p:
+            result = source._review_entry(
+                {"id": "b1", "role": "body", "shot_intent": "person writing at desk"},
+                "person writing at desk", portrait=True)
+        self.assertEqual(result["candidates"], [])
+        p.assert_not_called()
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class AcquireReviewTests(unittest.TestCase):
     def _source(self):
@@ -216,7 +266,7 @@ class AcquireReviewTests(unittest.TestCase):
             Path(destination).write_bytes(b"V" * 4096)
 
         def pool(query, *, portrait, limit):
-            return [vp._candidate("pexels", f"r{abs(hash(query)) % 999}-{i}") for i in range(limit)]
+            return [dict(vp._candidate("pexels", f"r{abs(hash(query)) % 999}-{i}"), retrieval_description=query) for i in range(limit)]
 
         with tempfile.TemporaryDirectory() as root:
             env = dict(env)
@@ -260,7 +310,7 @@ class AcquireReviewTests(unittest.TestCase):
             beat["role"] = "hook"  # as planned in Runs 127/131/135: every s1 beat is a hook beat
 
         def pool(query, *, portrait, limit):
-            return [vp._candidate("pexels", f"r{abs(hash(query)) % 999}-{i}") for i in range(limit)]
+            return [dict(vp._candidate("pexels", f"r{abs(hash(query)) % 999}-{i}"), retrieval_description=query) for i in range(limit)]
 
         def fake_download(_url, destination):
             Path(destination).parent.mkdir(parents=True, exist_ok=True)
@@ -294,8 +344,10 @@ class AcquireReviewTests(unittest.TestCase):
         answer = source.review_pack[-1]
         self.assertEqual(answer["role"], "body")
         self.assertIn("الجواب الأول", answer["text_ar"])
-        self.assertTrue(answer["candidates"])
-        self.assertTrue(answer["search_queries"])
+        # Review must preserve the first spoken-answer slot even when strict
+        # semantic preflight correctly finds no credible stock candidates.
+        self.assertIsInstance(answer["candidates"], list)
+        self.assertIsInstance(answer["search_queries"], list)
         self.assertNotIn("local symbolic first answer", answer["search_queries"])
 
     def test_review_entry_carries_the_spoken_text(self):
@@ -321,7 +373,8 @@ class AcquireReviewTests(unittest.TestCase):
             queries_seen.append(query)
             return [
                 {"provider": "pexels", "asset_id": f"{query}-{i}",
-                 "download_url": f"https://media.invalid/{i}.mp4", "query": query}
+                 "download_url": f"https://media.invalid/{i}.mp4", "query": query,
+                 "retrieval_description": query}
                 for i in range(limit)
             ]
 

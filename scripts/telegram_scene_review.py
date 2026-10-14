@@ -236,7 +236,7 @@ def send_review(output: Path) -> int:
             + (f" — {beat['role']}" if beat.get("role") else "")
             + f"\n«{beat.get('text_ar') or ''}»\n"
             + (f"اختر 1–{count}، أو 0 للخلفية، أو - لإبقاء الاختيار الآلي."
-               if count else "لا مرشحين لهذا المشهد: اختر 0 أو -.")
+               if count else "لا مرشحين بملاءمة موثقة لهذا المشهد: اختر 0 لخلفية القناة، أو - للاختيار الآلي غير المراجع.")
         )[:1000]
         sheet = output / "scene-review" / str(beat.get("sheet") or "")
         if beat.get("sheet") and sheet.is_file():

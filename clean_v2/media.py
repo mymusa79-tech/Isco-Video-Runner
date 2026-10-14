@@ -1359,6 +1359,39 @@ def _stock_result_metadata(provider: str, item: Mapping[str, Any]) -> str:
     return urllib.parse.unquote(value)[:2400]
 
 
+
+_STOCK_REVIEW_GENERIC_PROPS = frozenset({
+    "desk", "table", "office", "room", "background", "wall", "chair", "hand",
+    "hands", "computer", "laptop", "phone", "notebook", "paper", "pen",
+    "cup", "coffee", "book", "window", "screen", "work", "working",
+})
+
+
+def _stock_review_semantic_fit(query: str, candidate: Mapping[str, Any]) -> bool:
+    """Conservative *metadata* preflight for the owner's shortlist.
+
+    A search hit, pretty frame, technical score or repeated prop does not prove
+    narrative relevance. Require descriptive evidence of a distinctive part of
+    this beat's observable search intent before spending a download/preview
+    slot. Empty/uninformative metadata is NOT a positive match. This is NOT
+    pixel-level validation; the owner still reviews the surviving frames.
+    """
+    description = str(candidate.get("retrieval_description") or "").strip()
+    if not description or _stock_metadata_context_conflict(query, description):
+        return False
+    expected = _stock_rank_tokens(query)
+    observed = _stock_rank_tokens(description)
+    overlap = expected & observed
+    if not expected or not overlap:
+        return False
+    distinctive = expected - _STOCK_REVIEW_GENERIC_PROPS
+    if distinctive and not (distinctive & observed):
+        return False
+    # One generic shared noun in a longer instruction is weak evidence.
+    if len(expected) >= 5 and len(overlap) < 2:
+        return False
+    return True
+
 def _stock_candidate_rank_key(item: Mapping[str, Any]) -> tuple[float, float]:
     # Descriptive overlap orders the shortlist; it NEVER approves a visual.
     # Unknown metadata keeps stable provider ordering, with technical rank as tie-breaker.
@@ -2686,7 +2719,7 @@ class StockVisualSource:
             # the failed beat's own slot, so narrative order is never rearranged.
             beat_id = str(beat.get("id") or f"b{index}")
             background = output_dir / f"visual-fallback-{beat_id}.mp4"
-            create_fallback_visual(background, portrait=portrait)
+            create_fallback_visual(background, portrait=portrait, beat=beat)
             if self.media_transform is not None:
                 background = Path(self.media_transform(background))
             clips.append(background)
@@ -3143,8 +3176,12 @@ class StockVisualSource:
         the owner sees real alternatives, never a new source. Candidates already
         shown for an earlier beat are skipped so the sheets never repeat a clip.
         """
-        wanted = 9  # six previews plus a few spares for unavailable downloads
+        wanted = 9  # six previews plus spares for unavailable downloads
         queries = _stock_query_ladder(primary_query, beat) if primary_query else ()
+        # A generic stationery/typing stock prompt is not an editorial concept.
+        # Never use it to fill six visually irrelevant review slots.
+        from .visual_story import _is_weak_generic_productivity_scene
+        queries = tuple(q for q in queries if not _is_weak_generic_productivity_scene(q))
         buckets: list[list[dict[str, Any]]] = []
         searched: list[str] = []
         for variant_index, raw in enumerate(queries[:2]):
@@ -3173,6 +3210,8 @@ class StockVisualSource:
                         continue
                     added = True
                     candidate = pool[position]
+                    if not _stock_review_semantic_fit(query, candidate):
+                        continue
                     identity = (
                         str(candidate.get("provider") or ""),
                         str(candidate.get("asset_id") or ""),
