@@ -12760,8 +12760,27 @@
         "likes": 0,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-14T17:25:22Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 65,
+      "hidden_subscribers": false,
+      "total_views": 41690,
+      "video_count": 152,
+      "last_long": null,
+      "last_podcast": null,
+      "last_short": {
+        "video_id": "DnxBj85cPi4",
+        "title": "الخطأ ليس فشلًا… قد يكون بداية نموك | نداء اليقظة #shorts",
+        "published_at": "2026-10-11T17:55:44Z",
+        "duration_seconds": 7,
+        "views": 41,
+        "likes": 0,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-14T17:24:57Z",
+  "updated_at": "2026-10-14T17:25:22Z",
   "provider_cooldown_until": "2026-10-13T16:39:09.213076Z"
 }
