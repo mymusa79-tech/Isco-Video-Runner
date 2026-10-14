@@ -43,6 +43,7 @@ _CANDIDATE_KEYS = (
     "local_rank_score",
     "metadata_semantic_score",
     "retrieval_description",
+    "media_kind",
 )
 
 
@@ -115,7 +116,22 @@ def _frame(video: Path, destination: Path) -> bool:
     return False
 
 
-def _contact_sheet(thumbs: list[tuple[int, Path]], destination: Path) -> None:
+def _photo_frame(source: Path, destination: Path) -> bool:
+    """Preview a downloaded photo without pretending it is an mp4."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(source) as photo:
+            if photo.width < 200 or photo.height < 200:
+                return False
+            frame = ImageOps.fit(photo.convert("RGB"), (270, 480), method=Image.Resampling.LANCZOS)
+            frame.save(destination, "JPEG", quality=84)
+        return destination.is_file() and destination.stat().st_size > 0
+    except (OSError, ValueError):
+        return False
+
+
+def _contact_sheet(thumbs: list[tuple[int, Path, str]], destination: Path) -> None:
     from PIL import Image, ImageDraw, ImageFont
 
     cell_w, cell_h, gap = 270, 480, 6
@@ -126,13 +142,17 @@ def _contact_sheet(thumbs: list[tuple[int, Path]], destination: Path) -> None:
     except OSError:
         font = ImageFont.load_default(size=54)
     draw = ImageDraw.Draw(sheet)
-    for slot, (number, path) in enumerate(thumbs):
+    for slot, (number, path, media_kind) in enumerate(thumbs):
         x = (slot % 3) * (cell_w + gap)
         y = (slot // 3) * (cell_h + gap)
         with Image.open(path) as frame:
             sheet.paste(frame.convert("RGB").resize((cell_w, cell_h)), (x, y))
         draw.rectangle([x, y, x + 74, y + 74], fill=(0, 0, 0))
         draw.text((x + 18, y + 6), str(number), fill=(255, 255, 255), font=font)
+        # Editorial review must disclose which option is a photograph.
+        if media_kind == "photo":
+            draw.rectangle([x + 135, y, x + 269, y + 43], fill=(0, 0, 0))
+            draw.text((x + 144, y + 8), "PHOTO", fill=(255, 255, 255))
     sheet.save(destination, "JPEG", quality=84)
 
 
@@ -147,32 +167,34 @@ def collect(source: Any, plan: Mapping[str, Any], visuals_dir: Path, fmt: str,
     review_dir.mkdir(parents=True, exist_ok=True)
     beats_out: list[dict[str, Any]] = []
     for position, beat in enumerate(getattr(source, "review_pack", []), start=1):
-        thumbs: list[tuple[int, Path]] = []
+        thumbs: list[tuple[int, Path, str]] = []
         kept: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="scene-review-") as tmp:
             for candidate in beat.get("candidates", []):
                 if len(kept) >= CANDIDATES_PER_BEAT:
                     break
-                clip = Path(tmp) / f"c{len(kept) + 1}.mp4"
-                thumb = Path(tmp) / f"c{len(kept) + 1}.jpg"
+                kind = "photo" if candidate.get("media_kind") == "photo" else "video"
+                source = Path(tmp) / f"c{len(kept) + 1}.{ 'jpg' if kind == 'photo' else 'mp4' }"
+                thumb = Path(tmp) / f"c{len(kept) + 1}-preview.jpg"
                 try:
-                    _download_media(str(candidate["download_url"]), clip)
-                    if not _frame(clip, thumb):
+                    _download_media(str(candidate["download_url"]), source)
+                    ready = (_photo_frame(source, thumb) if kind == "photo" else _frame(source, thumb))
+                    if not ready:
                         continue
                 except Exception:
                     continue
                 finally:
-                    clip.unlink(missing_ok=True)
+                    source.unlink(missing_ok=True)
                 number = len(kept) + 1
                 kept.append({"n": number, **public_candidate(candidate)})
                 kept_thumb = review_dir / f"{beat['id']}-c{number}.jpg"
                 thumb.replace(kept_thumb)
-                thumbs.append((number, kept_thumb))
+                thumbs.append((number, kept_thumb, kind))
             sheet_name = ""
             if thumbs:
                 sheet_name = f"{beat['id']}.jpg"
                 _contact_sheet(thumbs, review_dir / sheet_name)
-        for _, path in thumbs:
+        for _, path, _ in thumbs:
             path.unlink(missing_ok=True)
         beats_out.append(
             {
