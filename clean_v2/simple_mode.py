@@ -238,6 +238,25 @@ def simple_visual_qa(
         if accepted and row.get("source_actual") == "stock_motion" and display.get(local_file) and probe_duration(clip) + .08 < display[local_file]:
             accepted = False
             reason = "source_too_short_without_replay"
+        # An owner-picked clip is the owner's editorial decision. The automatic
+        # review may only override it for an objective safety/policy risk (a
+        # recognisable face or a true risk flag), never for "not proven matched".
+        owner_pick = row.get("human_choice") == "candidate" and row.get("provider") != FALLBACK_PROVIDER
+        objective_risk = (
+            any(audit.get(k) is True for k in risk_fields)
+            or audit.get("observed_face_status") not in {None, "", "none", "unrecognizable", "unknown", "unavailable"}
+        )
+        if owner_pick and not accepted and not objective_risk:
+            row["visual_verification"] = "owner_chosen_unverified"
+            row["owner_choice_kept"] = reason
+            if provenance:
+                row["visual_evidence"] = provenance
+            previous_observation = str(audit.get("observed_visual") or previous_observation)
+            reason = f"owner_choice_kept:{reason}"
+            reviews.append({"local_file": local_file, "decision": "owner_chosen_unverified", "reason": reason,
+                            "observed_visual": audit.get("observed_visual"), "proof": audit.get("observed_proof_status"),
+                            "face": audit.get("observed_face_status"), "aesthetic_scores_advisory": True})
+            continue
         if accepted:
             row["visual_evidence"] = provenance
             row["visual_verification"] = "observed_matched"
@@ -297,6 +316,7 @@ def simple_visual_qa(
         "observed_matched_clips": sum(r.get("decision") == "observed_matched" for r in reviews),
         "local_symbolic_clips": sum(r.get("decision") == "local_symbolic" for r in reviews),
         "uncertain_clips": sum(r.get("decision") in {"unverified_channel_only", "evidence_missing"} for r in reviews),
+        "owner_chosen_unverified_clips": sum(r.get("decision") == "owner_chosen_unverified" for r in reviews),
         "recovery_searches": 0,
         "review_attempts_per_clip_max": 1,
     }
