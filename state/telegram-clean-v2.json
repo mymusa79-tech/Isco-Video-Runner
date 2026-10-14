@@ -7299,9 +7299,313 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-13T02:00:55Z"
+    },
+    {
+      "idea_id": "idea-7b19f5cf3b",
+      "title": "محكمة الذات: كيف توقف العقاب الداخلي على أخطاء منتهية؟",
+      "normalized_title": "محكمة الذات كيف توقف العقاب الداخلي علي اخطاء منتهية؟",
+      "market_query": "كيفية التخلص من جلد الذات",
+      "knowledge_query_en": "self compassion versus self criticism neff",
+      "reason": "عندما يعيد الشخص اجترار خطأ غير مقصود ارتكبه في العمل أو حوار اجتماعي مع توجيه لوم ذاتي قاطع؛ يفهم المشاهد كيفية تحويل المحاسبة القاسية إلى مراجعة موضوعية للموقف تمنع تكراره دون تدمير تقديره لنفسه.",
+      "market_score": 0.636,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 1256.6,
+        "median_views_per_day": 175.4,
+        "top_samples": [
+          {
+            "video_id": "kswsE_aUI4Y",
+            "title": "ازاي تتخلصي من صوت جلد الذات والتفكير الزائد في ٤ خصوات تقدري تنفذيها من دلوقتي",
+            "channel": "Dr. Ahmed Ezzat د. أحمد عزت",
+            "published_at": "2026-09-17T20:29:55Z",
+            "views": 33340,
+            "views_per_day": 1256.6,
+            "likes": 2049,
+            "like_rate_percent": 6.15,
+            "market_sample_rank": 1884.92,
+            "relevance_overlap": [
+              "جلد",
+              "ذات"
+            ]
+          },
+          {
+            "video_id": "SDX4LeupLRc",
+            "title": "توقف عن جلد الذات وفعل هذه العادات.تطوير_الذات #استحقاق #روتين_ليلي",
+            "channel": "Soft Glow",
+            "published_at": "2026-10-12T14:46:42Z",
+            "views": 1125,
+            "views_per_day": 635.6,
+            "likes": 19,
+            "like_rate_percent": 1.69,
+            "market_sample_rank": 866.34,
+            "relevance_overlap": [
+              "تخلص",
+              "جلد",
+              "ذات"
+            ]
+          },
+          {
+            "video_id": "wzn_BLimT-A",
+            "title": "جلد الذات وتأنيب الضمير… لما تبقى أقسى واحد على نفسك! #misterpsycho #مستر_سايكو",
+            "channel": "مستر سايكو | Mister Psycho",
+            "published_at": "2026-10-06T16:58:39Z",
+            "views": 1489,
+            "views_per_day": 193.9,
+            "likes": 35,
+            "like_rate_percent": 2.35,
+            "market_sample_rank": 290.89,
+            "relevance_overlap": [
+              "جلد",
+              "ذات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:22Z"
+    },
+    {
+      "idea_id": "idea-d176cd34a1",
+      "title": "فخ المقارنة السريعة: لماذا لا يقاس نضجك بإيقاع الآخرين؟",
+      "normalized_title": "فخ المقارنة السريعة لماذا لا يقاس نضجك بايقاع الاخرين؟",
+      "market_query": "التوقف عن مقارنة النفس بالآخرين",
+      "knowledge_query_en": "social comparison theory upward comparison effects",
+      "reason": "حين يشاهد الفرد قصص نجاح متسارعة لزملائه أو مشاهير عبر المنصات ويشعر بتأخر إنجازه الشخصي؛ يفهم المشاهد كيف تحجب المقارنة الظاهرية التكاليف الحقيقية، ويركز على معيار التقدم التراكمي الخاص به.",
+      "market_score": 0.56,
+      "market_evidence": {
+        "sample_count": 4,
+        "distinct_channels": 4,
+        "max_views_per_day": 281.2,
+        "median_views_per_day": 98.8,
+        "top_samples": [
+          {
+            "video_id": "c6FbtUqAkSA",
+            "title": "توقف عن مقارنة نفسك بالآخرين 🧠 #تطوير_الذات  #زاوية_أخرى #Shorts # explore",
+            "channel": "زاوية أخرى",
+            "published_at": "2026-10-09T16:30:27Z",
+            "views": 1321,
+            "views_per_day": 281.2,
+            "likes": 14,
+            "like_rate_percent": 1.06,
+            "market_sample_rank": 324.29,
+            "relevance_overlap": [
+              "اخرين",
+              "توقف",
+              "مقارنة",
+              "نفس"
+            ]
+          },
+          {
+            "video_id": "r7nYvz9AHQA",
+            "title": "ثق بنفسك : توقف عن مقارنة نفسك بالآخرين واستعد ثقتك | كتاب صوتي",
+            "channel": "الوعي المقروء",
+            "published_at": "2026-10-09T16:00:15Z",
+            "views": 585,
+            "views_per_day": 124.0,
+            "likes": 10,
+            "like_rate_percent": 1.71,
+            "market_sample_rank": 169.82,
+            "relevance_overlap": [
+              "اخرين",
+              "توقف",
+              "مقارنة",
+              "نفس"
+            ]
+          },
+          {
+            "video_id": "9WvUY-LK3kQ",
+            "title": "توقف عن مقارنة نفسك بالآخرين… أنت ترى أفضل لحظاتهم فقط #shorts",
+            "channel": "نبضة وعي",
+            "published_at": "2026-09-25T16:29:31Z",
+            "views": 1375,
+            "views_per_day": 73.5,
+            "likes": 16,
+            "like_rate_percent": 1.16,
+            "market_sample_rank": 87.35,
+            "relevance_overlap": [
+              "اخرين",
+              "توقف",
+              "مقارنة",
+              "نفس"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:21Z"
+    },
+    {
+      "idea_id": "idea-918b22f3d5",
+      "title": "إدمان المتابعة الحية: متى يتحول الاطلاع إلى استنزاف نفسي؟",
+      "normalized_title": "ادمان المتابعة الحية متي يتحول الاطلاع الي استنزاف نفسي؟",
+      "market_query": "تأثير متابعة الأخبار المستمرة على النفسية",
+      "knowledge_query_en": "doomscrolling psychological effects nervous system regulation",
+      "reason": "عند قضاء ساعات المساء في تحديث شاشات الأخبار العاجلة وموجز الأحداث المتسارعة قبل النوم؛ يستوعب المشاهد أثر التحفيز العصبي المفرط ويتعلم وضع حدود زمنية لمتابعة الأحداث دون الوقوع في الإنكار أو العزلة.",
+      "market_score": 0.513,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 496.0,
+        "median_views_per_day": 269.7,
+        "top_samples": [
+          {
+            "video_id": "fJ0sdWS-8r0",
+            "title": "ضوضاء السيارات خطر خفي على نفسية الأطفال؟ • فرانس 24",
+            "channel": "فرانس 24 / FRANCE 24 Arabic",
+            "published_at": "2026-09-25T07:48:38Z",
+            "views": 9453,
+            "views_per_day": 496.0,
+            "likes": 126,
+            "like_rate_percent": 1.33,
+            "market_sample_rank": 617.12,
+            "relevance_overlap": [
+              "اخبار",
+              "علي",
+              "نفسية"
+            ]
+          },
+          {
+            "video_id": "-9TyKKl8MHY",
+            "title": "من الأخبار إلى القلق: هل نحتاج إلى \"حمية أخبار\" لحماية صحتنا النفسية؟",
+            "channel": "Donya Ya Donya",
+            "published_at": "2026-09-16T15:00:23Z",
+            "views": 1208,
+            "views_per_day": 43.5,
+            "likes": 18,
+            "like_rate_percent": 1.49,
+            "market_sample_rank": 56.43,
+            "relevance_overlap": [
+              "اخبار",
+              "تاثير",
+              "علي",
+              "متابعة",
+              "نفسية"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:20Z"
+    },
+    {
+      "idea_id": "idea-f3922ca277",
+      "title": "قلق الأسعار: كيف تحمي طاقتك الذهنية من تقلبات الواقع؟",
+      "normalized_title": "قلق الاسعار كيف تحمي طاقتك الذهنية من تقلبات الواقع؟",
+      "market_query": "التعامل مع القلق المالي اليومي",
+      "knowledge_query_en": "financial anxiety circle of control psychology",
+      "reason": "عندما يستيقظ الموظف يومياً ليراجع أسعار الصرف والأخبار الاقتصادية فيسيطر عليه التوتر طوال يومه؛ يفهم المشاهد الفرق العملي بين إدارة الميزانية الواقعية واستنزاف الانتباه في متغيرات خارج دائرة تأثيره المباشر.",
+      "market_score": 0.398,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 148.6,
+        "median_views_per_day": 148.6,
+        "top_samples": [
+          {
+            "video_id": "GHJ45w-RV7s",
+            "title": "هل بدأ المستثمرون القلق؟.. رصد تأثير حديث الفقاعة على أسهم العقارات ...",
+            "channel": "Faisal Brokerage Company",
+            "published_at": "2026-09-19T13:15:37Z",
+            "views": 3689,
+            "views_per_day": 148.6,
+            "likes": 64,
+            "like_rate_percent": 1.73,
+            "market_sample_rank": 204.75,
+            "relevance_overlap": [
+              "قلق",
+              "مالي"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:19Z"
+    },
+    {
+      "idea_id": "idea-163ceab57a",
+      "title": "السلامة النفسية: لماذا نصمت عندما نحتاج حقاً للكلام؟",
+      "normalized_title": "السلامة النفسية لماذا نصمت عندما نحتاج حقاً للكلام؟",
+      "market_query": "مفهوم السلامة النفسية في بيئة العمل",
+      "knowledge_query_en": "psychological safety workplace communication amy edmondson",
+      "reason": "حين يتردد الشخص في طرح استفسار في اجتماع عمل أو مناقشة عائلية خشية النقد أو التقليل؛ يدرك المشاهد دور بيئة الأمان في تشجيع التعبير وكيف يحمي حقه في الحوار دون افتراض الهجوم مسبقاً.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:20Z"
+    },
+    {
+      "idea_id": "idea-51b8b9c003",
+      "title": "رهبة الإقلاع: كيف تميز بين الحذر الطبيعي والهروب من التجربة؟",
+      "normalized_title": "رهبة الاقلاع كيف تميز بين الحذر الطبيعي والهروب من التجربة؟",
+      "market_query": "الخوف من التغيير الوظيفي والبدايات",
+      "knowledge_query_en": "career transition anxiety psychological threshold effects",
+      "reason": "عندما يتردد الشخص في خطو خطوة مهنية جديدة أو بدء مشروع رغم استيفائه للشروط الأساسية؛ يتعلم المشاهد التمييز بين الحذر التحليلي المطلوب وبين خوف البدايات الذي يختبئ خلف أعذار منطقية مضللة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:21Z"
+    },
+    {
+      "idea_id": "idea-eeeee18d55",
+      "title": "ثانية التأني: الفرق بين رد الفعل اللحظي والاستجابة الواعية",
+      "normalized_title": "ثانية التاني الفرق بين رد الفعل اللحظي والاستجابة الواعية",
+      "market_query": "الفرق بين رد الفعل والاستجابة الواعية",
+      "knowledge_query_en": "stimulus response pause emotional regulation psychology",
+      "reason": "عندما يستقبل الفرد بريداً إلكترونياً جافاً أو تعليقاً حاداً ويسارع بالرد الانفعالي فوراً؛ يكتشف المشاهد أثر التوقف لمدة ستين ثانية لإعادة السيطرة للمنطق بدلاً من الوقوع رهينة للانفعال الدفاعي.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:22Z"
+    },
+    {
+      "idea_id": "idea-f4284ad14b",
+      "title": "مرونة التوقع: كيف تنقذ يومك حين تنهار خطتك الصباحية؟",
+      "normalized_title": "مرونة التوقع كيف تنقذ يومك حين تنهار خطتك الصباحية؟",
+      "market_query": "التكيف مع الظروف الصعبة والمرونة النفسية",
+      "knowledge_query_en": "cognitive flexibility daily stress adaptation techniques",
+      "reason": "عندما يفسد تأخير طارئ أو تغيير مفاجئ في المواعيد جدول اليوم المخطط بدقة ويولد شعوراً بالإحباط الكامل؛ يفهم المشاهد مفهوم المرونة المعرفية لإعادة ترتيب الأولويات الأساسية دون اعتبار اليوم فاشلاً بالكامل.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-14T09:15:22Z"
     }
   ],
   "sessions": {
+    "8538777d": {
+      "session_id": "8538777d",
+      "scope": "short",
+      "idea_ids": [
+        "idea-7b19f5cf3b",
+        "idea-d176cd34a1",
+        "idea-918b22f3d5"
+      ],
+      "created_at": "2026-10-14T09:15:22Z"
+    },
     "c4e779c0": {
       "session_id": "c4e779c0",
       "scope": "short",
@@ -7728,17 +8032,6 @@
       ],
       "created_at": "2026-09-30T09:40:17Z",
       "closed_at": "2026-09-30T09:41:03Z",
-      "selected_index": 0
-    },
-    "7f27f053": {
-      "session_id": "7f27f053",
-      "scope": "short",
-      "idea_ids": [
-        "idea-b946be3ff6"
-      ],
-      "created_at": "2026-09-29T23:50:23Z",
-      "source": "saved_library",
-      "closed_at": "2026-09-29T23:50:23Z",
       "selected_index": 0
     }
   },
@@ -11581,6 +11874,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-14T09:14:21Z",
+  "updated_at": "2026-10-14T09:15:23Z",
   "provider_cooldown_until": "2026-10-13T16:39:09.213076Z"
 }
