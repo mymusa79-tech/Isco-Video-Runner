@@ -5001,6 +5001,14 @@ def _validate_plan_for_brief(
     try:
         visual_story = validate_visual_story(raw_story, plan)
     except ValueError as exc:
+        # Run 137: this Short action already passed BOTH the structural and
+        # topic-specific Planning gates before the visual-story rejection.
+        # Expose only that certified field to the bounded provider repair loop:
+        # a subsequent visual correction must not force another paid/free
+        # provider attempt merely because the model rewrote a valid action.
+        # The combined candidate is still revalidated in full before acceptance.
+        if fmt == "short":
+            exc.planning_validated_short_action_ar = plan["practical_action_ar"]
         # Only the family-overuse rejection is repaired host-side, from the
         # provider's own section alternates. Any other rejection, and any case
         # where the repaired story still fails, keeps the original error.
