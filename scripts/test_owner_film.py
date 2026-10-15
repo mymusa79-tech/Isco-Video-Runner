@@ -66,6 +66,49 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(pack["cta"], "اكتب رأيك في التعليقات.")
 
 
+class TypeLineTests(unittest.TestCase):
+    def test_type_line_is_validated_and_reaches_the_plan(self) -> None:
+        pack = owner_film.parse_film_message(message(extra="نوع: paradox\n"))
+        self.assertEqual(pack["type"], "paradox")
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary)
+            owner_pack.build_artifacts(pack, _brief(pack["title"]), out)
+            plan = json.loads((out / "plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(plan["narrative_format"], "paradox")
+        self.assertNotIn("type", owner_film.parse_film_message(message()))
+        with self.assertRaisesRegex(owner_pack.OwnerPackError, "النوع غير مدعوم"):
+            owner_film.parse_film_message(message(extra="نوع: dialogue_qa\n"))  # podcast-only
+        with self.assertRaisesRegex(owner_pack.OwnerPackError, "النوع غير مدعوم"):
+            owner_film.parse_film_message(message(extra="نوع: mystery\n"))
+
+    def test_the_word_inside_body_text_is_not_a_label(self) -> None:
+        text = message().replace("نص 2: ", "نص 2: هناك نوع: واحد فقط من التعب. ", 1)
+        pack = owner_film.parse_film_message(text)
+        self.assertNotIn("type", pack)
+        self.assertIn("نوع: واحد", pack["texts"][1])
+
+    def test_short_type_line_and_voice_style(self) -> None:
+        from clean_v2 import pipeline
+
+        base = (
+            "شورت جاهز\nعنوان: لماذا نؤجل ما نريده؟\n"
+            + "نوع: Why-Reframe\n"
+            + "نص 1: هل تؤجل كل شيء؟ هذه الجملة الثانية للنص. " + FILLER[:60] + ".\n"
+            + "نص 2: " + FILLER[:80] + ".\nنص 3: " + FILLER[:80] + "."
+        )
+        pack = owner_pack.parse_owner_message(base)
+        self.assertEqual(pack["type"], "why_reframe")
+        with self.assertRaisesRegex(owner_pack.OwnerPackError, "النوع غير مدعوم"):
+            owner_pack.parse_owner_message(base.replace("Why-Reframe", "paradox"))
+        self.assertEqual(
+            pipeline._voice_performance_mode_for_brief(
+                {"format": "short", "approved_topic": "قصة ذات يوم"},
+                {"owner_authored": True, "short_template": "why_reframe"},
+            ),
+            "why_reframe",
+        )
+
+
 class ArtifactTests(unittest.TestCase):
     def test_artifacts_keep_film_character(self) -> None:
         pack = owner_film.parse_film_message(message())
@@ -120,6 +163,31 @@ class ArtTests(unittest.TestCase):
                     owner_art.make_motion_clip(root / "i.jpg", root / "c.mp4", seconds=3, direction=direction, film=True)
                     seen.add(run.call_args[0][0][run.call_args[0][0].index("-vf") + 1])
             self.assertEqual(len(seen), 4)
+
+
+class PacingTests(unittest.TestCase):
+    def test_shot_lengths_vary_sum_exactly_and_never_flash(self) -> None:
+        plan = owner_art.segment_plan(40.0, 0)
+        self.assertAlmostEqual(sum(plan), 40.0, places=3)
+        self.assertGreater(len(set(round(x, 2) for x in plan)), 2)
+        self.assertGreaterEqual(min(plan), 4.0)
+        self.assertEqual(owner_art.segment_plan(5.0, 0), [5.0])  # a short idea stays one shot
+        self.assertGreater(max(owner_art.segment_plan(60.0, 3, 1.25)), max(owner_art.segment_plan(60.0, 3, 0.8)))
+        self.assertGreater(owner_art.film_pace("paradox")[0], owner_art.film_pace("connected_list")[0])
+        self.assertEqual(owner_art.film_pace(None), (1.0, 1.0))
+
+    def test_sequence_dissolves_into_one_clip_of_the_requested_length(self) -> None:
+        from clean_v2.media import probe_duration
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            images = []
+            for index, color in enumerate(((20, 30, 80), (80, 30, 20), (20, 80, 30))):
+                Image.new("RGB", (1920, 1080), color).save(root / f"i{index}.jpg")
+                images.append(root / f"i{index}.jpg")
+            clip, used = owner_art.make_sequence_clip(images, root / "c.mp4", seconds=17.0, start_index=0)
+            self.assertGreaterEqual(used, 2)
+            self.assertAlmostEqual(probe_duration(clip), 17.0, delta=0.4)
 
 
 class PipelineTests(unittest.TestCase):

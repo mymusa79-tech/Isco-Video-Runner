@@ -9,6 +9,7 @@ drift over one of those images. No provider call, no review, no replacement.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -54,7 +55,9 @@ def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WI
     return destination
 
 
-def make_motion_clip(image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False) -> Path:
+def make_motion_clip(
+    image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0
+) -> Path:
     """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling).
 
     Podcast: two gentle diagonal moves. Film: four distinct moves over a larger margin, so
@@ -64,6 +67,8 @@ def make_motion_clip(image: Path, destination: Path, *, seconds: float, directio
 
     seconds = max(2.0, float(seconds))
     extra_w, extra_h = (176, 98) if film else (112, 62)
+    if film:
+        extra_w, extra_h = round(extra_w * motion / 2) * 2, round(extra_h * motion / 2) * 2
     big_w, big_h = CLIP_WIDTH + extra_w, CLIP_HEIGHT + extra_h
     forward = f"t/{seconds:.3f}"
     backward = f"(1-t/{seconds:.3f})"
@@ -92,41 +97,82 @@ def make_motion_clip(image: Path, destination: Path, *, seconds: float, directio
     return destination
 
 
+# Film pace by chosen type: (shot-length factor, camera-move factor). Not an engine per type,
+# just how long a picture is held and how far it drifts. Every other type is 1.0 / 1.0.
+PACE_BY_TYPE = {
+    "paradox": (1.25, 0.8),
+    "inner_dialogue": (1.25, 0.8),
+    "story_analysis": (1.15, 0.9),
+    "connected_list": (0.8, 1.2),
+    "hypothesis_test": (0.95, 1.0),
+}
+_SHOT_PATTERN = (8.0, 6.0, 10.0, 7.0, 11.0, 9.0)  # a rhythm, not a rule: nothing is capped to it
+DISSOLVE_SECONDS = 0.5
+
+
+def film_pace(pack_type: str | None) -> tuple[float, float]:
+    return PACE_BY_TYPE.get(str(pack_type or ""), (1.0, 1.0))
+
+
+def segment_plan(seconds: float, start_index: int, factor: float = 1.0) -> list[float]:
+    """Varied shot lengths that sum to ``seconds``; a leftover tail is absorbed, never a flash."""
+    remaining = max(2.0, float(seconds))
+    lengths: list[float] = []
+    step = 0
+    while remaining > 0.01:
+        target = _SHOT_PATTERN[(start_index + step) % len(_SHOT_PATTERN)] * factor
+        take = remaining if remaining - target < 0.6 * target else target
+        lengths.append(take)
+        remaining -= take
+        step += 1
+    return lengths
+
+
 def make_sequence_clip(
-    images: list[Path], destination: Path, *, seconds: float, start_index: int, segment_seconds: float = 8.0
-) -> Path:
-    """Film beat: a hard cut to the next image every few seconds, each with its own move."""
+    images: list[Path], destination: Path, *, seconds: float, start_index: int,
+    factor: float = 1.0, motion: float = 1.0,
+) -> tuple[Path, int]:
+    """Film beat: several pictures of varied length, each with its own move, joined by a short dissolve.
+
+    Returns the clip and how many pictures it consumed.
+    """
     from .media import _run
 
-    seconds = max(2.0, float(seconds))
-    count = max(1, round(seconds / segment_seconds))
-    each = seconds / count
+    lengths = segment_plan(seconds, start_index, factor)
     parts: list[Path] = []
-    for offset in range(count):
+    for offset, length in enumerate(lengths):
         index = start_index + offset
+        extra = DISSOLVE_SECONDS if offset < len(lengths) - 1 else 0.0
         parts.append(
             make_motion_clip(
                 images[index % len(images)],
                 destination.with_name(f"{destination.stem}-part{offset + 1}.mp4"),
-                seconds=each,
+                seconds=length + extra,
                 direction=index,
                 film=True,
+                motion=motion,
             )
         )
     if len(parts) == 1:
         parts[0].replace(destination)
-        return destination
-    listing = destination.with_suffix(".txt")
-    listing.write_text("".join(f"file '{part.resolve()}'\n" for part in parts), encoding="utf-8")
-    _run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
-         "-i", str(listing), "-c", "copy", str(destination)],
-        timeout=600,
-    )
+        return destination, 1
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    for part in parts:
+        command += ["-i", str(part)]
+    filters, label, elapsed = [], "[0:v]", 0.0
+    for position in range(1, len(parts)):
+        elapsed += lengths[position - 1]
+        out = f"[x{position}]"
+        filters.append(f"{label}[{position}:v]xfade=transition=fade:duration={DISSOLVE_SECONDS}:offset={elapsed:.3f}{out}")
+        label = out
+    command += [
+        "-filter_complex", ";".join(filters), "-map", label, "-an",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22", "-pix_fmt", "yuv420p", str(destination),
+    ]
+    _run(command, timeout=900)
     for part in parts:
         part.unlink(missing_ok=True)
-    listing.unlink(missing_ok=True)
-    return destination
+    return destination, len(parts)
 
 
 class OwnerArtVisualSource:
@@ -138,6 +184,17 @@ class OwnerArtVisualSource:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+    @staticmethod
+    def _pack_type() -> str | None:
+        """The «نوع:» the owner chose for his film, if any (read from the same pack the run uses)."""
+        try:
+            from .owner_pack import active_pack_path
+
+            path = active_pack_path("film")
+            return str(json.loads(path.read_text(encoding="utf-8")).get("type") or "") if path else None
+        except (OSError, ValueError, ImportError):
+            return None
 
     def acquire(
         self,
@@ -169,8 +226,11 @@ class OwnerArtVisualSource:
             seconds = float(estimates.get(section_id) or 60.0) / max(1, per_section.get(section_id, 1)) + 6.0
             clip_path = output_dir / f"visual-owner-art-{beat_id}.mp4"
             if fmt == "film":
-                clip = make_sequence_clip(images, clip_path, seconds=seconds, start_index=cursor)
-                cursor += max(1, round(seconds / 8.0))
+                factor, motion = film_pace(self._pack_type())
+                clip, used = make_sequence_clip(
+                    images, clip_path, seconds=seconds, start_index=cursor, factor=factor, motion=motion
+                )
+                cursor += used
             else:
                 clip = make_motion_clip(image, clip_path, seconds=seconds, direction=index)
             transform = getattr(self._inner, "media_transform", None)

@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
-from .owner_pack import OwnerPackError
+from .owner_pack import LONG_TYPES, OwnerPackError, header_marks, normalize_type
 
 PREFIX = "فيلم جاهز"
 FORMAT = "film"
@@ -36,7 +36,7 @@ WORDS_PER_MINUTE = 120.0  # display estimate only
 DEFAULT_CTA = "شاركنا رأيك في التعليقات."
 
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
-_LABEL_RE = re.compile(r"(?:(?<=\s)|^)(?P<label>عنوان|دعوة|(?:ال)?نص\s*[1-5١-٥])\s*[:：]")
+_LABEL_RE = re.compile(r"(?:(?<=\s)|^)(?P<label>عنوان|نوع|دعوة|(?:ال)?نص\s*[1-5١-٥])\s*[:：]")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!؟!?])\s+")
 
 
@@ -48,7 +48,7 @@ def _key(label: str) -> str:
     compact = re.sub(r"\s+", "", label).translate(_DIGITS)
     if compact.startswith("ال"):
         compact = compact[2:]
-    return "title" if compact == "عنوان" else ("cta" if compact == "دعوة" else "text" + compact[2:])
+    return {"عنوان": "title", "دعوة": "cta", "نوع": "type"}.get(compact) or "text" + compact[2:]
 
 
 def parse_film_message(text: str) -> dict[str, Any]:
@@ -56,7 +56,7 @@ def parse_film_message(text: str) -> dict[str, Any]:
     if not has_prefix(raw):
         raise OwnerPackError(f"ابدأ الرسالة بعبارة «{PREFIX}».")
     body = raw[raw.index(PREFIX) + len(PREFIX):]
-    marks = list(_LABEL_RE.finditer(body))
+    marks = header_marks(list(_LABEL_RE.finditer(body)), _key)
     value: dict[str, str] = {}
     for position, match in enumerate(marks):
         key = _key(match.group("label"))
@@ -86,7 +86,10 @@ def parse_film_message(text: str) -> dict[str, Any]:
     mode, _reason = infer_cta_mode(cta)
     if mode == CtaMode.NONE or len(cta.split()) > MAX_SPOKEN_WORDS:
         raise OwnerPackError(f"الدعوة يجب أن تكون جملة واحدة قصيرة بطلب واحد (مثل: {DEFAULT_CTA}).")
-    return {"schema_version": 1, "format": FORMAT, "title": title, "cta": cta, "texts": texts}
+    pack: dict[str, Any] = {"schema_version": 1, "format": FORMAT, "title": title, "cta": cta, "texts": texts}
+    if value.get("type"):
+        pack["type"] = normalize_type(value["type"], LONG_TYPES, "direct_cinematic")
+    return pack
 
 
 def estimated_minutes(pack: Mapping[str, Any]) -> float:
@@ -161,7 +164,7 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
             "title": title,
             "promise": title,
             "cta": str(pack["cta"]),
-            "narrative_format": "direct_cinematic",
+            "narrative_format": normalize_type(pack.get("type"), LONG_TYPES, "direct_cinematic"),
             "sections": [
                 {
                     "id": f"s{i}",
