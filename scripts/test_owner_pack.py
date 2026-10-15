@@ -61,10 +61,18 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(owner_pack.parse_owner_message(converted)["scenes"][3][:6], "person")
         with self.assertRaisesRegex(owner_pack.OwnerPackError, "مشهد 7"):
             owner_pack.parse_owner_message(MESSAGE.split("مشهد 7")[0])
+        with self.assertRaisesRegex(owner_pack.OwnerPackError, "نص 3"):
+            owner_pack.parse_owner_message(MESSAGE.split("نص 3")[0])
 
     def test_flattened_message_still_parses(self) -> None:
         flat = " ".join(MESSAGE.split())
         self.assertEqual(owner_pack.parse_owner_message(flat), owner_pack.parse_owner_message(MESSAGE))
+
+    def test_scenes_are_optional_and_ordinal_labels_work(self) -> None:
+        body = MESSAGE.split("مشهد 1")[0].replace("نص 1:", "النص الأول:").replace("نص 2:", "النص الثاني:")
+        pack = owner_pack.parse_owner_message(body)
+        self.assertEqual(pack["scenes"], list(owner_pack.DEFAULT_SCENES))
+        self.assertEqual(len(pack["texts"]), 3)
 
     def test_rejects_bad_scenes_and_lengths(self) -> None:
         with self.assertRaisesRegex(owner_pack.OwnerPackError, "بالإنجليزية"):

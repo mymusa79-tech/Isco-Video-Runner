@@ -40,9 +40,20 @@ MAX_TITLE_CHARS = 120
 
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _LABEL_RE = re.compile(
-    r"(?:(?<=\s)|^)(?P<label>عنوان|نص\s*[1-3١-٣]|مشهد\s*[1-7١-٧])\s*[:：]"
+    r"(?:(?<=\s)|^)(?P<label>عنوان|(?:ال)?نص\s*(?:[1-3١-٣]|الأول|الاول|الثاني|الثالث)|(?:ال)?مشهد\s*[1-7١-٧])\s*[:：]"
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!؟!?])\s+")
+
+
+DEFAULT_SCENES = (
+    "hands holding a phone in a dim room at night",
+    "cluttered desk with papers and a cold cup of coffee",
+    "person walking alone down a quiet street at dusk from behind",
+    "hand turning pages of an open notebook on a table",
+    "window with morning light and curtains moving gently",
+    "hand writing one line on a clean notebook page",
+    "person opening a door and stepping outside into daylight from behind",
+)
 
 
 class OwnerPackError(ValueError):
@@ -59,10 +70,13 @@ def _words(text: str) -> int:
 
 def _label_key(label: str) -> str:
     compact = re.sub(r"\s+", "", label).translate(_DIGITS)
+    if compact.startswith("ال"):
+        compact = compact[2:]
     if compact == "عنوان":
         return "title"
     if compact.startswith("نص"):
-        return "text" + compact[2:]
+        rest = compact[2:]
+        return "text" + {"الأول": "1", "الاول": "1", "الثاني": "2", "الثالث": "3"}.get(rest, rest)
     return "scene" + compact[4:]
 
 
@@ -83,6 +97,11 @@ def parse_owner_message(text: str) -> dict[str, Any]:
         end = marks[position + 1].start() if position + 1 < len(marks) else len(body)
         value[key] = " ".join(body[match.end():end].split())
 
+    if not any(key.startswith("scene") for key in value):
+        # Scenes are optional: the owner picks every scene himself, so the search only
+        # seeds the candidates. Neutral faceless searches, one distinct per slot.
+        for index, query in enumerate(DEFAULT_SCENES, start=1):
+            value[f"scene{index}"] = query
     missing = [
         label
         for key, label in (
