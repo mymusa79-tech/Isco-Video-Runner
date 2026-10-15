@@ -11,6 +11,7 @@ const {
   isOwnerScriptText,
   isOwnerPodcastText,
   isOwnerImageMessage,
+  isOwnerTextFile,
   isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
@@ -301,6 +302,11 @@ test("owner podcast draft messages and images are forwarded, chatter is not", ()
   assert.equal(isOwnerImageMessage({ document: { mime_type: "image/png" } }), true);
   assert.equal(isOwnerImageMessage({ document: { mime_type: "application/pdf" } }), false);
   assert.equal(isOwnerImageMessage({ text: "hi" }), false);
+  assert.equal(isOwnerTextFile({ document: { file_name: "film.TXT", mime_type: "application/octet-stream" } }), true);
+  assert.equal(isOwnerTextFile({ document: { file_name: "x", mime_type: "text/plain" } }), true);
+  assert.equal(isOwnerTextFile({ document: { file_name: "x.pdf", mime_type: "application/pdf" } }), false);
+  assert.equal(isOwnerTextFile({ document: { mime_type: "image/png" } }), false);
+  assert.equal(isOwnerTextFile({ text: "hi" }), false);
 });
 
 test("owner typed topic is recognised only in the prefixed form", () => {

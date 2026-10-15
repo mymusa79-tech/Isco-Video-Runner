@@ -458,6 +458,14 @@ function isOwnerImageMessage(message) {
   return mime.startsWith("image/");
 }
 
+// A .txt file carrying the owner's text (UTF-8 Arabic). The control script downloads and reads it.
+function isOwnerTextFile(message) {
+  const document = message && message.document;
+  if (!document) return false;
+  const name = String(document.file_name || "").toLowerCase();
+  return name.endsWith(".txt") || String(document.mime_type || "").toLowerCase() === "text/plain";
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -654,7 +662,7 @@ export default {
       );
       return new Response("OK");
     }
-    if (isOwnerPodcastText(text) || isOwnerImageMessage(update.message)) {
+    if (isOwnerPodcastText(text) || isOwnerImageMessage(update.message) || isOwnerTextFile(update.message)) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
           telegram(env, "sendMessage", {
@@ -725,6 +733,7 @@ export {
   isOwnerScriptText,
   isOwnerPodcastText,
   isOwnerImageMessage,
+  isOwnerTextFile,
   isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,
