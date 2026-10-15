@@ -7885,9 +7885,248 @@
       "research_pack": [],
       "selected": false,
       "created_at": "2026-10-14T17:24:56Z"
+    },
+    {
+      "idea_id": "idea-033cb1425c",
+      "title": "شلل الخيارات: لماذا ترهقنا كثرة الفرص؟",
+      "normalized_title": "شلل الخيارات لماذا ترهقنا كثرة الفرص؟",
+      "market_query": "شلل التحليل وصعوبة اتخاذ القرارات اليومية",
+      "knowledge_query_en": "paradox of choice barry schwartz satisficing",
+      "reason": "شاب يقضي ساعة كاملة في تصفح قوائم المنصات لاختيار فيلم ثم يغلق الشاشة محبطاً؛ يدرك تأثير استنزاف القرار في عصر الوفرة، ويتعلم الانتقال من عقلية البحث عن الخيار المثالي إلى الاكتفاء بالخيار الجيد.",
+      "market_score": 0.458,
+      "market_evidence": {
+        "sample_count": 2,
+        "distinct_channels": 2,
+        "max_views_per_day": 218.5,
+        "median_views_per_day": 127.3,
+        "top_samples": [
+          {
+            "video_id": "MNPjevcL1fg",
+            "title": "شلل التحليل | لما كثرة التفكير تمنعك من اتخاذ القرار 🧠",
+            "channel": "Curiosity Lab | مختبر الفضول",
+            "published_at": "2026-10-09T13:00:39Z",
+            "views": 1225,
+            "views_per_day": 218.5,
+            "likes": 24,
+            "like_rate_percent": 1.96,
+            "market_sample_rank": 317.42,
+            "relevance_overlap": [
+              "اتخاذ",
+              "تحليل",
+              "شلل"
+            ]
+          },
+          {
+            "video_id": "b7X96liZ0g4",
+            "title": "سر نفسي يجعل كثرة الخيارات تدمر قراراتك وتسبب شلل❌ #تطوير_الذات #شلل_التحليل #اتخاذ_القرارات #Shorts",
+            "channel": "Arab AI Studio",
+            "published_at": "2026-09-15T14:00:08Z",
+            "views": 1071,
+            "views_per_day": 36.2,
+            "likes": null,
+            "like_rate_percent": null,
+            "market_sample_rank": 28.98,
+            "relevance_overlap": [
+              "اتخاذ",
+              "تحليل",
+              "شلل",
+              "قرارات"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:37Z"
+    },
+    {
+      "idea_id": "idea-2adc3d7e6f",
+      "title": "عبء الاعتماد على الذات: هل استقلاليتك حيلة دفاعية؟",
+      "normalized_title": "عبء الاعتماد علي الذات هل استقلاليتك حيلة دفاعية؟",
+      "market_query": "أسباب رفض طلب المساعدة من الآخرين",
+      "knowledge_query_en": "hyper independence emotional defense mechanism",
+      "reason": "قائد فريق يرفض تفويض المهام حتى حافة الاحتراق الوظيفي بدعوى الكفاءة؛ يتضح له أن رفض المساعدة وسيلة غير واعية للتحكم وتجنب خيبة الأمل، وأن الاعتماد المتبادل الذكي قوة تنظيمية وليست ضعفاً.",
+      "market_score": 0.62,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 3674.2,
+        "median_views_per_day": 3674.2,
+        "top_samples": [
+          {
+            "video_id": "8naeP2579Sg",
+            "title": "لماذا يؤلمنا الرفض؟ | بودكاست بين مع د. الهنوف الحقيل",
+            "channel": "وثبة",
+            "published_at": "2026-09-27T18:13:27Z",
+            "views": 63896,
+            "views_per_day": 3674.2,
+            "likes": 991,
+            "like_rate_percent": 1.55,
+            "market_sample_rank": 4838.89,
+            "relevance_overlap": [
+              "اخرين",
+              "رفض"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:36Z"
+    },
+    {
+      "idea_id": "idea-75d12cb982",
+      "title": "غيرة الأقران الصامتة: ما الذي تخبرك به نجاحات الآخرين؟",
+      "normalized_title": "غيرة الاقران الصامتة ما الذي تخبرك به نجاحات الاخرين؟",
+      "market_query": "أسباب الغيرة من نجاح الأصدقاء المقربين",
+      "knowledge_query_en": "benign envy upward social comparison festinger",
+      "reason": "صديق يبارك لزميله على شراء منزل جديد ثم يعود لمنزله بضيق مفاجئ ولوم للذات؛ يتعلم كيف يميز بين الحسد التخريبي والمقارنة التي ترشده إلى رغباته الدفينة المؤجلة ليحول الضيق إلى مسار عملي.",
+      "market_score": 0.353,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 76.7,
+        "median_views_per_day": 76.7,
+        "top_samples": [
+          {
+            "video_id": "H8tar30b0J4",
+            "title": "توقعات برج الثور ♉ مفتاح الحياه بايدك 🔑 طاقه سحر👺نجاح باهر 💯 مبالغ ماليه ضخمه💰غيره الأقارب  نجم شباك",
+            "channel": "فنجان نانو",
+            "published_at": "2026-09-23T08:43:13Z",
+            "views": 1672,
+            "views_per_day": 76.7,
+            "likes": 56,
+            "like_rate_percent": 3.35,
+            "market_sample_rank": 115.12,
+            "relevance_overlap": [
+              "اصدقاء",
+              "غيرة",
+              "مقربين",
+              "نجاح"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:37Z"
+    },
+    {
+      "idea_id": "idea-5812f93a65",
+      "title": "وهم الوصول: لماذا يخيب أملك بعد تحقيق الهدف؟",
+      "normalized_title": "وهم الوصول لماذا يخيب املك بعد تحقيق الهدف؟",
+      "market_query": "الشعور بالفراغ بعد تحقيق الأهداف",
+      "knowledge_query_en": "arrival fallacy tal ben shahar psychological mechanism",
+      "reason": "موظف يسعى لترقية مهنية لعامين ويشعر بانطفاء مفاجئ فور نيلها؛ يدرك بنهاية الحوار أن المخ يفرز الدوبامين للمطاردة لا للنتيجة، وأن تحويل الإنجاز إلى ممارسة مستمرة يحمي من الفراغ النفسي.",
+      "market_score": 0.318,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 46.3,
+        "median_views_per_day": 46.3,
+        "top_samples": [
+          {
+            "video_id": "oMA9NZk-KbU",
+            "title": "موت الأنا بعد الصحوة: لماذا تشعرين بالفراغ وفقدان الرغبة في الحياة؟ | كارل يونغ",
+            "channel": "مرآة الحياة",
+            "published_at": "2026-09-22T16:33:10Z",
+            "views": 1040,
+            "views_per_day": 46.3,
+            "likes": 50,
+            "like_rate_percent": 4.81,
+            "market_sample_rank": 69.46,
+            "relevance_overlap": [
+              "اهداف",
+              "شعور",
+              "فراغ"
+            ]
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:35Z"
+    },
+    {
+      "idea_id": "idea-0b76719d2c",
+      "title": "انتصارات بالإنابة: لماذا نحرق أعصابنا مع كل مباراة؟",
+      "normalized_title": "انتصارات بالانابة لماذا نحرق اعصابنا مع كل مباراة؟",
+      "market_query": "التعصب الكروي والتأثير النفسي على المشجعين",
+      "knowledge_query_en": "basking in reflected glory BIRGing sports psychology",
+      "reason": "مشجع يعاني من تقلب حاد في مزاجه لأيام بسبب خسارة ناديه الرياضي؛ يكتشف كيف يستغل العقل الانتماء الرياضي لتعويض الشعور بالركود الشخصي، وكيف يستمتع بالمنافسة دون ربط قيمته الذاتية بالنتيجة.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:35Z"
+    },
+    {
+      "idea_id": "idea-56a49b9c6a",
+      "title": "فخ الإيجابية الإجبارية: متى يصبح التفاؤل إنكارًا مؤذيًا؟",
+      "normalized_title": "فخ الايجابية الاجبارية متي يصبح التفاول انكارًا موذيًا؟",
+      "market_query": "مخاطر التفكير الإيجابي المفرط والإنكار",
+      "knowledge_query_en": "ironic process theory emotional suppression rebound",
+      "reason": "شخص يمر بأزمة مالية ويجبر نفسه على الابتكار والابتسام متجاهلاً قلقه فيصاب بأعراض توتر جسدية؛ يفهم الفرق بين التفاؤل الحقيقي وكبت المشاعر، وكيف يمهد الاعتراف بالصعوبة لحلول عملية وواقعية.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:35Z"
+    },
+    {
+      "idea_id": "idea-86f3a9ec82",
+      "title": "لست كسولاً: الحقيقة الصادمة خلف تأجيل المهام",
+      "normalized_title": "لست كسولاً الحقيقة الصادمة خلف تاجيل المهام",
+      "market_query": "أسباب المماطلة والتسويف النفسية وعلاجها",
+      "knowledge_query_en": "procrastination short term mood repair timothy pychyl",
+      "reason": "صانع محتوى يؤجل تسليم مشروع مهم عبر الغرق في ترتيب غرفته وتصفح الأخبار؛ يستوعب أن التسويف ليس سوء تنظيم وقت بل محاولة لتجنب مشاعر الخوف من الفشل والتقييم، ويتعلم آليات تفكيك هيبة البدايات.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:37Z"
+    },
+    {
+      "idea_id": "idea-9461acdfc8",
+      "title": "وهم الكمال الاجتماعي: لماذا تجعلك الهفوات أقرب للقلب؟",
+      "normalized_title": "وهم الكمال الاجتماعي لماذا تجعلك الهفوات اقرب للقلب؟",
+      "market_query": "الخوف من ارتكاب الأخطاء أمام الناس",
+      "knowledge_query_en": "pratfall effect spotlight effect social psychology",
+      "reason": "متحدث يرتبك في نطق جملة أثناء اجتماع رسمي فيظل أسبوعاً يجتر الموقف بخجل؛ يفهم تأثير بقعة الضوء النفسي وتأثير السقطة البشرية، وكيف تزيد العيوب البسيطة غير المصطنعة من ثقة المحيطين وقربهم.",
+      "market_score": 0.0,
+      "market_evidence": {
+        "sample_count": 0,
+        "distinct_channels": 0,
+        "top_samples": []
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-10-15T03:35:38Z"
     }
   ],
   "sessions": {
+    "4cd9ee3a": {
+      "session_id": "4cd9ee3a",
+      "scope": "podcast",
+      "idea_ids": [
+        "idea-033cb1425c",
+        "idea-2adc3d7e6f",
+        "idea-75d12cb982"
+      ],
+      "created_at": "2026-10-15T03:35:38Z"
+    },
     "d5615483": {
       "session_id": "d5615483",
       "scope": "short",
@@ -8314,18 +8553,6 @@
       "source": "saved_library",
       "closed_at": "2026-09-30T13:38:19Z",
       "selected_index": 0
-    },
-    "fc5a7d8a": {
-      "session_id": "fc5a7d8a",
-      "scope": "short",
-      "idea_ids": [
-        "idea-ecd20a76d0",
-        "idea-b717533e70",
-        "idea-346a629bce"
-      ],
-      "created_at": "2026-09-30T12:00:01Z",
-      "closed_at": "2026-09-30T12:01:01Z",
-      "selected_index": 2
     }
   },
   "requests": {
@@ -13604,6 +13831,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-15T01:04:34Z",
+  "updated_at": "2026-10-15T03:35:38Z",
   "provider_cooldown_until": "2026-10-15T00:54:41.449658Z"
 }
