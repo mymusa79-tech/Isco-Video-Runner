@@ -13113,13 +13113,14 @@
       ],
       "idea_id": "idea-8ec9c3edcd",
       "selected_at": "2026-10-15T00:28:00Z",
-      "status": "awaiting_confirmation",
+      "status": "cancelled",
       "confirmed_at": null,
       "dispatched_at": null,
-      "request_sha256": "37760ba2b82b3abc60e9ac207ede2cda0ceee411eec7024a6f7d5194b4c8ed5c"
+      "request_sha256": "37760ba2b82b3abc60e9ac207ede2cda0ceee411eec7024a6f7d5194b4c8ed5c",
+      "cancelled_at": "2026-10-15T00:28:26Z"
     }
   },
-  "current_request_id": "req-cc844c873482",
+  "current_request_id": null,
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -13507,6 +13508,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-15T00:28:00Z",
+  "updated_at": "2026-10-15T00:28:26Z",
   "provider_cooldown_until": "2026-10-14T18:16:46.828114Z"
 }
