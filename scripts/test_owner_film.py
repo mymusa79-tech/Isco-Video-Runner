@@ -81,6 +81,24 @@ class TypeLineTests(unittest.TestCase):
         with self.assertRaisesRegex(owner_pack.OwnerPackError, "النوع غير مدعوم"):
             owner_film.parse_film_message(message(extra="نوع: mystery\n"))
 
+    def test_every_documented_type_builds_valid_artifacts(self) -> None:
+        shorts = (
+            "شورت جاهز\nعنوان: لماذا نؤجل؟\nنوع: {t}\nنص 1: هل تؤجل كل شيء؟ جملة ثانية. " + FILLER[:50]
+            + ".\nنص 2: " + FILLER[:70] + ".\nنص 3: " + FILLER[:70] + "."
+        )
+        for kind in owner_pack.SHORT_TYPES:
+            with self.subTest(short=kind), tempfile.TemporaryDirectory() as temporary:
+                pack = owner_pack.parse_owner_message(shorts.format(t=kind))
+                owner_pack.build_artifacts(pack, {**_brief(pack["title"]), "format": "short"}, Path(temporary))
+                plan = json.loads((Path(temporary) / "plan.json").read_text(encoding="utf-8"))
+                self.assertEqual(plan["short_template"], kind)
+        for kind in owner_pack.LONG_TYPES:
+            with self.subTest(long=kind), tempfile.TemporaryDirectory() as temporary:
+                pack = owner_film.parse_film_message(message(extra=f"نوع: {kind}\n"))
+                owner_pack.build_artifacts(pack, _brief(pack["title"]), Path(temporary))
+                plan = json.loads((Path(temporary) / "plan.json").read_text(encoding="utf-8"))
+                self.assertEqual(plan["narrative_format"], kind)
+
     def test_the_word_inside_body_text_is_not_a_label(self) -> None:
         text = message().replace("نص 2: ", "نص 2: هناك نوع: واحد فقط من التعب. ", 1)
         pack = owner_film.parse_film_message(text)
