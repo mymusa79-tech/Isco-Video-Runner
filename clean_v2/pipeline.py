@@ -1080,6 +1080,7 @@ def _synthesize_sectioned_voice_pass(
                     "fallback_used": fallback_used,
                     "cache_hit": cache_hit,
                     "role": role,
+                    "text": chunk_text,
                 }
             )
 
@@ -4410,6 +4411,7 @@ def _run_legacy_cinematic_layer(
     short_timed_text_report: dict[str, Any] | None = None
     short_audio_polish_report: dict[str, Any] | None = None
     podcast_key_text_report: dict[str, Any] | None = None
+    podcast_captions_summary: dict[str, Any] | None = None
     film_key_text_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
@@ -4434,11 +4436,50 @@ def _run_legacy_cinematic_layer(
 
         try:
             if fmt == "podcast":
-                podcast_key_text_report = apply_podcast_key_text(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
+                from clean_v2.podcast_captions import (
+                    PodcastCaptionError,
+                    apply_podcast_captions,
                 )
+
+                try:
+                    captions_report = apply_podcast_captions(
+                        output_dir=output_dir, final_path=final_path
+                    )
+                except PodcastCaptionError as exc:
+                    captions_report = {
+                        "status": "skipped",
+                        "mode": "fail_soft",
+                        "reason": str(exc),
+                        "provider_calls_added": 0,
+                    }
+                atomic_write_json(output_dir / "podcast-captions.json", captions_report)
+                podcast_captions_summary = {
+                    "status": captions_report.get("status"),
+                    "reason": captions_report.get("reason"),
+                    "font_actually_used": captions_report.get("font_actually_used"),
+                }
+                if captions_report.get("status") != "pass":
+                    print(
+                        "::warning title=podcast-captions-fallback::"
+                        "Full Podcast captions were NOT burned; fell back to sparse key text. "
+                        f"reason={captions_report.get('reason')}",
+                        flush=True,
+                    )
+                if captions_report.get("status") == "pass":
+                    # Full dialogue captions own the lower third; the sparse key text
+                    # would only compete with them.
+                    podcast_key_text_report = {
+                        "status": "skipped_full_captions_burned",
+                        "format": "podcast",
+                        "event_count": 0,
+                        "provider_calls_added": 0,
+                    }
+                else:
+                    podcast_key_text_report = apply_podcast_key_text(
+                        output_dir=output_dir,
+                        final_path=final_path,
+                        script=script,
+                    )
                 sparse_report = podcast_key_text_report
             else:
                 film_key_text_report = apply_film_key_text(
@@ -4512,6 +4553,7 @@ def _run_legacy_cinematic_layer(
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
         "topic_audio_polish": topic_audio_polish_report,
+        "podcast_captions": podcast_captions_summary,
         "podcast_key_text": podcast_key_text_report,
         "film_key_text": film_key_text_report,
     }
@@ -5069,6 +5111,32 @@ PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS = 20
 # writing target; the Writer still aims for a naturally complete 10-20 minute episode.
 PODCAST_MIN_ESTIMATED_SECONDS = 8 * 60.0
 PODCAST_ESTIMATED_WORDS_PER_MINUTE = 105.0
+
+
+def _tts_usage_from_report(report_path: Path, *, wire_attempts: int) -> dict[str, Any]:
+    """Record-only: what this run actually sent to Gemini TTS (cache hits cost nothing)."""
+    requests = chars = cached = 0
+    try:
+        report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        report = {}
+    for section in report.get("sections", []) if isinstance(report, dict) else []:
+        for chunk in section.get("chunks", []) if isinstance(section, dict) else []:
+            if not isinstance(chunk, dict) or not int(chunk.get("chars") or 0):
+                continue
+            if chunk.get("cache_hit") is True:
+                cached += 1
+            else:
+                requests += 1
+                chars += int(chunk.get("chars") or 0)
+    return {
+        "schema_version": 1,
+        "tts_requests_sent": requests,
+        "tts_chars_sent": chars,
+        "tts_chunks_from_cache": cached,
+        "tts_wire_attempts_including_retries": int(wire_attempts or 0),
+        "note": "record only; no limit is enforced here",
+    }
 
 
 def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
@@ -7793,6 +7861,10 @@ class CleanV2Pipeline:
                     )
                     journal.payload["tts_cache_hits"] = int(
                         voice_result.get("tts_cache_hits", 0) or 0
+                    )
+                    journal.payload["tts_usage"] = _tts_usage_from_report(
+                        output_dir / "voice-sections.json",
+                        wire_attempts=journal.payload["tts_wire_attempts"],
                     )
                     voice_roles = voice_result.get("voice_roles")
                     if isinstance(voice_roles, dict):

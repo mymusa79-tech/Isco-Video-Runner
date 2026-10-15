@@ -19,6 +19,8 @@ from clean_v2.short_timed_text import (
     _ass_escape,
     _ass_time,
     _filter_escape_path,
+    occurs_in_source,
+    resolved_font,
     _caption_rows_and_size,
     _rtl_row,
     _clean as _shared_arabic_clean,
@@ -399,6 +401,12 @@ def _apply_sparse_key_text(
     # planner-authored display_text_ar. This keeps Film/Podcast copy inside the
     # same Arabic/tone audit that approved the spoken text.
     events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
+    narration = " ".join(
+        str(item.get("narration") or "") for item in (script.get("sections") or []) if isinstance(item, Mapping)
+    )
+    for event in events:
+        if not occurs_in_source(event.get("text"), narration):
+            raise PodcastKeyTextError("podcast_key_text_text_not_in_approved_script")
     max_events = MAX_EVENTS if fmt == "podcast" else FILM_MAX_EVENTS
     font_size = FONT_SIZE if fmt == "podcast" else FILM_FONT_SIZE
     if not events:
@@ -417,9 +425,9 @@ def _apply_sparse_key_text(
     rendered = Path(output_dir) / f".final-{fmt}-key-text.mp4"
     try:
         ass_path.write_text(build_ass(events, fmt=fmt), encoding="utf-8")
-        subprocess.run(
+        completed = subprocess.run(
             [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "verbose",
                 "-i", str(Path(final_path).resolve()),
                 "-vf", f"ass='{_filter_escape_path(ass_path)}':shaping=complex",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
@@ -428,7 +436,10 @@ def _apply_sparse_key_text(
             check=True,
             timeout=1800,
             env=_secret_free_subprocess_env(),
+            capture_output=True,
+            text=True,
         )
+        font_used = resolved_font(completed.stderr, BODY_FONT)
         if not rendered.is_file() or rendered.stat().st_size <= 0:
             raise PodcastKeyTextError("podcast_key_text_render_missing_or_empty")
         os.replace(rendered, Path(final_path))
@@ -455,6 +466,7 @@ def _apply_sparse_key_text(
         "accent_enabled": False,
         "body_rgb": "#F4F2EE",
         "font": BODY_FONT,
+        "font_actually_used": font_used,
         "font_size": font_size,
         "hook_font_size": _event_font_size("hook", fmt=fmt),
         "payoff_font_size": _event_font_size("payoff", fmt=fmt),

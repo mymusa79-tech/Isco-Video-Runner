@@ -34,6 +34,7 @@ BODY_WRAP_WORDS = 6
 MAX_CAPTION_LINES = 2
 ARABIC_WORD_GAP = " "  # Natural Arabic word spacing; avoid stretched thin-space gaps
 CAPTION_MIN_WORDS = 2
+CAPTION_LONGFORM_MIN_WORDS = 4
 CAPTION_MAX_WORDS = 12
 CAPTION_Y = 1400
 CAPTION_X = 540
@@ -183,8 +184,13 @@ def _split_long_caption_chunk(chunk: str) -> list[str]:
     return [item for item in result if item]
 
 
-def _phrase_chunks(text: object) -> list[str]:
-    """Preserve authored Arabic order while enforcing readable two-line cards."""
+def _phrase_chunks(text: object, fmt: str = "short") -> list[str]:
+    """Preserve authored Arabic order while enforcing readable two-line cards.
+
+    ``fmt`` only changes how much fits on a card: Short cards are sized for a portrait phone,
+    landscape Film/Podcast cards use their own (wider) width and avoid tiny 2-3 word flashes.
+    """
+    minimum_words = CAPTION_MIN_WORDS if fmt == "short" else CAPTION_LONGFORM_MIN_WORDS
     chunks: list[str] = []
     for sentence in _sentences(text):
         clauses = [
@@ -199,7 +205,7 @@ def _phrase_chunks(text: object) -> list[str]:
     # so stays within the hard display-word ceiling.
     index = 0
     while len(chunks) > 1 and index < len(chunks):
-        if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
+        if len(chunks[index].split()) >= minimum_words:
             index += 1
             continue
         if index > 0 and len((chunks[index - 1] + " " + chunks[index]).split()) <= CAPTION_MAX_WORDS:
@@ -211,7 +217,7 @@ def _phrase_chunks(text: object) -> list[str]:
             chunks.pop(index)
             continue
         index += 1
-    return _fit_phrase_chunks_to_two_lines(chunks)
+    return _fit_phrase_chunks_to_two_lines(chunks, fmt)
 
 
 def _section_phrase_events(
@@ -519,6 +525,7 @@ def _caption_width(text: str, size: int) -> float:
 _CAPTION_FRAME_WIDTH = {"short": 1080, "film": 1920, "podcast": 1920}
 _CAPTION_MAX_WIDTH = {"short": 920, "film": 1560, "podcast": 1460}
 _CAPTION_FONT_MIN = {"short": 100, "film": 48, "podcast": 40}
+_CAPTION_FIT_FONT = {"film": 56, "podcast": 56}  # size a landscape card is fitted at
 
 
 def _caption_rows_and_size(text: str, *, fmt: str, font_size: int) -> tuple[list[str], int]:
@@ -580,15 +587,15 @@ def caption_character_diagnostics(texts: Sequence[str]) -> dict[str, Any]:
     }
 
 
-def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str]) -> list[str]:
+def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str], fmt: str = "short") -> list[str]:
     """Make more timed phrases when one two-line caption cannot fit legibly.
 
     Never drop an authored word or add a third visual row. The caller's existing
     voice-owned timing partitions the measured section across resulting phrases.
     """
     fitted: list[str] = []
-    minimum = _CAPTION_FONT_MIN["short"]
-    width = _CAPTION_MAX_WIDTH["short"]
+    minimum = _CAPTION_FONT_MIN["short"] if fmt == "short" else _CAPTION_FIT_FONT.get(fmt, 56)
+    width = _CAPTION_MAX_WIDTH.get(fmt, _CAPTION_MAX_WIDTH["short"])
     for chunk in chunks:
         remaining = _clean(chunk).split()
         while remaining:
@@ -596,7 +603,7 @@ def _fit_phrase_chunks_to_two_lines(chunks: Sequence[str]) -> list[str]:
             for end in range(len(remaining), 0, -1):
                 candidate = " ".join(remaining[:end])
                 rows, _ = _caption_rows_and_size(
-                    candidate, fmt="short", font_size=minimum
+                    candidate, fmt=fmt, font_size=minimum
                 )
                 if max((_caption_width(row, minimum) for row in rows), default=0.0) <= width:
                     choice = end
@@ -1143,6 +1150,63 @@ def apply_short_timed_text(
     }
 
 
+# Podcast captions: A (the listener asking) in gold, B (the host answering) in the normal
+# off-white. Colour lives only in the optional .ass file; the .srt stays plain text.
+SPEAKER_ASS_COLOR = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}  # A #C9A24B gold, B #F5F3EF warm white
+_SPEAKER_TURN_RE = re.compile(r"(?<!\S)([AB]):\s*")
+
+
+def _speaker_chunks(text: str, fmt: str = "short") -> list[tuple[str, str]]:
+    """Split A:/B: dialogue into caption phrases, each tagged with its speaker."""
+    marks = list(_SPEAKER_TURN_RE.finditer(str(text or "")))
+    if not marks:
+        return [("", chunk) for chunk in _phrase_chunks(text, fmt)]
+    tagged: list[tuple[str, str]] = []
+    lead = str(text)[: marks[0].start()].strip()
+    if lead:
+        tagged.extend(("", chunk) for chunk in _phrase_chunks(lead, fmt))
+    for position, mark in enumerate(marks):
+        end = marks[position + 1].start() if position + 1 < len(marks) else len(text)
+        tagged.extend((mark.group(1), chunk) for chunk in _phrase_chunks(str(text)[mark.end():end], fmt))
+    return tagged
+
+
+_LABEL_TOKEN_RE = re.compile(r"(?<!\S)[AB]:\s*")
+_FONTSELECT_RE = re.compile(r"fontselect: \((?P<asked>[^,)]+), (?P<weight>\d+), \d+\) -> (?P<path>[^,]+), \d+, (?P<name>.+)")
+
+
+def verbatim_tokens(text: object) -> list[str]:
+    """Words exactly as approved (speaker labels dropped, shared Unicode cleanup only)."""
+    return _clean(_LABEL_TOKEN_RE.sub(" ", str(text or ""))).split()
+
+
+def is_verbatim_split(pieces: Sequence[str], source: object) -> bool:
+    """True only when the pieces, in order, are exactly the source words (no word added, lost or changed)."""
+    return " ".join(pieces).split() == verbatim_tokens(source)
+
+
+def occurs_in_source(display: object, source: object) -> bool:
+    """True when the displayed words are one unbroken run of the approved text."""
+    words, haystack = verbatim_tokens(display), verbatim_tokens(source)
+    if not words:
+        return False
+    return any(haystack[i:i + len(words)] == words for i in range(len(haystack) - len(words) + 1))
+
+
+def resolved_font(ffmpeg_stderr: str, requested: str = BODY_FONT) -> dict[str, Any]:
+    """What libass actually drew with (from ``-loglevel verbose``), not the name in the style."""
+    for line in str(ffmpeg_stderr or "").splitlines():
+        match = _FONTSELECT_RE.search(line)
+        if match and match.group("asked").strip().lower() == requested.lower():
+            name = match.group("name").strip()
+            return {
+                "requested": requested, "weight": int(match.group("weight")),
+                "resolved_name": name, "resolved_path": match.group("path").strip(),
+                "is_requested_font": requested.lower() in name.lower(),
+            }
+    return {"requested": requested, "resolved_name": None, "resolved_path": None, "is_requested_font": False}
+
+
 def write_longform_caption_sidecars(
     *, output_dir: Path, script: Mapping[str, Any], fmt: str,
 ) -> dict[str, Any]:
@@ -1156,6 +1220,20 @@ def write_longform_caption_sidecars(
     if fmt not in {"film", "podcast"}:
         return {"status": "not_applicable", "format": fmt}
     root = Path(output_dir)
+    if fmt == "podcast" and (root / "podcast-captions.srt").is_file():
+        try:
+            burned = json.loads((root / "podcast-captions.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            burned = {}
+        if isinstance(burned, dict) and burned.get("status") == "pass":
+            # The burned captions already wrote the matching SRT/ASS from the same events.
+            return {
+                "status": "available_optional", "format": fmt,
+                "srt": "podcast-captions.srt", "ass": "podcast-captions.ass",
+                "event_count": burned.get("event_count"), "max_rows": 2,
+                "burned_into_final_video": True, "timing": burned.get("timing"),
+                "provider_calls_added": 0, "new_quality_gate": False,
+            }
     timeline = json.loads((root / "timeline-first.json").read_text(encoding="utf-8"))
     if timeline.get("status") != "pass":
         raise ValueError("caption_sidecar_measured_timeline_required")
@@ -1165,8 +1243,10 @@ def write_longform_caption_sidecars(
         if isinstance(row, Mapping)
     }
     # Protect the fixed intro, prayer, identity and outro images from captions.
+    from .identity_sequence import PRAYER_SENTENCE as PODCAST_PRAYER_TEXT
+
     allowed_windows = [
-        (float(row["start"]), float(row["end"]))
+        (float(row["start"]), float(row["end"]), str(row.get("kind")))
         for row in (timeline.get("identity_events") or [])
         if isinstance(row, Mapping) and row.get("kind") in {"hook", "topic"}
     ]
@@ -1178,11 +1258,26 @@ def write_longform_caption_sidecars(
         if not text:
             continue
         section_start, section_end = float(section["start"]), float(section["end"])
-        for left, right in allowed_windows:
+        for left, right, kind in allowed_windows:
             start, end = max(section_start, left), min(section_end, right)
             if end <= start:
                 continue
-            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text))
+            window_text = text
+            if fmt == "podcast":
+                # Caption exactly what is spoken inside this window: the hook question
+                # in the hook window, everything after the prayer in the topic window.
+                if kind == "hook":
+                    window_text = _select_event_text(text, "hook")
+                elif start > section_start and PODCAST_PRAYER_TEXT in text:
+                    window_text = text.split(PODCAST_PRAYER_TEXT, 1)[-1].strip()
+                tagged = _speaker_chunks(window_text, fmt)
+            else:
+                tagged = [
+                    ("", chunk)
+                    for chunk in _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text), fmt)
+                ]
+            chunks = [chunk for _speaker, chunk in tagged]
+            speakers = [speaker for speaker, _chunk in tagged]
             if not chunks:
                 continue
             weights = [max(1, len(_clean(chunk))) for chunk in chunks]
@@ -1192,7 +1287,7 @@ def write_longform_caption_sidecars(
                 boundary = end if index == len(chunks) - 1 else cursor + (end - start) * weight / total_weight
                 if boundary <= cursor:
                     continue
-                events.append({"start": cursor, "end": boundary, "text": chunk})
+                events.append({"start": cursor, "end": boundary, "text": chunk, "speaker": speakers[index]})
                 cursor = boundary
     if not events:
         return {"status": "not_available", "format": fmt, "reason": "no_topic_caption_windows"}
@@ -1212,7 +1307,7 @@ def write_longform_caption_sidecars(
         rendered = r"\N".join(_rtl_row(value.split()) for value in rows)
         dialogues.append(
             f'Dialogue: 0,{_ass_time(row["start"])},{_ass_time(row["end"])},Caption,,0,0,0,,'
-            + r"{\fs" + str(fitted) + r"\fad(120,140)}" + rendered
+            + r"{\fs" + str(fitted) + r"\fad(120,140)" + SPEAKER_ASS_COLOR.get(str(row.get("speaker") or ""), "") + "}" + rendered
         )
 
     ass = "\n".join([

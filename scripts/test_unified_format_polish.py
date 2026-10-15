@@ -158,6 +158,85 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertIn("Style: Caption,Cairo", ass)
                 self.assertTrue((root / "caption-sidecars.json").is_file())
 
+    def test_podcast_captions_colour_each_speaker_and_follow_the_spoken_windows(self):
+        from clean_v2.identity_sequence import PRAYER_SENTENCE
+
+        timeline = {
+            "status": "pass",
+            "section_events": [{"section_id": "s1", "start": 0.0, "end": 20.0}],
+            "identity_events": [
+                {"kind": "hook", "start": 0.0, "end": 3.0},
+                {"kind": "prayer", "start": 3.0, "end": 5.0},
+                {"kind": "topic", "start": 5.0, "end": 20.0},
+            ],
+        }
+        narration = (
+            "A: لماذا نتعب بلا سبب؟ B: سأجيبك على هذا، لكن أولاً. " + PRAYER_SENTENCE
+            + " B: لأن القرارات الصغيرة تستهلك انتباهك. A: وكيف أتوقف؟ B: ابدأ بأهم عمل."
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "timeline-first.json").write_text(json.dumps(timeline), encoding="utf-8")
+            with mock.patch.object(
+                short_timed_text, "_caption_width",
+                side_effect=lambda text, size: len(text) * size * .5,
+            ):
+                result = short_timed_text.write_longform_caption_sidecars(
+                    output_dir=root, script={"sections": [{"id": "s1", "narration": narration}]},
+                    fmt="podcast",
+                )
+            srt = (root / result["srt"]).read_text(encoding="utf-8")
+            ass = (root / result["ass"]).read_text(encoding="utf-8")
+        self.assertNotIn("A:", srt)
+        self.assertNotIn("B:", srt)
+        self.assertNotIn("اللهم", srt)
+        self.assertNotIn("<font", srt)
+        gold, white = r"\c&H4BA2C9&", r"\c&HEFF3F5&"  # A #C9A24B, B #F5F3EF
+        lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+        coloured = [line for line in lines if gold in line]
+        plain = [line for line in lines if white in line]
+        self.assertTrue(coloured and plain)
+        # The hook window shows only the hook question (not the whole section).
+        first = lines[0]
+        self.assertIn(gold, first)
+        self.assertIn("0:00:00.00,0:00:03.00", first)
+        self.assertNotIn("القرارات", first)
+        # Every spoken word appears in the captions, none invented.
+        shown = " ".join(srt.split())
+        for word in ("لماذا", "نتعب", "القرارات", "انتباهك", "ابدأ"):
+            self.assertIn(word, shown)
+
+    def test_caption_splitting_never_changes_a_word_across_formats(self):
+        samples = [
+            "مُؤَثِّر جدًا، ولكنَّ الأمرَ ليس كما تظنُّ؛ فالحقيقةُ أبسط: هل جرّبتَ أن تتوقّف؟",
+            "هذه جملة عربية طويلة جدًا تحتوي على كلمات كثيرة متتابعة دون أي علامة ترقيم تفصل بينها لنتأكد أن التقسيم لا يغيّر أي كلمة منها أبدًا وأنها تبقى كما كُتبت تمامًا",
+            "إنَّ القرار الصغير، حين يتكرّر، يصير عادة! ثم تصير العادة هويّة. أليس كذلك؟",
+        ]
+        for sample in samples:
+            with mock.patch.object(
+                short_timed_text, "_caption_width",
+                side_effect=lambda text, size: len(text) * size * 0.55,
+            ):
+                self.assertTrue(
+                    short_timed_text.is_verbatim_split(short_timed_text._phrase_chunks(sample), sample), sample
+                )
+                tagged = short_timed_text._speaker_chunks(f"A: {sample} B: {sample}")
+                self.assertTrue(
+                    short_timed_text.is_verbatim_split([c for _s, c in tagged], f"A: {sample} B: {sample}")
+                )
+        self.assertTrue(short_timed_text.occurs_in_source("فالحقيقةُ أبسط:", samples[0]))
+        self.assertFalse(short_timed_text.occurs_in_source("فالحقيقة أبسط:", samples[0]))  # a missing diacritic is a change
+
+    def test_font_actually_used_is_read_from_libass_output(self):
+        log = "[Parsed_ass_0 @ 0x1] fontselect: (Cairo, 700, 0) -> /home/u/.local/share/fonts/isco-cairo/Cairo.ttf, 0, Cairo-Bold"
+        found = short_timed_text.resolved_font(log)
+        self.assertTrue(found["is_requested_font"])
+        fallback = short_timed_text.resolved_font(
+            "fontselect: (Cairo, 700, 0) -> /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf, 0, DejaVuSans-Bold"
+        )
+        self.assertFalse(fallback["is_requested_font"])
+        self.assertFalse(short_timed_text.resolved_font("")["is_requested_font"])
+
     def test_world_identity_is_global_and_respects_modest_people(self):
         self.assertIn("globally understandable", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("modestly dressed woman", CHANNEL_VISUAL_IDENTITY)
