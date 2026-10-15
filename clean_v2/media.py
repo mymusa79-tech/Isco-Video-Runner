@@ -4477,7 +4477,7 @@ def _build_reference_color_plan(
     from .simple_mode import is_simple_mode
     simple = is_simple_mode()
     asset_rows = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
-    local_sources = {str(r.get("local_file")) for r in asset_rows if isinstance(r, Mapping) and r.get("provider") == "generated_local"}
+    local_sources = {str(r.get("local_file")) for r in asset_rows if isinstance(r, Mapping) and r.get("provider") in {"generated_local", "owner_art"}}
     report: dict[str, Any] = {
         "schema_version": 2,
         "source": "clean-v2-fixed-channel-palette-match",

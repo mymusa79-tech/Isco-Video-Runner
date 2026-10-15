@@ -48,6 +48,7 @@ from .media import (
     render_derived_short,
     render_video,
 )
+from . import owner_pack
 from .scene_review import PENDING_STATUS as PENDING_SCENE_REVIEW_STATUS, SceneReviewPending
 from .structural_ai import structural_ai_flags
 from .short_format import (
@@ -5196,6 +5197,10 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     fmt = str(brief.get("format") or "")
+    if fmt == "short" and owner_pack.owner_mode_active(brief):
+        # Owner-written text: structure only. Hook length and action shape are his call.
+        owner_pack.light_script_validation(script)
+        return script
     if fmt == "short":
         # One deterministic owner repairs only certified local Short shapes, then
         # the unchanged strict validators decide acceptance for every provider.
@@ -7227,6 +7232,55 @@ class CleanV2Pipeline:
                     os.environ.get("CLEAN_V2_RESUME_FROM_VOICE", "").strip() == "1"
                 ),
             )
+            owner_pack_path = owner_pack.active_pack_path(str(brief["format"]))
+            if resume is None and owner_pack_path is not None:
+                # Owner-written Short: build the artifacts a fully audited run would
+                # have saved (zero model calls) and enter through the same resume
+                # door, so voice -> scene picker -> render run unchanged.
+                staging = output_dir / "owner-pack-staging"
+                pack = owner_pack.load_pack(owner_pack_path)
+                owner_pack.build_artifacts(pack, brief, staging)
+                transcript_text = (staging / "narration.txt").read_text(encoding="utf-8")
+                atomic_write_json(
+                    staging / TEXT_AUDIT_CHECKPOINT_FILE,
+                    {
+                        "schema_version": 1,
+                        "status": "pass",
+                        "script_sha256": _sha256_file(staging / "script.json"),
+                        "narration_sha256": _sha256_file(staging / "narration.txt"),
+                        "audit_result": {
+                            "status": "pass",
+                            "source": "owner-written-text",
+                            "factuality_status": "owner_responsibility",
+                            "tone_naturalness_status": "owner_responsibility",
+                            "schema_version": 1,
+                        },
+                    },
+                )
+                _write_resume_checkpoint(
+                    staging,
+                    completed_stage=TEXT_AUDIT_STAGE,
+                    approved_brief_sha256=approved_brief_digest,
+                    engine_sha=engine_sha,
+                    runner_sha=runner_sha,
+                    max_visuals=max_visuals,
+                )
+                resume = _load_resume_checkpoint(
+                    staging,
+                    approved_brief_sha256=approved_brief_digest,
+                    engine_sha=engine_sha,
+                    runner_sha=runner_sha,
+                    max_visuals=max_visuals,
+                    force_from_voice=True,
+                )
+                if resume is None:
+                    raise RuntimeError("Clean V2 owner pack could not be prepared")
+                journal.payload["owner_script"] = {
+                    "pack_sha256": owner_pack.pack_sha256(pack),
+                    "words": len(transcript_text.split()),
+                    "provider_calls": 0,
+                }
+                journal._write()
             if resume is not None:
                 journal.payload["resume_checkpoint_accepted"] = True
                 if resume[1].get("runner_sha_drift"):
@@ -8130,6 +8184,15 @@ class CleanV2Pipeline:
                 output_name="cover.jpg",
                 report_name="cover-lite.json",
             )
+            if str(brief["format"]) == "podcast":
+                from clean_v2 import owner_art
+
+                try:
+                    cover_report = owner_art.apply_owner_cover(output_dir / "cover.jpg", cover_report)
+                    if cover_report.get("source") == "owner_cover_image":
+                        atomic_write_json(output_dir / "cover-lite.json", cover_report)
+                except Exception as owner_cover_exc:  # fail-soft like Cover Lite itself
+                    cover_report = {**cover_report, "owner_cover": f"unavailable:{type(owner_cover_exc).__name__}"}
 
             # Optional viewer-controlled Arabic captions for Film/Podcast.
             # Reuse the Short Unicode/width owner; no burn, stage, call or gate.

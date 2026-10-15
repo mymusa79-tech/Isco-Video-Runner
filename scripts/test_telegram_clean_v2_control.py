@@ -70,6 +70,141 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertTrue(selected["research_pack"])
         self.assertIn("source_title", selected["research_pack"][0])
 
+    def test_owner_typed_topic_uses_the_same_gates_and_does_not_dispatch(self):
+        evidence = {
+            "sample_count": 2,
+            "distinct_channels": 2,
+            "top_samples": [
+                {"video_id": "v1", "title": "مصدر", "channel": "قناة",
+                 "published_at": "2026-09-20T00:00:00Z", "views": 1000, "views_per_day": 250}
+            ],
+        }
+        title = "لماذا تعرف ما يجب فعله ولا تفعله؟"
+        self.assertEqual(control.parse_custom_topic("بودكاست: " + title), ("podcast", title))
+        self.assertEqual(control.parse_custom_topic("خارج النص:" + title), ("podcast", title))
+        self.assertEqual(control.parse_custom_topic("شورت : " + title), ("short", title))
+        self.assertIsNone(control.parse_custom_topic("مشاهد 1 2 3"))
+        self.assertIsNone(control.parse_custom_topic("بودكاست"))
+
+        state = control.default_state()
+        with mock.patch.object(control, "market_evidence", return_value=(0.7, evidence)), \
+                mock.patch.object(control, "_release_library_records", return_value=[]), \
+                mock.patch.object(control, "collect_topic_sources", return_value=[]):
+            request = control.select_custom_topic(state, "podcast", title)
+        self.assertEqual(request["status"], "awaiting_confirmation")
+        self.assertEqual(request["scope"], "podcast")
+        self.assertEqual(request["approved_topic"], title)
+        self.assertIsNone(request["dispatched_at"])
+        self.assertTrue(request["research_pack"])
+        self.assertEqual(state["ideas"][0]["source"], "owner_typed")
+
+    def test_owner_written_short_binds_exact_text_and_stops_for_scene_review(self):
+        from scripts.test_owner_pack import MESSAGE
+
+        state = control.default_state()
+        pack = control.owner_pack.parse_owner_message(MESSAGE)
+        request = control.select_owner_script(state, pack)
+        self.assertEqual(request["status"], "awaiting_confirmation")
+        self.assertEqual(request["scope"], "short")
+        self.assertIsNone(request["dispatched_at"])
+        self.assertIn("نصّك الجاهز", control.render_owner_pack_confirmation(request))
+        original = request["request_sha256"]
+        request["owner_pack"]["texts"][1] += " زيادة"
+        self.assertNotEqual(control._request_hash(request), original)
+        request["owner_pack"]["texts"][1] = request["owner_pack"]["texts"][1][: -len(" زيادة")]
+        self.assertEqual(control._request_hash(request), original)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            dispatch = Path(temporary) / "dispatch.json"
+            with mock.patch.object(control.resume_history, "provider_cooldown_remaining_seconds", return_value=0):
+                result = control._stage_confirmation_dispatch(state, dispatch)
+            self.assertEqual(result["request"]["scene_review"], {"status": "collect"})
+            request["status"] = "dispatched"
+            brief = control.materialize_brief(
+                state, request["request_id"], request["request_sha256"], "short", Path(temporary) / "brief.json"
+            )
+            self.assertEqual(brief["format"], "short")
+            self.assertEqual(brief["approved_topic"], pack["title"])
+
+    def test_owner_written_short_message_flows_through_the_text_handler(self):
+        from scripts.test_owner_pack import MESSAGE
+
+        def update(text):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": text}}
+
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update("شورت جاهز\nعنوان: x"), dispatch)
+            self.assertEqual(state["requests"], {})
+            self.assertIn("لم يبدأ أي إنتاج", send.call_args[0][0])
+            control.handle_update(state, update(MESSAGE), dispatch)
+            self.assertFalse(dispatch.exists())
+            (request,) = state["requests"].values()
+            self.assertEqual(request["status"], "awaiting_confirmation")
+            self.assertEqual(len(request["owner_pack"]["scenes"]), 7)
+
+    def test_owner_podcast_draft_collects_parts_images_then_done(self):
+        # No Pillow/engine imports here: the lean Lite validation job runs this file.
+        questions = ["لماذا نشعر بالتعب رغم أننا لم نفعل شيئًا؟", "وما علاقة القرارات الصغيرة بذلك؟",
+                     "كيف أعرف أني أعتمد على نفسي أكثر من اللازم؟", "وهل هذا خطأ دائمًا؟"]
+        MESSAGE = "بودكاست جاهز\nعنوان: عبء الاعتماد على الذات\n" + "\n".join(
+            f"A: {questions[i % 4]}\nB: هذه إجابة رقم {i} مفصلة. " + " ".join(["كلمة"] * 60) + "."
+            for i in range(14)
+        )
+        head, tail = MESSAGE[: len(MESSAGE) // 2], MESSAGE[len(MESSAGE) // 2:]
+        cut = tail.index("\nA:")
+        head, tail = head + tail[:cut], tail[cut + 1:]
+        counter = iter(range(100, 200))
+
+        def update(**fields):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "message_id": next(counter), **fields}}
+
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update(document={"file_id": "x", "mime_type": "image/png"}), dispatch)
+            self.assertIn("أرسل أولًا", send.call_args[0][0])  # image before any draft
+            control.handle_update(state, update(text="تم"), dispatch)  # chatter without a draft is not ours
+            self.assertEqual(state["requests"], {})
+            control.handle_update(state, update(text=head), dispatch)
+            control.handle_update(state, update(document={"file_id": "img1", "file_unique_id": "u1", "mime_type": "image/jpeg"}), dispatch)
+            control.handle_update(state, update(document={"file_id": "img2", "file_unique_id": "u2", "mime_type": "image/jpeg"}, caption="غلاف"), dispatch)
+            control.handle_update(state, update(text="تكملة\n" + tail), dispatch)
+            self.assertEqual(state["requests"], {})
+            control.handle_update(state, update(text="تم"), dispatch)
+            self.assertFalse(dispatch.exists())
+            (request,) = state["requests"].values()
+            self.assertEqual(request["scope"], "podcast")
+            self.assertEqual(request["status"], "awaiting_confirmation")
+            self.assertEqual(len(request["owner_pack"]["turns"]), 28)
+            self.assertEqual([i["file_id"] for i in request["owner_art"]["body"]], ["img1"])
+            self.assertEqual(request["owner_art"]["cover"]["file_id"], "img2")
+            self.assertNotIn("owner_podcast_draft", state)
+            self.assertIn("بودكاست", send.call_args[0][0])
+            self.assertEqual(request["request_sha256"], control._request_hash(request))
+
+    def test_owner_typed_topic_rejections_start_nothing(self):
+        state = control.default_state()
+        no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})
+        with mock.patch.object(control, "market_evidence", return_value=no_evidence), \
+                mock.patch.object(control, "_release_library_records", return_value=[]):
+            with self.assertRaises(ValueError):
+                control.select_custom_topic(state, "podcast", "لماذا تعرف ما يجب فعله ولا تفعله؟")
+        with self.assertRaises(ValueError):
+            control.select_custom_topic(state, "podcast", "قصير")
+        with mock.patch.object(control, "_release_library_records",
+                               return_value=[{"kind": control._library_kind_for_scope("podcast"),
+                                              "topic": "لماذا تعرف ما يجب فعله ولا تفعله؟"}]):
+            with self.assertRaises(ValueError):
+                control.select_custom_topic(state, "podcast", "لماذا تعرف ما يجب فعله ولا تفعله؟")
+        self.assertEqual(state["requests"], {})
+        self.assertEqual(state["ideas"], [])
+
     def test_selection_does_not_dispatch_and_confirmation_is_separate(self):
         state = control.default_state()
         idea = {

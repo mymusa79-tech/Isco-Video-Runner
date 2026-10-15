@@ -7,6 +7,10 @@ const workerModule = await import(`data:text/javascript;base64,${Buffer.from(wor
 
 const {
   default: worker,
+  isCustomTopicText,
+  isOwnerScriptText,
+  isOwnerPodcastText,
+  isOwnerImageMessage,
   isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
@@ -276,4 +280,34 @@ test("worker dispatches scene review replies and the auto button to the control 
   }
   assert.equal(dispatched.length, 2, "reply and auto button dispatch once each; chatter does not");
   assert.ok(answered.some((a) => String(a.text || "").includes("الآلي")));
+});
+
+test("owner-written short is recognised only with its prefix", () => {
+  assert.equal(isOwnerScriptText("شورت جاهز\nعنوان: x\nنص 1: y"), true);
+  assert.equal(isOwnerScriptText("  شورت جاهز"), true);
+  for (const no of ["شورت", "شورت: كيف تبدأ من جديد دون خطة", "عنوان: شورت جاهز", ""]) {
+    assert.equal(isOwnerScriptText(no), false, no);
+  }
+});
+
+test("owner podcast draft messages and images are forwarded, chatter is not", () => {
+  for (const ok of ["بودكاست جاهز\nعنوان: x", "تكملة\nA: سؤال؟", "تكملة: B: جواب", "تم"]) {
+    assert.equal(isOwnerPodcastText(ok), true, ok);
+  }
+  for (const no of ["بودكاست", "تمام", "تكملتها", "بودكاست: لماذا نفقد الحماس بعد بداية قوية", ""]) {
+    assert.equal(isOwnerPodcastText(no), false, no);
+  }
+  assert.equal(isOwnerImageMessage({ photo: [{ file_id: "a" }] }), true);
+  assert.equal(isOwnerImageMessage({ document: { mime_type: "image/png" } }), true);
+  assert.equal(isOwnerImageMessage({ document: { mime_type: "application/pdf" } }), false);
+  assert.equal(isOwnerImageMessage({ text: "hi" }), false);
+});
+
+test("owner typed topic is recognised only in the prefixed form", () => {
+  for (const ok of ["بودكاست: لماذا تعرف ما يجب فعله ولا تفعله؟", "خارج النص:لماذا نفقد الحماس بعد بداية قوية", "شورت : كيف تبدأ من جديد دون خطة", "فيلم: لماذا ننتظر الشعور المناسب قبل أن نتحرك؟"]) {
+    assert.equal(isCustomTopicText(ok), true, ok);
+  }
+  for (const no of ["بودكاست", "بودكاست: قصير", "المحفوظات", "مشاهد 1 2 3", "لماذا نفقد الحماس بعد بداية قوية", ""]) {
+    assert.equal(isCustomTopicText(no), false, no);
+  }
 });

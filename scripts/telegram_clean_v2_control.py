@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -28,6 +29,12 @@ except ModuleNotFoundError:
     from tavily_research_lite import collect_topic_sources
     import telegram_resume_history as resume_history
     import telegram_scene_review as scene_review
+
+try:
+    from clean_v2 import owner_pack, owner_podcast
+except ImportError:  # run as a plain script from scripts/
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from clean_v2 import owner_pack, owner_podcast
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -981,6 +988,11 @@ def _request_hash(request: dict[str, Any]) -> str:
         "selected_at",
     )
     payload = {key: request.get(key) for key in immutable_keys}
+    if request.get("owner_pack") is not None:
+        # Owner-written Short: the exact text is part of what he approved.
+        payload["owner_pack"] = request["owner_pack"]
+    if request.get("owner_art") is not None:
+        payload["owner_art"] = request["owner_art"]
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
@@ -1268,6 +1280,8 @@ def render_selection_confirmation(
     *,
     spacing_warning: str = "",
 ) -> str:
+    if isinstance(request.get("owner_pack"), dict):
+        return render_owner_pack_confirmation(request)
     scope_label = {
         "long": "فيديو طويل — يحاول استخراج شورت تلقائيًا بعد نجاح الطويل",
         "bundle": "فيديو طويل + شورت (خيار قديم)",
@@ -1938,6 +1952,173 @@ def select_saved_candidate(state: dict[str, Any], scope: str, idea_id: str) -> d
     return select_candidate(state, session_id, 0)
 
 
+_CUSTOM_TOPIC_SCOPES = {
+    "بودكاست": "podcast", "خارج النص": "podcast", "podcast": "podcast",
+    "شورت": "short", "short": "short",
+    "فيلم": "long", "طويل": "long", "long": "long",
+}
+_CUSTOM_TOPIC_RE = re.compile(r"^(بودكاست|خارج النص|podcast|شورت|short|فيلم|طويل|long)\s*[:：]\s*(.+)$", re.IGNORECASE)
+
+
+def parse_custom_topic(text: str) -> tuple[str, str] | None:
+    """«بودكاست: عنوانك» -> (scope, title); None when the message is not that form."""
+    match = _CUSTOM_TOPIC_RE.match(str(text or "").strip())
+    if not match:
+        return None
+    key = match.group(1).strip()
+    return (_CUSTOM_TOPIC_SCOPES.get(key) or _CUSTOM_TOPIC_SCOPES[key.lower()]), match.group(2).strip()
+
+
+def select_custom_topic(state: dict[str, Any], scope: str, title: str) -> dict[str, Any]:
+    """Owner-typed topic: same evidence, source and confirmation gates as a researched one.
+
+    Nothing is produced here. The topic must still find real market evidence (the
+    research pack is built from it), must not repeat a used topic, and the owner
+    still confirms the final production button.
+    """
+    if scope not in SCOPES:
+        raise ValueError("نوع المحتوى غير مدعوم.")
+    clean = " ".join(str(title or "").split())
+    if len(clean) < 12 or len(clean.split()) < 3 or len(clean) > 160:
+        raise ValueError("اكتب الموضوع كجملة واضحة (3 كلمات على الأقل، ولا تتجاوز 160 حرفًا).")
+    kind = _library_kind_for_scope(scope)
+    used_titles = [
+        str(item.get("topic") or "")
+        for item in _release_library_records()
+        if item.get("kind") == kind
+    ]
+    if any(same_topic(clean, used) for used in used_titles):
+        raise ValueError("هذا الموضوع أُنتج من قبل.")
+    score, evidence = market_evidence(clean)
+    if not int(evidence.get("sample_count", 0)):
+        raise ValueError("لم أجد عينات سوق حقيقية لهذا العنوان، فلا يمكن بناء حزمة مصادر له. جرّب صياغة أقرب للمشكلة.")
+    idea = {
+        "idea_id": "idea-" + secrets.token_hex(5),
+        "title": clean,
+        "normalized_title": normalize_title(clean),
+        "market_query": clean[:120],
+        "knowledge_query_en": "",
+        "reason": "موضوع كتبه المالك",
+        "market_score": score,
+        "market_evidence": evidence,
+        "research_pack": [],
+        "selected": False,
+        "created_at": utc_now(),
+        "source": "owner_typed",
+    }
+    state["ideas"].append(idea)
+    session_id = secrets.token_hex(4)
+    state["sessions"][session_id] = {
+        "session_id": session_id,
+        "scope": scope,
+        "idea_ids": [idea["idea_id"]],
+        "created_at": utc_now(),
+        "source": "owner_typed",
+    }
+    return select_candidate(state, session_id, 0)
+
+
+def render_owner_podcast_confirmation(request: dict[str, Any]) -> str:
+    pack = request["owner_pack"]
+    art = request.get("owner_art") or {}
+    words = sum(len(str(spoken).split()) for _speaker, spoken in pack["turns"])
+    minutes = words / 105.0
+    lines = [
+        "✅ استلمت حلقتك الجاهزة (بودكاست)",
+        "",
+        f"العنوان: {request['approved_topic']}",
+        f"الحوار: {len(pack['turns'])} دورًا، {words} كلمة ≈ {minutes:.0f} دقيقة.",
+        f"الصور: {len(art.get('body') or [])} للحلقة، والغلاف: "
+        + ("صورتك" if art.get("cover") else "يُولَّد من الفيديو") + ".",
+    ]
+    if minutes < 8:
+        lines.append("⚠️ أقل من 8 دقائق (أقصر من معيار الحلقات المعتاد)؛ تُنتج كما هي.")
+    if not art.get("body"):
+        lines.append("⚠️ لا صور: سيُستخدم البحث الآلي للمشاهد.")
+    lines += [
+        "",
+        "لن يكتب أي نموذج الحوار ولن يدقّقه: يُقرأ كما كتبته (تُضاف فقط الصلاة والدعوة).",
+        "الصوت من Gemini: A سؤال المستمع و B الجواب.",
+        "",
+        "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» أدناه للبدء.",
+    ]
+    return "\n".join(lines)
+
+
+def select_owner_podcast(state: dict[str, Any], pack: dict[str, Any], art: dict[str, Any]) -> dict[str, Any]:
+    request = select_owner_script(state, pack, scope="podcast")
+    request["owner_art"] = art
+    request["request_sha256"] = _request_hash(request)
+    return request
+
+
+def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
+    pack = request["owner_pack"]
+    if pack.get("format") == "podcast":
+        return render_owner_podcast_confirmation(request)
+    words = sum(len(str(item).split()) for item in pack["texts"])
+    return "\n".join(
+        [
+            "✅ استلمت نصّك الجاهز (شورت)",
+            "",
+            f"العنوان: {request['approved_topic']}",
+            f"النص: {words} كلمة في 3 أقسام، و{len(pack['scenes'])} مشاهد للبحث.",
+            "",
+            "لن يكتب أي نموذج النص ولن يدقّقه: يُقرأ كما كتبته (تُضاف فقط الصلاة وتعريف القناة بعد الجملة الأولى).",
+            "بعد الصوت سأرسل لك مرشّحي كل مشهد لتختار.",
+            "",
+            "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» أدناه للبدء.",
+        ]
+    )
+
+
+def select_owner_script(state: dict[str, Any], pack: dict[str, Any], scope: str = "short") -> dict[str, Any]:
+    """Owner-written Short: nothing is produced here; he still confirms the button."""
+    title = " ".join(str(pack["title"]).split())
+    idea = {
+        "idea_id": "idea-" + secrets.token_hex(5),
+        "title": title,
+        "normalized_title": normalize_title(title),
+        "market_query": title[:120],
+        "knowledge_query_en": "",
+        "reason": "نص جاهز كتبه المالك",
+        "market_score": 0,
+        "market_evidence": {},
+        "research_pack": [],
+        "selected": True,
+        "selected_at": utc_now(),
+        "created_at": utc_now(),
+        "source": "owner_script",
+    }
+    state["ideas"].append(idea)
+    request_id = "req-" + secrets.token_hex(6)
+    request: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "source": "clean_v2_telegram_owner_script",
+        "scope": scope,
+        "approved_by_user": True,
+        "approved_topic": title,
+        "research_pack": [
+            {
+                "source_title": "نص كتبه المالك",
+                "source_type": "owner_authored",
+                "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء.",
+            }
+        ],
+        "idea_id": idea["idea_id"],
+        "selected_at": idea["selected_at"],
+        "owner_pack": pack,
+        "status": "awaiting_confirmation",
+        "confirmed_at": None,
+        "dispatched_at": None,
+    }
+    request["request_sha256"] = _request_hash(request)
+    state["requests"][request_id] = request
+    state["current_request_id"] = request_id
+    return request
+
+
 def latest_release_delivery() -> dict[str, str]:
     payload = _github_release_json("releases?per_page=50")
     if not isinstance(payload, list):
@@ -2103,6 +2284,68 @@ def _apply_scene_review(
         + ("بالاختيار الآلي الكامل؛ سيُوسم التقرير بأن المشاهد لم تُراجع بشريًا." if auto
            else f"تم تعديل {kept} مشهدًا يدويًا والباقي آلي.")
     )
+
+
+def _owner_podcast_status(draft: dict[str, Any]) -> str:
+    text = owner_podcast.assemble(draft)
+    words = len(re.sub(r"(?:^|\s)(?:A|B)\s*[:：]", " ", text).split())
+    tail = " ".join(text.split()[-6:])
+    return "\n".join([
+        f"📥 استلمت {len(draft['parts'])} جزء/أجزاء (≈{words} كلمة) و{len(draft['images'])} صورة.",
+        f"آخر ما استلمته: «… {tail}»",
+        "",
+        "أكمل النص بـ «تكملة» + بقية الحوار، وأرسل الصور كملفات (صورة الغلاف اكتب في وصفها «غلاف»).",
+        "وحين تنتهي أرسل: تم",
+    ])
+
+
+def _handle_owner_podcast_message(
+    state: dict[str, Any], message: dict[str, Any], raw_text: str, text: str
+) -> bool:
+    """«بودكاست جاهز» + «تكملة» parts + image files + «تم». True when the message was ours."""
+    draft = state.get("owner_podcast_draft")
+    draft = draft if isinstance(draft, dict) else None
+    message_id = int(message.get("message_id") or 0)
+    image = owner_podcast.image_from_message(message)
+    if image is not None:
+        if draft is None:
+            send_telegram("⚠️ أرسل أولًا نص «بودكاست جاهز» ثم الصور.")
+            return True
+        count = owner_podcast.add_image(draft, image)
+        note = " (وصلت مضغوطة كصورة؛ الأفضل إرسالها كملف)" if image["kind"] == "photo" else ""
+        send_telegram(f"🖼️ استلمت الصورة {count}{note}. أرسل «تم» حين تنتهي.")
+        return True
+    if owner_podcast.has_prefix(raw_text) and owner_podcast.has_prefix(text):
+        draft = owner_podcast.new_draft()
+        owner_podcast.add_part(draft, message_id, raw_text)
+        state["owner_podcast_draft"] = draft
+        send_telegram(_owner_podcast_status(draft))
+        return True
+    if draft is None:
+        return False
+    if owner_podcast.is_follow_up(raw_text):
+        owner_podcast.add_part(draft, message_id, owner_podcast.follow_up_body(raw_text))
+        send_telegram(_owner_podcast_status(draft))
+        return True
+    if text == owner_podcast.DONE_TEXT:
+        try:
+            pack = owner_podcast.parse_podcast_message(owner_podcast.assemble(draft))
+            groups = owner_podcast.section_groups(pack["turns"])  # fail now, not after the voice
+            del groups
+        except owner_pack.OwnerPackError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج. صحّح بإرسال «تكملة» أو ابدأ من جديد بـ «بودكاست جاهز».")
+            return True
+        art = owner_podcast.classify_art(draft["images"])
+        keep = ("message_id", "file_id", "unique_id")
+        art_value = {
+            "body": [{k: item[k] for k in keep} for item in art["body"]],
+            "cover": {k: art["cover"][k] for k in keep} if art["cover"] else None,
+        }
+        request = select_owner_podcast(state, pack, art_value)
+        state.pop("owner_podcast_draft", None)
+        send_telegram(render_owner_pack_confirmation(request), selection_confirmation_keyboard(request))
+        return True
+    return False
 
 
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
@@ -2369,6 +2612,37 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     ):
         # Bare digits count only while a review is waiting; otherwise they are chatter.
         _apply_scene_review(state, dispatch_path, text=text)
+        return
+    raw_text = str(message.get("text") or "")
+    if _handle_owner_podcast_message(state, message, raw_text, text):
+        return
+    if owner_pack.has_prefix(raw_text) and owner_pack.has_prefix(text):
+        try:
+            # Raw text: the normalizer above flattens the line breaks the owner typed.
+            request = select_owner_script(state, owner_pack.parse_owner_message(raw_text))
+        except owner_pack.OwnerPackError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        send_telegram(render_owner_pack_confirmation(request), selection_confirmation_keyboard(request))
+        return
+    custom = parse_custom_topic(text)
+    if custom is not None:
+        try:
+            request = select_custom_topic(state, custom[0], custom[1])
+        except ValueError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        except Exception as exc:
+            print(f"Telegram custom topic failed: {type(exc).__name__}")
+            send_telegram("⚠️ تعذر تجهيز هذا الموضوع الآن. لم يبدأ أي إنتاج.")
+            return
+        send_telegram(
+            render_selection_confirmation(
+                request,
+                spacing_warning=_safe_publication_spacing_warning(request),
+            ),
+            selection_confirmation_keyboard(request),
+        )
         return
     if text in {"/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "الرئيسية"}:
         send_telegram(render_main_menu(), main_menu_keyboard())

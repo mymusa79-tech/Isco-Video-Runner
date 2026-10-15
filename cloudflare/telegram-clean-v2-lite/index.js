@@ -433,6 +433,31 @@ function isSceneReviewReply(text) {
   return /^[0-9٠-٩\-،,\s]+$/.test(value) && value.replace(/[\s،,]/g, "").length >= 2;
 }
 
+// Owner-typed topic: «بودكاست: عنوان الموضوع». The control script validates it.
+function isCustomTopicText(text) {
+  return /^(?:بودكاست|خارج النص|podcast|شورت|short|فيلم|طويل|long)\s*[:：]\s*\S.{9,}$/i.test(String(text || "").trim());
+}
+
+// Owner-written Short: «شورت جاهز» then عنوان / نص 1-3 / مشهد 1-7. The control script parses it.
+function isOwnerScriptText(text) {
+  return /^شورت\s+جاهز(?:\s|$)/.test(String(text || "").trim());
+}
+
+// Owner-written Podcast: «بودكاست جاهز» starts a draft, «تكملة …» adds text, «تم» finishes.
+// The control script keeps the draft; the Worker only forwards.
+function isOwnerPodcastText(text) {
+  const value = String(text || "").trim();
+  return /^بودكاست\s+جاهز(?:\s|$)/.test(value) || /^تكملة(?:[\s:：]|$)/.test(value) || value === "تم";
+}
+
+// An image sent for the owner Podcast (compressed photo or an image file).
+function isOwnerImageMessage(message) {
+  if (!message) return false;
+  if (Array.isArray(message.photo) && message.photo.length) return true;
+  const mime = String((message.document && message.document.mime_type) || "");
+  return mime.startsWith("image/");
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -629,6 +654,39 @@ export default {
       );
       return new Response("OK");
     }
+    if (isOwnerPodcastText(text) || isOwnerImageMessage(update.message)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير رسالتك إلى GitHub. أعد إرسالها. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isOwnerScriptText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير النص الجاهز إلى GitHub. أعد إرسال الرسالة. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isCustomTopicText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير الموضوع إلى GitHub. أعد إرسال الرسالة. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
     if (isSceneReviewReply(text)) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
@@ -663,6 +721,10 @@ export default {
 };
 
 export {
+  isCustomTopicText,
+  isOwnerScriptText,
+  isOwnerPodcastText,
+  isOwnerImageMessage,
   isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,

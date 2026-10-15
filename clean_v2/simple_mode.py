@@ -28,6 +28,8 @@ from clean_v2.contracts import atomic_write_json
 
 SIMPLE_MODE_ENV = "CLEAN_V2_SIMPLE_MODE"
 FALLBACK_PROVIDER = "generated_local"
+# Images the owner designed himself: never replaced or reviewed, never colour-matched.
+OWNER_ART_PROVIDER = "owner_art"
 REPORT_FILE = "simple-mode-report.json"
 _OBJECTIVE_TONE_FLAG_KEYS = (
     "unverified_religious_quote_flags",
@@ -186,13 +188,16 @@ def simple_visual_qa(
         saved = row.get("visual_evidence") or {}
         audit: dict[str, Any] = {}
         provenance: dict[str, Any] = {}
-        reason = "local_source" if row.get("provider") == FALLBACK_PROVIDER else "visual_review_unavailable"
+        reason = (
+            "local_source" if row.get("provider") in {FALLBACK_PROVIDER, OWNER_ART_PROVIDER}
+            else "visual_review_unavailable"
+        )
         if (isinstance(saved, Mapping) and saved.get("source_sha256") == source_hash
                 and saved.get("context_sha256") == context_hash and saved.get("frame_sha256") and saved.get("prompt_hash")):
             audit = dict(saved.get("audit") or {})
             provenance = dict(saved)
             reason = "reused_exact_pixel_evidence"
-        elif row.get("provider") != FALLBACK_PROVIDER and review_available:
+        elif row.get("provider") not in {FALLBACK_PROVIDER, OWNER_ART_PROVIDER} and review_available:
             try:
                 from scripts.canonical_visual_evidence_v1 import build_canonical_visual_evidence
                 evidence = build_canonical_visual_evidence(
@@ -222,6 +227,11 @@ def simple_visual_qa(
                     raise
                 review_available = False
                 reason = f"review_unavailable:{type(exc).__name__}"
+        if row.get("provider") == OWNER_ART_PROVIDER:
+            # The owner designed this image; nothing may review or replace it.
+            row["visual_verification"] = "owner_designed_art"
+            reviews.append({"local_file": local_file, "decision": "owner_designed_art", "reason": "owner_art"})
+            continue
         audit = _apply_observed_visual_proof(audit)
         risk_fields = ("identifiable_person", "sensitive_trait_implication_risk", "prominent_logo_or_brand",
                        "cultural_conflict", "cultural_islamic_suitability_risk", "advertiser_conflict", "obvious_synthetic_or_visual_artifact")
@@ -303,7 +313,7 @@ def simple_visual_qa(
         "semantic_review": "single_pass" if review_calls else (
             "reused_exact_pixel_evidence" if any(r.get("decision") == "observed_matched" for r in reviews) else "not_performed"),
         "clips": len(primary),
-        "stock_clips": len(primary) - len(backgrounds),
+        "stock_clips": len(primary) - len(backgrounds) - sum(r.get("provider") == OWNER_ART_PROVIDER for r in primary),
         "fallback_backgrounds": len(backgrounds),
         "extra_pacing_clips": len(extra),
         "extra_pacing_stock": len(extra) - len(extra_backgrounds),
@@ -320,6 +330,9 @@ def simple_visual_qa(
         "recovery_searches": 0,
         "review_attempts_per_clip_max": 1,
     }
+    owner_art_clips = sum(r.get("provider") == OWNER_ART_PROVIDER for r in primary)
+    if owner_art_clips:  # key only exists for owner Podcasts; every other report is unchanged
+        report["owner_art_clips"] = owner_art_clips
     atomic_write_json(Path(output_dir) / "final-cut-visual-qa.json", report)
     return report
 
@@ -341,7 +354,8 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         qa = {}
     scenes = int(qa.get("clips") or 0)
     backgrounds = int(qa.get("fallback_backgrounds") or 0)
-    stock = int(qa.get("stock_clips") or max(0, scenes - backgrounds))
+    owner_art_clips = int(qa.get("owner_art_clips") or 0)
+    stock = int(qa.get("stock_clips") or max(0, scenes - backgrounds - owner_art_clips))
     extra = int(qa.get("extra_pacing_clips") or 0)
     extra_bg = int(qa.get("extra_pacing_backgrounds") or 0)
     share = round(backgrounds / scenes, 3) if scenes else 0.0
@@ -370,9 +384,11 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "visual_review_calls": int(qa.get("provider_calls_added") or 0),
         "publish_decision": "owner",
         "scene_review": scene_review_report,
+        **({"owner_designed_art_clips": owner_art_clips} if owner_art_clips else {}),
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
-            f"{backgrounds} channel backgrounds"
+            + (f"{owner_art_clips} owner-designed images, " if owner_art_clips else "")
+            + f"{backgrounds} channel backgrounds"
             + (f" (plus {extra} extra pacing clips, {extra_bg} of them backgrounds)" if extra else "")
             + f". {int(qa.get('observed_matched_clips') or 0)} assets have observed pixel proof; "
             + f"{int(qa.get('local_symbolic_clips') or 0)} are disclosed local symbolic scenes. "
