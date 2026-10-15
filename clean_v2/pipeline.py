@@ -5066,6 +5066,32 @@ PODCAST_MIN_ESTIMATED_SECONDS = 8 * 60.0
 PODCAST_ESTIMATED_WORDS_PER_MINUTE = 105.0
 
 
+def _tts_usage_from_report(report_path: Path, *, wire_attempts: int) -> dict[str, Any]:
+    """Record-only: what this run actually sent to Gemini TTS (cache hits cost nothing)."""
+    requests = chars = cached = 0
+    try:
+        report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        report = {}
+    for section in report.get("sections", []) if isinstance(report, dict) else []:
+        for chunk in section.get("chunks", []) if isinstance(section, dict) else []:
+            if not isinstance(chunk, dict) or not int(chunk.get("chars") or 0):
+                continue
+            if chunk.get("cache_hit") is True:
+                cached += 1
+            else:
+                requests += 1
+                chars += int(chunk.get("chars") or 0)
+    return {
+        "schema_version": 1,
+        "tts_requests_sent": requests,
+        "tts_chars_sent": chars,
+        "tts_chunks_from_cache": cached,
+        "tts_wire_attempts_including_retries": int(wire_attempts or 0),
+        "note": "record only; no limit is enforced here",
+    }
+
+
 def _podcast_listener_proxy_turns(narration: object) -> list[tuple[str, str]]:
     source = " ".join(str(narration or "").split()).strip()
     for fixed in (PRAYER_SENTENCE, PODCAST_CHANNEL_DEFINITION):
@@ -7788,6 +7814,10 @@ class CleanV2Pipeline:
                     )
                     journal.payload["tts_cache_hits"] = int(
                         voice_result.get("tts_cache_hits", 0) or 0
+                    )
+                    journal.payload["tts_usage"] = _tts_usage_from_report(
+                        output_dir / "voice-sections.json",
+                        wire_attempts=journal.payload["tts_wire_attempts"],
                     )
                     voice_roles = voice_result.get("voice_roles")
                     if isinstance(voice_roles, dict):
