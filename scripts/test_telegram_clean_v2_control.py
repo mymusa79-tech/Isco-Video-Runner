@@ -188,6 +188,35 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertIn("بودكاست", send.call_args[0][0])
             self.assertEqual(request["request_sha256"], control._request_hash(request))
 
+    def test_owner_film_draft_creates_long_request_with_scene_images(self):
+        body = " ".join(["كلمة"] * 70)
+        MESSAGE = "فيلم جاهز\nعنوان: لماذا نتعب ونحن لم نفعل شيئًا؟\n" + "\n".join(
+            f"نص {i}: جملة أولى للفصل {i}. جملة ثانية. {body}." for i in range(1, 6)
+        )
+        counter = iter(range(300, 400))
+
+        def update(**fields):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "message_id": next(counter), **fields}}
+
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update(text=MESSAGE), dispatch)
+            for n in range(1, 9):
+                control.handle_update(state, update(document={"file_id": f"f{n}", "file_unique_id": f"u{n}", "mime_type": "image/jpeg"}), dispatch)
+            control.handle_update(state, update(text="تم"), dispatch)
+            self.assertFalse(dispatch.exists())
+            (request,) = state["requests"].values()
+            self.assertEqual(request["scope"], "long")
+            self.assertEqual(request["status"], "awaiting_confirmation")
+            self.assertEqual(request["owner_pack"]["format"], "film")
+            self.assertEqual(len(request["owner_art"]["body"]), 8)
+            self.assertNotIn("owner_podcast_draft", state)
+            self.assertIn("فيلم", send.call_args[0][0])
+            self.assertEqual(request["request_sha256"], control._request_hash(request))
+
     def test_owner_typed_topic_rejections_start_nothing(self):
         state = control.default_state()
         no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})

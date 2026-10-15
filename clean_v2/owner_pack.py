@@ -150,6 +150,21 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise OwnerPackError("ملف النص الجاهز غير صالح.")
+    if data.get("format") == "film":
+        texts = data.get("texts")
+        if (
+            not str(data.get("title") or "").strip()
+            or not isinstance(texts, list) or len(texts) != 5
+            or not all(str(item).strip() for item in texts)
+        ):
+            raise OwnerPackError("ملف الفيلم الجاهز غير مكتمل.")
+        return {
+            "schema_version": 1,
+            "format": "film",
+            "title": " ".join(str(data["title"]).split()),
+            "cta": " ".join(str(data.get("cta") or "").split()),
+            "texts": [" ".join(str(item).split()) for item in texts],
+        }
     if data.get("format") == "podcast":
         turns = data.get("turns")
         if (
@@ -185,7 +200,7 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
 def active_pack_path(fmt: str) -> Path | None:
     """The pack file for this run, only for Shorts and only when the workflow set it."""
     value = os.environ.get(OWNER_PACK_ENV, "").strip()
-    if not value or str(fmt) not in {"short", "podcast"}:
+    if not value or str(fmt) not in {"short", "podcast", "film"}:
         return None
     path = Path(value)
     if not path.is_file():
@@ -211,6 +226,10 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
         from clean_v2 import owner_podcast
 
         return owner_podcast.build_artifacts(pack, brief, out_dir)
+    if pack.get("format") == "film":
+        from clean_v2 import owner_film
+
+        return owner_film.build_artifacts(pack, brief, out_dir)
     from clean_v2.contextual_cta import bind_contextual_cta_to_script
     from clean_v2.contracts import atomic_write_json, validate_plan, validate_script
     from clean_v2.identity_sequence import (

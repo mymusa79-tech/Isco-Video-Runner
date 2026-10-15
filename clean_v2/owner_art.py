@@ -54,17 +54,29 @@ def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WI
     return destination
 
 
-def make_motion_clip(image: Path, destination: Path, *, seconds: float, direction: int) -> Path:
-    """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling)."""
+def make_motion_clip(image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False) -> Path:
+    """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling).
+
+    Podcast: two gentle diagonal moves. Film: four distinct moves over a larger margin, so
+    consecutive images never move the same way.
+    """
     from .media import _run
 
     seconds = max(2.0, float(seconds))
-    extra_w, extra_h = 112, 62  # ~9% larger than the frame
+    extra_w, extra_h = (176, 98) if film else (112, 62)
     big_w, big_h = CLIP_WIDTH + extra_w, CLIP_HEIGHT + extra_h
-    progress = f"t/{seconds:.3f}" if direction % 2 == 0 else f"(1-t/{seconds:.3f})"
+    forward = f"t/{seconds:.3f}"
+    backward = f"(1-t/{seconds:.3f})"
+    style = direction % (4 if film else 2)
+    x, y = {
+        0: (f"{extra_w}*{forward}", f"{extra_h}*{backward}"),   # up-right
+        1: (f"{extra_w}*{backward}", f"{extra_h}*{forward}"),   # down-left
+        2: (f"{extra_w}*{forward}", f"{extra_h}/2"),            # straight right
+        3: (f"{extra_w}/2", f"{extra_h}*{forward}"),            # straight down
+    }[style]
     vf = (
         f"scale={big_w}:{big_h},"
-        f"crop={CLIP_WIDTH}:{CLIP_HEIGHT}:x='{extra_w}*{progress}':y='{extra_h}*(1-{progress})',"
+        f"crop={CLIP_WIDTH}:{CLIP_HEIGHT}:x='{x}':y='{y}',"
         "setsar=1,fps=30,format=yuv420p"
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +89,43 @@ def make_motion_clip(image: Path, destination: Path, *, seconds: float, directio
         ],
         timeout=600,
     )
+    return destination
+
+
+def make_sequence_clip(
+    images: list[Path], destination: Path, *, seconds: float, start_index: int, segment_seconds: float = 8.0
+) -> Path:
+    """Film beat: a hard cut to the next image every few seconds, each with its own move."""
+    from .media import _run
+
+    seconds = max(2.0, float(seconds))
+    count = max(1, round(seconds / segment_seconds))
+    each = seconds / count
+    parts: list[Path] = []
+    for offset in range(count):
+        index = start_index + offset
+        parts.append(
+            make_motion_clip(
+                images[index % len(images)],
+                destination.with_name(f"{destination.stem}-part{offset + 1}.mp4"),
+                seconds=each,
+                direction=index,
+                film=True,
+            )
+        )
+    if len(parts) == 1:
+        parts[0].replace(destination)
+        return destination
+    listing = destination.with_suffix(".txt")
+    listing.write_text("".join(f"file '{part.resolve()}'\n" for part in parts), encoding="utf-8")
+    _run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+         "-i", str(listing), "-c", "copy", str(destination)],
+        timeout=600,
+    )
+    for part in parts:
+        part.unlink(missing_ok=True)
+    listing.unlink(missing_ok=True)
     return destination
 
 
@@ -98,7 +147,7 @@ class OwnerArtVisualSource:
         max_visuals: int,
         section_estimated_seconds: Mapping[str, float] | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
-        images = body_images(self._directory) if fmt == "podcast" else []
+        images = body_images(self._directory) if fmt in {"podcast", "film"} else []
         if not images:
             return self._inner.acquire(plan, output_dir, fmt, max_visuals, section_estimated_seconds)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +157,7 @@ class OwnerArtVisualSource:
         beats = [b for b in ((story or {}).get("beats") or []) if isinstance(b, Mapping)] if isinstance(story, Mapping) else []
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
+        cursor = 0
         per_section: dict[str, int] = {}
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
@@ -117,9 +167,12 @@ class OwnerArtVisualSource:
             beat_id = str(beat.get("id") or f"b{index + 1}")
             image = images[index % len(images)]
             seconds = float(estimates.get(section_id) or 60.0) / max(1, per_section.get(section_id, 1)) + 6.0
-            clip = make_motion_clip(
-                image, output_dir / f"visual-owner-art-{beat_id}.mp4", seconds=seconds, direction=index
-            )
+            clip_path = output_dir / f"visual-owner-art-{beat_id}.mp4"
+            if fmt == "film":
+                clip = make_sequence_clip(images, clip_path, seconds=seconds, start_index=cursor)
+                cursor += max(1, round(seconds / 8.0))
+            else:
+                clip = make_motion_clip(image, clip_path, seconds=seconds, direction=index)
             transform = getattr(self._inner, "media_transform", None)
             if transform is not None:
                 clip = Path(transform(clip))
