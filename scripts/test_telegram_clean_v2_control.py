@@ -217,6 +217,31 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertIn("فيلم", send.call_args[0][0])
             self.assertEqual(request["request_sha256"], control._request_hash(request))
 
+    def test_owner_text_file_is_read_as_the_message_text(self):
+        # UTF-8 Arabic in a .txt file follows the same path as a typed «شورت جاهز».
+        body = "شورت جاهز\nعنوان: x\n"
+        counter = iter(range(500, 600))
+
+        def update(**fields):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "message_id": next(counter), **fields}}
+
+        document = {"file_id": "t1", "file_name": "short.txt", "mime_type": "text/plain"}
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            with mock.patch.object(control, "_download_telegram_file", return_value=("\ufeff" + body).encode("utf-8")) as get:
+                control.handle_update(state, update(document=document), dispatch)
+            get.assert_called_once_with("t1")
+            self.assertIn("لم يبدأ أي إنتاج", send.call_args[0][0])  # parsed as a Short, rejected for missing fields
+            self.assertNotIn("تعذر", send.call_args[0][0])
+            send.reset_mock()
+            with mock.patch.object(control, "_download_telegram_file", side_effect=OSError("down")):
+                control.handle_update(state, update(document=document), dispatch)
+            self.assertIn("تعذر تحميل", send.call_args[0][0])
+            self.assertEqual(state["requests"], {})
+
     def test_owner_typed_topic_rejections_start_nothing(self):
         state = control.default_state()
         no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})

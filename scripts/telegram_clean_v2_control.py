@@ -31,10 +31,10 @@ except ModuleNotFoundError:
     import telegram_scene_review as scene_review
 
 try:
-    from clean_v2 import owner_film, owner_pack, owner_podcast
+    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile
 except ImportError:  # run as a plain script from scripts/
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from clean_v2 import owner_film, owner_pack, owner_podcast
+    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -2386,6 +2386,20 @@ def _handle_owner_podcast_message(
     return False
 
 
+def _download_telegram_file(file_id: str) -> bytes:
+    token = str(os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError("missing bot token")
+    info = _json_request(
+        f"https://api.telegram.org/bot{token}/getFile?" + urllib.parse.urlencode({"file_id": file_id})
+    )
+    path = ((info or {}).get("result") or {}).get("file_path")
+    if not path:
+        raise RuntimeError("telegram getFile failed")
+    with urllib.request.urlopen(f"https://api.telegram.org/file/bot{token}/{path}", timeout=30) as response:
+        return response.read(owner_textfile.MAX_BYTES + 1)
+
+
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
     if not authorized(update):
         raise RuntimeError("unauthorized Telegram update")
@@ -2644,6 +2658,15 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         raise RuntimeError("unsupported callback")
 
     message = update.get("message") or {}
+    if owner_textfile.is_text_document(message):
+        try:
+            message = owner_textfile.message_with_file_text(message, _download_telegram_file)
+        except owner_pack.OwnerPackError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        except Exception:
+            send_telegram("⚠️ تعذر تحميل الملف النصي من تلغرام. أعد إرساله. لم يبدأ أي إنتاج.")
+            return
     text = _normalize_user_command_text(str(message.get("text") or ""))
     if scene_review.is_reply_text(text) and (
         scene_review.has_prefix(text) or scene_review.find_awaiting(state) is not None
