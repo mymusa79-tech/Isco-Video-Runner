@@ -13120,9 +13120,40 @@
       "dispatched_at": null,
       "request_sha256": "37760ba2b82b3abc60e9ac207ede2cda0ceee411eec7024a6f7d5194b4c8ed5c",
       "cancelled_at": "2026-10-15T00:28:26Z"
+    },
+    "req-bbfa4789f148": {
+      "schema_version": 1,
+      "request_id": "req-bbfa4789f148",
+      "source": "clean_v2_telegram_editorial_lite",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تبني عادة تستمر عندما يختفي الدافع؟",
+      "research_pack": [
+        {
+          "source_title": "success is A habit  Improve your english fluency ✅️   motivational video 🔥",
+          "source_url": "https://youtu.be/ymLGIiFwozY",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Stop Waiting for Motivation to Draw | Build a Better Drawing Habit",
+          "source_url": "https://youtu.be/aIgoGl811hI",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        },
+        {
+          "source_title": "Become Mentally Stronger With These 20 Daily Habits 🧠| Build Discipline, Focus & Unstoppable Mindse✅",
+          "source_url": "https://youtu.be/skj-9qNtZRA",
+          "claim_scope": "دليل سوقي على وجود محتوى واهتمام حديث حول الموضوع فقط؛ لا يثبت تشخيصًا نفسيًا أو سببية أو نسبة أو ادعاءً علميًا."
+        }
+      ],
+      "idea_id": "idea-38555beb28",
+      "selected_at": "2026-10-15T00:35:48Z",
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6ad10936c0c59b28258ee887b31d20bb2ae406b0ab5fab73c366f8f6b0fd469b"
     }
   },
-  "current_request_id": null,
+  "current_request_id": "req-bbfa4789f148",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -13510,6 +13541,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-15T00:34:41Z",
+  "updated_at": "2026-10-15T00:35:48Z",
   "provider_cooldown_until": "2026-10-15T00:54:41.449658Z"
 }
