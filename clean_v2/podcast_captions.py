@@ -79,16 +79,23 @@ def _silence_midpoints(audio: Path) -> list[float]:
 
 
 def align_boundaries(weights: Sequence[int], duration: float, pauses: Sequence[float]) -> list[float]:
-    """Cut points (len(weights)+1, from 0 to duration), snapped to real pauses when close."""
-    total = float(sum(weights)) or 1.0
+    """Cut points (len(weights)+1, from 0 to duration), snapped to real pauses when close.
+
+    Each cut starts from the character-weighted estimate over the time that is still left
+    (so a snap re-anchors the rest instead of letting error pile up) and moves to a detected
+    pause only if one lies within about half a phrase of the estimate. A far-away pause is
+    more likely another sentence gap than this boundary, so it is ignored.
+    """
     cuts = [0.0]
-    running = 0.0
-    tolerance = max(1.2, 0.12 * duration)
-    for index, weight in enumerate(weights[:-1]):
-        running += weight
-        target = duration * running / total
+    count = len(weights)
+    for index in range(count - 1):
+        remaining_weight = float(sum(weights[index:])) or 1.0
+        remaining_time = duration - cuts[-1]
+        phrase = remaining_time * weights[index] / remaining_weight
+        target = cuts[-1] + phrase
+        tolerance = min(2.5, max(0.6, 0.45 * phrase))
         floor = cuts[-1] + MIN_EVENT_SECONDS
-        ceiling = duration - MIN_EVENT_SECONDS * (len(weights) - index - 1)
+        ceiling = duration - MIN_EVENT_SECONDS * (count - index - 1)
         near = [p for p in pauses if floor <= p <= ceiling and abs(p - target) <= tolerance]
         cut = min(near, key=lambda p: abs(p - target)) if near else target
         cuts.append(min(max(cut, floor), max(floor, ceiling)))

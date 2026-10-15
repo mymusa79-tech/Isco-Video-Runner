@@ -50,6 +50,14 @@ class AlignmentTests(unittest.TestCase):
         self.assertAlmostEqual(cuts[1], 2.75, places=2)
         self.assertAlmostEqual(cuts[2], 7.25, places=2)
 
+    def test_a_snap_reanchors_the_rest_and_distant_pauses_do_not_hijack_a_cut(self) -> None:
+        # Four equal phrases in 40 s: estimates 10/20/30. A pause 8 s away from the first
+        # estimate is another sentence gap, not this boundary.
+        cuts = pc.align_boundaries([1, 1, 1, 1], 40.0, [2.0, 10.8, 29.0])
+        self.assertAlmostEqual(cuts[1], 10.8, places=2)   # close -> snapped
+        self.assertAlmostEqual(cuts[2], 10.8 + (40 - 10.8) / 3, places=1)  # re-anchored estimate
+        self.assertNotIn(2.0, cuts)
+
     def test_far_pauses_are_ignored_and_weights_decide(self) -> None:
         cuts = pc.align_boundaries([1, 1], 10.0, [9.9])
         self.assertAlmostEqual(cuts[1], 5.0, places=2)
