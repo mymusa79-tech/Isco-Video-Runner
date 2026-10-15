@@ -313,7 +313,6 @@ def simple_visual_qa(
         "semantic_review": "single_pass" if review_calls else (
             "reused_exact_pixel_evidence" if any(r.get("decision") == "observed_matched" for r in reviews) else "not_performed"),
         "clips": len(primary),
-        "owner_art_clips": sum(r.get("provider") == OWNER_ART_PROVIDER for r in primary),
         "stock_clips": len(primary) - len(backgrounds) - sum(r.get("provider") == OWNER_ART_PROVIDER for r in primary),
         "fallback_backgrounds": len(backgrounds),
         "extra_pacing_clips": len(extra),
@@ -331,6 +330,9 @@ def simple_visual_qa(
         "recovery_searches": 0,
         "review_attempts_per_clip_max": 1,
     }
+    owner_art_clips = sum(r.get("provider") == OWNER_ART_PROVIDER for r in primary)
+    if owner_art_clips:  # key only exists for owner Podcasts; every other report is unchanged
+        report["owner_art_clips"] = owner_art_clips
     atomic_write_json(Path(output_dir) / "final-cut-visual-qa.json", report)
     return report
 
@@ -353,7 +355,7 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     scenes = int(qa.get("clips") or 0)
     backgrounds = int(qa.get("fallback_backgrounds") or 0)
     owner_art_clips = int(qa.get("owner_art_clips") or 0)
-    stock = int(qa["stock_clips"]) if "stock_clips" in qa else max(0, scenes - backgrounds - owner_art_clips)
+    stock = int(qa.get("stock_clips") or max(0, scenes - backgrounds - owner_art_clips))
     extra = int(qa.get("extra_pacing_clips") or 0)
     extra_bg = int(qa.get("extra_pacing_backgrounds") or 0)
     share = round(backgrounds / scenes, 3) if scenes else 0.0
@@ -366,7 +368,6 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "format": fmt,
         "scenes": scenes,
         "stock_clips_selected_by_ranking": stock,
-        "owner_designed_art_clips": owner_art_clips,
         "fallback_backgrounds": backgrounds,
         "fallback_share": share,
         "extra_pacing_clips": extra,
@@ -383,6 +384,7 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "visual_review_calls": int(qa.get("provider_calls_added") or 0),
         "publish_decision": "owner",
         "scene_review": scene_review_report,
+        **({"owner_designed_art_clips": owner_art_clips} if owner_art_clips else {}),
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
             + (f"{owner_art_clips} owner-designed images, " if owner_art_clips else "")
