@@ -8,6 +8,7 @@ const workerModule = await import(`data:text/javascript;base64,${Buffer.from(wor
 const {
   default: worker,
   isCustomTopicText,
+  isOwnerScriptText,
   isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
@@ -277,6 +278,14 @@ test("worker dispatches scene review replies and the auto button to the control 
   }
   assert.equal(dispatched.length, 2, "reply and auto button dispatch once each; chatter does not");
   assert.ok(answered.some((a) => String(a.text || "").includes("الآلي")));
+});
+
+test("owner-written short is recognised only with its prefix", () => {
+  assert.equal(isOwnerScriptText("شورت جاهز\nعنوان: x\nنص 1: y"), true);
+  assert.equal(isOwnerScriptText("  شورت جاهز"), true);
+  for (const no of ["شورت", "شورت: كيف تبدأ من جديد دون خطة", "عنوان: شورت جاهز", ""]) {
+    assert.equal(isOwnerScriptText(no), false, no);
+  }
 });
 
 test("owner typed topic is recognised only in the prefixed form", () => {

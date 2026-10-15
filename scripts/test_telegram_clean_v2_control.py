@@ -98,6 +98,54 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertTrue(request["research_pack"])
         self.assertEqual(state["ideas"][0]["source"], "owner_typed")
 
+    def test_owner_written_short_binds_exact_text_and_stops_for_scene_review(self):
+        from scripts.test_owner_pack import MESSAGE
+
+        state = control.default_state()
+        pack = control.owner_pack.parse_owner_message(MESSAGE)
+        request = control.select_owner_script(state, pack)
+        self.assertEqual(request["status"], "awaiting_confirmation")
+        self.assertEqual(request["scope"], "short")
+        self.assertIsNone(request["dispatched_at"])
+        self.assertIn("نصّك الجاهز", control.render_owner_pack_confirmation(request))
+        original = request["request_sha256"]
+        request["owner_pack"]["texts"][1] += " زيادة"
+        self.assertNotEqual(control._request_hash(request), original)
+        request["owner_pack"]["texts"][1] = request["owner_pack"]["texts"][1][: -len(" زيادة")]
+        self.assertEqual(control._request_hash(request), original)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            dispatch = Path(temporary) / "dispatch.json"
+            with mock.patch.object(control.resume_history, "provider_cooldown_remaining_seconds", return_value=0):
+                result = control._stage_confirmation_dispatch(state, dispatch)
+            self.assertEqual(result["request"]["scene_review"], {"status": "collect"})
+            request["status"] = "dispatched"
+            brief = control.materialize_brief(
+                state, request["request_id"], request["request_sha256"], "short", Path(temporary) / "brief.json"
+            )
+            self.assertEqual(brief["format"], "short")
+            self.assertEqual(brief["approved_topic"], pack["title"])
+
+    def test_owner_written_short_message_flows_through_the_text_handler(self):
+        from scripts.test_owner_pack import MESSAGE
+
+        def update(text):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": text}}
+
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update("شورت جاهز\nعنوان: x"), dispatch)
+            self.assertEqual(state["requests"], {})
+            self.assertIn("لم يبدأ أي إنتاج", send.call_args[0][0])
+            control.handle_update(state, update(MESSAGE), dispatch)
+            self.assertFalse(dispatch.exists())
+            (request,) = state["requests"].values()
+            self.assertEqual(request["status"], "awaiting_confirmation")
+            self.assertEqual(len(request["owner_pack"]["scenes"]), 7)
+
     def test_owner_typed_topic_rejections_start_nothing(self):
         state = control.default_state()
         no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})

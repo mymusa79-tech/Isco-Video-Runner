@@ -438,6 +438,11 @@ function isCustomTopicText(text) {
   return /^(?:بودكاست|خارج النص|podcast|شورت|short|فيلم|طويل|long)\s*[:：]\s*\S.{9,}$/i.test(String(text || "").trim());
 }
 
+// Owner-written Short: «شورت جاهز» then عنوان / نص 1-3 / مشهد 1-7. The control script parses it.
+function isOwnerScriptText(text) {
+  return /^شورت\s+جاهز(?:\s|$)/.test(String(text || "").trim());
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -634,6 +639,17 @@ export default {
       );
       return new Response("OK");
     }
+    if (isOwnerScriptText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير النص الجاهز إلى GitHub. أعد إرسال الرسالة. لم يبدأ أي إنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
     if (isCustomTopicText(text)) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
@@ -680,6 +696,7 @@ export default {
 
 export {
   isCustomTopicText,
+  isOwnerScriptText,
   isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,

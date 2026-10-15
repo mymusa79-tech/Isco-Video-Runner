@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -28,6 +29,12 @@ except ModuleNotFoundError:
     from tavily_research_lite import collect_topic_sources
     import telegram_resume_history as resume_history
     import telegram_scene_review as scene_review
+
+try:
+    from clean_v2 import owner_pack
+except ImportError:  # run as a plain script from scripts/
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from clean_v2 import owner_pack
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -981,6 +988,9 @@ def _request_hash(request: dict[str, Any]) -> str:
         "selected_at",
     )
     payload = {key: request.get(key) for key in immutable_keys}
+    if request.get("owner_pack") is not None:
+        # Owner-written Short: the exact text is part of what he approved.
+        payload["owner_pack"] = request["owner_pack"]
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
@@ -1268,6 +1278,8 @@ def render_selection_confirmation(
     *,
     spacing_warning: str = "",
 ) -> str:
+    if isinstance(request.get("owner_pack"), dict):
+        return render_owner_pack_confirmation(request)
     scope_label = {
         "long": "فيديو طويل — يحاول استخراج شورت تلقائيًا بعد نجاح الطويل",
         "bundle": "فيديو طويل + شورت (خيار قديم)",
@@ -2004,6 +2016,71 @@ def select_custom_topic(state: dict[str, Any], scope: str, title: str) -> dict[s
     return select_candidate(state, session_id, 0)
 
 
+def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
+    pack = request["owner_pack"]
+    words = sum(len(str(item).split()) for item in pack["texts"])
+    return "\n".join(
+        [
+            "✅ استلمت نصّك الجاهز (شورت)",
+            "",
+            f"العنوان: {request['approved_topic']}",
+            f"النص: {words} كلمة في 3 أقسام، و{len(pack['scenes'])} مشاهد للبحث.",
+            "",
+            "لن يكتب أي نموذج النص ولن يدقّقه: يُقرأ كما كتبته (تُضاف فقط الصلاة وتعريف القناة بعد الجملة الأولى).",
+            "بعد الصوت سأرسل لك مرشّحي كل مشهد لتختار.",
+            "",
+            "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» أدناه للبدء.",
+        ]
+    )
+
+
+def select_owner_script(state: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
+    """Owner-written Short: nothing is produced here; he still confirms the button."""
+    title = " ".join(str(pack["title"]).split())
+    idea = {
+        "idea_id": "idea-" + secrets.token_hex(5),
+        "title": title,
+        "normalized_title": normalize_title(title),
+        "market_query": title[:120],
+        "knowledge_query_en": "",
+        "reason": "نص جاهز كتبه المالك",
+        "market_score": 0,
+        "market_evidence": {},
+        "research_pack": [],
+        "selected": True,
+        "selected_at": utc_now(),
+        "created_at": utc_now(),
+        "source": "owner_script",
+    }
+    state["ideas"].append(idea)
+    request_id = "req-" + secrets.token_hex(6)
+    request: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "source": "clean_v2_telegram_owner_script",
+        "scope": "short",
+        "approved_by_user": True,
+        "approved_topic": title,
+        "research_pack": [
+            {
+                "source_title": "نص كتبه المالك",
+                "source_type": "owner_authored",
+                "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء.",
+            }
+        ],
+        "idea_id": idea["idea_id"],
+        "selected_at": idea["selected_at"],
+        "owner_pack": pack,
+        "status": "awaiting_confirmation",
+        "confirmed_at": None,
+        "dispatched_at": None,
+    }
+    request["request_sha256"] = _request_hash(request)
+    state["requests"][request_id] = request
+    state["current_request_id"] = request_id
+    return request
+
+
 def latest_release_delivery() -> dict[str, str]:
     payload = _github_release_json("releases?per_page=50")
     if not isinstance(payload, list):
@@ -2435,6 +2512,16 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
     ):
         # Bare digits count only while a review is waiting; otherwise they are chatter.
         _apply_scene_review(state, dispatch_path, text=text)
+        return
+    raw_text = str(message.get("text") or "")
+    if owner_pack.has_prefix(raw_text) and owner_pack.has_prefix(text):
+        try:
+            # Raw text: the normalizer above flattens the line breaks the owner typed.
+            request = select_owner_script(state, owner_pack.parse_owner_message(raw_text))
+        except owner_pack.OwnerPackError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        send_telegram(render_owner_pack_confirmation(request), selection_confirmation_keyboard(request))
         return
     custom = parse_custom_topic(text)
     if custom is not None:

@@ -189,6 +189,13 @@ jobs:
               echo "::notice title=scene-review::phase 2 - applying the owner's saved scene choices"
               ;;
           esac
+          # Owner-written Short: the exact text he approved (part of the request hash).
+          if [ "$(jq -r --arg id "$REQUEST_ID" '.requests[$id].owner_pack | type' "$state")" = "object" ]; then
+            owner_pack="$RUNNER_TEMP/owner-pack.json"
+            jq -c --arg id "$REQUEST_ID" '.requests[$id].owner_pack' "$state" > "$owner_pack"
+            echo "CLEAN_V2_OWNER_PACK=$owner_pack" >> "$GITHUB_ENV"
+            echo "::notice title=owner-script::owner-written text; no planning/script/tone/factuality model call"
+          fi
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
