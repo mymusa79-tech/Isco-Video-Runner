@@ -111,7 +111,12 @@ class ArtifactTests(unittest.TestCase):
             plan = json.loads((out / "plan.json").read_text(encoding="utf-8"))
             self.assertEqual(plan["narrative_format"], "dialogue_qa")
             story = json.loads((out / "visual-story.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(story["beats"]), len(plan["sections"]))
+            beats = story["beats"]
+            self.assertEqual(len(beats), 2 * len(plan["sections"]))
+            # The hook section needs a hook beat AND a later non-hook (topic) beat.
+            first_section = [b for b in beats if b["section_id"] == "s1"]
+            self.assertEqual([b["role"] for b in first_section][0], "hook")
+            self.assertNotEqual(first_section[1]["role"], "hook")
 
 
 class DraftTests(unittest.TestCase):
@@ -147,7 +152,8 @@ class ArtTests(unittest.TestCase):
             root = Path(temporary)
             Image.new("RGB", (1000, 1300), (30, 40, 90)).save(root / "raw.png")
             normalized = owner_art.normalize_image(root / "raw.png", root / "image-1.jpg")
-            self.assertEqual(Image.open(normalized).size, (1920, 1080))
+            with Image.open(normalized) as result:
+                self.assertEqual(result.size, (1920, 1080))
             clip = owner_art.make_motion_clip(normalized, root / "c.mp4", seconds=2.5, direction=1)
             from clean_v2.media import probe_duration
 
@@ -185,7 +191,8 @@ class ArtTests(unittest.TestCase):
             out = Path(temporary) / "art"
             written = fetch_owner_art.fetch(art, out, "token", fetcher=fake)
             self.assertEqual(written, ["image-1.jpg", "image-2.jpg", "cover.jpg"])
-            self.assertEqual(Image.open(out / "cover.jpg").size, owner_art.COVER_SIZE)
+            with Image.open(out / "cover.jpg") as cover:
+                self.assertEqual(cover.size, owner_art.COVER_SIZE)
             self.assertEqual([p.name for p in owner_art.body_images(out)], ["image-1.jpg", "image-2.jpg"])
 
 
