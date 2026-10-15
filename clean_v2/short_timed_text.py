@@ -1143,6 +1143,27 @@ def apply_short_timed_text(
     }
 
 
+# Podcast captions: A (the listener asking) in gold, B (the host answering) in the normal
+# off-white. Colour lives only in the optional .ass file; the .srt stays plain text.
+SPEAKER_ASS_COLOR = {"A": r"\c&H5BA8D7&"}
+_SPEAKER_TURN_RE = re.compile(r"(?<!\S)([AB]):\s*")
+
+
+def _speaker_chunks(text: str) -> list[tuple[str, str]]:
+    """Split A:/B: dialogue into caption phrases, each tagged with its speaker."""
+    marks = list(_SPEAKER_TURN_RE.finditer(str(text or "")))
+    if not marks:
+        return [("", chunk) for chunk in _phrase_chunks(text)]
+    tagged: list[tuple[str, str]] = []
+    lead = str(text)[: marks[0].start()].strip()
+    if lead:
+        tagged.extend(("", chunk) for chunk in _phrase_chunks(lead))
+    for position, mark in enumerate(marks):
+        end = marks[position + 1].start() if position + 1 < len(marks) else len(text)
+        tagged.extend((mark.group(1), chunk) for chunk in _phrase_chunks(str(text)[mark.end():end]))
+    return tagged
+
+
 def write_longform_caption_sidecars(
     *, output_dir: Path, script: Mapping[str, Any], fmt: str,
 ) -> dict[str, Any]:
@@ -1165,8 +1186,10 @@ def write_longform_caption_sidecars(
         if isinstance(row, Mapping)
     }
     # Protect the fixed intro, prayer, identity and outro images from captions.
+    from .identity_sequence import PRAYER_SENTENCE as PODCAST_PRAYER_TEXT
+
     allowed_windows = [
-        (float(row["start"]), float(row["end"]))
+        (float(row["start"]), float(row["end"]), str(row.get("kind")))
         for row in (timeline.get("identity_events") or [])
         if isinstance(row, Mapping) and row.get("kind") in {"hook", "topic"}
     ]
@@ -1178,11 +1201,26 @@ def write_longform_caption_sidecars(
         if not text:
             continue
         section_start, section_end = float(section["start"]), float(section["end"])
-        for left, right in allowed_windows:
+        for left, right, kind in allowed_windows:
             start, end = max(section_start, left), min(section_end, right)
             if end <= start:
                 continue
-            chunks = _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text))
+            window_text = text
+            if fmt == "podcast":
+                # Caption exactly what is spoken inside this window: the hook question
+                # in the hook window, everything after the prayer in the topic window.
+                if kind == "hook":
+                    window_text = _select_event_text(text, "hook")
+                elif start > section_start and PODCAST_PRAYER_TEXT in text:
+                    window_text = text.split(PODCAST_PRAYER_TEXT, 1)[-1].strip()
+                tagged = _speaker_chunks(window_text)
+            else:
+                tagged = [
+                    ("", chunk)
+                    for chunk in _phrase_chunks(re.sub(r"(?m)(?:^|\s)[AB]:\s*", " ", text))
+                ]
+            chunks = [chunk for _speaker, chunk in tagged]
+            speakers = [speaker for speaker, _chunk in tagged]
             if not chunks:
                 continue
             weights = [max(1, len(_clean(chunk))) for chunk in chunks]
@@ -1192,7 +1230,7 @@ def write_longform_caption_sidecars(
                 boundary = end if index == len(chunks) - 1 else cursor + (end - start) * weight / total_weight
                 if boundary <= cursor:
                     continue
-                events.append({"start": cursor, "end": boundary, "text": chunk})
+                events.append({"start": cursor, "end": boundary, "text": chunk, "speaker": speakers[index]})
                 cursor = boundary
     if not events:
         return {"status": "not_available", "format": fmt, "reason": "no_topic_caption_windows"}
@@ -1212,7 +1250,7 @@ def write_longform_caption_sidecars(
         rendered = r"\N".join(_rtl_row(value.split()) for value in rows)
         dialogues.append(
             f'Dialogue: 0,{_ass_time(row["start"])},{_ass_time(row["end"])},Caption,,0,0,0,,'
-            + r"{\fs" + str(fitted) + r"\fad(120,140)}" + rendered
+            + r"{\fs" + str(fitted) + r"\fad(120,140)" + SPEAKER_ASS_COLOR.get(str(row.get("speaker") or ""), "") + "}" + rendered
         )
 
     ass = "\n".join([

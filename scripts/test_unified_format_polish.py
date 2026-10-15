@@ -158,6 +158,54 @@ class UnifiedFormatPolishTests(unittest.TestCase):
                 self.assertIn("Style: Caption,Cairo", ass)
                 self.assertTrue((root / "caption-sidecars.json").is_file())
 
+    def test_podcast_captions_colour_each_speaker_and_follow_the_spoken_windows(self):
+        from clean_v2.identity_sequence import PRAYER_SENTENCE
+
+        timeline = {
+            "status": "pass",
+            "section_events": [{"section_id": "s1", "start": 0.0, "end": 20.0}],
+            "identity_events": [
+                {"kind": "hook", "start": 0.0, "end": 3.0},
+                {"kind": "prayer", "start": 3.0, "end": 5.0},
+                {"kind": "topic", "start": 5.0, "end": 20.0},
+            ],
+        }
+        narration = (
+            "A: لماذا نتعب بلا سبب؟ B: سأجيبك على هذا، لكن أولاً. " + PRAYER_SENTENCE
+            + " B: لأن القرارات الصغيرة تستهلك انتباهك. A: وكيف أتوقف؟ B: ابدأ بأهم عمل."
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "timeline-first.json").write_text(json.dumps(timeline), encoding="utf-8")
+            with mock.patch.object(
+                short_timed_text, "_caption_width",
+                side_effect=lambda text, size: len(text) * size * .5,
+            ):
+                result = short_timed_text.write_longform_caption_sidecars(
+                    output_dir=root, script={"sections": [{"id": "s1", "narration": narration}]},
+                    fmt="podcast",
+                )
+            srt = (root / result["srt"]).read_text(encoding="utf-8")
+            ass = (root / result["ass"]).read_text(encoding="utf-8")
+        self.assertNotIn("A:", srt)
+        self.assertNotIn("B:", srt)
+        self.assertNotIn("اللهم", srt)
+        self.assertNotIn("<font", srt)
+        gold = r"\c&H5BA8D7&"
+        lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+        coloured = [line for line in lines if gold in line]
+        plain = [line for line in lines if gold not in line]
+        self.assertTrue(coloured and plain)
+        # The hook window shows only the hook question (not the whole section).
+        first = lines[0]
+        self.assertIn(gold, first)
+        self.assertIn("0:00:00.00,0:00:03.00", first)
+        self.assertNotIn("القرارات", first)
+        # Every spoken word appears in the captions, none invented.
+        shown = " ".join(srt.split())
+        for word in ("لماذا", "نتعب", "القرارات", "انتباهك", "ابدأ"):
+            self.assertIn(word, shown)
+
     def test_world_identity_is_global_and_respects_modest_people(self):
         self.assertIn("globally understandable", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("modestly dressed woman", CHANNEL_VISUAL_IDENTITY)
