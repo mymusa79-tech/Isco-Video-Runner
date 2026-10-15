@@ -206,6 +206,37 @@ class UnifiedFormatPolishTests(unittest.TestCase):
         for word in ("لماذا", "نتعب", "القرارات", "انتباهك", "ابدأ"):
             self.assertIn(word, shown)
 
+    def test_caption_splitting_never_changes_a_word_across_formats(self):
+        samples = [
+            "مُؤَثِّر جدًا، ولكنَّ الأمرَ ليس كما تظنُّ؛ فالحقيقةُ أبسط: هل جرّبتَ أن تتوقّف؟",
+            "هذه جملة عربية طويلة جدًا تحتوي على كلمات كثيرة متتابعة دون أي علامة ترقيم تفصل بينها لنتأكد أن التقسيم لا يغيّر أي كلمة منها أبدًا وأنها تبقى كما كُتبت تمامًا",
+            "إنَّ القرار الصغير، حين يتكرّر، يصير عادة! ثم تصير العادة هويّة. أليس كذلك؟",
+        ]
+        for sample in samples:
+            with mock.patch.object(
+                short_timed_text, "_caption_width",
+                side_effect=lambda text, size: len(text) * size * 0.55,
+            ):
+                self.assertTrue(
+                    short_timed_text.is_verbatim_split(short_timed_text._phrase_chunks(sample), sample), sample
+                )
+                tagged = short_timed_text._speaker_chunks(f"A: {sample} B: {sample}")
+                self.assertTrue(
+                    short_timed_text.is_verbatim_split([c for _s, c in tagged], f"A: {sample} B: {sample}")
+                )
+        self.assertTrue(short_timed_text.occurs_in_source("فالحقيقةُ أبسط:", samples[0]))
+        self.assertFalse(short_timed_text.occurs_in_source("فالحقيقة أبسط:", samples[0]))  # a missing diacritic is a change
+
+    def test_font_actually_used_is_read_from_libass_output(self):
+        log = "[Parsed_ass_0 @ 0x1] fontselect: (Cairo, 700, 0) -> /home/u/.local/share/fonts/isco-cairo/Cairo.ttf, 0, Cairo-Bold"
+        found = short_timed_text.resolved_font(log)
+        self.assertTrue(found["is_requested_font"])
+        fallback = short_timed_text.resolved_font(
+            "fontselect: (Cairo, 700, 0) -> /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf, 0, DejaVuSans-Bold"
+        )
+        self.assertFalse(fallback["is_requested_font"])
+        self.assertFalse(short_timed_text.resolved_font("")["is_requested_font"])
+
     def test_world_identity_is_global_and_respects_modest_people(self):
         self.assertIn("globally understandable", CHANNEL_VISUAL_IDENTITY)
         self.assertIn("modestly dressed woman", CHANNEL_VISUAL_IDENTITY)

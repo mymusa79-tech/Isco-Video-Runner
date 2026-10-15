@@ -32,6 +32,8 @@ from .short_timed_text import (
     _caption_rows_and_size,
     _filter_escape_path,
     _rtl_row,
+    is_verbatim_split,
+    resolved_font,
     _secret_free_subprocess_env,
     _speaker_chunks,
     _srt_time,
@@ -41,7 +43,7 @@ SCHEMA_VERSION = 1
 CAPTION_ROLES = frozenset({"hook", "topic"})  # cta_topic keeps its own on-screen CTA
 SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
 SPEAKER_ASS = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}
-FONT_SIZE = 56
+FONT_SIZE = 64  # 5.9% of the 1080 px frame; two rows still fit the safe width
 MARGIN_V = 150
 MIN_EVENT_SECONDS = 0.5
 SILENCE_NOISE_DB = -32
@@ -103,6 +105,32 @@ def align_boundaries(weights: Sequence[int], duration: float, pauses: Sequence[f
     return cuts
 
 
+def align_phrases(
+    tagged: Sequence[tuple[str, str]], duration: float, pauses: Sequence[float]
+) -> list[tuple[str, str, float, float]]:
+    """(speaker, phrase, start, end) inside one chunk.
+
+    Turn changes are aligned first, against all the pauses: that is where the audio has a
+    reliable gap. Phrase cuts inside a turn then use only the pauses that fall inside that turn,
+    so a turn-change pause can never be mistaken for a mid-sentence boundary.
+    """
+    turns: list[list[int]] = []
+    for index, (speaker, _chunk) in enumerate(tagged):
+        if turns and tagged[turns[-1][-1]][0] == speaker:
+            turns[-1].append(index)
+        else:
+            turns.append([index])
+    turn_weights = [sum(max(1, len(tagged[i][1])) for i in group) for group in turns]
+    turn_cuts = align_boundaries(turn_weights, duration, pauses)
+    placed: list[tuple[str, str, float, float]] = []
+    for group, left, right in zip(turns, turn_cuts, turn_cuts[1:]):
+        inner = [p - left for p in pauses if left + 0.3 < p < right - 0.3]
+        cuts = align_boundaries([max(1, len(tagged[i][1])) for i in group], right - left, inner)
+        for i, a, b in zip(group, cuts, cuts[1:]):
+            placed.append((tagged[i][0], tagged[i][1], left + a, left + b))
+    return placed
+
+
 def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
     root = Path(output_dir)
     timeline = _read_json(root / "timeline-first.json")
@@ -130,19 +158,22 @@ def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
         start, end = float(unit["start"]), float(unit["end"])
         if end - start < MIN_EVENT_SECONDS:
             continue
-        tagged = [(speaker, chunk) for speaker, chunk in _speaker_chunks(text) if chunk.strip()]
+        tagged = [(speaker, chunk) for speaker, chunk in _speaker_chunks(text, "podcast") if chunk.strip()]
         if not tagged:
             continue
+        if not is_verbatim_split([chunk for _speaker, chunk in tagged], text):
+            # The approved text is the only truth: a caption set that added, lost or changed
+            # a word is never drawn.
+            raise PodcastCaptionError("podcast_captions_text_not_verbatim")
         audio = root / str(unit.get("file") or "")
         pauses = _silence_midpoints(audio) if audio.is_file() else []
         scale = (end - start) / max(float(unit.get("duration_seconds") or (end - start)), 1e-6)
         pauses = [p * scale for p in pauses]
-        weights = [max(1, len(chunk)) for _speaker, chunk in tagged]
-        cuts = align_boundaries(weights, end - start, pauses)
-        if any(c in pauses for c in cuts[1:-1]):
+        placed = align_phrases(tagged, end - start, pauses)
+        if pauses and any(abs(a - p) < 0.05 for _s, _c, a, _b in placed[1:] for p in pauses):
             snapped += 1
-        for (speaker, chunk), left, right in zip(tagged, cuts, cuts[1:]):
-            if right - left >= 0.2:
+        for speaker, chunk, left, right in placed:
+            if right - left > 0.01:
                 events.append({
                     "start": round(start + left, 3), "end": round(start + right, 3),
                     "text": chunk, "speaker": speaker,
@@ -198,16 +229,20 @@ def apply_podcast_captions(*, output_dir: Path, final_path: Path) -> dict[str, A
     srt_path.write_text(build_srt(events), encoding="utf-8")
     rendered = root / ".final-podcast-captions.mp4"
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "verbose",
                 "-i", str(Path(final_path).resolve()),
                 "-vf", f"ass='{_filter_escape_path(ass_path)}':shaping=complex",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-c:a", "copy", str(rendered.resolve()),
             ],
             check=True, timeout=1800, env=_secret_free_subprocess_env(),
+            capture_output=True, text=True,
         )
+        font = resolved_font(completed.stderr, BODY_FONT)
+        if not font["is_requested_font"]:
+            print(f"::warning title=podcast-captions-font::libass drew with {font['resolved_name']}, not {BODY_FONT}")
         if not rendered.is_file() or rendered.stat().st_size <= 0:
             raise PodcastCaptionError("podcast_captions_render_missing_or_empty")
         os.replace(rendered, Path(final_path))
@@ -225,6 +260,8 @@ def apply_podcast_captions(*, output_dir: Path, final_path: Path) -> dict[str, A
         "event_count": len(events),
         "speaker_colors": SPEAKER_HEX,
         "font": BODY_FONT,
+        "font_actually_used": font,
+        "text_policy": "approved script words only; split into phrases, verified word-for-word before render",
         "font_weight": "bold",
         "max_rows": 2,
         "position": "bottom_safe_area",

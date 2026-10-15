@@ -71,12 +71,12 @@ class EventTests(unittest.TestCase):
             _make_run(root)
             events, timing = pc.build_events(root)
             self.assertEqual(timing, "measured_audio_units_snapped_to_pauses")
-            self.assertEqual([e["speaker"] for e in events], ["A", "B", "B", "A"])  # B turn is split into two readable cards
+            self.assertEqual([e["speaker"] for e in events], ["A", "B", "A"])  # landscape cards: one card per short turn
             self.assertTrue(all(2.0 <= e["start"] and e["end"] <= 11.0 for e in events))
             self.assertNotIn("اللهم", json.dumps(events, ensure_ascii=False))
             self.assertNotIn("التعليقات", json.dumps(events, ensure_ascii=False))
             self.assertAlmostEqual(events[0]["end"], 2.0 + 2.75, delta=0.15)
-            self.assertAlmostEqual(events[2]["end"], 2.0 + 7.25, delta=0.15)
+            self.assertAlmostEqual(events[1]["end"], 2.0 + 7.25, delta=0.15)
 
     def test_missing_chunk_text_is_a_soft_failure_not_a_guess(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -103,6 +103,32 @@ class EventTests(unittest.TestCase):
                 self.assertLessEqual(line.count(r"\N"), 1)
 
 
+class VerbatimTests(unittest.TestCase):
+    def test_a_changed_or_dropped_word_is_never_drawn(self) -> None:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_run(root)
+            real = pc._speaker_chunks
+            for mutate in (
+                lambda rows: [(s, c.replace("التعب", "الإرهاق")) for s, c in rows],  # synonym swap
+                lambda rows: rows[:-1],                                               # lost phrase
+                lambda rows: rows + [("A", "كلمة مخترعة")],                           # invented phrase
+            ):
+                with mock.patch.object(pc, "_speaker_chunks", lambda text, fmt="short", m=mutate: m(real(text, fmt))):
+                    with self.assertRaisesRegex(pc.PodcastCaptionError, "not_verbatim"):
+                        pc.build_events(root)
+
+    def test_every_caption_word_traces_to_the_approved_chunk_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_run(root)
+            events, _timing = pc.build_events(root)
+            self.assertEqual(" ".join(e["text"] for e in events).split(),
+                             "لماذا نشعر بالتعب؟ لأن القرارات الصغيرة تستهلك طاقتنا. وما الحل؟".split())
+
+
 class BurnTests(unittest.TestCase):
     def test_burned_video_shows_gold_for_A_and_white_for_B(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,6 +142,8 @@ class BurnTests(unittest.TestCase):
             self.assertTrue(report["burned_into_final_video"])
             self.assertNotEqual(final.read_bytes(), before)
             self.assertTrue((root / "podcast-captions.srt").is_file())
+            self.assertIn("is_requested_font", report["font_actually_used"])  # reported from libass, not assumed
+            self.assertEqual(report["font_actually_used"]["requested"], "Cairo")
 
             def dominant(second: float) -> tuple[int, int, int]:
                 raw = subprocess.run(
