@@ -72,6 +72,17 @@ def main() -> None:
         if is_simple_mode()
         else {}
     )
+    visual_source = StockVisualSource(
+        query_normalizer=normalize_clean_v2_stock_query,
+        media_preflight=security_media_preflight,
+        media_transform=m8_normalize_media,
+    )
+    from clean_v2 import owner_art
+
+    owner_art_dir = owner_art.art_dir()
+    if owner_art_dir is not None:
+        # Owner Podcast with his own designed images; other formats pass through.
+        visual_source = owner_art.OwnerArtVisualSource(visual_source, owner_art_dir)
     pipeline = CleanV2Pipeline(
         **simple_gates,
         router=ProviderRouter(),
@@ -79,11 +90,7 @@ def main() -> None:
             os.environ.get("GEMINI_API_KEY", ""),
             tts_model=os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts"),
         ),
-        visual_source=StockVisualSource(
-            query_normalizer=normalize_clean_v2_stock_query,
-            media_preflight=security_media_preflight,
-            media_transform=m8_normalize_media,
-        ),
+        visual_source=visual_source,
     )
     result = pipeline.run(
         brief_path=args.brief,

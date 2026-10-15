@@ -196,6 +196,15 @@ jobs:
             echo "CLEAN_V2_OWNER_PACK=$owner_pack" >> "$GITHUB_ENV"
             echo "::notice title=owner-script::owner-written text; no planning/script/tone/factuality model call"
           fi
+          # Owner-written Podcast: the images he designed, fetched from Telegram.
+          if [ "$(jq -r --arg id "$REQUEST_ID" '.requests[$id].owner_art | type' "$state")" = "object" ]; then
+            art_json="$RUNNER_TEMP/owner-art.json"
+            art_dir="$RUNNER_TEMP/owner-art"
+            jq -c --arg id "$REQUEST_ID" '.requests[$id].owner_art' "$state" > "$art_json"
+            python3 scripts/fetch_owner_art.py --art-json "$art_json" --out "$art_dir"
+            echo "CLEAN_V2_OWNER_ART_DIR=$art_dir" >> "$GITHUB_ENV"
+            echo "::notice title=owner-art::using the owner's own designed images for the Podcast"
+          fi
           echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 

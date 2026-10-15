@@ -146,6 +146,43 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertEqual(request["status"], "awaiting_confirmation")
             self.assertEqual(len(request["owner_pack"]["scenes"]), 7)
 
+    def test_owner_podcast_draft_collects_parts_images_then_done(self):
+        from scripts.test_owner_podcast import MESSAGE
+
+        head, tail = MESSAGE[: len(MESSAGE) // 2], MESSAGE[len(MESSAGE) // 2:]
+        cut = tail.index("\nA:")
+        head, tail = head + tail[:cut], tail[cut + 1:]
+        counter = iter(range(100, 200))
+
+        def update(**fields):
+            return {"message": {"from": {"id": 123}, "chat": {"id": 123}, "message_id": next(counter), **fields}}
+
+        state = control.default_state()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update(document={"file_id": "x", "mime_type": "image/png"}), dispatch)
+            self.assertIn("أرسل أولًا", send.call_args[0][0])  # image before any draft
+            control.handle_update(state, update(text="تم"), dispatch)  # chatter without a draft is not ours
+            self.assertEqual(state["requests"], {})
+            control.handle_update(state, update(text=head), dispatch)
+            control.handle_update(state, update(document={"file_id": "img1", "file_unique_id": "u1", "mime_type": "image/jpeg"}), dispatch)
+            control.handle_update(state, update(document={"file_id": "img2", "file_unique_id": "u2", "mime_type": "image/jpeg"}, caption="غلاف"), dispatch)
+            control.handle_update(state, update(text="تكملة\n" + tail), dispatch)
+            self.assertEqual(state["requests"], {})
+            control.handle_update(state, update(text="تم"), dispatch)
+            self.assertFalse(dispatch.exists())
+            (request,) = state["requests"].values()
+            self.assertEqual(request["scope"], "podcast")
+            self.assertEqual(request["status"], "awaiting_confirmation")
+            self.assertEqual(len(request["owner_pack"]["turns"]), 28)
+            self.assertEqual([i["file_id"] for i in request["owner_art"]["body"]], ["img1"])
+            self.assertEqual(request["owner_art"]["cover"]["file_id"], "img2")
+            self.assertNotIn("owner_podcast_draft", state)
+            self.assertIn("بودكاست", send.call_args[0][0])
+            self.assertEqual(request["request_sha256"], control._request_hash(request))
+
     def test_owner_typed_topic_rejections_start_nothing(self):
         state = control.default_state()
         no_evidence = (0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []})

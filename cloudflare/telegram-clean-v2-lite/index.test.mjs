@@ -9,6 +9,8 @@ const {
   default: worker,
   isCustomTopicText,
   isOwnerScriptText,
+  isOwnerPodcastText,
+  isOwnerImageMessage,
   isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
@@ -286,6 +288,19 @@ test("owner-written short is recognised only with its prefix", () => {
   for (const no of ["شورت", "شورت: كيف تبدأ من جديد دون خطة", "عنوان: شورت جاهز", ""]) {
     assert.equal(isOwnerScriptText(no), false, no);
   }
+});
+
+test("owner podcast draft messages and images are forwarded, chatter is not", () => {
+  for (const ok of ["بودكاست جاهز\nعنوان: x", "تكملة\nA: سؤال؟", "تكملة: B: جواب", "تم"]) {
+    assert.equal(isOwnerPodcastText(ok), true, ok);
+  }
+  for (const no of ["بودكاست", "تمام", "تكملتها", "بودكاست: لماذا نفقد الحماس بعد بداية قوية", ""]) {
+    assert.equal(isOwnerPodcastText(no), false, no);
+  }
+  assert.equal(isOwnerImageMessage({ photo: [{ file_id: "a" }] }), true);
+  assert.equal(isOwnerImageMessage({ document: { mime_type: "image/png" } }), true);
+  assert.equal(isOwnerImageMessage({ document: { mime_type: "application/pdf" } }), false);
+  assert.equal(isOwnerImageMessage({ text: "hi" }), false);
 });
 
 test("owner typed topic is recognised only in the prefixed form", () => {

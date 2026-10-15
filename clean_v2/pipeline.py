@@ -8184,6 +8184,15 @@ class CleanV2Pipeline:
                 output_name="cover.jpg",
                 report_name="cover-lite.json",
             )
+            if str(brief["format"]) == "podcast":
+                from clean_v2 import owner_art
+
+                try:
+                    cover_report = owner_art.apply_owner_cover(output_dir / "cover.jpg", cover_report)
+                    if cover_report.get("source") == "owner_cover_image":
+                        atomic_write_json(output_dir / "cover-lite.json", cover_report)
+                except Exception as owner_cover_exc:  # fail-soft like Cover Lite itself
+                    cover_report = {**cover_report, "owner_cover": f"unavailable:{type(owner_cover_exc).__name__}"}
 
             # Optional viewer-controlled Arabic captions for Film/Podcast.
             # Reuse the Short Unicode/width owner; no burn, stage, call or gate.

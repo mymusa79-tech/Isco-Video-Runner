@@ -150,6 +150,22 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise OwnerPackError("ملف النص الجاهز غير صالح.")
+    if data.get("format") == "podcast":
+        turns = data.get("turns")
+        if (
+            not str(data.get("title") or "").strip()
+            or not isinstance(turns, list) or not turns
+            or any(not (isinstance(t, list) and len(t) == 2 and t[0] in ("A", "B") and str(t[1]).strip()) for t in turns)
+        ):
+            raise OwnerPackError("ملف البودكاست الجاهز غير مكتمل.")
+        return {
+            "schema_version": 1,
+            "format": "podcast",
+            "title": " ".join(str(data["title"]).split()),
+            "cover_text": " ".join(str(data.get("cover_text") or "").split()),
+            "cta": " ".join(str(data.get("cta") or "").split()),
+            "turns": [[t[0], " ".join(str(t[1]).split())] for t in turns],
+        }
     texts, scenes = data.get("texts"), data.get("scenes")
     if (
         not str(data.get("title") or "").strip()
@@ -169,10 +185,16 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
 def active_pack_path(fmt: str) -> Path | None:
     """The pack file for this run, only for Shorts and only when the workflow set it."""
     value = os.environ.get(OWNER_PACK_ENV, "").strip()
-    if not value or str(fmt) != "short":
+    if not value or str(fmt) not in {"short", "podcast"}:
         return None
     path = Path(value)
-    return path if path.is_file() else None
+    if not path.is_file():
+        return None
+    try:
+        kind = str(json.loads(path.read_text(encoding="utf-8")).get("format") or "short")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return path if kind == str(fmt) else None
 
 
 def owner_mode_active(brief: Mapping[str, Any]) -> bool:
@@ -185,6 +207,10 @@ def _sentences(text: str) -> list[str]:
 
 def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: Path) -> dict[str, Any]:
     """Write the post-audit artifact set into ``out_dir`` and return the script."""
+    if pack.get("format") == "podcast":
+        from clean_v2 import owner_podcast
+
+        return owner_podcast.build_artifacts(pack, brief, out_dir)
     from clean_v2.contextual_cta import bind_contextual_cta_to_script
     from clean_v2.contracts import atomic_write_json, validate_plan, validate_script
     from clean_v2.identity_sequence import (
