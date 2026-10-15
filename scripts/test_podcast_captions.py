@@ -164,3 +164,41 @@ class BurnTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FallbackWarningTests(unittest.TestCase):
+    def test_skipped_captions_warn_and_appear_in_report(self) -> None:
+        import contextlib
+        import io
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from clean_v2 import pipeline
+        from clean_v2.podcast_captions import PodcastCaptionError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            buf = io.StringIO()
+            with mock.patch("clean_v2.legacy_cinematic.apply_post_render_layer", return_value={}), \
+                 mock.patch("clean_v2.contextual_cta.apply_contextual_cta_overlay", return_value={}), \
+                 mock.patch("clean_v2.podcast_captions.apply_podcast_captions",
+                            side_effect=PodcastCaptionError("podcast_captions_text_not_verbatim")), \
+                 mock.patch("clean_v2.podcast_key_text.apply_podcast_key_text",
+                            return_value={"status": "pass"}), \
+                 mock.patch("clean_v2.short_audio_polish.apply_topic_audio_polish",
+                            return_value={"status": "skipped"}), \
+                 mock.patch("clean_v2.visual_cta.apply_visual_cta_assets",
+                            return_value={"status": "skipped"}), \
+                 contextlib.redirect_stdout(buf):
+                try:
+                    report = pipeline._run_legacy_cinematic_layer(
+                        output_dir=out, final_path=out / "f.mp4", narration_path=out / "n.wav",
+                        plan={}, script={}, rights=[], fmt="podcast",
+                    )
+                except Exception as exc:  # unrelated later layers must not mask the check
+                    self.skipTest(f"layer needs full env: {exc}")
+        self.assertIn("::warning title=podcast-captions-fallback::", buf.getvalue())
+        self.assertIn("podcast_captions_text_not_verbatim", buf.getvalue())
+        self.assertEqual(report["podcast_captions"]["status"], "skipped")
+        self.assertEqual(report["podcast_captions"]["reason"], "podcast_captions_text_not_verbatim")

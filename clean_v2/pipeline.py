@@ -4406,6 +4406,7 @@ def _run_legacy_cinematic_layer(
     short_timed_text_report: dict[str, Any] | None = None
     short_audio_polish_report: dict[str, Any] | None = None
     podcast_key_text_report: dict[str, Any] | None = None
+    podcast_captions_summary: dict[str, Any] | None = None
     film_key_text_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
@@ -4447,6 +4448,18 @@ def _run_legacy_cinematic_layer(
                         "provider_calls_added": 0,
                     }
                 atomic_write_json(output_dir / "podcast-captions.json", captions_report)
+                podcast_captions_summary = {
+                    "status": captions_report.get("status"),
+                    "reason": captions_report.get("reason"),
+                    "font_actually_used": captions_report.get("font_actually_used"),
+                }
+                if captions_report.get("status") != "pass":
+                    print(
+                        "::warning title=podcast-captions-fallback::"
+                        "Full Podcast captions were NOT burned; fell back to sparse key text. "
+                        f"reason={captions_report.get('reason')}",
+                        flush=True,
+                    )
                 if captions_report.get("status") == "pass":
                     # Full dialogue captions own the lower third; the sparse key text
                     # would only compete with them.
@@ -4535,6 +4548,7 @@ def _run_legacy_cinematic_layer(
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
         "topic_audio_polish": topic_audio_polish_report,
+        "podcast_captions": podcast_captions_summary,
         "podcast_key_text": podcast_key_text_report,
         "film_key_text": film_key_text_report,
     }
