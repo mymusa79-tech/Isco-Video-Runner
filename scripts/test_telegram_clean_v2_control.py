@@ -147,8 +147,13 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertEqual(len(request["owner_pack"]["scenes"]), 7)
 
     def test_owner_podcast_draft_collects_parts_images_then_done(self):
-        from scripts.test_owner_podcast import MESSAGE
-
+        # No Pillow/engine imports here: the lean Lite validation job runs this file.
+        questions = ["لماذا نشعر بالتعب رغم أننا لم نفعل شيئًا؟", "وما علاقة القرارات الصغيرة بذلك؟",
+                     "كيف أعرف أني أعتمد على نفسي أكثر من اللازم؟", "وهل هذا خطأ دائمًا؟"]
+        MESSAGE = "بودكاست جاهز\nعنوان: عبء الاعتماد على الذات\n" + "\n".join(
+            f"A: {questions[i % 4]}\nB: هذه إجابة رقم {i} مفصلة. " + " ".join(["كلمة"] * 60) + "."
+            for i in range(14)
+        )
         head, tail = MESSAGE[: len(MESSAGE) // 2], MESSAGE[len(MESSAGE) // 2:]
         cut = tail.index("\nA:")
         head, tail = head + tail[:cut], tail[cut + 1:]
