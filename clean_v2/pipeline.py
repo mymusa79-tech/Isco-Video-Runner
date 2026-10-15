@@ -1474,6 +1474,11 @@ def _voice_performance_mode_for_brief(
     """
     fmt = str(brief.get("format") or "")
     if fmt == "short":
+        owner_template = str((plan or {}).get("short_template") or "")
+        if (plan or {}).get("owner_authored") and owner_template in TEMPLATE_WRITING_DIRECTIVES:
+            # Owner-written Short: the type he chose drives the delivery style, not a
+            # keyword score of his title.
+            return owner_template
         return str(select_short_template(brief)["template"])
     if fmt == "podcast":
         return "podcast_listener_proxy_qa"

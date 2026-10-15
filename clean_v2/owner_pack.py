@@ -40,7 +40,7 @@ MAX_TITLE_CHARS = 120
 
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _LABEL_RE = re.compile(
-    r"(?:(?<=\s)|^)(?P<label>عنوان|(?:ال)?نص\s*(?:[1-3١-٣]|الأول|الاول|الثاني|الثالث)|(?:ال)?مشهد\s*[1-7١-٧])\s*[:：]"
+    r"(?:(?<=\s)|^)(?P<label>عنوان|نوع|(?:ال)?نص\s*(?:[1-3١-٣]|الأول|الاول|الثاني|الثالث)|(?:ال)?مشهد\s*[1-7١-٧])\s*[:：]"
 )
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!؟!?])\s+")
 
@@ -60,6 +60,36 @@ class OwnerPackError(ValueError):
     """Message is Arabic and safe to send to the owner as is."""
 
 
+SHORT_TYPES = ("why_reframe", "inner_dialogue", "micro_story", "quote_reflection")
+LONG_TYPES = (
+    "direct_cinematic", "question_answer", "inner_dialogue", "problem_reveal_solution",
+    "story_analysis", "paradox", "hypothesis_test", "connected_list",
+)
+
+
+def normalize_type(value: Any, allowed: tuple[str, ...], default: str) -> str:
+    """Optional «نوع:» line -> one supported type; an unknown name is an error, never ignored."""
+    raw = " ".join(str(value or "").split())
+    if not raw:
+        return default
+    key = re.sub(r"[\s\-]+", "_", raw.casefold())
+    if key not in allowed:
+        raise OwnerPackError("النوع غير مدعوم: " + raw + ". الأنواع المتاحة: " + "، ".join(allowed) + ".")
+    return key
+
+
+def header_marks(marks: list, key_of) -> list:
+    """«نوع:» is a header line: the same word inside the body text stays plain text."""
+    kept, seen_text = [], False
+    for mark in marks:
+        key = key_of(mark.group("label"))
+        if key == "type" and seen_text:
+            continue
+        seen_text = seen_text or key.startswith("text")
+        kept.append(mark)
+    return kept
+
+
 def has_prefix(text: str) -> bool:
     return str(text or "").lstrip().startswith(PREFIX)
 
@@ -74,6 +104,8 @@ def _label_key(label: str) -> str:
         compact = compact[2:]
     if compact == "عنوان":
         return "title"
+    if compact == "نوع":
+        return "type"
     if compact.startswith("نص"):
         rest = compact[2:]
         return "text" + {"الأول": "1", "الاول": "1", "الثاني": "2", "الثالث": "3"}.get(rest, rest)
@@ -88,7 +120,7 @@ def parse_owner_message(text: str) -> dict[str, Any]:
     body = raw[raw.index(PREFIX) + len(PREFIX):]
     # Labels are found anywhere after whitespace, so the message survives clients or
     # relays that flatten line breaks.
-    marks = list(_LABEL_RE.finditer(body))
+    marks = header_marks(list(_LABEL_RE.finditer(body)), _label_key)
     value: dict[str, str] = {}
     for position, match in enumerate(marks):
         key = _label_key(match.group("label"))
@@ -138,7 +170,10 @@ def parse_owner_message(text: str) -> dict[str, Any]:
             raise OwnerPackError(f"المشهد {index} أطول من 220 حرفًا.")
     if len({" ".join(item.casefold().split()) for item in scenes}) != len(scenes):
         raise OwnerPackError("بعض المشاهد مكررة؛ اجعل كل مشهد مختلفًا.")
-    return {"schema_version": 1, "title": title, "texts": texts, "scenes": scenes}
+    pack: dict[str, Any] = {"schema_version": 1, "title": title, "texts": texts, "scenes": scenes}
+    if value.get("type"):
+        pack["type"] = normalize_type(value["type"], SHORT_TYPES, "micro_story")
+    return pack
 
 
 def pack_sha256(pack: Mapping[str, Any]) -> str:
@@ -150,6 +185,22 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise OwnerPackError("ملف النص الجاهز غير صالح.")
+    if data.get("format") == "film":
+        texts = data.get("texts")
+        if (
+            not str(data.get("title") or "").strip()
+            or not isinstance(texts, list) or len(texts) != 5
+            or not all(str(item).strip() for item in texts)
+        ):
+            raise OwnerPackError("ملف الفيلم الجاهز غير مكتمل.")
+        return {
+            "schema_version": 1,
+            "format": "film",
+            "title": " ".join(str(data["title"]).split()),
+            "cta": " ".join(str(data.get("cta") or "").split()),
+            "texts": [" ".join(str(item).split()) for item in texts],
+            **({"type": normalize_type(data["type"], LONG_TYPES, "direct_cinematic")} if data.get("type") else {}),
+        }
     if data.get("format") == "podcast":
         turns = data.get("turns")
         if (
@@ -179,13 +230,14 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
         "title": " ".join(str(data["title"]).split()),
         "texts": [" ".join(str(item).split()) for item in texts],
         "scenes": [" ".join(str(item).split()) for item in scenes],
+        **({"type": normalize_type(data["type"], SHORT_TYPES, "micro_story")} if data.get("type") else {}),
     }
 
 
 def active_pack_path(fmt: str) -> Path | None:
     """The pack file for this run, only for Shorts and only when the workflow set it."""
     value = os.environ.get(OWNER_PACK_ENV, "").strip()
-    if not value or str(fmt) not in {"short", "podcast"}:
+    if not value or str(fmt) not in {"short", "podcast", "film"}:
         return None
     path = Path(value)
     if not path.is_file():
@@ -211,6 +263,10 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
         from clean_v2 import owner_podcast
 
         return owner_podcast.build_artifacts(pack, brief, out_dir)
+    if pack.get("format") == "film":
+        from clean_v2 import owner_film
+
+        return owner_film.build_artifacts(pack, brief, out_dir)
     from clean_v2.contextual_cta import bind_contextual_cta_to_script
     from clean_v2.contracts import atomic_write_json, validate_plan, validate_script
     from clean_v2.identity_sequence import (
@@ -255,7 +311,7 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     plan["_visual_no_face_semantic_contract"] = "v1"
     plan["_visual_semantic_strength_contract"] = "v1_post_hook"
     plan["_visual_identity_contract"] = "navy_gold_v1"
-    plan["short_template"] = "micro_story"
+    plan["short_template"] = normalize_type(pack.get("type"), SHORT_TYPES, "micro_story")
     atomic_write_json(out_dir / "plan.json", plan)
 
     # Script: owner text + the fixed spoken identity, inserted by the same code path.

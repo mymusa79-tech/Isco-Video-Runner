@@ -316,13 +316,19 @@ def add_image(draft: dict[str, Any], image: Mapping[str, Any]) -> int:
     return len(draft["images"])
 
 
-def classify_art(images: list[Mapping[str, Any]]) -> dict[str, Any]:
-    """Caption «غلاف» marks the cover. Unmarked: 1 image = both; 2 = episode + cover; 3+ = all episode."""
+def classify_art(images: list[Mapping[str, Any]], *, film: bool = False) -> dict[str, Any]:
+    """Caption «غلاف» marks the cover.
+
+    Podcast, unmarked: 1 image = episode + cover; 2 = episode then cover; 3+ = all episode.
+    Film, unmarked: every image is a scene and the cover comes from the video.
+    """
     ordered = sorted(images, key=lambda i: i["message_id"])
     marked = [i for i in ordered if COVER_WORD in str(i.get("caption") or "")]
     rest = [i for i in ordered if i not in marked]
     cover = marked[-1] if marked else None
     if cover is None:
+        if film:
+            return {"body": rest, "cover": None}
         if len(ordered) == 1:
             return {"body": [ordered[0]], "cover": ordered[0]}
         if len(ordered) == 2:

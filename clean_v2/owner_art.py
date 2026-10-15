@@ -9,6 +9,7 @@ drift over one of those images. No provider call, no review, no replacement.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -54,17 +55,33 @@ def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WI
     return destination
 
 
-def make_motion_clip(image: Path, destination: Path, *, seconds: float, direction: int) -> Path:
-    """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling)."""
+def make_motion_clip(
+    image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0
+) -> Path:
+    """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling).
+
+    Podcast: two gentle diagonal moves. Film: four distinct moves over a larger margin, so
+    consecutive images never move the same way.
+    """
     from .media import _run
 
     seconds = max(2.0, float(seconds))
-    extra_w, extra_h = 112, 62  # ~9% larger than the frame
+    extra_w, extra_h = (176, 98) if film else (112, 62)
+    if film:
+        extra_w, extra_h = round(extra_w * motion / 2) * 2, round(extra_h * motion / 2) * 2
     big_w, big_h = CLIP_WIDTH + extra_w, CLIP_HEIGHT + extra_h
-    progress = f"t/{seconds:.3f}" if direction % 2 == 0 else f"(1-t/{seconds:.3f})"
+    forward = f"t/{seconds:.3f}"
+    backward = f"(1-t/{seconds:.3f})"
+    style = direction % (4 if film else 2)
+    x, y = {
+        0: (f"{extra_w}*{forward}", f"{extra_h}*{backward}"),   # up-right
+        1: (f"{extra_w}*{backward}", f"{extra_h}*{forward}"),   # down-left
+        2: (f"{extra_w}*{forward}", f"{extra_h}/2"),            # straight right
+        3: (f"{extra_w}/2", f"{extra_h}*{forward}"),            # straight down
+    }[style]
     vf = (
         f"scale={big_w}:{big_h},"
-        f"crop={CLIP_WIDTH}:{CLIP_HEIGHT}:x='{extra_w}*{progress}':y='{extra_h}*(1-{progress})',"
+        f"crop={CLIP_WIDTH}:{CLIP_HEIGHT}:x='{x}':y='{y}',"
         "setsar=1,fps=30,format=yuv420p"
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +97,84 @@ def make_motion_clip(image: Path, destination: Path, *, seconds: float, directio
     return destination
 
 
+# Film pace by chosen type: (shot-length factor, camera-move factor). Not an engine per type,
+# just how long a picture is held and how far it drifts. Every other type is 1.0 / 1.0.
+PACE_BY_TYPE = {
+    "paradox": (1.25, 0.8),
+    "inner_dialogue": (1.25, 0.8),
+    "story_analysis": (1.15, 0.9),
+    "connected_list": (0.8, 1.2),
+    "hypothesis_test": (0.95, 1.0),
+}
+_SHOT_PATTERN = (8.0, 6.0, 10.0, 7.0, 11.0, 9.0)  # a rhythm, not a rule: nothing is capped to it
+DISSOLVE_SECONDS = 0.5
+
+
+def film_pace(pack_type: str | None) -> tuple[float, float]:
+    return PACE_BY_TYPE.get(str(pack_type or ""), (1.0, 1.0))
+
+
+def segment_plan(seconds: float, start_index: int, factor: float = 1.0) -> list[float]:
+    """Varied shot lengths that sum to ``seconds``; a leftover tail is absorbed, never a flash."""
+    remaining = max(2.0, float(seconds))
+    lengths: list[float] = []
+    step = 0
+    while remaining > 0.01:
+        target = _SHOT_PATTERN[(start_index + step) % len(_SHOT_PATTERN)] * factor
+        take = remaining if remaining - target < 0.6 * target else target
+        lengths.append(take)
+        remaining -= take
+        step += 1
+    return lengths
+
+
+def make_sequence_clip(
+    images: list[Path], destination: Path, *, seconds: float, start_index: int,
+    factor: float = 1.0, motion: float = 1.0,
+) -> tuple[Path, int]:
+    """Film beat: several pictures of varied length, each with its own move, joined by a short dissolve.
+
+    Returns the clip and how many pictures it consumed.
+    """
+    from .media import _run
+
+    lengths = segment_plan(seconds, start_index, factor)
+    parts: list[Path] = []
+    for offset, length in enumerate(lengths):
+        index = start_index + offset
+        extra = DISSOLVE_SECONDS if offset < len(lengths) - 1 else 0.0
+        parts.append(
+            make_motion_clip(
+                images[index % len(images)],
+                destination.with_name(f"{destination.stem}-part{offset + 1}.mp4"),
+                seconds=length + extra,
+                direction=index,
+                film=True,
+                motion=motion,
+            )
+        )
+    if len(parts) == 1:
+        parts[0].replace(destination)
+        return destination, 1
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    for part in parts:
+        command += ["-i", str(part)]
+    filters, label, elapsed = [], "[0:v]", 0.0
+    for position in range(1, len(parts)):
+        elapsed += lengths[position - 1]
+        out = f"[x{position}]"
+        filters.append(f"{label}[{position}:v]xfade=transition=fade:duration={DISSOLVE_SECONDS}:offset={elapsed:.3f}{out}")
+        label = out
+    command += [
+        "-filter_complex", ";".join(filters), "-map", label, "-an",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22", "-pix_fmt", "yuv420p", str(destination),
+    ]
+    _run(command, timeout=900)
+    for part in parts:
+        part.unlink(missing_ok=True)
+    return destination, len(parts)
+
+
 class OwnerArtVisualSource:
     """Wraps the stock source; only the Podcast with owner images is taken over."""
 
@@ -90,6 +185,17 @@ class OwnerArtVisualSource:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
+    @staticmethod
+    def _pack_type() -> str | None:
+        """The «نوع:» the owner chose for his film, if any (read from the same pack the run uses)."""
+        try:
+            from .owner_pack import active_pack_path
+
+            path = active_pack_path("film")
+            return str(json.loads(path.read_text(encoding="utf-8")).get("type") or "") if path else None
+        except (OSError, ValueError, ImportError):
+            return None
+
     def acquire(
         self,
         plan: Mapping[str, Any],
@@ -98,7 +204,7 @@ class OwnerArtVisualSource:
         max_visuals: int,
         section_estimated_seconds: Mapping[str, float] | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
-        images = body_images(self._directory) if fmt == "podcast" else []
+        images = body_images(self._directory) if fmt in {"podcast", "film"} else []
         if not images:
             return self._inner.acquire(plan, output_dir, fmt, max_visuals, section_estimated_seconds)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +214,7 @@ class OwnerArtVisualSource:
         beats = [b for b in ((story or {}).get("beats") or []) if isinstance(b, Mapping)] if isinstance(story, Mapping) else []
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
+        cursor = 0
         per_section: dict[str, int] = {}
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
@@ -117,9 +224,15 @@ class OwnerArtVisualSource:
             beat_id = str(beat.get("id") or f"b{index + 1}")
             image = images[index % len(images)]
             seconds = float(estimates.get(section_id) or 60.0) / max(1, per_section.get(section_id, 1)) + 6.0
-            clip = make_motion_clip(
-                image, output_dir / f"visual-owner-art-{beat_id}.mp4", seconds=seconds, direction=index
-            )
+            clip_path = output_dir / f"visual-owner-art-{beat_id}.mp4"
+            if fmt == "film":
+                factor, motion = film_pace(self._pack_type())
+                clip, used = make_sequence_clip(
+                    images, clip_path, seconds=seconds, start_index=cursor, factor=factor, motion=motion
+                )
+                cursor += used
+            else:
+                clip = make_motion_clip(image, clip_path, seconds=seconds, direction=index)
             transform = getattr(self._inner, "media_transform", None)
             if transform is not None:
                 clip = Path(transform(clip))

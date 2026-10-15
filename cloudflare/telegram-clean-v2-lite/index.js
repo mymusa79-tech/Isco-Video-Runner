@@ -447,7 +447,7 @@ function isOwnerScriptText(text) {
 // The control script keeps the draft; the Worker only forwards.
 function isOwnerPodcastText(text) {
   const value = String(text || "").trim();
-  return /^بودكاست\s+جاهز(?:\s|$)/.test(value) || /^تكملة(?:[\s:：]|$)/.test(value) || value === "تم";
+  return /^(?:بودكاست|فيلم)\s+جاهز(?:\s|$)/.test(value) || /^تكملة(?:[\s:：]|$)/.test(value) || value === "تم";
 }
 
 // An image sent for the owner Podcast (compressed photo or an image file).

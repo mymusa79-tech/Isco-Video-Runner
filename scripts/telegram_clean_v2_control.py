@@ -31,10 +31,10 @@ except ModuleNotFoundError:
     import telegram_scene_review as scene_review
 
 try:
-    from clean_v2 import owner_pack, owner_podcast
+    from clean_v2 import owner_film, owner_pack, owner_podcast
 except ImportError:  # run as a plain script from scripts/
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from clean_v2 import owner_pack, owner_podcast
+    from clean_v2 import owner_film, owner_pack, owner_podcast
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -2045,8 +2045,33 @@ def render_owner_podcast_confirmation(request: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_owner_film_confirmation(request: dict[str, Any]) -> str:
+    pack = request["owner_pack"]
+    art = request.get("owner_art") or {}
+    words = sum(len(str(item).split()) for item in pack["texts"])
+    images = len(art.get("body") or [])
+    lines = [
+        "✅ استلمت فيلمك الجاهز (طويل)",
+        "",
+        f"العنوان: {request['approved_topic']}",
+        f"النص: {words} كلمة في 5 فصول ≈ {owner_film.estimated_minutes(pack):.0f} دقيقة.",
+        f"الصور: {images} صورة، والغلاف: " + ("صورتك" if art.get("cover") else "يُولَّد من الفيديو") + ".",
+    ]
+    if images == 0:
+        lines.append("⚠️ لا صور: سيُستخدم البحث الآلي للمشاهد.")
+    elif images < 6:
+        lines.append("ℹ️ صور قليلة ستتكرر كثيرًا؛ الأفضل 8 صور فأكثر ليبدو الفيلم متنوعًا.")
+    lines += [
+        "",
+        "لن يكتب أي نموذج النص ولن يدقّقه: يُقرأ كما كتبته (تُضاف فقط الصلاة وتعريف القناة والدعوة).",
+        "",
+        "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» أدناه للبدء.",
+    ]
+    return "\n".join(lines)
+
+
 def select_owner_podcast(state: dict[str, Any], pack: dict[str, Any], art: dict[str, Any]) -> dict[str, Any]:
-    request = select_owner_script(state, pack, scope="podcast")
+    request = select_owner_script(state, pack, scope={"film": "long"}.get(str(pack.get("format")), "podcast"))
     request["owner_art"] = art
     request["request_sha256"] = _request_hash(request)
     return request
@@ -2054,6 +2079,8 @@ def select_owner_podcast(state: dict[str, Any], pack: dict[str, Any], art: dict[
 
 def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
     pack = request["owner_pack"]
+    if pack.get("format") == "film":
+        return render_owner_film_confirmation(request)
     if pack.get("format") == "podcast":
         return render_owner_podcast_confirmation(request)
     words = sum(len(str(item).split()) for item in pack["texts"])
@@ -2294,7 +2321,7 @@ def _owner_podcast_status(draft: dict[str, Any]) -> str:
         f"📥 استلمت {len(draft['parts'])} جزء/أجزاء (≈{words} كلمة) و{len(draft['images'])} صورة.",
         f"آخر ما استلمته: «… {tail}»",
         "",
-        "أكمل النص بـ «تكملة» + بقية الحوار، وأرسل الصور كملفات (صورة الغلاف اكتب في وصفها «غلاف»).",
+        "أكمل النص بـ «تكملة» + بقية النص، وأرسل الصور كملفات (صورة الغلاف اكتب في وصفها «غلاف»).",
         "وحين تنتهي أرسل: تم",
     ])
 
@@ -2309,14 +2336,20 @@ def _handle_owner_podcast_message(
     image = owner_podcast.image_from_message(message)
     if image is not None:
         if draft is None:
-            send_telegram("⚠️ أرسل أولًا نص «بودكاست جاهز» ثم الصور.")
+            send_telegram("⚠️ أرسل أولًا نص «بودكاست جاهز» أو «فيلم جاهز» ثم الصور.")
             return True
         count = owner_podcast.add_image(draft, image)
         note = " (وصلت مضغوطة كصورة؛ الأفضل إرسالها كملف)" if image["kind"] == "photo" else ""
         send_telegram(f"🖼️ استلمت الصورة {count}{note}. أرسل «تم» حين تنتهي.")
         return True
-    if owner_podcast.has_prefix(raw_text) and owner_podcast.has_prefix(text):
+    kind = (
+        "podcast" if owner_podcast.has_prefix(raw_text) and owner_podcast.has_prefix(text)
+        else "film" if owner_film.has_prefix(raw_text) and owner_film.has_prefix(text)
+        else ""
+    )
+    if kind:
         draft = owner_podcast.new_draft()
+        draft["kind"] = kind
         owner_podcast.add_part(draft, message_id, raw_text)
         state["owner_podcast_draft"] = draft
         send_telegram(_owner_podcast_status(draft))
@@ -2328,14 +2361,19 @@ def _handle_owner_podcast_message(
         send_telegram(_owner_podcast_status(draft))
         return True
     if text == owner_podcast.DONE_TEXT:
+        film = draft.get("kind") == "film"
         try:
-            pack = owner_podcast.parse_podcast_message(owner_podcast.assemble(draft))
-            groups = owner_podcast.section_groups(pack["turns"])  # fail now, not after the voice
-            del groups
+            if film:
+                pack = owner_film.parse_film_message(owner_podcast.assemble(draft))
+            else:
+                pack = owner_podcast.parse_podcast_message(owner_podcast.assemble(draft))
+                groups = owner_podcast.section_groups(pack["turns"])  # fail now, not after the voice
+                del groups
         except owner_pack.OwnerPackError as exc:
-            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج. صحّح بإرسال «تكملة» أو ابدأ من جديد بـ «بودكاست جاهز».")
+            again = "فيلم جاهز" if film else "بودكاست جاهز"
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج. صحّح بإرسال «تكملة» أو ابدأ من جديد بـ «{again}».")
             return True
-        art = owner_podcast.classify_art(draft["images"])
+        art = owner_podcast.classify_art(draft["images"], film=film)
         keep = ("message_id", "file_id", "unique_id")
         art_value = {
             "body": [{k: item[k] for k in keep} for item in art["body"]],
