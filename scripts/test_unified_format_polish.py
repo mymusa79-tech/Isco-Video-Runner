@@ -191,10 +191,10 @@ class UnifiedFormatPolishTests(unittest.TestCase):
         self.assertNotIn("B:", srt)
         self.assertNotIn("اللهم", srt)
         self.assertNotIn("<font", srt)
-        gold = r"\c&H5BA8D7&"
+        gold, white = r"\c&H4BA2C9&", r"\c&HEFF3F5&"  # A #C9A24B, B #F5F3EF
         lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
         coloured = [line for line in lines if gold in line]
-        plain = [line for line in lines if gold not in line]
+        plain = [line for line in lines if white in line]
         self.assertTrue(coloured and plain)
         # The hook window shows only the hook question (not the whole section).
         first = lines[0]

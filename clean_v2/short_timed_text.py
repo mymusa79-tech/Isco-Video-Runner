@@ -1145,7 +1145,7 @@ def apply_short_timed_text(
 
 # Podcast captions: A (the listener asking) in gold, B (the host answering) in the normal
 # off-white. Colour lives only in the optional .ass file; the .srt stays plain text.
-SPEAKER_ASS_COLOR = {"A": r"\c&H5BA8D7&"}
+SPEAKER_ASS_COLOR = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}  # A #C9A24B gold, B #F5F3EF warm white
 _SPEAKER_TURN_RE = re.compile(r"(?<!\S)([AB]):\s*")
 
 
@@ -1177,6 +1177,20 @@ def write_longform_caption_sidecars(
     if fmt not in {"film", "podcast"}:
         return {"status": "not_applicable", "format": fmt}
     root = Path(output_dir)
+    if fmt == "podcast" and (root / "podcast-captions.srt").is_file():
+        try:
+            burned = json.loads((root / "podcast-captions.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            burned = {}
+        if isinstance(burned, dict) and burned.get("status") == "pass":
+            # The burned captions already wrote the matching SRT/ASS from the same events.
+            return {
+                "status": "available_optional", "format": fmt,
+                "srt": "podcast-captions.srt", "ass": "podcast-captions.ass",
+                "event_count": burned.get("event_count"), "max_rows": 2,
+                "burned_into_final_video": True, "timing": burned.get("timing"),
+                "provider_calls_added": 0, "new_quality_gate": False,
+            }
     timeline = json.loads((root / "timeline-first.json").read_text(encoding="utf-8"))
     if timeline.get("status") != "pass":
         raise ValueError("caption_sidecar_measured_timeline_required")

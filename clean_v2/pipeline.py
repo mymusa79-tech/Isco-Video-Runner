@@ -1080,6 +1080,7 @@ def _synthesize_sectioned_voice_pass(
                     "fallback_used": fallback_used,
                     "cache_hit": cache_hit,
                     "role": role,
+                    "text": chunk_text,
                 }
             )
 
@@ -4429,11 +4430,38 @@ def _run_legacy_cinematic_layer(
 
         try:
             if fmt == "podcast":
-                podcast_key_text_report = apply_podcast_key_text(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
+                from clean_v2.podcast_captions import (
+                    PodcastCaptionError,
+                    apply_podcast_captions,
                 )
+
+                try:
+                    captions_report = apply_podcast_captions(
+                        output_dir=output_dir, final_path=final_path
+                    )
+                except PodcastCaptionError as exc:
+                    captions_report = {
+                        "status": "skipped",
+                        "mode": "fail_soft",
+                        "reason": str(exc),
+                        "provider_calls_added": 0,
+                    }
+                atomic_write_json(output_dir / "podcast-captions.json", captions_report)
+                if captions_report.get("status") == "pass":
+                    # Full dialogue captions own the lower third; the sparse key text
+                    # would only compete with them.
+                    podcast_key_text_report = {
+                        "status": "skipped_full_captions_burned",
+                        "format": "podcast",
+                        "event_count": 0,
+                        "provider_calls_added": 0,
+                    }
+                else:
+                    podcast_key_text_report = apply_podcast_key_text(
+                        output_dir=output_dir,
+                        final_path=final_path,
+                        script=script,
+                    )
                 sparse_report = podcast_key_text_report
             else:
                 film_key_text_report = apply_film_key_text(
