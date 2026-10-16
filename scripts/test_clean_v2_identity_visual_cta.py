@@ -20,7 +20,32 @@ from clean_v2.visual_cta import _events, _longform_contextual_event
 
 
 class ApprovedIdentityLiteTests(unittest.TestCase):
-    def test_short_spoken_order_is_hook_prayer_definition_topic(self) -> None:
+    def test_short_logo_has_only_the_spoken_definition_window(self) -> None:
+        from clean_v2.pipeline import _synthesize_sectioned_voice
+        from clean_v2.timeline_first import build_voice_owned_timeline
+        from scripts.test_clean_v2 import _FakeVoice
+
+        sections = [
+            {"id": "s1", "narration": "لماذا نؤجل الخطوة الأولى؟ هذه هي بداية الموضوع دون تعريف مكرر."},
+            {"id": "s2", "narration": "تتغير النتيجة حين نبدأ بفعل واحد صغير وواضح."},
+            {"id": "s3", "narration": "اختر عملًا واحدًا الآن. ثم أعطه الوقت الذي يستحقه."},
+        ]
+        inject_spoken_identity(sections, fmt="short")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _synthesize_sectioned_voice(_FakeVoice(), sections, root / "narration.wav", fmt="short")
+            voice = json.loads((root / "voice-sections.json").read_text())
+            roles = [c["role"] for s in voice["sections"] for c in s["chunks"]]
+            self.assertNotIn("intro_silence", roles)
+            self.assertIn("channel_identity", roles)
+            self.assertNotIn("pre_topic_silence", roles)
+            self.assertEqual(roles[:6], ["hook", "post_hook_silence", "prayer", "post_prayer_silence", "channel_identity", "topic"])
+            timeline = build_voice_owned_timeline(output_dir=root, narration_path=root / "narration.wav", fmt="short")
+            kinds = [e["kind"] for e in timeline["identity_events"]]
+            self.assertNotIn("intro", kinds)
+            self.assertIn("outro", kinds)
+
+    def test_short_spoken_order_keeps_prayer_and_definition(self) -> None:
         sections = [
             {
                 "id": "s1",
@@ -43,8 +68,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertTrue(first.startswith("قد لا تكون المشكلة في الدافع نفسه."))
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
-        self.assertLess(first.index(PRAYER_SENTENCE), first.index(SHORT_CHANNEL_DEFINITION))
-        self.assertTrue(SHORT_CHANNEL_DEFINITION.startswith("هنا نداء اليقظة"))
+        assert_spoken_identity(sections, fmt="short")
         self.assertIn(
             f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION} حين تتوقف قليلًا",
             first,
@@ -61,7 +85,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
 
         first = sections[0]["narration"]
         self.assertTrue(first.startswith("قد لا تكون المشكلة في الوقت. "))
-        self.assertIn(f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION}", first)
+        self.assertIn(PRAYER_SENTENCE, first)
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
 

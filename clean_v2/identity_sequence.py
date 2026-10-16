@@ -36,13 +36,12 @@ _TIMING_PROFILES = {
     # only at major opening boundaries, never inside ordinary Gemini speech.
     # Long-form gets slightly more room than Shorts without becoming sluggish.
     "short": {
-        # Short retention: one brief breath, one-second branded intro, then
-        # the trusted prayer and a compact channel handoff. Identity must not
-        # consume the first half of the Short.
+        # Hook -> natural breath -> prayer -> spoken handoff with its logo -> topic.
+        # There is no separate silent logo intro.
         "post_hook_silence_seconds": 0.25,
-        "intro_silence_seconds": 1.00,
+        "intro_silence_seconds": 0.00,
         "post_prayer_silence_seconds": 0.25,
-        "pre_topic_silence_seconds": 0.20,
+        "pre_topic_silence_seconds": 0.00,
         "final_silence_seconds": 1.25,
     },
     "film": {

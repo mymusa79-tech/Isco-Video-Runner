@@ -61,7 +61,7 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         short = identity_timing_profile("short")
         film = identity_timing_profile("film")
         podcast = identity_timing_profile("podcast")
-        self.assertEqual(short["intro_silence_seconds"], 1.00)
+        self.assertEqual(short["intro_silence_seconds"], 0.00)
         self.assertEqual(film["intro_silence_seconds"], 2.20)
         self.assertEqual(podcast["intro_silence_seconds"], 6.00)
         self.assertEqual(podcast["post_hook_silence_seconds"], 0.75)
