@@ -4629,7 +4629,7 @@ def _master_look_value(r: float, g: float, b: float, *, strength: float = 1.0) -
     )
     return tuple(_clamp_color(base + (finish - base) * strength, 0.0, 1.0) for base, finish in zip(original, graded))
 
-def _write_master_look_lut(path: Path, *, fmt: str = "film") -> Path:
+def _write_master_look_lut(path: Path, *, fmt: str = "film", strength: float | None = None) -> Path:
     """Write a tiny deterministic Iridas .cube LUT; blue outer, red inner for FFmpeg."""
     size = MASTER_LOOK_LUT_SIZE
     if size < 2:
@@ -4648,7 +4648,7 @@ def _write_master_look_lut(path: Path, *, fmt: str = "film") -> Path:
             for r_index in range(size):
                 r = r_index / denominator
                 out_r, out_g, out_b = _master_look_value(
-                    r, g, b, strength=MASTER_LOOK_FORMAT_STRENGTH.get(fmt, MASTER_LOOK_FORMAT_STRENGTH["film"])
+                    r, g, b, strength=(MASTER_LOOK_FORMAT_STRENGTH.get(fmt, MASTER_LOOK_FORMAT_STRENGTH["film"]) if strength is None else strength)
                 )
                 lines.append(f"{out_r:.7f} {out_g:.7f} {out_b:.7f}")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -5080,14 +5080,20 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
+        # Approved ZIP artwork gets a restrained shared finish, not stock-style per-shot matching.
+        approved_zip = (output_dir / "production.json").is_file()
+        master_lut = _write_master_look_lut(
+            work_dir / "navy-gold-master-v6.cube", fmt=fmt,
+            strength=0.12 if approved_zip else None,
+        )
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
             f"{CINEMATIC_FINISH_FILTER}"
         )
-        if (output_dir / "production.json").is_file():
-            master_look = "null"
+        if approved_zip:
+            # No cinematic finish on approved images: preserve authored light and contrast.
+            master_look = f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"
