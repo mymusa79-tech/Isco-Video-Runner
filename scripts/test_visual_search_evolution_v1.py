@@ -296,7 +296,7 @@ class VisualSearchEvolutionTests(unittest.TestCase):
         self.assertTrue(rights[0]["query_evolution_used"])
         self.assertEqual(rights[0]["query_variant_index"], 1)
 
-    def test_stock_still_uses_real_photo_before_motion(self) -> None:
+    def test_stock_still_uses_real_photo_before_motion_in_podcast(self) -> None:
         source = StockVisualSource()
         photo = {
             "provider": "pexels",
@@ -310,7 +310,7 @@ class VisualSearchEvolutionTests(unittest.TestCase):
         }
 
         def fake_render(_source: Path, destination: Path, *, fmt: str) -> Path:
-            self.assertEqual(fmt, "short")
+            self.assertEqual(fmt, "podcast")
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(b"v" * 2048)
             return destination
@@ -339,7 +339,7 @@ class VisualSearchEvolutionTests(unittest.TestCase):
             _clips, rights = source.acquire(
                 plan,
                 Path(root),
-                "short",
+                "podcast",
                 max_visuals=1,
             )
         pexels_photo.assert_called_once()

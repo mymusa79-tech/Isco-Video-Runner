@@ -297,7 +297,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             ),
         ) as generate:
             _clips, rights = self._acquire(
-                fmt="film", beats=[opening, payoff], seconds=90.0
+                fmt="podcast", beats=[opening, payoff], seconds=90.0
             )
 
         self.assertEqual(generate.call_count, 1)
@@ -315,7 +315,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
 
         def fake_generate(*, prompt, destination, fmt, reference):
             self.assertIn("Recurring motif", prompt)
-            self.assertEqual(fmt, "film")
+            self.assertEqual(fmt, "podcast")
             self.assertIsNone(reference)
             Path(destination).parent.mkdir(parents=True, exist_ok=True)
             Path(destination).write_bytes(b"\xff\xd8\xff" + b"I" * 2048)
@@ -328,7 +328,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
             }
 
         def fake_render(_source, destination, *, fmt):
-            self.assertEqual(fmt, "film")
+            self.assertEqual(fmt, "podcast")
             Path(destination).write_bytes(b"V" * 4096)
             return Path(destination)
 
@@ -348,7 +348,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         ) as pexels, mock.patch.object(
             source, "_pixabay"
         ) as pixabay:
-            clips, rights = source.acquire(plan, Path(root), "film", 5)
+            clips, rights = source.acquire(plan, Path(root), "podcast", 5)
 
         self.assertEqual(len(clips), 1)
         self.assertEqual(rights[0]["source_actual"], "ai_still")
@@ -405,7 +405,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         ), mock.patch.object(source, "_pexels") as pexels, mock.patch.object(
             source, "_pixabay"
         ) as pixabay:
-            _clips, rights = source.acquire(plan, Path(root), "film", 5)
+            _clips, rights = source.acquire(plan, Path(root), "podcast", 5)
 
         self.assertIsNone(references[0])
         self.assertIsNotNone(references[1])
@@ -456,7 +456,7 @@ class StockVisualSourceAcquireBeatTests(unittest.TestCase):
         ), mock.patch.object(source, "_pexels") as pexels, mock.patch.object(
             source, "_pixabay"
         ) as pixabay:
-            _clips, rights = source.acquire(plan, Path(root), "film", 5)
+            _clips, rights = source.acquire(plan, Path(root), "podcast", 5)
 
         self.assertEqual(references, [None, None])
         self.assertEqual([row["source_actual"] for row in rights], ["ai_still", "ai_still"])

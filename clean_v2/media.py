@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .visual_source_policy import ai_fallback_allowed, effective_preference
 from .visual_story import EDITORIAL_HOLD_WEIGHTS, compact_searchable_visual_intent, stock_scene_requires_motion
 
 
@@ -1055,7 +1056,9 @@ def _ai_still_prompt(
         "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, or logo. "
         "If a screen or interface is required by the semantic cue, keep its shapes abstract and all copy illegible; "
         "otherwise avoid interface elements. "
+        "Natural, low-saturation colors and physically logical light; no HDR look, artificial glow or neon. "
         "No identifiable faces; hands, back view, objects, or environment only. "
+        "Do not assume Gulf or traditional dress or setting unless the beat itself requires it. "
         "No readable text, letters, logos, watermarks, collage, split screen, fantasy glow, "
         "or exaggerated advertising look."
     )
@@ -2264,6 +2267,7 @@ class StockVisualSource:
 
         ai_hook_reference: Path | None = None
         ai_route_available = True
+        ai_fallbacks_used = [0]
 
         def _admit_stock_candidate(
             candidate: dict[str, Any],
@@ -2523,7 +2527,10 @@ class StockVisualSource:
                 prepared_cache[raw_key] = prepared
                 return prepared
 
-            preference = str(beat.get("source_preference") or "stock_motion")
+            preference = effective_preference(beat, fmt)
+            ai_fallback_pass = bool(beat.get("_ai_fallback_pass"))
+            if ai_fallback_pass:
+                preference = "ai_still"
             wants_ai = preference == "ai_still"
             if wants_ai and ai_route_available:
                 # AI is an optional visual anchor, never a required dependency.
@@ -2632,6 +2639,7 @@ class StockVisualSource:
                         "role": str(beat.get("role") or ""),
                         "source_preference": "ai_still",
                         "source_actual": "ai_still",
+                        **({"source_policy": "ai_fallback_after_stock"} if ai_fallback_pass else {}),
                         "shot_role": str(beat.get("shot_role") or ""),
                         "environment_family": str(beat.get("environment_family") or ""),
                         "hold_reason": str(beat.get("hold_reason") or ""),
@@ -2662,6 +2670,9 @@ class StockVisualSource:
                     wire_attempted=False,
                     reason="ai_route_disabled_after_prior_failure",
                 )
+
+            if ai_fallback_pass:
+                return False  # the AI fallback failed; stock was already exhausted
 
             # Real-media policy: Coverr is the first motion library. A beat that
             # explicitly asks for a photographic still (or an unavailable AI still)
@@ -2701,6 +2712,15 @@ class StockVisualSource:
                 prepare_query=_prepare_query,
             ):
                 return True
+            # Stock-first series: a free AI still is only the bounded last resort.
+            if ai_route_available and ai_fallback_allowed(beat, fmt, used=ai_fallbacks_used[0]):
+                ai_fallbacks_used[0] += 1
+                return _acquire_one(
+                    queries,
+                    section_id,
+                    {**beat, "source_preference": "ai_still", "_ai_fallback_pass": True},
+                    auxiliary=auxiliary,
+                )
             return False
 
         from clean_v2.simple_mode import FALLBACK_PROVIDER, is_simple_mode
