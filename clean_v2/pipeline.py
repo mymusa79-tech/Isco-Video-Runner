@@ -817,6 +817,9 @@ def _synthesize_sectioned_voice_pass(
     role_reports: list[dict[str, Any]] = []
     total_cache_hits = 0
     report_path = narration_path.parent / "voice-sections.json"
+    from .ready_production import document
+    ready_doc = document(narration_path.parent)
+    approved_performance = ready_doc.get("performance") or {}
     cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
@@ -861,12 +864,15 @@ def _synthesize_sectioned_voice_pass(
             elif fmt == "short":
                 definition = channel_definition("short")
                 definition_pos = section_text.find(definition)
-                if definition_pos <= prayer_pos:
+                ala_mahl = ready_doc.get("template") == "ala_mahl"
+                if definition_pos <= prayer_pos and not ala_mahl:
                     raise RuntimeError("Short requires the approved spoken channel definition")
-                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE), ("channel_identity", definition)])
+                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
+                if not ala_mahl:
+                    voice_units.append(("channel_identity", definition))
                 voice_units.extend(
                     ("topic", item) for item in _bounded_voice_chunks(
-                        section_text[definition_pos + len(definition):].strip()
+                        section_text[(prayer_pos + len(PRAYER_SENTENCE)) if ala_mahl else (definition_pos + len(definition)):].strip()
                     )
                 )
             else:
@@ -933,9 +939,21 @@ def _synthesize_sectioned_voice_pass(
                 str(podcast_promo.get("text") or ""),
             )
 
+        from .derived_short import split_voice_units
+        original_voice_units = voice_units
+        try:
+            voice_units = split_voice_units(voice_units, ready_doc.get("derivative"))
+        except Exception as boundary_exc:
+            # Optional timing preparation must not block the original voice
+            # pass. Unmapped anchors are reported after primary SUCCESS.
+            voice_units = original_voice_units
+            print(f"Optional derivative boundaries skipped: {type(boundary_exc).__name__}")
+
         chunks = [text for _role, text in voice_units if text]
         roles = [role for role, text in voice_units if text]
-        if " ".join(" ".join(chunks).split()) != " ".join(section_text.split()):
+        from .production_package import spoken_text
+        original_units_match = " ".join(" ".join(chunks).split()) == " ".join(section_text.split())
+        if not original_units_match and not (ready_doc.get("derivative") and spoken_text(" ".join(chunks)) == spoken_text(section_text)):
             raise RuntimeError(f"Timeline First voice-unit split changed narration: section={section_id}")
         if not chunks:
             raise RuntimeError(
@@ -960,6 +978,8 @@ def _synthesize_sectioned_voice_pass(
                 chunk_path = chunk_dir / f"{chunk_index:02d}.wav"
             try:
                 chunk_role = roles[chunk_index - 1]
+                direction_kw = ({"performance_direction": approved_performance}
+                                if approved_performance and chunk_role in {"hook", "topic", "outro"} else {})
                 effective_performance_mode = ""
                 requested_performance_mode = str(performance_mode or "").strip()
                 if requested_performance_mode:
@@ -981,12 +1001,14 @@ def _synthesize_sectioned_voice_pass(
                             chunk_path,
                             primary_only=True,
                             performance_mode=effective_performance_mode,
+                            **direction_kw,
                         )
                     else:
                         voice_synthesizer.synthesize(
                             chunk_text,
                             chunk_path,
                             primary_only=True,
+                            **direction_kw,
                         )
                 else:
                     if effective_performance_mode:
@@ -994,11 +1016,13 @@ def _synthesize_sectioned_voice_pass(
                             chunk_text,
                             chunk_path,
                             performance_mode=effective_performance_mode,
+                            **direction_kw,
                         )
                     else:
                         voice_synthesizer.synthesize(
                             chunk_text,
                             chunk_path,
+                            **direction_kw,
                         )
             except Exception as exc:
                 failed_chunk_attempts = int(
@@ -4537,7 +4561,8 @@ def _run_legacy_cinematic_layer(
     # It runs after the shared topic-only music bed so click SFX remains audible.
     from clean_v2.visual_cta import apply_visual_cta_assets
 
-    visual_cta_report = apply_visual_cta_assets(
+    from .ready_production import document
+    visual_cta_report = {"status": "skipped_ala_mahl", "provider_calls_added": 0} if document(output_dir).get("template") == "ala_mahl" else apply_visual_cta_assets(
         output_dir=output_dir,
         final_path=final_path,
         narration_path=narration_path,
@@ -4656,6 +4681,8 @@ def _restore_text_audit_checkpoint(
 def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[Path]:
     rank = _RESUME_STAGE_INDEX[completed_stage]
     paths = [Path("brief.json"), Path("plan.json")]
+    if (output_dir / "production.json").is_file():
+        paths.append(Path("production.json"))
     if rank == _RESUME_STAGE_INDEX["planning"]:
         paths.append(Path("visual-story.json"))
     elif rank == _RESUME_STAGE_INDEX["script"]:
@@ -5273,6 +5300,11 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     fmt = str(brief.get("format") or "")
+    active_owner = owner_pack.active_pack_path(fmt)
+    if active_owner is not None and owner_pack.load_pack(active_owner).get("production"):
+        # Structure has already been checked on ZIP admission. Never normalize
+        # the approved dialogue, repair phrasing or relocate its CTA on resume.
+        return script
     if fmt == "short" and owner_pack.owner_mode_active(brief):
         # Owner-written text: structure only. Hook length and action shape are his call.
         owner_pack.light_script_validation(script)
@@ -5342,6 +5374,8 @@ def _validate_resumed_visual_story(
     router: Any,
     from_checkpoint: bool = False,
 ) -> dict[str, Any]:
+    if plan.get("ready_package"):
+        return copy.deepcopy(dict(value))
     resume_plan = dict(plan)
     resume_plan["_visual_identity_contract"] = "navy_gold_v1"
     try:
@@ -5600,6 +5634,11 @@ def _run_audio_mastering_stage(
             "final_silence_freeze",
         ]
     )
+    if fmt == "short":
+        ala_mahl = voice_timeline.get("template") == "ala_mahl"
+        identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
+                             *([] if ala_mahl else ["spoken_channel_definition_with_logo"]), "topic",
+                             "ala_mahl_visual_signature" if ala_mahl else "short_outro"]
     atomic_write_json(
         output_dir / "identity-sequence.json",
         {
@@ -7311,6 +7350,10 @@ class CleanV2Pipeline:
                 ),
             )
             owner_pack_path = owner_pack.active_pack_path(str(brief["format"]))
+            if owner_pack_path is not None:
+                approved_pack = owner_pack.load_pack(owner_pack_path)
+                if approved_pack.get("production"):
+                    atomic_write_json(output_dir / "production.json", approved_pack["production"])
             if resume is None and owner_pack_path is not None:
                 # Owner-written Short: build the artifacts a fully audited run would
                 # have saved (zero model calls) and enter through the same resume
@@ -7383,7 +7426,7 @@ class CleanV2Pipeline:
 
                     saved_template = str(saved_plan.get("short_template") or "")
                     # Old checkpoints predate history; reconstruct their original pick.
-                    if saved_template not in TEMPLATE_ORDER:
+                    if saved_template not in TEMPLATE_ORDER and not saved_plan.get("ready_package"):
                         saved_template = str(select_short_template(
                             dict(brief, _recent_templates=())
                         )["template"])
@@ -7392,6 +7435,10 @@ class CleanV2Pipeline:
                     )
             if str(brief["format"]) == "short":
                 short_report = short_contract_report(brief)
+                if (output_dir / "production.json").is_file():
+                    from clean_v2.ready_production import document
+                    short_report["template"] = document(output_dir)["template"]
+                    short_report["owner_approved"] = True
                 atomic_write_json(output_dir / "short-contract.json", short_report)
                 journal.payload["short_template"] = short_report["template"]
                 journal.payload["short_contract_version"] = short_report["schema_version"]
@@ -7399,7 +7446,11 @@ class CleanV2Pipeline:
 
             if resume is not None and _resume_includes(resume[1], "planning"):
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
-                plan = validate_plan(saved_plan, brief)
+                ready_package = bool(saved_plan.get("ready_package") and owner_pack_path is not None
+                                     and owner_pack.load_pack(owner_pack_path).get("production"))
+                plan = validate_plan(saved_plan, brief, owner_approved=ready_package)
+                if ready_package:
+                    plan.update(ready_package=True, owner_authored=True)
                 plan["_visual_diversity_contract"] = "v2_fail_closed"
                 if str(brief["format"]) == "short":
                     plan["_short_visual_diversity_contract"] = "v1_max2"
@@ -7821,7 +7872,7 @@ class CleanV2Pipeline:
                         identity_closer=str(identity_runtime.get("closer") or ""),
                         recent_signatures=podcast_promo_history,
                     )
-                    if str(brief["format"]) == "podcast"
+                    if str(brief["format"]) == "podcast" and not (output_dir / "production.json").is_file()
                     else None
                 )
                 voice_result = journal.run(
@@ -8253,6 +8304,18 @@ class CleanV2Pipeline:
             final_master_report = journal.run(
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
             )
+            # The primary result is final and durable BEFORE optional products.
+            # No derivative exception is permitted to reverse this status.
+            journal.complete(final_file=final_path.name, final_sha256=final_report["sha256"],
+                             final_duration_seconds=final_report["duration_seconds"],
+                             final_master_qc_status=final_master_report.get("status"))
+            if str(brief["format"]) in {"film", "podcast"}:
+                from clean_v2.derived_short import freeze_primary
+                try:
+                    freeze_primary(output_dir)
+                except Exception as freeze_exc:
+                    journal.payload["derivative_checkpoint_warning"] = f"{type(freeze_exc).__name__}:{str(freeze_exc)[:160]}"
+                    journal._write()
 
             # Cover Lite is a local fail-soft sidecar, not a production stage:
             # no provider call, no retry, no quality gate, and never blocks final.mp4.
@@ -8266,7 +8329,7 @@ class CleanV2Pipeline:
                 output_name="cover.jpg",
                 report_name="cover-lite.json",
             )
-            if str(brief["format"]) == "podcast":
+            if str(brief["format"]) == "podcast" or (output_dir / "production.json").is_file():
                 from clean_v2 import owner_art
 
                 try:
@@ -8292,77 +8355,50 @@ class CleanV2Pipeline:
                 }
                 atomic_write_json(output_dir / "caption-sidecars.json", longform_captions_report)
 
-            podcast_short_report = (
-                _run_podcast_derived_short_lite(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    final_master_qc=self.final_master_qc,
-                )
-                if str(brief["format"]) == "podcast"
-                else {"status": "not_applicable"}
-            )
-            podcast_short_cover_report = (
-                run_cover_lite_fail_soft(
-                    output_dir=output_dir,
-                    plan=plan,
-                    fmt="short",
-                    final_path=output_dir / "podcast-short.mp4",
-                    output_name="podcast-short-cover.jpg",
-                    report_name="podcast-short-cover.json",
-                    section_id=str(podcast_short_report.get("section_id") or ""),
-                    exclude_source_files=(str(cover_report.get("source_file") or ""),),
-                )
-                if podcast_short_report.get("status") == "pass"
-                else {"status": "not_applicable"}
-            )
-
-            long_short_report = (
-                _run_film_derived_short_lite(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
-                    identity_closer=str(identity_runtime.get("closer") or ""),
-                    final_master_qc=self.final_master_qc,
-                    recent_signatures=film_promo_history,
-                )
-                if str(brief["format"]) == "film"
-                else {"status": "not_applicable"}
-            )
-            if (
-                str(brief["format"]) == "podcast"
-                and podcast_short_report.get("status") == "pass"
-                and isinstance(podcast_promo, Mapping)
-            ):
-                record_derived_short_signature(
-                    narrative_history_path,
-                    "podcast",
-                    str(podcast_promo.get("selection_signature") or ""),
-                )
-
-            long_short_cover_report = (
-                run_cover_lite_fail_soft(
-                    output_dir=output_dir,
-                    plan=plan,
-                    fmt="short",
-                    final_path=output_dir / "long-short.mp4",
-                    output_name="long-short-cover.jpg",
-                    report_name="long-short-cover.json",
-                    section_id=str(long_short_report.get("section_id") or ""),
-                    exclude_source_files=(str(cover_report.get("source_file") or ""),),
-                )
-                if long_short_report.get("status") == "pass"
-                else {"status": "not_applicable"}
-            )
-
-            if (
-                str(brief["format"]) == "film"
-                and long_short_report.get("status") == "pass"
-            ):
-                record_derived_short_signature(
-                    narrative_history_path,
-                    "film",
-                    str(long_short_report.get("selection_signature") or ""),
-                )
+            podcast_short_report = {"status": "not_applicable"}
+            long_short_report = {"status": "not_applicable"}
+            podcast_short_cover_report = {"status": "not_applicable"}
+            long_short_cover_report = {"status": "not_applicable"}
+            if str(brief["format"]) in {"film", "podcast"}:
+                from clean_v2.derived_short import attempt
+                try:
+                    derivative_report = attempt(output_dir)
+                except Exception as derivative_exc:
+                    # Also isolate an unexpected bug in the optional wrapper itself.
+                    derivative_report = {"status": "failed", "reason": f"{type(derivative_exc).__name__}:{str(derivative_exc)[:180]}",
+                                         "tts_calls_added": 0, "primary_status": "SUCCESS"}
+                    try:
+                        atomic_write_json(output_dir / "derivative-status.json", derivative_report)
+                    except OSError:
+                        pass
+                if str(brief["format"]) == "podcast":
+                    podcast_short_report = derivative_report
+                else:
+                    long_short_report = derivative_report
+                # Reuse the existing local cover/history owners after a good
+                # extraction. Their metadata is optional too.
+                try:
+                    if podcast_short_report.get("status") == "pass":
+                        podcast_short_cover_report = run_cover_lite_fail_soft(
+                            output_dir=output_dir, plan=plan, fmt="short",
+                            final_path=output_dir / "podcast-short.mp4",
+                            output_name="podcast-short-cover.jpg", report_name="podcast-short-cover.json",
+                            section_id=str(podcast_short_report.get("section_id") or ""),
+                            exclude_source_files=(str(cover_report.get("source_file") or ""),),
+                        )
+                        if isinstance(podcast_promo, Mapping):
+                            record_derived_short_signature(narrative_history_path, "podcast",
+                                                           str(podcast_promo.get("selection_signature") or ""))
+                    if long_short_report.get("status") == "pass":
+                        long_short_cover_report = run_cover_lite_fail_soft(
+                            output_dir=output_dir, plan=plan, fmt="short",
+                            final_path=output_dir / "long-short.mp4",
+                            output_name="long-short-cover.jpg", report_name="long-short-cover.json",
+                            section_id=str(long_short_report.get("section_id") or ""),
+                            exclude_source_files=(str(cover_report.get("source_file") or ""),),
+                        )
+                except Exception as derivative_sidecar_exc:
+                    print(f"Optional derivative sidecar warning: {type(derivative_sidecar_exc).__name__}")
 
             # Narrative/template history represents delivered videos, not failed
             # attempts that happened to reach Planning.

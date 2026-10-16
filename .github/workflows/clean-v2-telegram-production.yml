@@ -129,6 +129,9 @@ jobs:
       - name: Verify exact Engine pin
         run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
 
+      - name: Install local approved-image reader
+        run: python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
+
       - name: Read dispatched request from simple state
         env:
           REQUEST_ID: ${{ inputs.request_id }}
@@ -196,7 +199,8 @@ jobs:
             echo "CLEAN_V2_OWNER_PACK=$owner_pack" >> "$GITHUB_ENV"
             echo "::notice title=owner-script::owner-written text; no planning/script/tone/factuality model call"
           fi
-          # Owner-written Podcast: the images he designed, fetched from Telegram.
+          # ZIP and legacy owner images share the same trusted local source.
+          # ZIP is validated again and hash-bound before any TTS call.
           if [ "$(jq -r --arg id "$REQUEST_ID" '.requests[$id].owner_art | type' "$state")" = "object" ]; then
             art_json="$RUNNER_TEMP/owner-art.json"
             art_dir="$RUNNER_TEMP/owner-art"

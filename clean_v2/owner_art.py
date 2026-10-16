@@ -56,7 +56,8 @@ def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WI
 
 
 def make_motion_clip(
-    image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0
+    image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0,
+    portrait: bool = False, motion_kind: str = "slow_pan",
 ) -> Path:
     """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling).
 
@@ -66,10 +67,11 @@ def make_motion_clip(
     from .media import _run
 
     seconds = max(2.0, float(seconds))
+    width, height = (720, 1280) if portrait else (CLIP_WIDTH, CLIP_HEIGHT)
     extra_w, extra_h = (176, 98) if film else (112, 62)
     if film:
         extra_w, extra_h = round(extra_w * motion / 2) * 2, round(extra_h * motion / 2) * 2
-    big_w, big_h = CLIP_WIDTH + extra_w, CLIP_HEIGHT + extra_h
+    big_w, big_h = width + extra_w, height + extra_h
     forward = f"t/{seconds:.3f}"
     backward = f"(1-t/{seconds:.3f})"
     style = direction % (4 if film else 2)
@@ -80,10 +82,16 @@ def make_motion_clip(
         3: (f"{extra_w}/2", f"{extra_h}*{forward}"),            # straight down
     }[style]
     vf = (
-        f"scale={big_w}:{big_h},"
-        f"crop={CLIP_WIDTH}:{CLIP_HEIGHT}:x='{x}':y='{y}',"
+        f"scale={big_w}:{big_h}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height}:x='{x}':y='{y}',"
         "setsar=1,fps=30,format=yuv420p"
     )
+    if motion_kind == "slow_zoom":
+        vf = (f"scale={width*2}:{height*2}:force_original_aspect_ratio=increase,"
+              f"zoompan=z='1.02+0.04*on/{round(seconds*30)}':x='iw/2-iw/zoom/2':"
+              f"y='ih/2-ih/zoom/2':d=1:s={width}x{height}:fps=30,setsar=1,format=yuv420p")
+    elif motion_kind == "hold":
+        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30,format=yuv420p"
     destination.parent.mkdir(parents=True, exist_ok=True)
     _run(
         [
@@ -204,6 +212,8 @@ class OwnerArtVisualSource:
         max_visuals: int,
         section_estimated_seconds: Mapping[str, float] | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
+        if (self._directory / "production.json").is_file():
+            return self._acquire_ready(plan, output_dir, fmt, section_estimated_seconds)
         images = body_images(self._directory) if fmt in {"podcast", "film"} else []
         if not images:
             return self._inner.acquire(plan, output_dir, fmt, max_visuals, section_estimated_seconds)
@@ -264,10 +274,41 @@ class OwnerArtVisualSource:
             return self._inner.acquire(plan, output_dir, fmt, max_visuals, section_estimated_seconds)
         return clips, rights
 
+    def _acquire_ready(self, plan, output_dir, fmt, estimates):
+        """One existing motion clip per approved beat; never fall back to stock."""
+        from .production_package import validate_manifest
+
+        doc = json.loads((self._directory / "production.json").read_text(encoding="utf-8"))
+        validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
+        beats = plan["visual_story"]["beats"]
+        clips, rights = [], []
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for index, beat in enumerate(beats):
+            asset = self._directory / beat["owner_asset"]
+            if not asset.is_file():
+                raise RuntimeError("approved_package_image_missing:" + beat["owner_asset"])
+            # The shared renderer trims these sources to its measured audio slots.
+            seconds = float((estimates or {}).get(beat["section_id"]) or 60) + 1
+            clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
+                                    direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"])
+            clips.append(clip)
+            rights.append({**dict(beat), "beat_id": beat["id"], "provider": PROVIDER,
+                           "asset_id": beat["owner_asset"], "local_file": clip.name, "source_actual": PROVIDER,
+                           "owner_approved": True, "creator": "owner supplied", "attribution_required": False})
+        if not clips:
+            raise RuntimeError("approved_package_has_no_images")
+        return clips, rights
+
 
 def apply_owner_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any]:
     """Replace the generated cover with the cover the owner designed, if he sent one."""
     directory = art_dir()
+    if directory and (directory / "production.json").is_file():
+        doc = json.loads((directory / "production.json").read_text(encoding="utf-8"))
+        source = directory / doc["cover"]["asset"] if doc["cover"]["asset"] else None
+        if source is not None:
+            normalize_image(source, Path(cover_path), (720, 1280) if doc["format"] == "short" else COVER_SIZE)
+            return {**report, "status": "pass", "source": "owner_cover_image", "provider_calls_added": 0}
     source = cover_image(directory) if directory else None
     if source is None:
         return report

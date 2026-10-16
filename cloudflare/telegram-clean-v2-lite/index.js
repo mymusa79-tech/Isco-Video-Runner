@@ -74,6 +74,7 @@ function scopeKeyboard() {
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "🎬 إنتاج من ملف جاهز", callback_data: "main:readyzip" }],
       [{ text: "🔎 بحث جديد", callback_data: "main:research" }],
       [
         { text: "📚 المحفوظات", callback_data: "main:saved" },
@@ -84,6 +85,7 @@ function mainMenuKeyboard() {
         { text: "🟢 حالة الإنتاج", callback_data: "main:status" },
       ],
       [{ text: "🎥 آخر إنتاج", callback_data: "main:last" }],
+      [{ text: "♻️ إعادة المشتق فقط", callback_data: "main:retryderivative" }],
       [{ text: "❌ إلغاء الاختيار", callback_data: "main:cancel" }],
     ],
   };
@@ -466,6 +468,12 @@ function isOwnerTextFile(message) {
   return name.endsWith(".txt") || String(document.mime_type || "").toLowerCase() === "text/plain";
 }
 
+function isProductionZip(message) {
+  const doc = message && message.document;
+  return !!doc && (String(doc.file_name || "").toLowerCase().endsWith(".zip") ||
+    ["application/zip", "application/x-zip-compressed"].includes(String(doc.mime_type || "").toLowerCase()));
+}
+
 function isStartText(text) {
   return ["/start", "start", "/menu", "menu", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
@@ -662,7 +670,7 @@ export default {
       );
       return new Response("OK");
     }
-    if (isOwnerPodcastText(text) || isOwnerImageMessage(update.message) || isOwnerTextFile(update.message)) {
+    if (isOwnerPodcastText(text) || isOwnerImageMessage(update.message) || isOwnerTextFile(update.message) || isProductionZip(update.message)) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
           telegram(env, "sendMessage", {
@@ -734,6 +742,7 @@ export {
   isOwnerPodcastText,
   isOwnerImageMessage,
   isOwnerTextFile,
+  isProductionZip,
   isSceneReviewReply,
   localLibraryRoute,
   normalizeTitle,

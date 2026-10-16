@@ -46,6 +46,14 @@ def download(token: str, file_id: str, destination: Path) -> Path:
 
 
 def fetch(art: dict, out: Path, token: str, fetcher=download) -> list[str]:
+    if art.get("zip"):
+        from clean_v2.production_package import extract_archive
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = fetcher(token, str(art["zip"]["file_id"]), Path(temporary) / "approved.zip")
+            extract_archive(source.read_bytes(), out, expected_sha256=str(art["zip"]["sha256"]))
+        return [str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()]
     out.mkdir(parents=True, exist_ok=True)
     raw = out / "raw"
     raw.mkdir(exist_ok=True)

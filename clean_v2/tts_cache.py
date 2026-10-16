@@ -50,13 +50,14 @@ def build_binding(
     questioner_voice: str,
     performance_mode: str,
     provider: str,
+    performance_direction: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Bind cached audio to every input that can change the spoken result.
 
     Raw narration is deliberately not persisted in the cache manifest. Its digest
     is sufficient to make reuse exact while the WAV remains the only content file.
     """
-    return {
+    result = {
         "cache_schema_version": CACHE_SCHEMA_VERSION,
         "cache_namespace": CACHE_NAMESPACE,
         "transcript_sha256": _sha256_text(str(transcript)),
@@ -66,6 +67,9 @@ def build_binding(
         "performance_mode": str(performance_mode or ""),
         "provider": str(provider),
     }
+    if performance_direction:
+        result["performance_direction"] = dict(performance_direction)
+    return result
 
 
 def _fingerprint(binding: Mapping[str, Any]) -> str:

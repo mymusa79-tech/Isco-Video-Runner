@@ -95,8 +95,8 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
 
         self.assertTrue(any(call[:3] == ["gh", "release", "create"] for call in runner.calls))
         self.assertTrue(any(call[:3] == ["gh", "release", "upload"] for call in runner.calls))
-        self.assertEqual(send.call_args.kwargs["button_text"], "🎥 مشاهدة/تحميل الفيديو")
-        self.assertEqual(send.call_args.kwargs["button_url"], direct)
+        self.assertEqual(send.call_args_list[0].kwargs["button_text"], "🎥 مشاهدة/تحميل الفيديو")
+        self.assertEqual(send.call_args_list[0].kwargs["button_url"], direct)
 
     def test_podcast_reuses_one_release_and_sends_optional_short_button(self):
         direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
@@ -294,12 +294,12 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
             self.assertIn("#خارج_النص", publish["hashtags"])
             self.assertIn("package_browser_download_url", result)
             self.assertEqual(
-                send.call_args_list[0].kwargs["button_text"],
+                send.call_args_list[1].kwargs["button_text"],
                 "📦 تحميل حزمة النشر كاملة",
             )
 
 
-    def test_invalid_published_parent_youtube_id_is_rejected_before_release(self):
+    def test_invalid_optional_derived_metadata_does_not_block_primary_delivery(self):
         direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
         runner = FakeRunner(direct)
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
@@ -316,21 +316,21 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
                 json.dumps({"status": "pass", "section_id": "s2"}),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(RuntimeError, "YouTube video id is invalid"):
-                delivery.publish_one(
-                    root=root,
-                    kind="long",
-                    topic="فيديو طويل",
-                    delivery_key="telegram",
-                    repository="example/repo",
-                    target_sha="1" * 40,
-                    run_id="1001",
-                    run_attempt="1",
-                    published_parent_youtube_video_id="not-a-youtube-id",
-                    run=runner,
-                )
-        self.assertEqual(runner.calls, [])
-        send.assert_not_called()
+            delivery.publish_one(
+                root=root,
+                kind="long",
+                topic="فيديو طويل",
+                delivery_key="telegram",
+                repository="example/repo",
+                target_sha="1" * 40,
+                run_id="1001",
+                run_attempt="1",
+                published_parent_youtube_video_id="not-a-youtube-id",
+                run=runner,
+            )
+        self.assertTrue(runner.calls)
+        self.assertTrue(any(c.kwargs.get("button_url") == direct for c in send.call_args_list))
+        self.assertTrue(any("السبب" in c.args[0] for c in send.call_args_list))
 
 
     def test_cli_forwards_owner_confirmed_related_video_id_as_metadata_only(self):

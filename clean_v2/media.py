@@ -382,6 +382,7 @@ def _gemini38_synthesize(
     primary_voice: str,
     questioner_voice: str,
     performance_mode: str = "",
+    performance_direction: Mapping[str, str] | None = None,
 ) -> Path:
     """Call Gemini 3.8 TTS directly over REST; no SDK upgrade is required."""
     if model not in _GEMINI38_ALLOWED_TTS_MODELS:
@@ -468,6 +469,12 @@ def _gemini38_synthesize(
             ]
         speech_config = [{"voice": primary_voice}]
 
+    if performance_direction:
+        for part in content:
+            metadata = part["annotations"][0]
+            direction = str(performance_direction.get("direction") or "")
+            role_direction = str(performance_direction.get(str(metadata.get("speaker") or "")) or "")
+            metadata["style"] += " " + " ".join(item for item in (direction, role_direction) if item)
     payload = {
         "model": model,
         "input": [{"type": "user_input", "content": content}],
@@ -658,6 +665,7 @@ class GeminiOnlyVoiceSynthesizer:
         *,
         primary_only: bool = False,
         performance_mode: str = "",
+        performance_direction: Mapping[str, str] | None = None,
     ) -> Path:
         del primary_only  # Compatibility flag; the configured model is pinned for the job.
         if not transcript.strip():
@@ -693,6 +701,7 @@ class GeminiOnlyVoiceSynthesizer:
             questioner_voice=questioner_voice,
             performance_mode=performance_mode,
             provider=provider,
+            **({"performance_direction": performance_direction} if performance_direction else {}),
         )
         if restore(cache_binding, output_path):
             self.last_provider = provider
@@ -717,6 +726,7 @@ class GeminiOnlyVoiceSynthesizer:
                         primary_voice=primary_voice,
                         questioner_voice=questioner_voice,
                         performance_mode=performance_mode,
+                        **({"performance_direction": performance_direction} if performance_direction else {}),
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini 3.8 TTS produced an empty narration file")
@@ -3751,14 +3761,15 @@ def render_derived_short(
     *,
     start_seconds: float,
     end_seconds: float,
+    maximum_seconds: float = 30.0,
 ) -> Path:
     """Reframe one already-approved long-form segment to 9:16 with no new media/provider call."""
     start = float(start_seconds)
     end = float(end_seconds)
     duration = end - start
-    if start < 0 or duration < 7.0 or duration > 30.0:
+    if start < 0 or duration < 7.0 or duration > maximum_seconds:
         raise RuntimeError(
-            f"derived short duration must be 7-30s: start={start:.3f} end={end:.3f}"
+            f"derived short duration must be 7-{maximum_seconds:g}s: start={start:.3f} end={end:.3f}"
         )
     source = Path(source_path)
     if not source.is_file() or source.stat().st_size <= 0:
@@ -3883,6 +3894,7 @@ def _editorial_signals_by_local_file(
             "shot_role": str(item.get("shot_role") or "").strip(),
             "environment_family": str(item.get("environment_family") or "").strip(),
             "source_actual": str(item.get("source_actual") or "").strip(),
+            "owner_transition": str(item.get("owner_transition") or ""),
         }
     return result
 
@@ -3954,6 +3966,9 @@ def _editorial_boundary_decisions(
             reason = "payoff_landing_same_environment"
         elif right_hold == "payoff_landing":
             reason = "payoff_landing_cut"
+        if right_signal.get("owner_transition") in {"cut", "dissolve"}:
+            decision = str(right_signal["owner_transition"]).upper()
+            reason = "approved_package_transition"
         decisions.append(
             {
                 "from_local_file": left.name,
@@ -4931,6 +4946,9 @@ def render_video(
     visual_schedule: list[dict[str, Any]] = []
     if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
         visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
+        if timeline.get("template") == "ala_mahl" and visual_schedule:
+            visual_schedule[-1]["end"] = round(duration * 30) / 30
+            visual_schedule[-1]["duration_seconds"] = visual_schedule[-1]["end"] - visual_schedule[-1]["start"]
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
     elif fmt == "short":
@@ -4947,7 +4965,10 @@ def render_video(
     # Every clip is normalized toward the fixed channel palette target. M8 has
     # already normalized technical color space; no episode stock clip can become
     # the creative color authority for the rest of the video.
-    grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
+    if (output_dir / "production.json").is_file():
+        grade_filters = {str(path): "" for path in paths}
+    else:
+        grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
 
     opening_count = 3 if opening_enabled else 0
     opening_paths_for_render = paths[:opening_count]
@@ -5065,6 +5086,8 @@ def render_video(
             f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
             f"{CINEMATIC_FINISH_FILTER}"
         )
+        if (output_dir / "production.json").is_file():
+            master_look = "null"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"

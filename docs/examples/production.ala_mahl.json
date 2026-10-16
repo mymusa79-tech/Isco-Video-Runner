@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "format": "short",
+  "template": "ala_mahl",
+  "title": "لم ينتظر يومًا مثاليًا",
+  "approval": {"status": "approved", "reviewer": "Claude"},
+  "script": {
+    "sections": [
+      {"id": "s1", "text": "ظل يؤجل البداية حتى يصفو يومه. وفي صباح عادي، جلس أمام فنجانه وقرر أن يمنح خطوة صغيرة عشر دقائق، قبل أن يفكر في الطريق كله."},
+      {"id": "s2", "text": "لم تتغير حياته في تلك الدقائق. لكنه أنهى شيئًا ظل ينتظره طويلًا، وشعر للمرة الأولى أن البداية أقرب مما كان يتخيل."},
+      {"id": "s3", "text": "عاد إلى فنجانه، ثم ابتسم. لم يعد ينتظر اليوم المثالي؛ صار يعرف أن يومًا عاديًا يمكن أن يحمل بداية جميلة، حين يمنحها فرصة."}
+    ]
+  },
+  "performance": {"direction": "احك القصة لصديق بعفوية ودفء وتفاؤل، مع وقفات طبيعية قصيرة، دون إلقاء تأملي ثقيل."},
+  "scenes": [
+    {"id": "coffee", "section_id": "s1", "asset": "assets/scene_01.png", "start_text": "ظل يؤجل البداية حتى يصفو يومه.", "motion": "slow_zoom", "transition": "cut"},
+    {"id": "first_step", "section_id": "s2", "asset": "assets/scene_02.png", "start_text": "لم تتغير حياته في تلك الدقائق.", "motion": "slow_pan", "transition": "dissolve"},
+    {"id": "arrival", "section_id": "s3", "asset": "assets/scene_03.png", "start_text": "عاد إلى فنجانه، ثم ابتسم.", "motion": "slow_zoom", "transition": "dissolve"}
+  ],
+  "editing": {"music": "none"},
+  "captions": {"font": "Cairo Bold", "max_lines": 2, "enabled": true},
+  "cover": {"asset": "assets/scene_03.png", "text": "بداية جميلة"},
+  "publishing": {"title": "لم ينتظر يومًا مثاليًا | على مهل ☕", "description": "قصة قصيرة عن خطوة صغيرة صنعت بداية جميلة.", "hashtags": ["#على_مهل", "#نداء_اليقظة", "#بداية_جديدة"]}
+}

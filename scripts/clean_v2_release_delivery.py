@@ -245,6 +245,12 @@ def _provider_attribution_lines(root: Path) -> list[str]:
 
 
 def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, Any]:
+    production = _read_json(Path(root) / "production.json")
+    if production:
+        publishing = production["publishing"]
+        return {"schema_version": 1, "kind": kind, "topic": topic, **publishing,
+                "youtube_tags": [], "video_file": "video.mp4", "cover_file": "cover.jpg",
+                "publication_mode": "manual", "source": "approved_production_json"}
     plan = _read_json(Path(root) / "plan.json")
     raw_title = _compact(plan.get("title") or topic or "نداء اليقظة")
     if kind == "podcast" and "خارج النص" not in raw_title:
@@ -430,39 +436,63 @@ def _build_publish_package(
     derived_included = False
     derived_status = "not_applicable"
     short_prefix = ""
+    derived_reason = ""
+    try:
+        if kind in {"podcast", "long"}:
+            short_prefix = "podcast-short" if kind == "podcast" else "long-short"
+            short_video = root / f"{short_prefix}.mp4"
+            short_qc = _read_json(root / f"{short_prefix}-qc.json")
+            derived_status = _compact(short_qc.get("status")) or "not_generated"
+            if (
+                short_video.is_file()
+                and short_video.stat().st_size > 0
+                and derived_status.casefold() == "pass"
+            ):
+                short_cover = _ensure_cover(
+                    video=short_video,
+                    cover=root / f"{short_prefix}-cover.jpg",
+                    portrait=True,
+                )
+                short_meta = _derived_short_publish_metadata(
+                    root,
+                    parent_kind=kind,
+                    parent=main_meta,
+                    short_prefix=short_prefix,
+                    published_parent_youtube_video_id=published_parent_youtube_video_id,
+                )
+                shutil.copy2(short_video, stage / "derived-short.mp4")
+                shutil.copy2(short_cover, stage / "derived-short-cover.jpg")
+                (stage / "derived-short-publish.txt").write_text(
+                    _publish_text(short_meta),
+                    encoding="utf-8",
+                )
+                (stage / "derived-short-publish.json").write_text(
+                    json.dumps(short_meta, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                derived_included = True
+
+    except Exception as exc:
+        derived_included = False
+        derived_status = "failed"
+        derived_reason = f"{type(exc).__name__}:{str(exc)[:180]}"
+        for partial in stage.glob("derived-short*"):
+            partial.unlink(missing_ok=True)
     if kind in {"podcast", "long"}:
-        short_prefix = "podcast-short" if kind == "podcast" else "long-short"
-        short_video = root / f"{short_prefix}.mp4"
-        short_qc = _read_json(root / f"{short_prefix}-qc.json")
-        derived_status = _compact(short_qc.get("status")) or "not_generated"
-        if (
-            short_video.is_file()
-            and short_video.stat().st_size > 0
-            and derived_status.casefold() == "pass"
-        ):
-            short_cover = _ensure_cover(
-                video=short_video,
-                cover=root / f"{short_prefix}-cover.jpg",
-                portrait=True,
-            )
-            short_meta = _derived_short_publish_metadata(
-                root,
-                parent_kind=kind,
-                parent=main_meta,
-                short_prefix=short_prefix,
-                published_parent_youtube_video_id=published_parent_youtube_video_id,
-            )
-            shutil.copy2(short_video, stage / "derived-short.mp4")
-            shutil.copy2(short_cover, stage / "derived-short-cover.jpg")
-            (stage / "derived-short-publish.txt").write_text(
-                _publish_text(short_meta),
-                encoding="utf-8",
-            )
-            (stage / "derived-short-publish.json").write_text(
-                json.dumps(short_meta, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            derived_included = True
+        report = _read_json(root / "derivative-status.json") or _read_json(root / f"{short_prefix}.json")
+        if not derived_included:
+            if report.get("status") and report["status"] != "pass":
+                derived_status = report["status"]
+            derived_reason = report.get("reason") or derived_reason
+            if derived_reason:
+                from clean_v2.derived_short import warning_text
+                (stage / "derived-warning.txt").write_text(warning_text({"reason": derived_reason}), encoding="utf-8")
+        source = root / "derivative-source.zip"
+        if source.is_file():
+            try:
+                shutil.copy2(source, stage / source.name)
+            except OSError:
+                pass
 
     readme_lines = [
         "حزمة نشر نداء اليقظة",
@@ -500,6 +530,7 @@ def _build_publish_package(
         "main_title": main_meta["title"],
         "derived_short_included": derived_included,
         "derived_short_status": derived_status,
+        "derived_short_reason": derived_reason,
         "optional_caption_files": caption_files,
         "files": sorted(path.name for path in stage.iterdir() if path.is_file()),
         "provider_calls_added": 0,
@@ -580,12 +611,22 @@ def publish_one(
         repository=repository,
         run=run,
     )
+    # Deliver the primary link first; optional products cannot suppress it.
+    primary_text = "🎥 الفيديو النهائي جاهز" + (f"\nالعنوان: {resolved_topic}" if resolved_topic else "")
+    send_message(primary_text, button_text="🎥 مشاهدة/تحميل الفيديو", button_url=url)
     package_url = _upload_and_get_direct_url(
         tag=tag,
         video=package,
         repository=repository,
         run=run,
     )
+
+    retry_source = Path(root) / "derivative-source.zip"
+    if retry_source.is_file():
+        try:
+            _upload_and_get_direct_url(tag=tag, video=retry_source, repository=repository, run=run)
+        except Exception as exc:
+            print(f"Derivative retry-source upload warning: {type(exc).__name__}")
 
     short_url = ""
     if kind in {"podcast", "long"} and package_manifest.get("derived_short_included") is True:
@@ -609,6 +650,9 @@ def publish_one(
         f"العنوان: {package_manifest.get('main_title') or resolved_topic}\n"
         "داخلها: الفيديو + الكفر + العنوان + الوصف + الهاشتاقات"
     )
+    if kind in {"long", "podcast"} and package_manifest.get("derived_short_reason"):
+        from clean_v2.derived_short import warning_text
+        package_text += "\n" + warning_text({"reason": package_manifest["derived_short_reason"]})
     if package_manifest.get("derived_short_included") is True:
         package_text += " + الشورت المشتق + كفره + بيانات نشره"
     if not send_message(
@@ -617,16 +661,6 @@ def publish_one(
         button_url=package_url,
     ):
         raise RuntimeError("Telegram complete publish-package delivery failed")
-
-    text = "🎥 الفيديو النهائي جاهز"
-    if resolved_topic:
-        text += f"\nالعنوان: {resolved_topic}"
-    if not send_message(
-        text,
-        button_text="🎥 مشاهدة/تحميل الفيديو",
-        button_url=url,
-    ):
-        print("Telegram direct-video delivery warning: message was not delivered")
 
     delivery = {
         "kind": kind,

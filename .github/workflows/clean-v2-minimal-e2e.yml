@@ -9,6 +9,11 @@ on:
     paths:
       - "clean_v2/**"
       - "scripts/test_clean_v2.py"
+      - "scripts/test_production_package.py"
+      - "scripts/test_ready_production_e2e.py"
+      - "scripts/test_isolated_derivative.py"
+      - "scripts/retry_clean_v2_derivative.py"
+      - ".github/workflows/clean-v2-derivative-only.yml"
       - "scripts/test_clean_v2_channel_persona.py"
       - "scripts/test_clean_v2_human_feel.py"
       - "scripts/test_clean_v2_human_editorial_rhythm.py"
@@ -51,7 +56,9 @@ permissions:
 
 concurrency:
   group: clean-v2-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Superseded PR tests have no production job. Keep manual production runs
+  # protected from cancellation while avoiding duplicate obsolete test work.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -150,6 +157,12 @@ jobs:
             scripts.test_telegram_clean_v2_control \
             scripts.test_clean_v2_release_delivery \
             -v
+
+      - name: Approved ZIP and Ala Mahl offline integration
+        run: python -m unittest scripts.test_production_package scripts.test_ready_production_e2e -v
+
+      - name: Optional derivative isolation and no-TTS retry
+        run: python -m unittest scripts.test_isolated_derivative -v
 
   produce:
     permissions:

@@ -31,10 +31,10 @@ except ModuleNotFoundError:
     import telegram_scene_review as scene_review
 
 try:
-    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile
+    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile, production_package
 except ImportError:  # run as a plain script from scripts/
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile
+    from clean_v2 import owner_film, owner_pack, owner_podcast, owner_textfile, production_package
 
 STATE_VERSION = 1
 CONFIRM_TEXT = "تأكيد الإنتاج"
@@ -1103,7 +1103,8 @@ def _stage_confirmation_dispatch(
     if not result["already_dispatched"] and run_mode == "simple":
         # Lifecycle field, deliberately outside the immutable request hash.
         result["request"]["run_mode"] = "simple"
-        if result["request"].get("scope") == "short" and not result["request"].get("scene_review"):
+        if (result["request"].get("scope") == "short" and not result["request"].get("scene_review")
+                and not (result["request"].get("owner_pack") or {}).get("production")):
             # Shorts stop after the saved voice so the owner can pick scenes.
             result["request"]["scene_review"] = {"status": "collect"}
     if result["already_dispatched"]:
@@ -1144,6 +1145,7 @@ def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str)
 
 def main_menu_keyboard() -> list[list[dict[str, str]]]:
     return [
+        [{"text": "🎬 إنتاج من ملف جاهز", "callback_data": "main:readyzip"}],
         [{"text": "🔎 بحث جديد", "callback_data": "main:research"}],
         [
             {"text": "📚 المحفوظات", "callback_data": "main:saved"},
@@ -1154,6 +1156,7 @@ def main_menu_keyboard() -> list[list[dict[str, str]]]:
             {"text": "🟢 حالة الإنتاج", "callback_data": "main:status"},
         ],
         [{"text": "🎥 آخر إنتاج", "callback_data": "main:last"}],
+        [{"text": "♻️ إعادة المشتق فقط", "callback_data": "main:retryderivative"}],
         [{"text": "❌ إلغاء الاختيار", "callback_data": "main:cancel"}],
     ]
 
@@ -2079,6 +2082,20 @@ def select_owner_podcast(state: dict[str, Any], pack: dict[str, Any], art: dict[
 
 def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
     pack = request["owner_pack"]
+    if pack.get("production"):
+        doc = pack["production"]
+        words = sum(len(production_package.spoken_text(production_package.section_text(s)).split()) for s in doc["script"]["sections"])
+        derivative = "مقطع مرشّح محدد في الحزمة" if doc.get("derivative") else "محاولة اختيار مقطع موجود؛ التخطي عند عدم صلاحيته"
+        return "\n".join([
+            "✅ استلمت حزمة ZIP الجاهزة", f"العنوان: {doc['title']}",
+            f"النوع: {doc['format']} — القالب: {doc['template']}",
+            f"النص: {words} كلمة — الصور: {len(doc['scenes'])} مشهدًا بترتيب معتمد.",
+            "الحزمة معلّمة بمراجعة Claude؛ التأكيد التالي هو اعتمادك أنت.",
+            "النص والصور والأصوات ثابتة. تُضاف هوية النوع الحالية والصلاة فقط.",
+            *( [f"الشورت المشتق: {derivative}. فشله لا يمنع تسليم الفيديو الأساسي."] if doc['format'] != 'short' else [] ),
+            f"بصمة ZIP: {pack['zip_sha256'][:16]}",
+            "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» للبدء.",
+        ])
     if pack.get("format") == "film":
         return render_owner_film_confirmation(request)
     if pack.get("format") == "podcast":
@@ -2189,6 +2206,20 @@ def latest_release_delivery() -> dict[str, str]:
             "package_browser_download_url": package_url,
         }
     return {}
+
+
+def latest_derivative_retry_tag() -> str:
+    """Latest delivered Long/Podcast with its frozen zero-TTS retry source."""
+    for release in _github_release_json("releases?per_page=50") or []:
+        if not isinstance(release, dict) or release.get("draft"):
+            continue
+        tag = str(release.get("tag_name") or "")
+        if not re.fullmatch(r"clean-v2-final-(?:long|podcast)-[A-Za-z0-9_-]{1,130}", tag):
+            continue
+        names = {a.get("name") for a in release.get("assets", []) if isinstance(a, dict)}
+        if {"final.mp4", "derivative-source.zip"} <= names:
+            return tag
+    return ""
 
 
 def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]] | None]:
@@ -2386,7 +2417,7 @@ def _handle_owner_podcast_message(
     return False
 
 
-def _download_telegram_file(file_id: str) -> bytes:
+def _download_telegram_file(file_id: str, *, max_bytes: int = owner_textfile.MAX_BYTES) -> bytes:
     token = str(os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if not token:
         raise RuntimeError("missing bot token")
@@ -2397,7 +2428,7 @@ def _download_telegram_file(file_id: str) -> bytes:
     if not path:
         raise RuntimeError("telegram getFile failed")
     with urllib.request.urlopen(f"https://api.telegram.org/file/bot{token}/{path}", timeout=30) as response:
-        return response.read(owner_textfile.MAX_BYTES + 1)
+        return response.read(max_bytes + 1)
 
 
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
@@ -2438,6 +2469,18 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             action = data.split(":", 1)[1]
             if action == "home":
                 send_telegram(render_main_menu(), main_menu_keyboard())
+                return
+            if action == "readyzip":
+                send_telegram("🎬 أرسل ZIP يحتوي production.json وصور assets/ (18MB كحد أقصى). سأعرض ملخصه أولًا؛ لن يبدأ الإنتاج قبل تأكيدك.")
+                return
+            if action == "retryderivative":
+                tag = latest_derivative_retry_tag()
+                if not tag:
+                    send_telegram("⚠️ لا توجد حزمة مشتق محفوظة لإعادة استخراجها. الفيديوهات الأساسية الناجحة تبقى جاهزة.")
+                    return
+                dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+                dispatch_path.write_text(json.dumps({"kind": "derivative_only", "release_tag": tag}) + "\n", encoding="utf-8")
+                send_telegram("♻️ طلبت إعادة مشتق آخر طويل/بودكاست محفوظ فقط. لا توليد صوت ولا إعادة مونتاج للفيديو الأساسي.\nالمصدر: " + tag)
                 return
             if action == "research":
                 send_telegram(
@@ -2658,6 +2701,22 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         raise RuntimeError("unsupported callback")
 
     message = update.get("message") or {}
+    if production_package.is_zip_document(message):
+        try:
+            pack = production_package.import_message(message, _download_telegram_file)
+            scope = {"film": "long", "short": "short", "podcast": "podcast"}[pack["format"]]
+            request = select_owner_script(state, pack, scope)
+            request["owner_art"] = {"zip": {"file_id": message["document"]["file_id"], "sha256": pack["zip_sha256"]}}
+            request["request_sha256"] = _request_hash(request)
+        except owner_pack.OwnerPackError as exc:
+            send_telegram(f"⚠️ {exc} لم يبدأ أي إنتاج.")
+            return
+        except Exception as exc:
+            print(f"Ready ZIP import failed: {type(exc).__name__}")
+            send_telegram("⚠️ تعذر تحميل أو قراءة ZIP. أعد إرسال حزمة سليمة. لم يبدأ أي إنتاج.")
+            return
+        send_telegram(render_owner_pack_confirmation(request), selection_confirmation_keyboard(request))
+        return
     if owner_textfile.is_text_document(message):
         try:
             message = owner_textfile.message_with_file_text(message, _download_telegram_file)
