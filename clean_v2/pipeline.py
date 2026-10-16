@@ -4734,6 +4734,31 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
             paths.append(relative)
     return paths
 
+_CHECKPOINT_MUTABLE_FILES = ("cta-plan.json", "rights-manifest.json")
+
+
+def _snapshot_checkpoint_mutable_files(output_dir: Path) -> dict[str, bytes]:
+    snapshot: dict[str, bytes] = {}
+    for name in _CHECKPOINT_MUTABLE_FILES:
+        path = output_dir / name
+        try:
+            if path.is_file():
+                snapshot[name] = path.read_bytes()
+        except OSError:
+            continue
+    return snapshot
+
+
+def _restore_checkpoint_mutable_files(output_dir: Path, snapshot: Mapping[str, bytes]) -> None:
+    for name, data in snapshot.items():
+        path = output_dir / name
+        try:
+            if not path.is_file() or path.read_bytes() != data:
+                path.write_bytes(data)
+        except OSError:
+            continue
+
+
 def _write_resume_checkpoint(
     output_dir: Path,
     *,
@@ -7305,6 +7330,7 @@ class CleanV2Pipeline:
         journal.payload["max_visuals"] = int(max_visuals)
         journal.payload["resumed_stages"] = []
         journal._write()
+        post_render_snapshot: dict[str, bytes] = {}
 
         try:
             brief = journal.run(
@@ -8211,6 +8237,7 @@ class CleanV2Pipeline:
                     *clips[1:],
                 ]
 
+            post_render_snapshot = _snapshot_checkpoint_mutable_files(output_dir)
             final_path = output_dir / "final.mp4"
             journal.run(
                 "render",
@@ -8480,5 +8507,9 @@ class CleanV2Pipeline:
                 "scene_review_id": str(pending),
             }
         except Exception:
+            # Post-render layers rewrite cta-plan.json / rights-manifest.json after the
+            # checkpoint was authenticated. A failure there must not invalidate the
+            # already-paid voice checkpoint, so put the authenticated bytes back.
+            _restore_checkpoint_mutable_files(output_dir, post_render_snapshot)
             self._write_runtime_events(output_dir)
             raise
