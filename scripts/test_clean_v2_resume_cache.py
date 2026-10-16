@@ -71,5 +71,32 @@ class CleanV2ResumeCacheTests(unittest.TestCase):
             self.assertFalse(target.exists())
 
 
+class PostRenderMutationTests(unittest.TestCase):
+    def test_failed_post_render_layer_keeps_voice_checkpoint_savable(self) -> None:
+        from clean_v2 import pipeline
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            output.mkdir()
+            (output / "cta-plan.json").write_text('{"mode":"like"}', encoding="utf-8")
+            (output / "rights-manifest.json").write_text('{"assets":[1]}', encoding="utf-8")
+            artifacts = {
+                name: _sha256(output / name)
+                for name in ("cta-plan.json", "rights-manifest.json")
+            }
+            (output / "resume-checkpoint.json").write_text(
+                json.dumps({"schema_version": 6, "completed_stage": "visuals", "artifacts": artifacts}),
+                encoding="utf-8",
+            )
+            snapshot = pipeline._snapshot_checkpoint_mutable_files(output)
+            # A post-render layer mutates both files, then crashes.
+            (output / "cta-plan.json").write_text('{"mode":"like","visual":1}', encoding="utf-8")
+            (output / "rights-manifest.json").write_text('{"assets":[1],"x":2}', encoding="utf-8")
+            self.assertFalse(prepare_resume_cache(output, root / "cache-before"))
+            pipeline._restore_checkpoint_mutable_files(output, snapshot)
+            self.assertTrue(prepare_resume_cache(output, root / "cache-after"))
+
+
 if __name__ == "__main__":
     unittest.main()
