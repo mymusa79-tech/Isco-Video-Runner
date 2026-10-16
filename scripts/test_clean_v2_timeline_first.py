@@ -366,6 +366,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
                     {"kind": "intro", "start": 2.0, "end": 3.0},
                     {"kind": "prayer", "start": 3.0, "end": 4.5},
                     {"kind": "post_prayer_silence", "start": 4.5, "end": 4.75},
+                    {"kind": "channel_identity", "start": 4.75, "end": 6.75},
                     {"kind": "outro", "start": 10.0, "end": 11.25},
                     {"kind": "final_silence", "start": 11.25, "end": 12.0},
                 ],
@@ -392,8 +393,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertIn("force_original_aspect_ratio=decrease", filters)
         self.assertIn("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black", filters)
         self.assertIn("gte(t,3.000)*lt(t,4.750)", filters)
-        self.assertNotIn(str(assets["intro"]), command)
-        self.assertIn("[prayed][outro]overlay", filters)
+        self.assertIn(str(assets["intro"]), command)
+        self.assertIn("gte(t,4.750)*lt(t,6.750)", filters)
+        self.assertIn("[branded][outro]overlay", filters)
         self.assertIn(str(assets["prayer"]), command)
 
     def test_podcast_identity_pieces_stay_opaque_over_the_same_story_world(self) -> None:

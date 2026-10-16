@@ -210,7 +210,7 @@ def _identity_events(
     fmt: str = "short",
 ) -> list[dict[str, Any]]:
     if fmt == "short":
-        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "final_silence")
+        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "channel_identity", "final_silence")
         rows = {role: _one_role(units, role) for role in required}
         if any(row is None for row in rows.values()):
             if require_identity:
@@ -222,7 +222,7 @@ def _identity_events(
             for role in required[:-1]
         ]
         events.append({"kind": "topic", "source": "measured_voice_timeline",
-                       "start": float(rows["post_prayer_silence"]["end"]),
+                       "start": float(rows["channel_identity"]["end"]),
                        "end": float(rows["final_silence"]["start"])})
         for kind in ("outro", "final_silence"):
             events.append({"kind": kind, "source": "measured_silence_chunk",

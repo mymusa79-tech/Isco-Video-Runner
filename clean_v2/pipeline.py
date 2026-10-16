@@ -859,10 +859,14 @@ def _synthesize_sectioned_voice_pass(
                 )
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
             elif fmt == "short":
-                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
+                definition = channel_definition("short")
+                definition_pos = section_text.find(definition)
+                if definition_pos <= prayer_pos:
+                    raise RuntimeError("Short requires the approved spoken channel definition")
+                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE), ("channel_identity", definition)])
                 voice_units.extend(
                     ("topic", item) for item in _bounded_voice_chunks(
-                        section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
+                        section_text[definition_pos + len(definition):].strip()
                     )
                 )
             else:
@@ -1146,7 +1150,7 @@ def _synthesize_sectioned_voice_pass(
                     }
                 )
             elif (
-                fmt in {"short", "film"}
+                fmt == "film"
                 and index == 1
                 and role == "channel_identity"
             ):
@@ -5465,9 +5469,9 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
         "reason": "fixed_identity_inserted_after_first_sentence_hook",
-        "canonical_opener": "",
+        "canonical_opener": SHORT_CHANNEL_DEFINITION,
         "canonical_closer": "",
-        "opener": "",
+        "opener": SHORT_CHANNEL_DEFINITION,
         "closer": "",
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
@@ -6572,8 +6576,8 @@ def _script_prompt(
     identity_handoff_guidance = ""
     if fmt == "short":
         identity_handoff_guidance = (
-            "Short: hook -> natural breath -> approved prayer -> topic -> Short outro. "
-            "No logo intro, no spoken channel definition and no gap for either. "
+            "Short: hook -> natural breath -> approved prayer -> spoken channel definition with its logo -> topic -> Short outro. "
+            "No separate silent logo intro or pre-topic gap. "
             "The hook and topic must feel like one continuous thought, not three separate announcements."
         )
     if identity_handoff:
@@ -6642,7 +6646,7 @@ the later payoff must meaningfully resolve that tension; do not write a strong h
 abandons. {hook_length_guidance}
 
 Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
-runtime inserts exactly one approved prayer sentence (and a channel definition for Film only) immediately
+runtime inserts exactly one approved prayer sentence (and a channel definition for Short and Film) immediately
 after the hook. Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/
 Outro visuals are rendered inside those measured bounds and never extend the narration. The next topic
 sentence must resume naturally after the identity beat. Prayer, channel definition, and return to the
