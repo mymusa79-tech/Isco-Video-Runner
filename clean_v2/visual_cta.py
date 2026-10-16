@@ -11,9 +11,9 @@ from .media import probe_duration
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
-SFX_TARGET_REL_DB = -12.0
-SFX_MIN_REL_DB = -16.0
-SFX_MAX_REL_DB = -9.0
+SFX_TARGET_REL_DB = -15.0
+SFX_MIN_REL_DB = -19.0
+SFX_MAX_REL_DB = -12.0
 SHORT_CTA_CENTER_X = 180
 SHORT_CTA_CENTER_Y = 910
 SHORT_CTA_X = 72
