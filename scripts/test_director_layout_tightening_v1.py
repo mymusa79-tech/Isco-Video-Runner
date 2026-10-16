@@ -373,8 +373,8 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         )
         self.assertEqual(repeated_report["catalog_track_count"], 9)
         self.assertEqual((audio_module.MUSIC_MIN_REL_DB, audio_module.MUSIC_TARGET_REL_DB, audio_module.MUSIC_MAX_REL_DB), (-21.0, -19.0, -17.0))
-        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["film"], (-23.0, -25.0, -21.0))
-        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-24.0, -26.0, -22.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["film"], (-29.0, -31.0, -27.0))
+        self.assertEqual(audio_module.MUSIC_LEVELS_REL_DB["podcast"], (-30.0, -32.0, -28.0))
         self.assertEqual(audio_module.POST_MIX_LIMITER_LINEAR, 0.84)
 
     def test_rule_8b_music_studio_has_distinct_format_pools_with_bounded_optional_coverr(self) -> None:

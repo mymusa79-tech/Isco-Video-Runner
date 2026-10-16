@@ -25,7 +25,7 @@ class MusicAuditionTests(unittest.TestCase):
             with mock.patch.object(music_library, "ensure_music_library", return_value=fake):
                 rows = music_audition.build(voice, root / "out", start=2, duration=20, fmt="podcast")
             self.assertEqual([r["id"] for r in rows], ["a-little-faith"])
-            self.assertAlmostEqual(rows[0]["relative_to_voice_db"], -24.0, delta=1.0)
+            self.assertAlmostEqual(rows[0]["relative_to_voice_db"], -30.0, delta=1.0)
             self.assertTrue((root / "out" / "0-voice-only.mp3").is_file())
             self.assertTrue((root / "out" / "1-a-little-faith.mp3").is_file())
 
