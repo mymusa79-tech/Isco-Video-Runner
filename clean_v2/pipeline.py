@@ -858,6 +858,13 @@ def _synthesize_sectioned_voice_pass(
                     ]
                 )
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
+            elif fmt == "short":
+                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
+                voice_units.extend(
+                    ("topic", item) for item in _bounded_voice_chunks(
+                        section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
+                    )
+                )
             else:
                 definition = " ".join(str(identity_definition or "").split()).strip()
                 definition_pos = section_text.find(definition) if definition else -1
@@ -1104,24 +1111,16 @@ def _synthesize_sectioned_voice_pass(
                         "role": "post_hook_silence",
                     }
                 )
-                intro_path = chunk_path.parent / "intro-silence.wav"
-                _write_silence_like(
-                    chunk_path,
-                    intro_path,
-                    timing["intro_silence_seconds"],
-                )
-                chunk_paths.append(intro_path)
-                chunk_reports.append(
-                    {
+                if fmt != "short":
+                    intro_path = chunk_path.parent / "intro-silence.wav"
+                    _write_silence_like(chunk_path, intro_path, timing["intro_silence_seconds"])
+                    chunk_paths.append(intro_path)
+                    chunk_reports.append({
                         "chunk": len(chunk_reports) + 1,
                         "file": str(intro_path.relative_to(narration_path.parent)),
-                        "chars": 0,
-                        "provider": "deterministic_silence",
-                        "charon_attempts": 0,
-                        "fallback_used": False,
-                        "role": "intro_silence",
-                    }
-                )
+                        "chars": 0, "provider": "deterministic_silence",
+                        "charon_attempts": 0, "fallback_used": False, "role": "intro_silence",
+                    })
             elif (
                 fmt in IDENTITY_TIMELINE_FORMATS
                 and index == 1
@@ -5466,9 +5465,9 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
         "reason": "fixed_identity_inserted_after_first_sentence_hook",
-        "canonical_opener": SHORT_CHANNEL_DEFINITION,
+        "canonical_opener": "",
         "canonical_closer": "",
-        "opener": SHORT_CHANNEL_DEFINITION,
+        "opener": "",
         "closer": "",
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
@@ -6569,12 +6568,14 @@ def _script_prompt(
         if fmt == "short"
         else ""
     )
-    identity_handoff = (
-        SHORT_CHANNEL_DEFINITION
-        if fmt == "short"
-        else channel_definition(fmt, identity_opener)
-    )
+    identity_handoff = channel_definition(fmt, identity_opener)
     identity_handoff_guidance = ""
+    if fmt == "short":
+        identity_handoff_guidance = (
+            "Short: hook -> natural breath -> approved prayer -> topic -> Short outro. "
+            "No logo intro, no spoken channel definition and no gap for either. "
+            "The hook and topic must feel like one continuous thought, not three separate announcements."
+        )
     if identity_handoff:
         identity_handoff_guidance = f"""
 The exact host-owned spoken handoff that will appear between the hook/Intro and your first topic
@@ -6641,7 +6642,7 @@ the later payoff must meaningfully resolve that tension; do not write a strong h
 abandons. {hook_length_guidance}
 
 Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
-runtime inserts exactly one approved prayer sentence and one channel-definition sentence immediately
+runtime inserts exactly one approved prayer sentence (and a channel definition for Film only) immediately
 after the hook. Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/
 Outro visuals are rendered inside those measured bounds and never extend the narration. The next topic
 sentence must resume naturally after the identity beat. Prayer, channel definition, and return to the

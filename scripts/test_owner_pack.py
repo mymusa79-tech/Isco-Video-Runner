@@ -94,7 +94,7 @@ class BuildTests(unittest.TestCase):
             script = owner_pack.build_artifacts(pack, _brief(), out)
             first = script["sections"][0]["narration"]
             self.assertIn(PRAYER_SENTENCE, first)
-            self.assertIn("هنا نداء اليقظة", first)
+            self.assertNotIn("هنا نداء اليقظة", first)
             self.assertTrue(first.startswith("تنهي يومك منهكًا"))
             story = json.loads((out / "visual-story.json").read_text(encoding="utf-8"))
             self.assertEqual([b["role"] for b in story["beats"]],

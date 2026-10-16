@@ -36,13 +36,11 @@ _TIMING_PROFILES = {
     # only at major opening boundaries, never inside ordinary Gemini speech.
     # Long-form gets slightly more room than Shorts without becoming sluggish.
     "short": {
-        # Short retention: one brief breath, one-second branded intro, then
-        # the trusted prayer and a compact channel handoff. Identity must not
-        # consume the first half of the Short.
+        # Hook -> one natural breath -> prayer -> topic. No logo or spoken handoff.
         "post_hook_silence_seconds": 0.25,
-        "intro_silence_seconds": 1.00,
+        "intro_silence_seconds": 0.00,
         "post_prayer_silence_seconds": 0.25,
-        "pre_topic_silence_seconds": 0.20,
+        "pre_topic_silence_seconds": 0.00,
         "final_silence_seconds": 1.25,
     },
     "film": {
@@ -275,7 +273,7 @@ def _first_sentence(text: str) -> str:
 
 def channel_definition(fmt: str, opener: str = "") -> str:
     if fmt == "short":
-        return SHORT_CHANNEL_DEFINITION
+        return ""
     if fmt == "podcast":
         # Visual V8 intro owns the series/channel branding. This value remains
         # available as metadata but is intentionally not inserted into speech.
@@ -340,7 +338,7 @@ def inject_spoken_identity(
     definition = channel_definition(fmt, opener)
     identity_block = (
         PRAYER_SENTENCE
-        if fmt == "podcast"
+        if fmt in {"short", "podcast"}
         else f"{PRAYER_SENTENCE} {definition}".strip()
     )
     closer = " ".join(str(closer or "").split()).strip()
@@ -420,15 +418,17 @@ def assert_spoken_identity(
 
     if joined.count(PRAYER_SENTENCE) != 1:
         raise RuntimeError("identity sequence requires exactly one approved prayer sentence")
-    if fmt != "podcast" and joined.count(definition) != 1:
+    if fmt == "film" and joined.count(definition) != 1:
         raise RuntimeError("identity sequence requires exactly one channel-definition sentence")
+    if fmt == "short" and any(phrase in joined for phrase in (SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY)):
+        raise RuntimeError("short must not repeat the spoken channel definition")
 
     first = str(sections[0].get("narration") or "")
     hook = _first_sentence(first)
     prayer_pos = first.find(PRAYER_SENTENCE)
     if not hook or prayer_pos < len(hook):
         raise RuntimeError("identity sequence order must begin hook -> prayer")
-    if fmt != "podcast":
+    if fmt == "film":
         definition_pos = first.find(definition)
         if definition_pos <= prayer_pos:
             raise RuntimeError("identity sequence order must be hook -> prayer -> channel definition")

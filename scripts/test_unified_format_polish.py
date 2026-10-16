@@ -20,7 +20,7 @@ class UnifiedFormatPolishTests(unittest.TestCase):
         podcast = identity_timing_profile("podcast")
         self.assertLess(short["post_hook_silence_seconds"], film["post_hook_silence_seconds"])
         self.assertGreater(podcast["final_silence_seconds"], film["final_silence_seconds"])
-        self.assertEqual(short["intro_silence_seconds"], 1.0)
+        self.assertEqual(short["intro_silence_seconds"], 0.0)
         self.assertEqual(podcast["intro_silence_seconds"], 6.0)
 
     def test_arabic_diacritics_and_joining_controls_are_not_blindly_removed(self):
