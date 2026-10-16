@@ -7282,6 +7282,7 @@ class CleanV2Pipeline:
     ) -> dict[str, Any]:
         from clean_v2.mistral_executor import reset_mistral_executor_telemetry
         from clean_v2.narrative_history import (
+            record_derived_short_signature,
             record_narrative_format,
             recent_derived_short_signatures,
             recent_narrative_formats,
@@ -8374,6 +8375,30 @@ class CleanV2Pipeline:
                     podcast_short_report = derivative_report
                 else:
                     long_short_report = derivative_report
+                # Reuse the existing local cover/history owners after a good
+                # extraction. Their metadata is optional too.
+                try:
+                    if podcast_short_report.get("status") == "pass":
+                        podcast_short_cover_report = run_cover_lite_fail_soft(
+                            output_dir=output_dir, plan=plan, fmt="short",
+                            final_path=output_dir / "podcast-short.mp4",
+                            output_name="podcast-short-cover.jpg", report_name="podcast-short-cover.json",
+                            section_id=str(podcast_short_report.get("section_id") or ""),
+                            exclude_source_files=(str(cover_report.get("source_file") or ""),),
+                        )
+                        if isinstance(podcast_promo, Mapping):
+                            record_derived_short_signature(narrative_history_path, "podcast",
+                                                           str(podcast_promo.get("selection_signature") or ""))
+                    if long_short_report.get("status") == "pass":
+                        long_short_cover_report = run_cover_lite_fail_soft(
+                            output_dir=output_dir, plan=plan, fmt="short",
+                            final_path=output_dir / "long-short.mp4",
+                            output_name="long-short-cover.jpg", report_name="long-short-cover.json",
+                            section_id=str(long_short_report.get("section_id") or ""),
+                            exclude_source_files=(str(cover_report.get("source_file") or ""),),
+                        )
+                except Exception as derivative_sidecar_exc:
+                    print(f"Optional derivative sidecar warning: {type(derivative_sidecar_exc).__name__}")
 
             # Narrative/template history represents delivered videos, not failed
             # attempts that happened to reach Planning.

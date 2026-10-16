@@ -56,7 +56,9 @@ permissions:
 
 concurrency:
   group: clean-v2-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Superseded PR tests have no production job. Keep manual production runs
+  # protected from cancellation while avoiding duplicate obsolete test work.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
