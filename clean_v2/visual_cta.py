@@ -95,8 +95,8 @@ def _env() -> dict[str, str]:
     return value
 
 
-def _run(command: list[str]) -> None:
-    subprocess.run(command, check=True, env=_env(), timeout=240)
+def _run(command: list[str], *, timeout: int = 240) -> None:
+    subprocess.run(command, check=True, env=_env(), timeout=timeout)
 
 
 def _cairo_bold_font_path() -> Path:
@@ -489,6 +489,63 @@ def _longform_contextual_event(
         )
     ]
 
+LONGFORM_VISUAL_ONLY_OPENING_GUARD_SECONDS = 30.5
+LONGFORM_VISUAL_ONLY_FINAL_QUIET_SECONDS = 12.0
+LONGFORM_VISUAL_ONLY_MODES = ("like", "share", "subscribe_combo")
+
+
+def _longform_visual_only_events(*, output_dir: Path, duration: float, fmt: str) -> list[VisualCtaEvent]:
+    """2-3 silent on-screen reminders for a Podcast/long video with no spoken CTA.
+
+    The dialogue is never touched: no spoken line, no sound. Times are spread over the
+    topic window (outside the opening guard and the final quiet) with a deterministic,
+    script-seeded jitter so the same episode always renders the same way.
+    """
+    import hashlib
+    import random
+
+    output_dir = Path(output_dir)
+    topic_start, topic_end = 0.0, float(duration)
+    timeline = _read_json(output_dir / "timeline-first.json")
+    for row in timeline.get("identity_events") or []:
+        if isinstance(row, Mapping) and str(row.get("kind") or "") == "topic":
+            try:
+                topic_start, topic_end = float(row["start"]), float(row["end"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            break
+    low = max(topic_start, LONGFORM_VISUAL_ONLY_OPENING_GUARD_SECONDS)
+    high = min(topic_end, float(duration) - LONGFORM_VISUAL_ONLY_FINAL_QUIET_SECONDS)
+    span = high - low
+    if span < 90.0:
+        return []
+    count = 3 if span >= 420.0 else 2
+    try:
+        seed_text = (output_dir / "narration.txt").read_text(encoding="utf-8")
+    except OSError:
+        seed_text = f"podcast-visual-cta-{round(float(duration))}"
+    rng = random.Random(int(hashlib.sha256(seed_text.encode("utf-8")).hexdigest()[:16], 16))
+    modes = rng.sample(LONGFORM_VISUAL_ONLY_MODES, count)
+    band = span / count
+    events: list[VisualCtaEvent] = []
+    for index, mode in enumerate(modes):
+        shown = 3.0 if mode == "subscribe_combo" else 1.8
+        start = low + band * index + band * (0.2 + 0.6 * rng.random())
+        start = min(start, high - shown - 1.0)
+        x, y = _cta_position(mode=mode, fmt=fmt)
+        events.append(
+            VisualCtaEvent(
+                mode=mode,
+                start_seconds=round(start, 3),
+                end_seconds=round(start + shown, 3),
+                x=x,
+                y=y,
+                asset="arabic_subscribe_combo_renderer" if mode == "subscribe_combo" else _ICON_BY_MODE[mode].name,
+            )
+        )
+    return events
+
+
 def _render(
     *,
     video: Path,
@@ -496,6 +553,7 @@ def _render(
     events: list[VisualCtaEvent],
     fmt: str,
     narration_path: Path,
+    silent: bool = False,
 ) -> None:
     if not events:
         return
@@ -535,13 +593,13 @@ def _render(
     # One measured click per CTA event. The combined Arabic CTA is renderer-owned
     # too, so it no longer inherits English reference-video audio or UI.
     click_specs: list[tuple[int, VisualCtaEvent]] = []
-    for event in events:
+    for event in ([] if silent else events):
         command.extend(["-i", str(_CLICK)])
         click_specs.append((next_index, event))
         next_index += 1
 
-    narration_mean_db = _mean_db(Path(narration_path))
-    click_gain_db = _sfx_gain_db(source=_CLICK, narration_mean_db=narration_mean_db)
+    narration_mean_db = _mean_db(Path(narration_path)) if click_specs else 0.0
+    click_gain_db = _sfx_gain_db(source=_CLICK, narration_mean_db=narration_mean_db) if click_specs else 0.0
 
     filters: list[str] = []
     current = "[0:v]"
@@ -587,11 +645,15 @@ def _render(
         )
         audio_labels.append(f"[aclick{number}]")
 
-    filters.append(
-        "".join(audio_labels)
-        + f"amix=inputs={len(audio_labels)}:normalize=0:duration=first:dropout_transition=0,"
-        "alimiter=limit=0.95:level=disabled[aout]"
-    )
+    if click_specs:
+        filters.append(
+            "".join(audio_labels)
+            + f"amix=inputs={len(audio_labels)}:normalize=0:duration=first:dropout_transition=0,"
+            "alimiter=limit=0.95:level=disabled[aout]"
+        )
+    else:
+        # Silent reminders: the dialogue audio passes through untouched.
+        filters.append("[0:a]anull[aout]")
 
     command.extend([
         "-filter_complex", ";".join(filters),
@@ -605,7 +667,8 @@ def _render(
         str(dest),
     ])
     try:
-        _run(command)
+        # Long videos are re-encoded end to end; 240 s is only enough for short clips.
+        _run(command, timeout=1800 if fmt in {"film", "podcast"} else 240)
     finally:
         combo_path.unlink(missing_ok=True)
         for path in short_labeled_paths.values():
@@ -639,19 +702,26 @@ def apply_visual_cta_assets(
 
     total = float(probe_duration(Path(narration_path)))
     authored = _authored_mode(output_dir)
+    silent = False
     if fmt in {"film", "podcast"}:
         events = _longform_contextual_event(
             output_dir=output_dir,
             fmt=fmt,
             duration=total,
         )
+        if not events:
+            # No spoken CTA exists (approved ZIP text, or a plan without one): show 2-3
+            # silent reminders instead, so the dialogue is never interrupted.
+            events = _longform_visual_only_events(output_dir=output_dir, duration=total, fmt=fmt)
+            silent = bool(events)
         semantic_decisions = [
             {
                 "start_seconds": event.start_seconds,
                 "preferred_mode": authored,
                 "selected_mode": event.mode,
                 "semantic_conflict_avoided": False,
-                "spoken_cta_aligned": True,
+                "spoken_cta_aligned": not silent,
+                "visual_only_silent": silent,
             }
             for event in events
         ]
@@ -673,7 +743,7 @@ def apply_visual_cta_assets(
     temp.unlink(missing_ok=True)
     try:
         if events:
-            _render(video=final_path, dest=temp, events=events, fmt=fmt, narration_path=Path(narration_path))
+            _render(video=final_path, dest=temp, events=events, fmt=fmt, narration_path=Path(narration_path), silent=silent)
             os.replace(temp, final_path)
             status = "applied"
         else:
@@ -697,10 +767,11 @@ def apply_visual_cta_assets(
         "semantic_separation": fmt == "short",
         "spoken_visual_alignment": fmt in {"film", "podcast"},
         "longform_cta_policy": (
-            "one_spoken_contextual_cta_with_matching_visual"
+            ("silent_visual_only_2_3_reminders_no_spoken_cta" if silent else "one_spoken_contextual_cta_with_matching_visual")
             if fmt in {"film", "podcast"}
             else None
         ),
+        "silent_visual_only": silent,
         "subscribe_delivery": (
             "matching_spoken_contextual_cta"
             if fmt in {"film", "podcast"}
