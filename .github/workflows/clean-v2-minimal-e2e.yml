@@ -9,6 +9,11 @@ on:
     paths:
       - "clean_v2/**"
       - "scripts/test_clean_v2.py"
+      - "scripts/test_production_package.py"
+      - "scripts/test_ready_production_e2e.py"
+      - "scripts/test_isolated_derivative.py"
+      - "scripts/retry_clean_v2_derivative.py"
+      - ".github/workflows/clean-v2-derivative-only.yml"
       - "scripts/test_clean_v2_channel_persona.py"
       - "scripts/test_clean_v2_human_feel.py"
       - "scripts/test_clean_v2_human_editorial_rhythm.py"
@@ -150,6 +155,12 @@ jobs:
             scripts.test_telegram_clean_v2_control \
             scripts.test_clean_v2_release_delivery \
             -v
+
+      - name: Approved ZIP and Ala Mahl offline integration
+        run: python -m unittest scripts.test_production_package scripts.test_ready_production_e2e -v
+
+      - name: Optional derivative isolation and no-TTS retry
+        run: python -m unittest scripts.test_isolated_derivative -v
 
   produce:
     permissions:

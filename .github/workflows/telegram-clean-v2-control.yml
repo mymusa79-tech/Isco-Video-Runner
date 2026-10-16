@@ -79,6 +79,9 @@ jobs:
           fi
           echo "TELEGRAM_RUNTIME_STATE_PATH=$runtime" >> "$GITHUB_ENV"
 
+      - name: Install local ZIP image validation
+        run: python -m pip install --disable-pip-version-check 'Pillow==12.3.0'
+
       - name: Handle authorized Telegram update
         env:
           WEBHOOK_UPDATE_B64: ${{ inputs.webhook_update_b64 }}
@@ -109,6 +112,13 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -s "$DISPATCH_FILE" ]; then
+            echo "sent=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(jq -r '.kind // empty' "$DISPATCH_FILE")" = "derivative_only" ]; then
+            tag="$(jq -r .release_tag "$DISPATCH_FILE")"
+            [[ "$tag" =~ ^clean-v2-final-(long|podcast)-[A-Za-z0-9_-]+$ ]]
+            gh workflow run clean-v2-derivative-only.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$tag"
             echo "sent=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

@@ -1113,7 +1113,12 @@ def apply_short_timed_text(
 ) -> dict[str, Any]:
     """Burn the restored three-event Short text layer onto the final picture."""
     timeline_path = Path(output_dir) / "short-voice-owned-timeline.json"
-    if timeline_path.is_file():
+    if (Path(output_dir) / "production.json").is_file():
+        from .podcast_captions import build_events
+        events, _timing = build_events(Path(output_dir), fmt="short", caption_roles={"hook", "topic", "outro"})
+        events = [dict(e, role="hook" if i == 0 else ("payoff" if i == len(events)-1 else "beat"))
+                  for i, e in enumerate(events)]
+    elif timeline_path.is_file():
         try:
             timeline_report = json.loads(timeline_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:

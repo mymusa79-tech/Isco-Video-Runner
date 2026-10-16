@@ -185,6 +185,11 @@ def load_pack(path: str | os.PathLike[str]) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise OwnerPackError("ملف النص الجاهز غير صالح.")
+    if "production" in data:
+        from .production_package import validate_manifest
+
+        validate_manifest(data["production"], set(data["asset_sha256"]))
+        return data
     if data.get("format") == "film":
         texts = data.get("texts")
         if (
@@ -259,6 +264,10 @@ def _sentences(text: str) -> list[str]:
 
 def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: Path) -> dict[str, Any]:
     """Write the post-audit artifact set into ``out_dir`` and return the script."""
+    if "production" in pack:
+        from .ready_production import build_artifacts as build_ready_artifacts
+
+        return build_ready_artifacts(pack, brief, out_dir)
     if pack.get("format") == "podcast":
         from clean_v2 import owner_podcast
 

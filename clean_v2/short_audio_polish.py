@@ -305,6 +305,10 @@ def apply_topic_audio_polish(
     fmt: str,
 ) -> dict[str, Any]:
     """Mix one verified CC0 music bed only inside the shared measured topic window."""
+    from .ready_production import document
+    if document(Path(output_dir)).get("editing", {}).get("music") == "none":
+        return {"status": "skipped_approved_package_music_none", "provider_calls_added": 0,
+                "music_added": False, "voice_changed": False}
     if fmt not in {"short", "film", "podcast"}:
         raise ValueError(f"topic audio polish unsupported format: {fmt}")
     output_dir = Path(output_dir)

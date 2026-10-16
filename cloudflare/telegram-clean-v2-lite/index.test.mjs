@@ -12,6 +12,7 @@ const {
   isOwnerPodcastText,
   isOwnerImageMessage,
   isOwnerTextFile,
+  isProductionZip,
   isSceneReviewReply,
   localLibraryRoute,
   releaseLibraryRecords,
@@ -20,6 +21,13 @@ const {
   savedLibraryItems,
   scopeKeyboard,
 } = workerModule;
+
+test("approved ZIP files reach control without starting production in the Worker", () => {
+  assert.equal(isProductionZip({ document: { file_name: "ready.ZIP", mime_type: "application/octet-stream" } }), true);
+  assert.equal(isProductionZip({ document: { mime_type: "application/zip" } }), true);
+  assert.equal(isProductionZip({ document: { file_name: "ready.txt", mime_type: "text/plain" } }), false);
+  assert.equal(isProductionZip({ photo: [] }), false);
+});
 
 function sampleState() {
   return {

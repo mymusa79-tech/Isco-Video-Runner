@@ -131,7 +131,7 @@ def align_phrases(
     return placed
 
 
-def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
+def build_events(output_dir: Path, *, fmt: str = "podcast", caption_roles=CAPTION_ROLES) -> tuple[list[dict[str, Any]], str]:
     root = Path(output_dir)
     timeline = _read_json(root / "timeline-first.json")
     voice = _read_json(root / "voice-sections.json")
@@ -150,7 +150,7 @@ def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
     events: list[dict[str, Any]] = []
     snapped = 0
     for unit in timeline.get("audio_units") or []:
-        if not isinstance(unit, Mapping) or str(unit.get("role")) not in CAPTION_ROLES:
+        if not isinstance(unit, Mapping) or str(unit.get("role")) not in caption_roles:
             continue
         text = texts.get((str(unit.get("section_id")), int(unit.get("chunk") or 0)))
         if not text:
@@ -158,7 +158,7 @@ def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
         start, end = float(unit["start"]), float(unit["end"])
         if end - start < MIN_EVENT_SECONDS:
             continue
-        tagged = [(speaker, chunk) for speaker, chunk in _speaker_chunks(text, "podcast") if chunk.strip()]
+        tagged = [(speaker, chunk) for speaker, chunk in _speaker_chunks(text, fmt) if chunk.strip()]
         if not tagged:
             continue
         if not is_verbatim_split([chunk for _speaker, chunk in tagged], text):
@@ -182,18 +182,20 @@ def build_events(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
     return events, mode
 
 
-def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
+def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> str:
+    width, height, font_size, margin = (1080, 1920, 92, 430) if fmt == "short" else (1920, 1080, FONT_SIZE, MARGIN_V)
+    side_margin = 90 if fmt == "short" else 140
     lines = [
         "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2", "ScaledBorderAndShadow: yes",
-        "PlayResX: 1920", "PlayResY: 1080", "YCbCr Matrix: TV.709", "",
+        f"PlayResX: {width}", f"PlayResY: {height}", "YCbCr Matrix: TV.709", "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,2,140,140,{MARGIN_V},-1",
+        f"Style: Caption,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,2,{side_margin},{side_margin},{margin},-1",
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
     for item in events:
-        rows, size = _caption_rows_and_size(str(item["text"]), fmt="podcast", font_size=FONT_SIZE)
+        rows, size = _caption_rows_and_size(str(item["text"]), fmt=fmt, font_size=font_size)
         if not rows:
             continue
         rendered = r"\N".join(_rtl_row(row.split()) for row in rows)

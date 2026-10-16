@@ -111,7 +111,7 @@ def require_exact_engine_sha(value: str) -> str:
     return normalized
 
 
-def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
+def validate_plan(value: Any, brief: Mapping[str, Any], *, owner_approved: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ContractError("planning output must be a JSON object")
     title = str(value.get("title") or "").strip()
@@ -135,7 +135,7 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         narrative_format = ""
     if fmt == "short" and cta:
         raise ContractError("short plan requires an empty social cta")
-    if fmt not in {"moment", "short"}:
+    if fmt not in {"moment", "short"} and not owner_approved:
         if not cta:
             raise ContractError("plan requires one non-empty contextual cta for CTA-enabled formats")
         from .contextual_cta import CtaMode, MAX_SPOKEN_WORDS, infer_cta_mode

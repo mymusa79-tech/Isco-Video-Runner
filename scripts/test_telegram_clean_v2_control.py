@@ -954,12 +954,14 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertEqual(
             callbacks,
             [
+                "main:readyzip",
                 "main:research",
                 "main:saved",
                 "main:used",
                 "main:stats",
                 "main:status",
                 "main:last",
+                "main:retryderivative",
                 "main:cancel",
             ],
         )

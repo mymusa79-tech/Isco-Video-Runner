@@ -208,9 +208,11 @@ def _identity_events(
     voice_seconds: float,
     require_identity: bool,
     fmt: str = "short",
+    template: str = "",
 ) -> list[dict[str, Any]]:
     if fmt == "short":
-        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "channel_identity", "final_silence")
+        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence",
+                    *(("channel_identity",) if template != "ala_mahl" else ()), "final_silence")
         rows = {role: _one_role(units, role) for role in required}
         if any(row is None for row in rows.values()):
             if require_identity:
@@ -222,7 +224,7 @@ def _identity_events(
             for role in required[:-1]
         ]
         events.append({"kind": "topic", "source": "measured_voice_timeline",
-                       "start": float(rows["channel_identity"]["end"]),
+                       "start": float(rows["channel_identity" if template != "ala_mahl" else "post_prayer_silence"]["end"]),
                        "end": float(rows["final_silence"]["start"])})
         for kind in ("outro", "final_silence"):
             events.append({"kind": kind, "source": "measured_silence_chunk",
@@ -392,7 +394,11 @@ def build_voice_owned_timeline(
 ) -> dict[str, Any]:
     """Build one shared Short/Film/Podcast timeline owned only by measured audio."""
     root = Path(output_dir)
+    from .ready_production import document
+    template = str(document(root).get("template") or "")
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
+    if template == "ala_mahl" and not 25.0 <= voice_seconds <= 60.0:
+        raise TimelineFirstError(f"ALA_MAHL_AUDIO_DURATION_OUTSIDE_25_60 seconds={voice_seconds:.3f}")
     maximum = safety_max_seconds(fmt)
     voice_provider = ""
     voice_report_path = root / "voice-sections.json"
@@ -409,6 +415,7 @@ def build_voice_owned_timeline(
         "contract_id": CONTRACT_ID,
         "source": CONTRACT_ID,
         "format": fmt,
+        "template": template,
         "timeline_owner": "measured_gemini38_voice",
         "voice_seconds_measured": round(voice_seconds, 3),
         "safety_maximum_seconds": maximum,
@@ -459,6 +466,7 @@ def build_voice_owned_timeline(
         voice_seconds=voice_seconds,
         require_identity=require_identity,
         fmt=fmt,
+        template=template,
     )
     identities = [
         {
