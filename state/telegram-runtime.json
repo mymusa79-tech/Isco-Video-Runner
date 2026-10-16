@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "podcast",
   "kind": "",
   "topic": "هل استقلاليتك قوة… أم خوف من الاحتياج؟",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38937496756",
-  "result": "failure",
-  "updated_at": 1792171944
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/38952385740",
+  "result": "",
+  "updated_at": 1792177585
 }
