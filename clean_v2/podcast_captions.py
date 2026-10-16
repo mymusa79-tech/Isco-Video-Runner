@@ -45,8 +45,15 @@ SCHEMA_VERSION = 1
 CAPTION_ROLES = frozenset({"hook", "topic"})  # cta_topic keeps its own on-screen CTA
 SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
 SPEAKER_ASS = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}
-FONT_SIZE = 64  # 5.9% of the 1080 px frame; two rows still fit the safe width
+FONT_SIZE = 72  # 6.7% of the 1080 px frame (was 64); two rows still fit the safe width
 MARGIN_V = 150
+# Semi-transparent charcoal band behind long-form captions. Its bottom edge stays 115 px
+# above the frame bottom so player controls / progress bars never sit on it.
+BAR_TOP = 730
+BAR_BOTTOM = 965
+BAR_ALPHA_ASS = "&H5A&"  # ~65% opaque
+BAR_COLOUR_ASS = "&H211D1B&"  # charcoal #1B1D21 (BGR)
+BAR_MERGE_GAP_SECONDS = 0.35
 MIN_EVENT_SECONDS = 0.5
 SILENCE_NOISE_DB = -32
 SILENCE_MIN_SECONDS = 0.18
@@ -196,16 +203,30 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
+    spans: list[list[float]] = []
     for item in events:
         rows, size = _caption_rows_and_size(str(item["text"]), fmt=fmt, font_size=font_size)
         if not rows:
             continue
         rendered = r"\N".join(_rtl_row(row.split()) for row in rows)
         colour = SPEAKER_ASS.get(str(item.get("speaker") or ""), "")
+        start, end = float(item["start"]), float(item["end"])
+        if spans and start - spans[-1][1] <= BAR_MERGE_GAP_SECONDS:
+            spans[-1][1] = max(spans[-1][1], end)
+        else:
+            spans.append([start, end])
         lines.append(
-            f'Dialogue: 0,{_ass_time(float(item["start"]))},{_ass_time(float(item["end"]))},Caption,,0,0,0,,'
+            f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
             + r"{\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
         )
+    if fmt != "short":
+        # One fixed band per run of consecutive captions, so it never flickers between phrases.
+        shape = f"m 0 {BAR_TOP} l {width} {BAR_TOP} {width} {BAR_BOTTOM} 0 {BAR_BOTTOM}"
+        for start, end in spans:
+            lines.append(
+                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(100,120)\bord0\shad0\1c" + BAR_COLOUR_ASS + r"\1a" + BAR_ALPHA_ASS + r"\p1}" + shape + r"{\p0}"
+            )
     lines.append("")
     return "\n".join(lines)
 

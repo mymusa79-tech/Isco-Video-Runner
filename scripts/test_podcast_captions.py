@@ -129,6 +129,28 @@ class VerbatimTests(unittest.TestCase):
                              "لماذا نشعر بالتعب؟ لأن القرارات الصغيرة تستهلك طاقتنا. وما الحل؟".split())
 
 
+class BarTests(unittest.TestCase):
+    EVENTS = [
+        {"start": 1.0, "end": 3.0, "text": "جملة أولى قصيرة.", "speaker": "A"},
+        {"start": 3.1, "end": 5.0, "text": "جملة ثانية متصلة.", "speaker": "B"},
+        {"start": 9.0, "end": 11.0, "text": "جملة بعد وقفة.", "speaker": "A"},
+    ]
+
+    def test_longform_gets_one_fixed_band_per_run_and_a_larger_font(self) -> None:
+        ass = pc.build_ass(self.EVENTS)
+        bars = [line for line in ass.splitlines() if r"\p1" in line]
+        self.assertEqual(len(bars), 2)  # 1.0-5.0 merged, 9.0-11.0 separate
+        self.assertIn("0:00:01.00,0:00:05.00", bars[0])
+        self.assertIn(f"{pc.BAR_BOTTOM}", bars[0])
+        self.assertLessEqual(pc.BAR_BOTTOM, 1080 - 100)  # clear of player controls
+        self.assertEqual(pc.FONT_SIZE, 72)
+        text_lines = [line for line in ass.splitlines() if line.startswith("Dialogue: 1,")]
+        self.assertEqual(len(text_lines), 3)  # text sits above the band layer
+
+    def test_short_has_no_band(self) -> None:
+        self.assertNotIn(r"\p1", pc.build_ass(self.EVENTS, fmt="short"))
+
+
 class BurnTests(unittest.TestCase):
     def test_burned_video_shows_gold_for_A_and_white_for_B(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
