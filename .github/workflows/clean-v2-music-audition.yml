@@ -1,0 +1,84 @@
+name: Clean V2 Music Audition
+
+# Zero-cost listening test: each approved dialogue-bed track mixed at the production
+# level under a real narration excerpt, sent to the owner's Telegram chat.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: GitHub run id whose artifact holds narration-mastered.wav
+        required: true
+        type: string
+      start_seconds:
+        description: Narration excerpt start
+        required: true
+        default: "70"
+        type: string
+      format:
+        description: Level profile
+        required: true
+        default: podcast
+        type: choice
+        options: [podcast, film, short]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CLEAN_V2_MUSIC_ALLOW_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg
+      - name: Download the run artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          artifact_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|last|.id')
+          test -n "$artifact_id"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/run.zip"
+          mkdir -p "$RUNNER_TEMP/run"
+          unzip -q "$RUNNER_TEMP/run.zip" 'narration-mastered.wav' '*/narration-mastered.wav' -d "$RUNNER_TEMP/run" || true
+          find "$RUNNER_TEMP/run" -name narration-mastered.wav | head -1 > "$RUNNER_TEMP/wav.txt"
+          test -s "$RUNNER_TEMP/wav.txt"
+      - name: Render audition mixes
+        env:
+          START: ${{ inputs.start_seconds }}
+          FORMAT: ${{ inputs.format }}
+        run: |
+          set -euo pipefail
+          wav=$(cat "$RUNNER_TEMP/wav.txt")
+          python scripts/music_audition.py --run-dir "$(dirname "$wav")" \
+            --out "$RUNNER_TEMP/audition" --start "$START" --format "$FORMAT"
+      - name: Send to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          for f in "$RUNNER_TEMP"/audition/*.mp3; do
+            name=$(basename "$f" .mp3)
+            curl -sS -f -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendAudio" \
+              -F chat_id="$TELEGRAM_CHAT_ID" -F caption="music audition: $name" \
+              -F audio=@"$f" > /dev/null
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: music-audition
+          path: ${{ runner.temp }}/audition/*.mp3
