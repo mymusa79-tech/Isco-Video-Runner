@@ -16,9 +16,10 @@ MUSIC_TARGET_REL_DB = -19.0
 MUSIC_MIN_REL_DB = -21.0
 MUSIC_MAX_REL_DB = -17.0
 MUSIC_LEVELS_REL_DB = {
-    "short": (-21.0, -23.0, -19.0),
-    "film": (-23.0, -25.0, -21.0),
-    "podcast": (-24.0, -26.0, -22.0),
+    # Owner listening test (Run 142 audition): every bed was too present. 6 dB quieter.
+    "short": (-27.0, -29.0, -25.0),
+    "film": (-29.0, -31.0, -27.0),
+    "podcast": (-30.0, -32.0, -28.0),
 }
 POST_MIX_LIMITER_LINEAR = 0.84
 LEVEL_TOLERANCE_DB = 1.0
