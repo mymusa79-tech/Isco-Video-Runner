@@ -4472,11 +4472,14 @@ def _run_legacy_cinematic_layer(
                     captions_report = apply_podcast_captions(
                         output_dir=output_dir, final_path=final_path
                     )
-                except PodcastCaptionError as exc:
+                except Exception as exc:  # captions are a local add-on: never block the finished video
+                    reason = str(exc) if isinstance(exc, PodcastCaptionError) else (
+                        f"podcast_captions_unexpected_error:{type(exc).__name__}:{str(exc)[:160]}"
+                    )
                     captions_report = {
                         "status": "skipped",
                         "mode": "fail_soft",
-                        "reason": str(exc),
+                        "reason": reason,
                         "provider_calls_added": 0,
                     }
                 atomic_write_json(output_dir / "podcast-captions.json", captions_report)

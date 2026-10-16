@@ -202,3 +202,41 @@ class FallbackWarningTests(unittest.TestCase):
         self.assertIn("podcast_captions_text_not_verbatim", buf.getvalue())
         self.assertEqual(report["podcast_captions"]["status"], "skipped")
         self.assertEqual(report["podcast_captions"]["reason"], "podcast_captions_text_not_verbatim")
+
+
+class RealRunRegressionTests(unittest.TestCase):
+    """Run 141 crashed with IndexError: a short LAST clause that cannot merge backwards."""
+
+    def test_short_last_clause_that_cannot_merge_backwards_does_not_crash(self) -> None:
+        from clean_v2 import short_timed_text as stt
+
+        full = " ".join(f"كلمة{i}" for i in range(stt.CAPTION_MAX_WORDS))
+        text = f"{full}، نعم لا"
+        for fmt in ("podcast", "film", "short"):
+            chunks = stt._phrase_chunks(text, fmt)
+            self.assertEqual(" ".join(" ".join(chunks).split()), " ".join(text.replace("،", "،").split()))
+
+    def test_unexpected_caption_error_is_recorded_and_never_blocks(self) -> None:
+        import contextlib
+        import io
+        from unittest import mock
+
+        from clean_v2 import pipeline
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            buf = io.StringIO()
+            with mock.patch("clean_v2.legacy_cinematic.apply_post_render_layer", return_value={}), \
+                 mock.patch("clean_v2.contextual_cta.apply_contextual_cta_overlay", return_value={}), \
+                 mock.patch("clean_v2.podcast_captions.apply_podcast_captions", side_effect=IndexError("boom")), \
+                 mock.patch("clean_v2.podcast_key_text.apply_podcast_key_text", return_value={"status": "pass"}), \
+                 mock.patch("clean_v2.short_audio_polish.apply_topic_audio_polish", return_value={"status": "skipped"}), \
+                 mock.patch("clean_v2.visual_cta.apply_visual_cta_assets", return_value={"status": "skipped"}), \
+                 contextlib.redirect_stdout(buf):
+                report = pipeline._run_legacy_cinematic_layer(
+                    output_dir=out, final_path=out / "f.mp4", narration_path=out / "n.wav",
+                    plan={}, script={}, rights=[], fmt="podcast",
+                )
+        self.assertEqual(report["podcast_captions"]["status"], "skipped")
+        self.assertIn("podcast_captions_unexpected_error:IndexError", report["podcast_captions"]["reason"])
+        self.assertIn("::warning title=podcast-captions-fallback::", buf.getvalue())
