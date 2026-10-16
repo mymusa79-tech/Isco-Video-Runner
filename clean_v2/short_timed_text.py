@@ -212,7 +212,7 @@ def _phrase_chunks(text: object, fmt: str = "short") -> list[str]:
             chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
             chunks.pop(index)
             continue
-        if len((chunks[index] + " " + chunks[index + 1]).split()) <= CAPTION_MAX_WORDS:
+        if index + 1 < len(chunks) and len((chunks[index] + " " + chunks[index + 1]).split()) <= CAPTION_MAX_WORDS:
             chunks[index + 1] = f"{chunks[index]} {chunks[index + 1]}"
             chunks.pop(index)
             continue
