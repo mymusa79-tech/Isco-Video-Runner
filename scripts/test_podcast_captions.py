@@ -141,6 +141,8 @@ class BurnTests(unittest.TestCase):
             self.assertEqual(report["status"], "pass")
             self.assertTrue(report["burned_into_final_video"])
             self.assertNotEqual(final.read_bytes(), before)
+            # The caption-free master is kept so the derived Short is never double-captioned.
+            self.assertEqual((root / pc.CLEAN_MASTER_NAME).read_bytes(), before)
             self.assertTrue((root / "podcast-captions.srt").is_file())
             self.assertIn("is_requested_font", report["font_actually_used"])  # reported from libass, not assumed
             self.assertEqual(report["font_actually_used"]["requested"], "Cairo")
