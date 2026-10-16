@@ -95,8 +95,8 @@ def _env() -> dict[str, str]:
     return value
 
 
-def _run(command: list[str]) -> None:
-    subprocess.run(command, check=True, env=_env(), timeout=240)
+def _run(command: list[str], *, timeout: int = 240) -> None:
+    subprocess.run(command, check=True, env=_env(), timeout=timeout)
 
 
 def _cairo_bold_font_path() -> Path:
@@ -667,7 +667,8 @@ def _render(
         str(dest),
     ])
     try:
-        _run(command)
+        # Long videos are re-encoded end to end; 240 s is only enough for short clips.
+        _run(command, timeout=1800 if fmt in {"film", "podcast"} else 240)
     finally:
         combo_path.unlink(missing_ok=True)
         for path in short_labeled_paths.values():
