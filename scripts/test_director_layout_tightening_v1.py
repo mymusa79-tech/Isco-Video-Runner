@@ -61,6 +61,12 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                         2,
                         {"kind": "channel_identity", "start": 4.5, "end": 5.5},
                     )
+                if fmt == "short":
+                    identity_events = [e for e in identity_events if e["kind"] != "intro"]
+                    identity_events.extend([
+                        {"kind": "post_prayer_silence", "start": 4.5, "end": 4.75},
+                        {"kind": "channel_identity", "start": 4.75, "end": 5.5},
+                    ])
                 timeline = {
                     "voice_seconds_measured": 12.0,
                     "identity_events": identity_events,
@@ -80,10 +86,15 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 self.assertNotIn("alpha=1", filters)
                 self.assertIn("tpad=stop_mode=clone", filters)
                 self.assertNotIn("ass='", filters)
-                self.assertIn("[v1][prayer]overlay=0:0", filters)
-                self.assertIn("between(t,3.000,4.500)", filters)
-                self.assertIn("between(t,2.000,3.000)", filters)
-                self.assertIn("between(t,10.000,12.000)", filters)
+                if fmt == "short":
+                    self.assertIn("[0:v][prayer]overlay=0:0", filters)
+                    self.assertIn("gte(t,4.750)*lt(t,5.500)", filters)
+                    self.assertNotIn("[intro]", filters)
+                else:
+                    self.assertIn("[v1][prayer]overlay=0:0", filters)
+                    self.assertIn("between(t,3.000,4.500)", filters)
+                    self.assertIn("between(t,2.000,3.000)", filters)
+                    self.assertIn("between(t,10.000,12.000)", filters)
 
     def test_rule_7_format_asset_groups_are_distinct_and_timing_contract_is_shared(self) -> None:
         short_intro, short_outro, sw, sh = _asset_pair("short")
@@ -102,7 +113,10 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(len({short_outro.name, film_outro.name, podcast_outro.name}), 3)
         for fmt in ("short", "film", "podcast"):
             profile = identity_timing_profile(fmt)
-            self.assertGreater(profile["intro_silence_seconds"], 0)
+            if fmt == "short":
+                self.assertEqual(profile["intro_silence_seconds"], 0)
+            else:
+                self.assertGreater(profile["intro_silence_seconds"], 0)
             self.assertGreater(profile["final_silence_seconds"], 0)
 
     def test_rule_3_cairo_caption_is_large_static_offwhite_with_black_outline(self) -> None:
