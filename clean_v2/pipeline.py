@@ -940,7 +940,14 @@ def _synthesize_sectioned_voice_pass(
             )
 
         from .derived_short import split_voice_units
-        voice_units = split_voice_units(voice_units, ready_doc.get("derivative"))
+        original_voice_units = voice_units
+        try:
+            voice_units = split_voice_units(voice_units, ready_doc.get("derivative"))
+        except Exception as boundary_exc:
+            # Optional timing preparation must not block the original voice
+            # pass. Unmapped anchors are reported after primary SUCCESS.
+            voice_units = original_voice_units
+            print(f"Optional derivative boundaries skipped: {type(boundary_exc).__name__}")
 
         chunks = [text for _role, text in voice_units if text]
         roles = [role for role, text in voice_units if text]

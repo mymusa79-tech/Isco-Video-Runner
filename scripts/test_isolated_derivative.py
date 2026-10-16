@@ -52,6 +52,22 @@ def parent_fixture(root: Path, *, real_media=False) -> dict:
 
 
 class DerivativeTests(unittest.TestCase):
+    def test_optional_boundary_preparation_failure_keeps_original_voice_pass(self):
+        from clean_v2.pipeline import _synthesize_sectioned_voice
+        from scripts.test_production_package import imported_pack
+        doc = manifest("podcast")
+        question, answer = [t["text"] for t in doc["script"]["sections"][1]["turns"]]
+        doc["derivative"] = {"start_text": question, "end_text": answer}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); voice = LocalVoice()
+            script = owner_pack.build_artifacts(imported_pack(doc), {"format": "podcast"}, root)
+            before = json.dumps(script, ensure_ascii=False)
+            with mock.patch.object(derived_short, "split_voice_units", side_effect=RuntimeError("optional boundary bug")):
+                result = _synthesize_sectioned_voice(voice, script["sections"], root/"narration.wav", fmt="podcast")
+            self.assertTrue((root/"narration.wav").is_file())
+            self.assertEqual(result["voice_provider"], "gemini-3.8:Charon")
+            self.assertEqual(json.dumps(script, ensure_ascii=False), before)
+
     def test_first_voice_pass_measures_requested_text_without_a_second_synthesis(self):
         from clean_v2.pipeline import _synthesize_sectioned_voice
         from clean_v2.timeline_first import build_voice_owned_timeline
