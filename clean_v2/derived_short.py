@@ -139,11 +139,11 @@ def verify_primary(root: Path) -> dict:
 def _selection(context: Mapping[str, Any], doc: Mapping[str, Any]) -> tuple[dict | None, str]:
     rows = context["rows"]
     requested = context.get("candidate")
+    approved = spoken_text(" ".join(section_text(s) for s in doc.get("script", {}).get("sections", [])))
     if requested:
         start, end = requested["start_text"], requested["end_text"]
         if not all(re.search(r"[.!؟!]$", s.strip()) for s in (start, end)):
             return None, "candidate_requires_complete_sentence_boundaries"
-        approved = spoken_text(" ".join(section_text(s) for s in doc.get("script", {}).get("sections", [])))
         if approved and (approved.count(start) != 1 or approved.count(end) != 1):
             return None, "candidate_text_missing_or_ambiguous_in_approved_script"
         if approved:
@@ -158,8 +158,18 @@ def _selection(context: Mapping[str, Any], doc: Mapping[str, Any]) -> tuple[dict
         if any(u["role"] not in CAPTION_ROLES for u in selected):
             return None, "candidate_crosses_identity_or_silence"
     else:
+        def complete_sentence_unit(unit):
+            text = spoken_text(unit["text"])
+            if not re.search(r"[.!؟!]$", text):
+                return False
+            # A bounded voice chunk may have been split at a word limit. A
+            # measured duration alone does not make that a complete excerpt.
+            return bool(approved) and any(
+                match.start() == 0 or approved[:match.start()].rstrip()[-1] in ".!؟!"
+                for match in re.finditer(re.escape(text), approved)
+            )
         valid = [u for u in rows if u["role"] in CAPTION_ROLES and u["text"]
-                 and 7 <= float(u["end"]) - float(u["start"]) <= 60]
+                 and 7 <= float(u["end"]) - float(u["start"]) <= 60 and complete_sentence_unit(u)]
         # The old measured Podcast promo is preferred when it exists.
         valid.sort(key=lambda u: (u["role"] != "promo_short", abs(float(u["end"])-float(u["start"])-25)))
         if not valid:
@@ -198,7 +208,20 @@ def attempt(root: Path, *, renderer=None) -> dict:
         prepare_retry_source(root)
         verify_primary(root)
         context = _read(root / "derivative-context.json")
-        doc = _read(root / "production.json") if (root / "production.json").is_file() else {}
+        if (root / "production.json").is_file():
+            doc = _read(root / "production.json")
+        else:
+            # TXT and the legacy flow have the same approved script/timing
+            # checkpoint, even though they have no production.json manifest.
+            from .media import _gemini38_dialogue_turns
+            saved = _read(root / "script.json")
+            sections = []
+            for section in saved["sections"]:
+                text = section["narration"]
+                turns = _gemini38_dialogue_turns(text) if context["format"] == "podcast" else []
+                sections.append({"turns": [{"speaker": speaker, "text": words} for speaker, words in turns]}
+                                if turns else {"text": text})
+            doc = {"script": {"sections": sections}}
         window, reason = _selection(context, doc)
         if window is None:
             report = {**base, "status": "skipped", "reason": reason}

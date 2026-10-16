@@ -198,6 +198,29 @@ class DerivativeTests(unittest.TestCase):
             self.assertEqual(report["status"], "failed")
             self.assertIn("changed", report["reason"])
 
+    def test_legacy_podcast_does_not_extract_a_measured_partial_turn(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); parent_fixture(root)
+            (root / "production.json").unlink()
+            voice = json.loads((root / "voice-sections.json").read_text())
+            text = voice["sections"][0]["chunks"][1]["text"]
+            voice["sections"][0]["chunks"][1]["text"] = "B: " + text.split(". ", 1)[1]
+            atomic_write_json(root / "voice-sections.json", voice)
+            renderer = mock.Mock(side_effect=AssertionError("partial turn must not render"))
+            report = derived_short.attempt(root, renderer=renderer)
+            self.assertEqual(report["status"], "skipped", report)
+            self.assertIn("turn_boundaries", report["reason"])
+            renderer.assert_not_called()
+            self.assertEqual(json.loads((root / "run-manifest.json").read_text())["status"], "pass")
+
+    def test_fallback_skips_voice_chunk_cut_inside_a_sentence(self):
+        doc = {"script": {"sections": [{"text": "هذه بداية جملة طويلة جدًا قبل المقطع المختار الذي ينتهي هنا."}]}}
+        context = {"format": "film", "rows": [{"role": "topic", "text": "المقطع المختار الذي ينتهي هنا.",
+                                                "start": 5, "end": 20, "section_id": "s2"}]}
+        window, reason = derived_short._selection(context, doc)
+        self.assertIsNone(window)
+        self.assertEqual(reason, "no_existing_complete_7_60_second_topic_unit")
+
     def test_telegram_retry_dispatch_never_dispatches_primary_production(self):
         state = control.default_state(); tag = "clean-v2-final-podcast-telegram-123-a1"
         update = {"callback_query": {"data": "main:retryderivative"}}
