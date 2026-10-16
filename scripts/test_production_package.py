@@ -192,12 +192,19 @@ class ApprovedArtifactsTests(unittest.TestCase):
                 joined = " ".join(s["narration"] for s in script["sections"])
                 self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
                 from clean_v2.identity_sequence import LONG_CHANNEL_DEFINITION, PODCAST_FALLBACK_BRIDGE
-                for identity in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, LONG_CHANNEL_DEFINITION, PODCAST_FALLBACK_BRIDGE):
-                    joined = joined.replace(identity, "")
+                identity_report = json.loads((root / "narrative-identity.json").read_text())
+                # Full CI loads the pinned Engine's actual Long opener/closer;
+                # standalone local tests may use the default fallback identity.
+                for identity in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, LONG_CHANNEL_DEFINITION,
+                                 PODCAST_FALLBACK_BRIDGE, identity_report["opener"], identity_report["closer"]):
+                    if identity:
+                        joined = joined.replace(identity, "")
                 joined = package.spoken_text(joined)
                 for section in pack["production"]["script"]["sections"]:
                     for text in [section["text"]] if "text" in section else [t["text"] for t in section["turns"]]:
                         self.assertIn(" ".join(text.split()), joined)
+                self.assertEqual(joined, package.spoken_text(" ".join(
+                    package.section_text(s) for s in pack["production"]["script"]["sections"])))
                 self.assertEqual(script, approved)
                 self.assertEqual(json.loads((root / "cta-plan.json").read_text())["mode"], "none")
 
