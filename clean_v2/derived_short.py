@@ -231,7 +231,12 @@ def attempt(root: Path, *, renderer=None) -> dict:
             from .short_timed_text import _filter_escape_path
             raw, final = root / f".{prefix}-raw.mp4", root / f".{prefix}-captioned.mp4"
             temporary += [raw, final]
-            (renderer or render_derived_short)(root / "final.mp4", raw,
+            # Podcast burns long captions into final.mp4; cut from the caption-free
+            # master when this run kept one (retry from a release has final.mp4 only).
+            source_video = root / "final-no-captions.mp4"
+            if not source_video.is_file():
+                source_video = root / "final.mp4"
+            (renderer or render_derived_short)(source_video, raw,
                 start_seconds=window["start"], end_seconds=window["end"], maximum_seconds=60)
             events = [dict(e, start=round(float(e["start"])-window["start"], 3),
                             end=round(float(e["end"])-window["start"], 3)) for e in context["events"]
@@ -252,6 +257,7 @@ def attempt(root: Path, *, renderer=None) -> dict:
             report = {**base, **window, "status": "pass", "file": f"{prefix}.mp4", "width": 1080, "height": 1920,
                       "duration_seconds": qc["duration_seconds"], "caption_timing": context["caption_timing"],
                       "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
+                      "source_video": source_video.name,
                       "final_master_qc_status": "pass"}
     except Exception as exc:
         report = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:220]}"}

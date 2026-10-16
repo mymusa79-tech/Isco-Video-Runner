@@ -205,6 +205,18 @@ class DerivativeTests(unittest.TestCase):
             self.assertEqual(again["status"], "pass", again)
             self.assertEqual(again["tts_calls_added"], 0)
 
+    def test_extract_uses_the_caption_free_master_when_one_exists(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); parent_fixture(root)
+            (root / "final-no-captions.mp4").write_bytes(b"CLEAN")
+            renderer = mock.Mock(side_effect=RuntimeError("stop after source check"))
+            derived_short.attempt(root, renderer=renderer)
+            self.assertEqual(renderer.call_args.args[0].name, "final-no-captions.mp4")
+            (root / "final-no-captions.mp4").unlink()
+            renderer = mock.Mock(side_effect=RuntimeError("stop after source check"))
+            derived_short.attempt(root, renderer=renderer)
+            self.assertEqual(renderer.call_args.args[0].name, "final.mp4")
+
     def test_changed_parent_is_never_silently_reused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); parent_fixture(root)

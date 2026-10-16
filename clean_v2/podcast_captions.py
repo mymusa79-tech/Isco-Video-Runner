@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -39,6 +40,7 @@ from .short_timed_text import (
     _srt_time,
 )
 
+CLEAN_MASTER_NAME = "final-no-captions.mp4"
 SCHEMA_VERSION = 1
 CAPTION_ROLES = frozenset({"hook", "topic"})  # cta_topic keeps its own on-screen CTA
 SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
@@ -247,6 +249,10 @@ def apply_podcast_captions(*, output_dir: Path, final_path: Path) -> dict[str, A
             print(f"::warning title=podcast-captions-font::libass drew with {font['resolved_name']}, not {BODY_FONT}")
         if not rendered.is_file() or rendered.stat().st_size <= 0:
             raise PodcastCaptionError("podcast_captions_render_missing_or_empty")
+        # Keep the caption-free master: the derived Short is cut from it so the long
+        # captions are never burned a second time inside the 9:16 clip (and its blurred
+        # background). Not a delivered file and not part of the primary hash set.
+        shutil.copy2(Path(final_path), root / CLEAN_MASTER_NAME)
         os.replace(rendered, Path(final_path))
     except PodcastCaptionError:
         rendered.unlink(missing_ok=True)
