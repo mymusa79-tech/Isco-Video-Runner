@@ -309,6 +309,21 @@ def apply_owner_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any
     if directory and (directory / "production.json").is_file():
         doc = json.loads((directory / "production.json").read_text(encoding="utf-8"))
         source = directory / doc["cover"]["asset"] if doc["cover"]["asset"] else None
+        text = str(doc["cover"].get("text") or "").strip()
+        if source is None and text and doc.get("scenes"):
+            # No cover picture in the package: draw the approved cover text on the
+            # first approved scene instead of the topic-less navy fallback, which
+            # also replaced the author's cover text with the script title.
+            try:
+                from .cover_studio import render_cover_studio
+
+                scene = directory / doc["scenes"][0]["asset"]
+                rendered = render_cover_studio(scene, Path(cover_path), text=text, fmt=doc["format"])
+                return {**report, "status": "pass", "source": "owner_cover_image", "cover_text": text,
+                        "selection": "approved_first_scene_with_cover_text",
+                        "provider_calls_added": 0, **{k: v for k, v in rendered.items() if k not in report}}
+            except Exception as exc:  # fail-soft: keep the generated cover
+                report = {**report, "owner_scene_cover": f"unavailable:{type(exc).__name__}:{str(exc)[:120]}"}
         if source is not None:
             normalize_image(source, Path(cover_path), (720, 1280) if doc["format"] == "short" else COVER_SIZE)
             return {**report, "status": "pass", "source": "owner_cover_image", "provider_calls_added": 0}
