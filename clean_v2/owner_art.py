@@ -224,7 +224,6 @@ class OwnerArtVisualSource:
         beats = [b for b in ((story or {}).get("beats") or []) if isinstance(b, Mapping)] if isinstance(story, Mapping) else []
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
-        cursor = 0
         per_section: dict[str, int] = {}
         for beat in beats:
             section_id = str(beat.get("section_id") or "")
@@ -236,11 +235,12 @@ class OwnerArtVisualSource:
             seconds = float(estimates.get(section_id) or 60.0) / max(1, per_section.get(section_id, 1)) + 6.0
             clip_path = output_dir / f"visual-owner-art-{beat_id}.mp4"
             if fmt == "film":
-                factor, motion = film_pace(self._pack_type())
-                clip, used = make_sequence_clip(
-                    images, clip_path, seconds=seconds, start_index=cursor, factor=factor, motion=motion
-                )
-                cursor += used
+                # One planned idea owns one supplied picture. Cycling the
+                # entire folder on a seconds pattern introduced unrelated cuts
+                # inside that idea and disagreed with its rights asset_id.
+                _factor, motion = film_pace(self._pack_type())
+                clip = make_motion_clip(image, clip_path, seconds=seconds, direction=index,
+                                        film=True, motion=motion)
             else:
                 clip = make_motion_clip(image, clip_path, seconds=seconds, direction=index)
             transform = getattr(self._inner, "media_transform", None)
