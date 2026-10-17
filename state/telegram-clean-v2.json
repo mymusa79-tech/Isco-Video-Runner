@@ -8180,6 +8180,21 @@
       "selected_at": "2026-10-17T00:56:55Z",
       "created_at": "2026-10-17T00:56:55Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-a4a39c4245",
+      "title": "الظرف الذي أعاده العامل",
+      "normalized_title": "الظرف الذي اعاده العامل",
+      "market_query": "الظرف الذي أعاده العامل",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-17T03:43:58Z",
+      "created_at": "2026-10-17T03:43:58Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -14045,9 +14060,123 @@
         "started_at": "2026-10-17T00:58:04Z",
         "finished_at": "2026-10-17T01:05:09Z"
       }
+    },
+    "req-db2eaec77f41": {
+      "schema_version": 1,
+      "request_id": "req-db2eaec77f41",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الظرف الذي أعاده العامل",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-a4a39c4245",
+      "selected_at": "2026-10-17T03:43:58Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الظرف الذي أعاده العامل",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "الظرف الذي أعاده العامل",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "في اليوم الذي تعطّل فيه فرن المخبز، وجد العامل مالًا يكفي لإصلاحه… لكنه لم يكن ماله.\nكان اسمه مازن، يعمل وحده في مخبز صغير.\nفي ذلك الصباح، توقف الفرن فجأة. أخبره الفني بتكلفة الإصلاح، ولم يكن في الصندوق ما يكفي."
+              },
+              {
+                "id": "s2",
+                "text": "وبينما يجمع الأكياس من فوق الطاولة، وجد ظرفًا سميكًا داخل كيس تركه أحد الزبائن.\nفتحه، فوجد مبلغًا كبيرًا، ومعه ورقة مطوية.\nنظر إلى الفرن المعطّل، ثم إلى المال.\nكان يستطيع إصلاح الفرن فورًا، وربما لن يعرف أحد.\nلكنه تذكّر الرجل الذي ترك الكيس، وخرج يبحث عنه في المحلات المجاورة."
+              },
+              {
+                "id": "s3",
+                "text": "وجده أخيرًا جالسًا أمام متجر مغلق.\nقال مازن وهو يمدّ الظرف: «أظن أنك نسيت هذا».\nفتح الرجل الظرف بسرعة، وأخرج الورقة قبل أن ينظر إلى المال.\nكانت ورقة موعد علاج لزوجته، وقد كتب الطبيب على ظهرها تعليمات يحتاجها في ذلك اليوم.\nتنفّس الرجل براحة، وشكر مازن.\nعاد مازن إلى مخبزه، والفرن ما زال معطّلًا.\nلكنه هذه المرة اتصل بالفني، واتفق معه على إصلاحه ودفع التكلفة على دفعتين.\nلم تُحلّ مشكلته بمعجزة.\nلكنه وجد حلًا لها… دون أن يصنع مشكلة لشخص آخر."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد طبيعي كأنك تحكي لصديق، بإيقاع إنساني ووقفات قصيرة، دون حزن مصطنع أو مبالغة."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "في اليوم الذي تعطّل فيه فرن المخبز",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.png",
+              "start_text": "وبينما يجمع الأكياس من فوق الطاولة",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s3",
+              "asset": "assets/scene_03.png",
+              "start_text": "وجده أخيرًا جالسًا أمام متجر مغلق",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": null,
+            "text": "لم يكن المال أهم شيء"
+          },
+          "publishing": {
+            "title": "الظرف الذي أعاده العامل | على مهل ☕",
+            "description": "قصة قصيرة عن عامل مخبز واجه اختيارًا صعبًا، واكتشف أن ما أعاده كان أثمن من المال.",
+            "hashtags": [
+              "#على_مهل",
+              "#نداء_اليقظة",
+              "#قصص_قصيرة"
+            ]
+          }
+        },
+        "zip_sha256": "f43e148ccdedec3f8e66bc7e81cf0c61900b3d652333ae1f5a682ffa57dcb98e",
+        "asset_sha256": {
+          "assets/scene_01.png": "7ab4f4c02e9481ff134b40247c5814e850db47d230bc9c32395bfd69d3e90e0f",
+          "assets/scene_02.png": "8971191dc641f68d5c40ac448ee89f75b38e1a0b4f64c1b666e73ff18566a9b0",
+          "assets/scene_03.png": "05b644033a83ff372b85dfc3a4bf33c45e576d6070d2616142eafc8f6a4474c1"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "da1c00981c16e25ea1c575bfaed486978b0c37390d3dafbbc382597d834013cf",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIMcWrS7uo9L49SufnezavkE6M7ECauAAKzHgACAyKRUuhWCaI7Ij-yPQQ",
+          "sha256": "f43e148ccdedec3f8e66bc7e81cf0c61900b3d652333ae1f5a682ffa57dcb98e"
+        }
+      }
     }
   },
-  "current_request_id": "req-2e1b66b3b001",
+  "current_request_id": "req-db2eaec77f41",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -14435,6 +14564,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-17T03:42:16Z",
+  "updated_at": "2026-10-17T03:43:58Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
