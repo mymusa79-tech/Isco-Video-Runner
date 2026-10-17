@@ -397,8 +397,8 @@ def build_voice_owned_timeline(
     from .ready_production import document
     template = str(document(root).get("template") or "")
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
-    if template == "ala_mahl" and not 25.0 <= voice_seconds <= 60.0:
-        raise TimelineFirstError(f"ALA_MAHL_AUDIO_DURATION_OUTSIDE_25_60 seconds={voice_seconds:.3f}")
+    if template == "ala_mahl" and not 25.0 <= voice_seconds <= 120.0:
+        raise TimelineFirstError(f"ALA_MAHL_AUDIO_DURATION_OUTSIDE_25_120 seconds={voice_seconds:.3f}")
     maximum = safety_max_seconds(fmt)
     voice_provider = ""
     voice_report_path = root / "voice-sections.json"
