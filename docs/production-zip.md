@@ -76,9 +76,10 @@ real source discrepancies need inspection, rather than a blanket palette.
 
 All ZIP formats can retain one image through several sections/turns, including until an anchor
 partway through a later section. This extends schema_version=1 using its existing fields/values;
-old fully covered packages remain readable. Consecutive uses of the same asset and motion are
-rendered as one continuous source, without restarting a pan/zoom at an audio section boundary.
-An explicit change of motion remains a separate authored shot. Identity boundaries remain cuts.
+old fully covered packages remain readable. Internal continuations of the same asset and motion
+are rendered as one continuous source, without restarting a pan/zoom at an audio section boundary.
+Explicitly listed scenes retain their authored cut/dissolve, even when they repeat the same asset
+and motion. An explicit change of motion also remains separate. Identity boundaries remain cuts.
 The silent pre-prayer handoff extends the running approved source rather than replaying frame zero.
 The last approved Short picture also continues beneath the exact outro handoff, preventing a
 one-frame slate when the last spoken sample ends between output frame boundaries.

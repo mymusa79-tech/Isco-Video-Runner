@@ -4286,11 +4286,13 @@ def _voice_owned_visual_schedule(
     if timeline.get("template") != "ala_mahl" and not (output_dir / "production.json").is_file():
         return ordered
     continuous: list[dict[str, Any]] = []
+    from .ready_production import continues_previous
     for slot in ordered:
         asset = by_file.get(slot["local_file"], {}).get("owner_asset")
         previous = continuous[-1] if continuous else None
         prior_asset = by_file.get(previous["local_file"], {}) if previous else {}
-        if (previous and asset and asset == prior_asset.get("owner_asset")
+        if (previous and continues_previous(by_file.get(slot["local_file"], {}))
+                and asset and asset == prior_asset.get("owner_asset")
                 and by_file.get(slot["local_file"], {}).get("owner_motion") == prior_asset.get("owner_motion")
                 and abs(previous["end"] - slot["start"]) < 0.001):
             previous["end"] = slot["end"]

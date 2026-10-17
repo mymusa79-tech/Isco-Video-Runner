@@ -162,7 +162,7 @@ class ImportTests(unittest.TestCase):
                 package.extract_archive(data, root, expected_sha256=checked["zip_sha256"])
 
     def test_unsafe_json_voice_override_reordered_scenes_and_A_B_drift_are_rejected(self):
-        for mutate in (lambda d: d.update(voice="other"), lambda d: d["scenes"].reverse(),
+        for mutate in (lambda d: d.update(voice="other"), lambda d: d["scenes"][0].update(owner_continuation=True), lambda d: d["scenes"].reverse(),
                        lambda d: d["scenes"][0].update(asset="../a.png")):
             doc = manifest(); mutate(doc)
             with self.assertRaises(owner_pack.OwnerPackError):
@@ -411,6 +411,10 @@ class V23ContinuityTests(unittest.TestCase):
                                            {"section_id": "s2", "start": 10, "end": 20}]}
             self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 2)
             rows[-1]["owner_motion"] = "hold"
+            atomic_write_json(root / "rights-manifest.json", {"assets": rows})
+            # Same pixels and motion do not authorise dropping an explicit cut.
+            self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 2)
+            rows[-1]["owner_continuation"] = True
             atomic_write_json(root / "rights-manifest.json", {"assets": rows})
             self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 1)
 

@@ -28,16 +28,21 @@ from scripts.test_production_package import ala_mahl_manifest, manifest
 from scripts.test_ready_production_e2e import LocalVoice
 
 
-def fixture(kind):
+def fixture(kind, continuations=False):
     doc = ala_mahl_manifest(2) if kind == "ala_mahl" else manifest(kind)
     for scene in doc["scenes"]:
         scene["motion"] = "hold"
         scene["transition"] = "cut"
-    # Legal on old and new clients: the author keeps one image/move across two
-    # sections. Before V23 the section boundary restarts the move.
+    # Legal on old and new clients: the author repeats one image/move with an
+    # explicit scene boundary. Preserve that cut; only --continuations removes
+    # it from the author-selected plan, exercising the new coverage support.
     if kind in {"short", "film"}:
         doc["scenes"][2]["asset"] = doc["scenes"][1]["asset"]
         doc["scenes"][1]["motion"] = doc["scenes"][2]["motion"] = "slow_pan"
+        if continuations:
+            # Author requests one uninterrupted picture through s2 and s3.
+            # This is a new supported plan; old clients reject its coverage.
+            doc["scenes"] = [s for s in doc["scenes"] if s["section_id"] != "s3"]
     if kind == "podcast":
         # Several A/B turns under one picture; short sentences also exercise
         # sparse key text. Never generate or rewrite production narration.
@@ -62,9 +67,9 @@ def fixture(kind):
     return raw.getvalue()
 
 
-def render(kind, root):
+def render(kind, root, continuations=False):
     root.mkdir(parents=True, exist_ok=False)
-    data = fixture(kind)
+    data = fixture(kind, continuations)
     checked = production_package.inspect_archive(data)
     doc = checked["manifest"]
     art = root / "art"; output = root / "out"
@@ -105,6 +110,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--kinds", nargs="+", default=["podcast", "short", "ala_mahl", "film"])
+    parser.add_argument("--continuations", action="store_true", help="after-only sparse scene plan; old clients reject it")
     args = parser.parse_args()
     for kind in args.kinds:
-        render(kind, args.output.resolve() / kind)
+        render(kind, args.output.resolve() / kind, args.continuations)

@@ -277,6 +277,7 @@ class OwnerArtVisualSource:
     def _acquire_ready(self, plan, output_dir, fmt, estimates):
         """One existing motion clip per approved beat; never fall back to stock."""
         from .production_package import validate_manifest
+        from .ready_production import continues_previous
 
         doc = json.loads((self._directory / "production.json").read_text(encoding="utf-8"))
         validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
@@ -288,8 +289,13 @@ class OwnerArtVisualSource:
             if not asset.is_file():
                 raise RuntimeError("approved_package_image_missing:" + beat["owner_asset"])
             # The shared renderer trims these sources to its measured audio slots.
-            sections = {b["section_id"] for b in beats
-                        if b["owner_asset"] == beat["owner_asset"] and b["owner_motion"] == beat["owner_motion"]}
+            first = index
+            while first > 0 and continues_previous(beats[first]):
+                first -= 1
+            last = first + 1
+            while last < len(beats) and continues_previous(beats[last]):
+                last += 1
+            sections = {b["section_id"] for b in beats[first:last]}
             seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
             clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
                                     direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"])
