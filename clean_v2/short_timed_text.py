@@ -524,7 +524,7 @@ def _caption_width(text: str, size: int) -> float:
 
 _CAPTION_FRAME_WIDTH = {"short": 1080, "film": 1920, "podcast": 1920}
 _CAPTION_MAX_WIDTH = {"short": 920, "film": 1560, "podcast": 1460}
-_CAPTION_FONT_MIN = {"short": 100, "film": 48, "podcast": 40}
+_CAPTION_FONT_MIN = {"short": 120, "film": 48, "podcast": 40}
 _CAPTION_FIT_FONT = {"film": 56, "podcast": 56}  # size a landscape card is fitted at
 
 
