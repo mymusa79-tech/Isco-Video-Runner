@@ -91,8 +91,8 @@ def render_identity_composition(
             f"tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
             f"trim=duration={intro_duration:.3f},"
             f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-            f"[2:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=rgba,"
+            f"{_prayer_fill_chain(width, height)}"
+            f"setsar=1,fps=30,format=rgba,"
             f"trim=duration={prayer_duration:.3f},"
             f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
             f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -122,8 +122,8 @@ def render_identity_composition(
             f"tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
             f"trim=duration={intro_duration:.3f},"
             f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
-            f"[2:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=rgba,"
+            f"{_prayer_fill_chain(width, height)}"
+            f"setsar=1,fps=30,format=rgba,"
             f"trim=duration={prayer_duration:.3f},"
             f"setpts=PTS-STARTPTS+{prayer_start:.3f}/TB[prayer];"
             f"[3:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -156,6 +156,22 @@ def render_identity_composition(
         ],
         check=True,
         timeout=1800,
+    )
+
+
+def _prayer_fill_chain(width: int, height: int) -> str:
+    """Square prayer card centred on a soft blurred copy of itself (no black side bars).
+
+    Long-form frames are 16:9; the approved prayer card is square. The card itself is
+    never cropped or altered, only the empty sides are filled from its own paper colour.
+    Short (9:16) keeps its approved layout and does not use this chain.
+    """
+    return (
+        f"[2:v]split=2[prayerbgsrc][prayerfgsrc];"
+        f"[prayerbgsrc]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},boxblur=60:8[prayerbg];"
+        f"[prayerfgsrc]scale={width}:{height}:force_original_aspect_ratio=decrease[prayerfg];"
+        f"[prayerbg][prayerfg]overlay=(W-w)/2:(H-h)/2,"
     )
 
 

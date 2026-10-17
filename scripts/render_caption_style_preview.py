@@ -9,6 +9,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from clean_v2.podcast_captions import build_ass as build_dialogue_ass
 from clean_v2.podcast_key_text import build_ass as build_sparse_ass
 from clean_v2.short_timed_text import build_rich_ass
 from clean_v2.visual_cta import VisualCtaEvent, _cta_position, _render as render_cta
@@ -64,6 +65,18 @@ def main() -> None:
     podcast_ass = root / "podcast-preview.ass"
     podcast_ass.write_text(build_sparse_ass(podcast_events, fmt="podcast"), encoding="utf-8")
     _render_color_frame(size="1920x1080", ass=podcast_ass, at=1.0, output=root / "podcast.png")
+
+    # Dialogue captions as burned into podcast videos: the card is sized per run, and the
+    # text is centred inside it, for one-row and two-row captions alike.
+    dialogue_events = [
+        {"start": 0.0, "end": 4.0, "text": "لكن التذكرة شيء بسيط.", "speaker": "A"},
+        {"start": 10.0, "end": 16.0,
+         "text": "ربما تتحمل الخسارة المالية، لكنك تخشى السؤال: ماذا حدث لمشروعك؟", "speaker": "B"},
+    ]
+    dialogue_ass = root / "podcast-dialogue-preview.ass"
+    dialogue_ass.write_text(build_dialogue_ass(dialogue_events, fmt="podcast"), encoding="utf-8")
+    _render_color_frame(size="1920x1080", ass=dialogue_ass, at=1.5, output=root / "podcast-dialogue-1row.png")
+    _render_color_frame(size="1920x1080", ass=dialogue_ass, at=12.0, output=root / "podcast-dialogue-2row.png")
 
     # Also render the exact combined Subscribe + Bell asset through the same
     # production CTA renderer, so placement and the restored original colors
