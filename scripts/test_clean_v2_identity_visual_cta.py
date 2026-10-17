@@ -182,7 +182,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             self.assertIn("[1:a]atrim=duration=6.000", filters)
             self.assertIn("[3:a]atrim", filters)
             self.assertIn("[0:a][aintro][aoutro]amix", filters)
-            self.assertIn("between(t,11.000,13.650)", filters)
+            self.assertIn("gte(t,11.000)*lt(t,13.650)", filters)
             self.assertIn("[aout]", command)
             self.assertEqual(command[command.index("-t") + 1], "30.000")
 
