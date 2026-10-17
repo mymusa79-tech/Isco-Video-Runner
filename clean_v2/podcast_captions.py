@@ -45,14 +45,27 @@ SCHEMA_VERSION = 1
 CAPTION_ROLES = frozenset({"hook", "topic"})  # cta_topic keeps its own on-screen CTA
 SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
 SPEAKER_ASS = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}
-FONT_SIZE = 72  # 6.7% of the 1080 px frame (was 64); two rows still fit the safe width
+FONT_SIZE = 78  # ~7.2% of the 1080 px frame (72 before); two rows still fit the safe width
 MARGIN_V = 150
-# Semi-transparent charcoal band behind long-form captions. Its bottom edge stays 115 px
-# above the frame bottom so player controls / progress bars never sit on it.
-BAR_TOP = 730
-BAR_BOTTOM = 965
-BAR_ALPHA_ASS = "&H5A&"  # ~65% opaque
-BAR_COLOUR_ASS = "&H211D1B&"  # charcoal #1B1D21 (BGR)
+# Rounded semi-transparent charcoal card behind long-form captions. It is centred
+# horizontally and sized per run of captions: one row gets a slim card, two rows the
+# full one. Text is centred INSIDE the card (an5), so one-line captions no longer sit
+# at the bottom edge of an oversized band. The card's bottom edge stays >= 115 px above
+# the frame bottom so player controls / progress bars never touch it.
+BAR_LEFT = 150
+BAR_RIGHT = 1770
+BAR_CENTER_Y = 826
+BAR_ROW_HEIGHT = 125  # Cairo line box at FONT_SIZE
+BAR_PAD = 14
+BAR_RADIUS = 34
+BAR_ALPHA_ASS = "&H38&"  # ~78% opaque
+BAR_COLOUR_ASS = "&H26160E&"  # deep navy #0E1626 (BGR), the channel identity blue
+GOLD_ASS = "&H4BA2C9&"  # #C9A24B, identity gold (BGR)
+SPEAKER_ACCENT_ASS = {"A": "&H4BA2C9&", "B": "&HEFF3F5&"}
+BAR_ACCENT_INSET = 30
+BAR_ACCENT_WIDTH = 8
+BAR_TOP = BAR_CENTER_Y - (2 * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
+BAR_BOTTOM = BAR_CENTER_Y + (2 * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
 BAR_MERGE_GAP_SECONDS = 0.35
 MIN_EVENT_SECONDS = 0.5
 SILENCE_NOISE_DB = -32
@@ -191,6 +204,22 @@ def build_events(output_dir: Path, *, fmt: str = "podcast", caption_roles=CAPTIO
     return events, mode
 
 
+def _rounded_card(left: int, top: int, right: int, bottom: int, radius: int) -> str:
+    """ASS vector path of a rounded rectangle (quarter-circle Bezier corners)."""
+    r = radius
+    k = int(round(r * 0.5523))
+    return (
+        f"m {left + r} {top} l {right - r} {top} "
+        f"b {right - r + k} {top} {right} {top + r - k} {right} {top + r} "
+        f"l {right} {bottom - r} "
+        f"b {right} {bottom - r + k} {right - r + k} {bottom} {right - r} {bottom} "
+        f"l {left + r} {bottom} "
+        f"b {left + r - k} {bottom} {left} {bottom - r + k} {left} {bottom - r} "
+        f"l {left} {top + r} "
+        f"b {left} {top + r - k} {left + r - k} {top} {left + r} {top}"
+    )
+
+
 def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> str:
     width, height, font_size, margin = (1080, 1920, 92, 430) if fmt == "short" else (1920, 1080, FONT_SIZE, MARGIN_V)
     side_margin = 90 if fmt == "short" else 140
@@ -203,7 +232,7 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
-    spans: list[list[float]] = []
+    spans: list[list[float]] = []  # [start, end, max_rows]
     for item in events:
         rows, size = _caption_rows_and_size(str(item["text"]), fmt=fmt, font_size=font_size)
         if not rows:
@@ -213,19 +242,51 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
         start, end = float(item["start"]), float(item["end"])
         if spans and start - spans[-1][1] <= BAR_MERGE_GAP_SECONDS:
             spans[-1][1] = max(spans[-1][1], end)
+            spans[-1][2] = max(spans[-1][2], len(rows))
         else:
-            spans.append([start, end])
-        lines.append(
-            f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
-            + r"{\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
-        )
-    if fmt != "short":
-        # One fixed band per run of consecutive captions, so it never flickers between phrases.
-        shape = f"m 0 {BAR_TOP} l {width} {BAR_TOP} {width} {BAR_BOTTOM} 0 {BAR_BOTTOM}"
-        for start, end in spans:
+            spans.append([start, end, len(rows)])
+        if fmt == "short":
             lines.append(
-                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,"
-                + r"{\an7\pos(0,0)\fad(100,120)\bord0\shad0\1c" + BAR_COLOUR_ASS + r"\1a" + BAR_ALPHA_ASS + r"\p1}" + shape + r"{\p0}"
+                f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
+                + r"{\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
+            )
+            continue
+        # Layers: 0 soft shadow, 1 navy card, 2 gold hairline + speaker accent, 3 text.
+        # Text eases up ~10 px while fading in (modern lower-third feel) and is centred
+        # inside the card; the thin outline keeps it legible on any picture.
+        lines.append(
+            f'Dialogue: 3,{_ass_time(start)},{_ass_time(end)},Caption,line,0,0,0,,'
+            + r"{\an5\move(960," + str(BAR_CENTER_Y + 10) + r",960," + str(BAR_CENTER_Y) + r",0,200)"
+            + r"\fs" + str(size) + r"\bord2\blur0.6\fad(120,120)" + colour + "}" + rendered
+        )
+        accent = SPEAKER_ACCENT_ASS.get(str(item.get("speaker") or ""), "")
+        if accent:
+            half_bar = int(min(len(rows), 2) * BAR_ROW_HEIGHT * 0.3)
+            x1 = BAR_RIGHT - BAR_ACCENT_INSET
+            shape = _rounded_card(x1 - BAR_ACCENT_WIDTH, BAR_CENTER_Y - half_bar, x1, BAR_CENTER_Y + half_bar, BAR_ACCENT_WIDTH // 2)
+            lines.append(
+                f"Dialogue: 2,{_ass_time(start)},{_ass_time(end)},Caption,accent,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,120)\bord0\shad0\1c" + accent + r"\1a&H20&\p1}" + shape + r"{\p0}"
+            )
+    if fmt != "short":
+        # One fixed card per run of consecutive captions, so it never flickers between phrases.
+        for start, end, rows in spans:
+            half = (min(rows, 2) * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
+            top, bottom = BAR_CENTER_Y - half, BAR_CENTER_Y + half
+            shape = _rounded_card(BAR_LEFT, top, BAR_RIGHT, bottom, BAR_RADIUS)
+            shade = _rounded_card(BAR_LEFT, top + 10, BAR_RIGHT, bottom + 10, BAR_RADIUS)
+            window = f"{_ass_time(start)},{_ass_time(end)}"
+            lines.append(
+                f"Dialogue: 0,{window},Caption,shade,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\bord0\shad0\blur16\1c&H000000&\1a&H8C&\p1}" + shade + r"{\p0}"
+            )
+            lines.append(
+                f"Dialogue: 1,{window},Caption,card,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\bord0\shad0\1c" + BAR_COLOUR_ASS + r"\1a" + BAR_ALPHA_ASS + r"\p1}" + shape + r"{\p0}"
+            )
+            lines.append(
+                f"Dialogue: 2,{window},Caption,rim,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\shad0\1a&HFF&\bord2\3c" + GOLD_ASS + r"\3a&H80&\p1}" + shape + r"{\p0}"
             )
     lines.append("")
     return "\n".join(lines)
