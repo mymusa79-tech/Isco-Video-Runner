@@ -90,6 +90,16 @@ class ReadyProductionMediaTests(unittest.TestCase):
             self.assertEqual(" ".join(text for text, _ in voice.spoken),
                              " ".join(s["narration"] for s in authored))
             outro = next(e for e in timeline["identity_events"] if e["kind"] == "outro")
+            spoken_units = [u for u in timeline["audio_units"] if u["provider"] != "deterministic_silence"]
+            self.assertEqual(outro["start"], spoken_units[-1]["end"])
+            self.assertEqual(timeline["audio_units"][-1]["role"], "final_silence")
+            # The last audible sample belongs to the story; the outro may only
+            # start after it, never over the last word or by shortening the voice.
+            with wave.open(str(output / "narration-mastered.wav"), "rb") as audio:
+                samples = array.array("h", audio.readframes(audio.getnframes()))
+                sample_rate = audio.getframerate() * audio.getnchannels()
+            last_audible = next(i for i in range(len(samples) - 1, -1, -1) if samples[i])
+            self.assertGreaterEqual(outro["start"] + 0.001, (last_audible + 1) / sample_rate)
             self.assertAlmostEqual(outro["end"] - outro["start"], 67 / 30, delta=0.01)
             self.assertEqual(json.loads((output / "identity-sequence.json").read_text())["sequence"][-1], "ala_mahl_outro")
             # A late frame proves the full approved animation survives composition,
