@@ -136,16 +136,47 @@ class BarTests(unittest.TestCase):
         {"start": 9.0, "end": 11.0, "text": "جملة بعد وقفة.", "speaker": "A"},
     ]
 
-    def test_longform_gets_one_fixed_band_per_run_and_a_larger_font(self) -> None:
+    def test_longform_gets_one_fixed_card_per_run_and_a_larger_font(self) -> None:
         ass = pc.build_ass(self.EVENTS)
         bars = [line for line in ass.splitlines() if r"\p1" in line]
         self.assertEqual(len(bars), 2)  # 1.0-5.0 merged, 9.0-11.0 separate
         self.assertIn("0:00:01.00,0:00:05.00", bars[0])
-        self.assertIn(f"{pc.BAR_BOTTOM}", bars[0])
         self.assertLessEqual(pc.BAR_BOTTOM, 1080 - 100)  # clear of player controls
-        self.assertEqual(pc.FONT_SIZE, 72)
+        self.assertEqual(pc.FONT_SIZE, 78)
         text_lines = [line for line in ass.splitlines() if line.startswith("Dialogue: 1,")]
         self.assertEqual(len(text_lines), 3)  # text sits above the band layer
+
+    def test_card_is_rounded_centered_and_sized_by_rows(self) -> None:
+        import re
+
+        events = [
+            {"start": 0.0, "end": 3.0, "text": "جملة قصيرة.", "speaker": "A"},
+            {"start": 10.0, "end": 16.0, "speaker": "B",
+             "text": "ربما تتحمل الخسارة المالية، لكنك تخشى السؤال: ماذا حدث لمشروعك؟ وما الذي سيتغير بعد ذلك؟"},
+        ]
+        ass = pc.build_ass(events)
+        bars = [line for line in ass.splitlines() if r"\p1" in line]
+        self.assertEqual(len(bars), 2)
+        for bar in bars:
+            self.assertIn(" b ", bar)  # Bezier corners: a rounded card, not a hard rectangle
+            self.assertNotIn(f"m 0 ", bar)  # no longer full-bleed
+        def ys_of(bar: str) -> list[int]:
+            numbers = [int(v) for v in re.findall(r"\d+", bar.split(r"\p1}")[1].split(r"{\p0}")[0])]
+            return numbers[1::2]  # path coordinates alternate x, y
+
+        def height(bar: str) -> int:
+            ys = ys_of(bar)
+            return max(ys) - min(ys)
+        rows = [pc._caption_rows_and_size(e["text"], fmt="podcast", font_size=pc.FONT_SIZE)[0] for e in events]
+        self.assertEqual([len(r) for r in rows], [1, 2])
+        self.assertLess(height(bars[0]), height(bars[1]))
+        for bar in bars:  # symmetrical around the text centre
+            ys = ys_of(bar)
+            self.assertEqual(min(ys) + max(ys), 2 * pc.BAR_CENTER_Y)
+        self.assertLessEqual(max(ys_of(bars[1])), 1080 - 100)  # clear of player controls
+        for line in ass.splitlines():
+            if line.startswith("Dialogue: 1,"):  # text centred on the card centre whatever the row count
+                self.assertIn(r"\an5\pos(960," + str(pc.BAR_CENTER_Y) + ")", line)
 
     def test_short_has_no_band(self) -> None:
         self.assertNotIn(r"\p1", pc.build_ass(self.EVENTS, fmt="short"))
