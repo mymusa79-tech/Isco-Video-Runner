@@ -16,6 +16,24 @@ SECTIONS = [
 ]
 
 
+def _fake_speech_cues(sections):
+    """Test stand-in for measured speech: every sentence gets an equal slice of its section."""
+    import re as _re
+
+    def build(output_dir, **_kwargs):
+        timeline = json.loads((Path(output_dir) / "timeline-first.json").read_text(encoding="utf-8"))
+        cues = []
+        for section, timing in zip(sections, timeline["section_events"]):
+            text = _re.sub(r"(?<!\S)[AB]:\s*", "", section["narration"])
+            parts = [p.strip() for p in _re.split(r"(?<=[.!؟!])\s+", text) if p.strip()]
+            span = (timing["end"] - timing["start"]) / max(1, len(parts))
+            for i, part in enumerate(parts):
+                cues.append({"start": timing["start"] + i * span, "end": timing["start"] + (i + 1) * span, "text": part})
+        return cues, "test"
+
+    return mock.patch("clean_v2.podcast_captions.build_events", build)
+
+
 def _make(root: Path) -> None:
     events, cursor = [], 0.0
     for section in SECTIONS:
@@ -42,7 +60,8 @@ class KeyTextTraceTests(unittest.TestCase):
             with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 _make(root)
-                report = apply(output_dir=root, final_path=root / "final.mp4", script={"sections": SECTIONS})
+                with _fake_speech_cues(SECTIONS):
+                    report = apply(output_dir=root, final_path=root / "final.mp4", script={"sections": SECTIONS})
                 self.assertEqual(report["status"], "pass")
                 haystack = " ".join(s["narration"] for s in SECTIONS)
                 from clean_v2.short_timed_text import occurs_in_source
@@ -60,10 +79,11 @@ class KeyTextTraceTests(unittest.TestCase):
 
             def tampered(**kwargs):
                 rows = real(**kwargs)
+                self.assertTrue(rows)
                 rows[0] = {**rows[0], "text": "جملة لم تكتب في النص"}
                 return rows
 
-            with mock.patch.object(key_text, "build_events", tampered):
+            with _fake_speech_cues(SECTIONS), mock.patch.object(key_text, "build_events", tampered):
                 with self.assertRaisesRegex(key_text.PodcastKeyTextError, "not_in_approved_script"):
                     key_text.apply_podcast_key_text(output_dir=root, final_path=root / "final.mp4", script={"sections": SECTIONS})
 

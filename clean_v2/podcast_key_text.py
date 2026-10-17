@@ -22,6 +22,7 @@ from clean_v2.short_timed_text import (
     occurs_in_source,
     resolved_font,
     _caption_rows_and_size,
+    _caption_width,
     _rtl_row,
     _clean as _shared_arabic_clean,
     _secret_free_subprocess_env,
@@ -137,6 +138,55 @@ def _pick_text(
     return candidates[-1]
 
 
+MIN_SPOKEN_SECONDS = 1.2
+
+
+def _norm(value: object) -> str:
+    return " ".join(_clean(value).split())
+
+
+def locate_spoken_window(
+    text: str,
+    cues: Sequence[Mapping[str, Any]],
+    *,
+    near: tuple[float, float],
+    display_seconds: float = 0.0,
+) -> tuple[float, float] | None:
+    """Start/end of ``text`` inside the measured speech cues, or None when it is not there.
+
+    The words are matched as one unbroken run of the cue words (speaker labels ignored);
+    times inside a cue are interpolated by word position. When the run occurs more than
+    once, the occurrence nearest to the section window wins. The line stays on screen for
+    exactly as long as it is spoken, never before and never after.
+    """
+    words = _norm(text).split()
+    if not words:
+        return None
+    stream: list[tuple[str, float, float]] = []  # word, start, end
+    for cue in cues:
+        cue_words = _norm(_strip_speaker_label(cue.get("text"))).split()
+        if not cue_words:
+            continue
+        start, end = float(cue["start"]), float(cue["end"])
+        step = (end - start) / len(cue_words)
+        for position, word in enumerate(cue_words):
+            stream.append((word, start + position * step, start + (position + 1) * step))
+    flat = [item[0] for item in stream]
+    best: tuple[float, float, float] | None = None
+    for index in range(len(flat) - len(words) + 1):
+        if flat[index:index + len(words)] != words:
+            continue
+        start, end = stream[index][1], stream[index + len(words) - 1][2]
+        centre = (start + end) / 2
+        distance = 0.0 if near[0] <= centre <= near[1] else min(abs(centre - near[0]), abs(centre - near[1]))
+        if best is None or distance < best[0]:
+            best = (distance, start, end)
+    if best is None or best[0] > 1.0:
+        return None  # not spoken inside its own section
+    _distance, start, end = best
+    return start, end
+
+
 def _seconds(value: object, label: str) -> float:
     try:
         seconds = float(value)
@@ -187,7 +237,10 @@ def build_events(
     timeline: Mapping[str, Any],
     closer: str = "",
     fmt: str = "podcast",
+    cues: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[dict[str, object]]:
+    """Pick the key lines. With ``cues`` (measured speech phrases) every line is shown
+    exactly while it is spoken; a line that cannot be located in the speech is dropped."""
     if fmt not in {"podcast", "film"}:
         raise PodcastKeyTextError(f"sparse_key_text_format_invalid:{fmt}")
 
@@ -236,6 +289,7 @@ def build_events(
         max_events = FILM_MAX_EVENTS
 
     events: list[dict[str, object]] = []
+    used_texts: set[str] = set()
     previous_end = -999.0
     for index, role in selected:
         section = sections[index]
@@ -253,11 +307,31 @@ def build_events(
         )
         if not text:
             continue
+        if _norm(text) in used_texts:
+            continue  # the same line is never shown twice
 
         section_start = _seconds(timing.get("start"), "start")
         section_end = _seconds(timing.get("end"), "end")
         if section_end <= section_start:
             raise PodcastKeyTextError("podcast_key_text_duration_invalid")
+
+        if cues is not None:
+            spoken = locate_spoken_window(
+                text, cues, near=(section_start, section_end), display_seconds=display_seconds
+            )
+            if spoken is None:
+                continue
+            start_seconds, end_seconds = spoken
+            if fmt == "film" and start_seconds - previous_end < FILM_MIN_GAP_SECONDS:
+                continue
+            if end_seconds - start_seconds >= MIN_SPOKEN_SECONDS:
+                events.append({
+                    "start": round(start_seconds, 3), "end": round(end_seconds, 3),
+                    "text": text, "role": role, "format": fmt, "timing": "spoken_window",
+                })
+                used_texts.add(_norm(text))
+                previous_end = end_seconds
+            continue
 
         if role == "hook" and isinstance(hook_window, Mapping):
             allowed_start = _seconds(hook_window.get("start"), "hook_start")
@@ -317,6 +391,7 @@ def build_events(
                 }
             )
             previous_end = end_seconds
+            used_texts.add(_norm(text))
     return events[:max_events]
 
 def _event_font_size(role: str, *, fmt: str) -> int:
@@ -357,7 +432,16 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
-    common = r"\an5\fad(180,240)"
+    from clean_v2.podcast_captions import (
+        BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card,
+    )
+
+    # Pull-quote card: the same navy + gold identity as the dialogue captions, sized to
+    # the line (never a full-width band), with a gold accent on the reading side.
+    lines.insert(
+        lines.index("[Events]") - 1,
+        f"Style: Quote,{BODY_FONT},{font_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,-1",
+    )
     for item in events[:max_events]:
         text = _clean(item.get("text"))
         if not text or _contains_prayer_text(text):
@@ -367,9 +451,36 @@ def build_ass(events: Sequence[Mapping[str, object]], *, fmt: str = "podcast") -
         event_size = _event_font_size(str(item.get("role") or "turn"), fmt=fmt)
         rows, event_size = _caption_rows_and_size(text, fmt=fmt, font_size=event_size)
         plain = r"\N".join(_rtl_row(row.split()) for row in rows)
+        widest = max(_caption_width(row, event_size) for row in rows)
+        row_height = int(event_size * 1.28)
+        half_w = min(840, int(widest / 2) + 96)
+        half_h = (len(rows) * row_height) // 2 + 30
+        left, right = TEXT_X - half_w, TEXT_X + half_w
+        top, bottom = text_y - half_h, text_y + half_h
+        fade = r"\fad(220,260)"
+        shape = lambda colour, alpha, extra="": (  # noqa: E731
+            f"{{\\an7\\pos(0,0){fade}\\1c{colour}\\1a{alpha}\\bord0\\shad0{extra}\\p1}}"
+        )
         lines.append(
-            f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{common}\\pos({TEXT_X},{text_y})\\fs{event_size}\\c{PRIMARY_ASS}}}{plain}"
+            f"Dialogue: 0,{start},{end},Quote,shade,0,0,0,,"
+            f"{shape('&H000000&', '&H78&', chr(92) + 'blur16')}{_rounded_card(left, top + 10, right, bottom + 10, 38)}{{\\p0}}"
+        )
+        lines.append(
+            f"Dialogue: 1,{start},{end},Quote,card,0,0,0,,"
+            f"{shape(BAR_COLOUR_ASS, BAR_ALPHA_ASS)}{_rounded_card(left, top, right, bottom, 38)}{{\\p0}}"
+        )
+        lines.append(
+            f"Dialogue: 2,{start},{end},Quote,rim,0,0,0,,"
+            f"{{\\an7\\pos(0,0){fade}\\1a&HFF&\\3c{GOLD_ASS}\\3a&H60&\\bord1.5\\shad0\\p1}}"
+            f"{_rounded_card(left, top, right, bottom, 38)}{{\\p0}}"
+        )
+        lines.append(
+            f"Dialogue: 2,{start},{end},Quote,accent,0,0,0,,"
+            f"{shape(GOLD_ASS, '&H00&')}{_rounded_card(right - 44, top + 30, right - 36, bottom - 30, 4)}{{\\p0}}"
+        )
+        lines.append(
+            f"Dialogue: 3,{start},{end},Quote,line,0,0,0,,"
+            f"{{\\an5{fade}\\pos({TEXT_X - 14},{text_y})\\fs{event_size}\\bord2\\blur0.6\\c{PRIMARY_ASS}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -400,7 +511,15 @@ def _apply_sparse_key_text(
     # On-screen Arabic is owned by the accepted final narration, never by
     # planner-authored display_text_ar. This keeps Film/Podcast copy inside the
     # same Arabic/tone audit that approved the spoken text.
-    events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt)
+    try:
+        from clean_v2.podcast_captions import build_events as build_speech_cues
+
+        cues, _cue_mode = build_speech_cues(Path(output_dir), fmt="podcast")
+    except Exception as exc:  # no measured speech -> no key text; a line shown off-time is worse than none
+        raise PodcastKeyTextError(
+            f"{fmt}_key_text_speech_timing_unavailable:{type(exc).__name__}"
+        ) from exc
+    events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt, cues=cues)
     narration = " ".join(
         str(item.get("narration") or "") for item in (script.get("sections") or []) if isinstance(item, Mapping)
     )

@@ -789,7 +789,13 @@ class PodcastVisualIdentityTests(unittest.TestCase):
             )
             final_path = root / "final.mp4"
             final_path.write_bytes(b"video")
-            with mock.patch(
+            def _cues(output_dir, **_kwargs):
+                return [
+                    {"start": 0.0, "end": 4.0, "text": "هذه بداية الفكرة."},
+                    {"start": 8.0, "end": 12.0, "text": "وهنا تتغير الزاوية."},
+                ], "test"
+
+            with mock.patch("clean_v2.podcast_captions.build_events", _cues), mock.patch(
                 "clean_v2.podcast_key_text.subprocess.run",
                 side_effect=__import__("subprocess").CalledProcessError(1, ["ffmpeg"]),
             ):
