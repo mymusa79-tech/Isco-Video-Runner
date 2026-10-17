@@ -125,7 +125,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("الكابشن يجب أن يكون مفعّلًا بخط Cairo Bold وسطرين كحد أقصى.")
     scenes = doc["scenes"]
     if not isinstance(scenes, list) or not 1 <= len(scenes) <= 30:
-        _error("الحزمة تحتاج 1–30 مشهدًا يغطي كل الأقسام.")
+        _error("الحزمة تحتاج 1–30 مشهدًا مرتبًا من بداية النص.")
     ala_mahl = doc["template"] == "ala_mahl"
     # V22 authors 2–4 pictures; keep existing 5–6-picture ZIPs readable.
     if ala_mahl and not 2 <= len(scenes) <= 6:
@@ -133,7 +133,6 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     seen: set[str] = set()
     assets: set[str] = set()
     prior = (-1, -1)
-    covered = set()
     for scene in scenes:
         _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, field="scene")
         sid = scene["section_id"]
@@ -148,16 +147,15 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             _error(f"بداية المشهد {identifier} يجب أن تطابق نصًا واحدًا حرفيًا داخل {sid}.")
         position = haystack.index(anchor)
         order = (int(sid[1:]), position)
-        if order <= prior or (sid not in covered and position != 0):
-            _error("رتّب المشاهد بحسب النص؛ أول مشهد في كل قسم يبدأ من أول كلماته.")
+        if order <= prior:
+            _error("رتّب المشاهد بحسب النص دون تكرار موضع البداية.")
+        if len(seen) == 1 and (sid != "s1" or position != 0):
+            _error("أول مشهد يجب أن يبدأ من أول كلمات s1.")
         prior = order
-        covered.add(sid)
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
-    if ala_mahl and scenes[0]["section_id"] != "s1":
-        _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
-    if not ala_mahl and covered != set(texts):
-        _error("يجب أن تغطي الصور جميع أقسام النص.")
+    # Audio sections and speaker turns are not picture changes. An omitted
+    # section, or the words before its first new anchor, continue the last image.
     if doc["template"] == "ala_mahl" and len(assets) != len(scenes):
         _error("على مهل يحتاج صورة أصلية مختلفة لكل مشهد؛ لا تكرر الصورة.")
     cover = _object(doc["cover"], {"asset", "text"}, field="cover")

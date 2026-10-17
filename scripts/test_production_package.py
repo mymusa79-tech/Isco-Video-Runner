@@ -162,7 +162,7 @@ class ImportTests(unittest.TestCase):
                 package.extract_archive(data, root, expected_sha256=checked["zip_sha256"])
 
     def test_unsafe_json_voice_override_reordered_scenes_and_A_B_drift_are_rejected(self):
-        for mutate in (lambda d: d.update(voice="other"), lambda d: d["scenes"].reverse(),
+        for mutate in (lambda d: d.update(voice="other"), lambda d: d["scenes"][0].update(owner_continuation=True), lambda d: d["scenes"].reverse(),
                        lambda d: d["scenes"][0].update(asset="../a.png")):
             doc = manifest(); mutate(doc)
             with self.assertRaises(owner_pack.OwnerPackError):
@@ -267,7 +267,7 @@ class V22StillTests(unittest.TestCase):
             for mutation in (lambda d: d["scenes"][0].update(start_text="كلمات غير موجودة"),
                              lambda d: d["scenes"][0].update(section_id="s2"),
                              lambda d: d["scenes"][-1].update(asset=d["scenes"][0]["asset"]),
-                             lambda d: d["scenes"][-1].update(start_text="فنجانه")):
+                             lambda d: d["scenes"][-1].update(start_text="كلمات لا توجد في هذا القسم")):
                 bad = copy.deepcopy(doc); mutation(bad)
                 with self.subTest(count=count, mutation=mutation), self.assertRaises(owner_pack.OwnerPackError):
                     package.validate_manifest(bad)
@@ -275,11 +275,10 @@ class V22StillTests(unittest.TestCase):
                          archive_bytes(doc, size=(320, 180))):
                 with self.assertRaises(owner_pack.OwnerPackError):
                     package.inspect_archive(data)
-        # Sparse coverage is specific to Ala Mahl; other formats still require every section.
+        # V23 continues approved images across audio sections in every format.
         for fmt in ("short", "film", "podcast"):
             doc = manifest(fmt); doc["scenes"].pop()
-            with self.assertRaises(owner_pack.OwnerPackError):
-                package.validate_manifest(doc)
+            self.assertEqual(package.validate_manifest(doc), doc)
 
     def test_120_second_schedule_continues_images_across_sections_without_restarting(self):
         from clean_v2 import media
@@ -340,7 +339,7 @@ class V22StillTests(unittest.TestCase):
     def test_podcast_photos_ai_and_approved_zips_skip_global_color_finishing(self):
         from clean_v2 import media
 
-        cases = [("podcast", None, False), ("short", "ai_still", False), ("film", "stock_still", False),
+        cases = [("short", "stock_motion", False), ("film", "stock_motion", False), ("podcast", None, False), ("short", "ai_still", False), ("film", "stock_still", False),
                  ("short", None, True), ("film", None, True), ("podcast", None, True)]
         for fmt, source, approved in cases:
             with self.subTest(fmt=fmt, source=source, approved=approved), tempfile.TemporaryDirectory() as temporary:
@@ -355,6 +354,94 @@ class V22StillTests(unittest.TestCase):
                     media.render_video(root / "voice.wav", [clip], root / "final.mp4", fmt)
                 for call in run.call_args_list:
                     self.assertFalse(any("lut3d=" in str(arg) or "lutrgb=" in str(arg) for arg in call.args[0]))
+
+
+class V23ContinuityTests(unittest.TestCase):
+    def test_all_formats_continue_previous_image_until_a_mid_section_anchor(self):
+        from clean_v2 import media
+
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                doc = manifest(fmt)
+                last = doc["scenes"][-1]
+                text = package.spoken_text(package.section_text(doc["script"]["sections"][-1]))
+                last["start_text"] = text.split(". ")[1]
+                doc["scenes"] = [doc["scenes"][0], last]
+                self.assertEqual(package.validate_manifest(doc), doc)
+                beats = ready_production.build_story(doc)["beats"]
+                atomic_write_json(root / "production.json", doc)
+                atomic_write_json(root / "script.json", {"sections": [
+                    {"id": s["id"], "narration": package.section_text(s)} for s in doc["script"]["sections"]]})
+                paths = [root / f"{b['id']}.mp4" for b in beats]
+                atomic_write_json(root / "rights-manifest.json", {"assets": [
+                    {**b, "local_file": p.name} for b, p in zip(beats, paths)]})
+                count = len(doc["script"]["sections"])
+                timeline = {"identity_events": [{"kind": "hook", "start": 0, "end": 5},
+                                                {"kind": "topic", "start": 7, "end": count*40}],
+                            "section_events": [{"section_id": f"s{i+1}", "start": i*40, "end": (i+1)*40}
+                                               for i in range(count)]}
+                slots = media._voice_owned_visual_schedule(root, paths, timeline)
+                # Hook, uninterrupted first picture after prayer, then authored change.
+                self.assertEqual(len(slots), 3)
+                self.assertEqual((slots[1]["start"], slots[-1]["end"]), (7, count*40))
+                self.assertGreater(slots[-1]["start"], (count-1)*40)
+                self.assertEqual({b["owner_asset"] for b in beats}, {s["asset"] for s in doc["scenes"]})
+
+    def test_initial_picture_remains_mandatory_at_first_word(self):
+        for fmt in ("short", "film", "podcast"):
+            for change in ({"section_id": "s2"}, {"start_text": "الخطوة"}):
+                doc = manifest(fmt); doc["scenes"][0].update(change)
+                with self.subTest(fmt=fmt, change=change), self.assertRaises(owner_pack.OwnerPackError):
+                    package.validate_manifest(doc)
+
+    def test_repeated_asset_with_a_new_motion_is_not_silently_merged(self):
+        from clean_v2 import media
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            atomic_write_json(root / "production.json", {})
+            atomic_write_json(root / "script.json", {"sections": []})
+            paths = [root / "a.mp4", root / "b.mp4"]
+            rows = [{"section_id": f"s{i+1}", "local_file": p.name, "owner_asset": "assets/same.png",
+                     "owner_motion": motion} for i, (p, motion) in enumerate(zip(paths, ["hold", "slow_pan"]))]
+            atomic_write_json(root / "rights-manifest.json", {"assets": rows})
+            timeline = {"identity_events": [{"kind": "topic", "start": 0, "end": 20}],
+                        "section_events": [{"section_id": "s1", "start": 0, "end": 10},
+                                           {"section_id": "s2", "start": 10, "end": 20}]}
+            self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 2)
+            rows[-1]["owner_motion"] = "hold"
+            atomic_write_json(root / "rights-manifest.json", {"assets": rows})
+            # Same pixels and motion do not authorise dropping an explicit cut.
+            self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 2)
+            rows[-1]["owner_continuation"] = True
+            atomic_write_json(root / "rights-manifest.json", {"assets": rows})
+            self.assertEqual(len(media._voice_owned_visual_schedule(root, paths, timeline)), 1)
+
+    def test_identity_gap_extends_source_without_restarting_authored_movement(self):
+        from clean_v2 import media
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            doc = manifest(); beats = ready_production.build_story(doc)["beats"]
+            paths = [root / f"{b['id']}.mp4" for b in beats]
+            atomic_write_json(root / "production.json", doc)
+            atomic_write_json(root / "rights-manifest.json", {"assets": [
+                {**b, "local_file": p.name} for b, p in zip(beats, paths)]})
+            atomic_write_json(root / "timeline-first.json", {
+                "status": "pass", "identity_events": [{"kind": "hook", "start": 0, "end": 5},
+                                                       {"kind": "topic", "start": 7, "end": 110}],
+                "section_events": [{"section_id": f"s{i+1}", "start": i*40, "end": (i+1)*40} for i in range(3)]})
+            with mock.patch.object(media, "probe_duration", return_value=120), mock.patch.object(media, "_run"), \
+                 mock.patch("clean_v2.timeline_render.render_identity_composition"), \
+                 mock.patch.object(media, "_build_section_body_segments", return_value=[root / "segment.mp4"]) as build:
+                media.render_video(root / "voice.wav", paths, root / "final.mp4", "short")
+            timed_paths, durations = build.call_args.args[1:3]
+            self.assertEqual(timed_paths.count(paths[0]), 1)
+            self.assertEqual(durations[0], 7)
+            self.assertEqual(timed_paths[-1], paths[-1])
+            self.assertAlmostEqual(sum(durations), 120)
+            self.assertEqual(build.call_args.kwargs["boundary_decisions"][0]["decision"], "CUT")
 
 
 if __name__ == "__main__":

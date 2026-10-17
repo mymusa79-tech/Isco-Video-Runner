@@ -16,6 +16,15 @@ def document(output_dir: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
+def continues_previous(beat: Mapping[str, Any]) -> bool:
+    """Internal coverage only; an explicit repeated scene still owns its cut.
+
+    The reserved leading-underscore ID also recognises pre-V23 saved Ala Mahl
+    continuations. It cannot be an authored scene ID under the ZIP schema.
+    """
+    return bool(beat.get("owner_continuation")) or str(beat.get("beat_id") or beat.get("id") or "").startswith("__continuation_")
+
+
 def build_story(doc: Mapping[str, Any]) -> dict:
     from .visual_story import CHANNEL_VISUAL_IDENTITY, _default_editorial_signals, _default_shot_role
 
@@ -25,13 +34,13 @@ def build_story(doc: Mapping[str, Any]) -> dict:
         text = spoken_text(section_text(section))
         hook = _first_sentence(text) if sid == "s1" else ""
         scenes = [s for s in doc["scenes"] if s["section_id"] == sid]
-        if not scenes and doc["template"] == "ala_mahl" and beats:
+        if beats and (not scenes or text.index(scenes[0]["start_text"]) > 0):
             # Section boundaries are audio bookkeeping, not picture changes.
             # The renderer joins these continuations into one uninterrupted shot.
             previous = beats[-1]
             scenes = [{"id": f"__continuation_{sid}", "section_id": sid,
                        "asset": previous["owner_asset"], "start_text": text[:300],
-                       "motion": previous["owner_motion"], "transition": "cut"}]
+                       "motion": previous["owner_motion"], "transition": "cut", "_continuation": True}, *scenes]
         expanded = [dict(s) for s in scenes]
         if hook and text[len(hook):].strip():
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
@@ -41,7 +50,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
             # virtual hold uses that SAME approved image, not another source.
             if not body_scenes or text.index(body_scenes[0]["start_text"]) > len(hook) + 1:
                 shared = dict(hook_scenes[-1])
-                shared.update(id=shared["id"] + "__topic", start_text=remainder[:300])
+                shared.update(id=shared["id"] + "__topic", start_text=remainder[:300], _continuation=True)
                 expanded.insert(len(hook_scenes), shared)
         for within, scene in enumerate(expanded):
             role = "hook" if hook and text.index(scene["start_text"]) < len(hook) else "body"
@@ -54,6 +63,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
                 "owner_asset": scene["asset"], "owner_motion": scene["motion"], "owner_transition": scene["transition"],
+                "owner_continuation": bool(scene.get("_continuation")),
             })
     beats[-1]["role"] = "payoff"
     return {"schema_version": 2, "visual_world": CHANNEL_VISUAL_IDENTITY,

@@ -4463,53 +4463,20 @@ def _run_legacy_cinematic_layer(
 
         try:
             if fmt == "podcast":
-                from clean_v2.podcast_captions import (
-                    PodcastCaptionError,
-                    apply_podcast_captions,
-                )
-
-                try:
-                    captions_report = apply_podcast_captions(
-                        output_dir=output_dir, final_path=final_path
-                    )
-                except Exception as exc:  # captions are a local add-on: never block the finished video
-                    reason = str(exc) if isinstance(exc, PodcastCaptionError) else (
-                        f"podcast_captions_unexpected_error:{type(exc).__name__}:{str(exc)[:160]}"
-                    )
-                    captions_report = {
-                        "status": "skipped",
-                        "mode": "fail_soft",
-                        "reason": reason,
-                        "provider_calls_added": 0,
-                    }
-                atomic_write_json(output_dir / "podcast-captions.json", captions_report)
+                # The established sparse renderer owns the Podcast picture.
+                # Full dialogue captions remain a reusable offline utility, but
+                # are not forced onto every approved conversation.
                 podcast_captions_summary = {
-                    "status": captions_report.get("status"),
-                    "reason": captions_report.get("reason"),
-                    "font_actually_used": captions_report.get("font_actually_used"),
+                    "status": "skipped_sparse_key_text_policy",
+                    "burned_into_final_video": False,
+                    "provider_calls_added": 0,
                 }
-                if captions_report.get("status") != "pass":
-                    print(
-                        "::warning title=podcast-captions-fallback::"
-                        "Full Podcast captions were NOT burned; fell back to sparse key text. "
-                        f"reason={captions_report.get('reason')}",
-                        flush=True,
-                    )
-                if captions_report.get("status") == "pass":
-                    # Full dialogue captions own the lower third; the sparse key text
-                    # would only compete with them.
-                    podcast_key_text_report = {
-                        "status": "skipped_full_captions_burned",
-                        "format": "podcast",
-                        "event_count": 0,
-                        "provider_calls_added": 0,
-                    }
-                else:
-                    podcast_key_text_report = apply_podcast_key_text(
-                        output_dir=output_dir,
-                        final_path=final_path,
-                        script=script,
-                    )
+                atomic_write_json(output_dir / "podcast-captions.json", podcast_captions_summary)
+                podcast_key_text_report = apply_podcast_key_text(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    script=script,
+                )
                 sparse_report = podcast_key_text_report
             else:
                 film_key_text_report = apply_film_key_text(

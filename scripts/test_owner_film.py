@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import os
 import tempfile
 import unittest
@@ -147,7 +148,7 @@ class ArtifactTests(unittest.TestCase):
 
 
 class ArtTests(unittest.TestCase):
-    def test_film_beats_cut_between_images_with_different_moves(self) -> None:
+    def test_film_beat_keeps_its_supplied_image_without_searching_stock(self) -> None:
         plan = {
             "sections": [{"id": "s1"}],
             "visual_story": {"beats": [{"id": "b1", "section_id": "s1"}]},
@@ -168,8 +169,29 @@ class ArtTests(unittest.TestCase):
             from clean_v2.media import probe_duration
 
             self.assertEqual((len(clips), rights[0]["provider"]), (1, "owner_art"))
-            self.assertGreater(probe_duration(clips[0]), 8.0)  # 4s section + padding, split in segments
+            self.assertGreater(probe_duration(clips[0]), 8.0)  # 4s section + source padding
             self.assertEqual({owner_art.make_motion_clip.__name__}, {"make_motion_clip"})
+
+    def test_long_idea_does_not_cycle_folder_images_on_a_seconds_pattern(self) -> None:
+        plan = {"sections": [{"id": "s1"}], "visual_story": {"beats": [{"id": "b1", "section_id": "s1"}]}}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); art = root / "art"; art.mkdir()
+            for index, color in enumerate(((20, 30, 80), (80, 30, 20)), 1):
+                Image.new("RGB", (640, 360), color).save(art / f"image-{index}.jpg")
+            inner = mock.Mock(); inner.media_transform = None
+            clips, rights = owner_art.OwnerArtVisualSource(inner, art).acquire(
+                plan, root / "out", "film", 5, {"s1": 11.0})
+            inner.acquire.assert_not_called()
+            self.assertIn("image-1", rights[0]["asset_id"])
+            # 11s narration + 6s source padding used to switch to image-2 at 8s.
+            # Pixels late in the same beat must still match the declared image-1.
+            raw = subprocess.run([
+                "ffmpeg", "-v", "error", "-ss", "10", "-i", str(clips[0]),
+                "-frames:v", "1", "-vf", "scale=8:8", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+            ], check=True, capture_output=True).stdout
+            self.assertEqual(len(raw), 8*8*3)
+            red = sum(raw[0::3])/64; blue = sum(raw[2::3])/64
+            self.assertGreater(blue-red, 40)
 
     def test_four_distinct_film_moves(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

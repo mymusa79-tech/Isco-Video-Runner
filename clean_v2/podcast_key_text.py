@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -442,6 +443,9 @@ def _apply_sparse_key_text(
         font_used = resolved_font(completed.stderr, BODY_FONT)
         if not rendered.is_file() or rendered.stat().st_size <= 0:
             raise PodcastKeyTextError("podcast_key_text_render_missing_or_empty")
+        # The derivative must also stay free of sparse parent text. Full-caption
+        # mode used to own this copy; sparse Film/Podcast use the same contract.
+        shutil.copy2(Path(final_path), Path(output_dir) / "final-no-captions.mp4")
         os.replace(rendered, Path(final_path))
     except PodcastKeyTextError:
         rendered.unlink(missing_ok=True)

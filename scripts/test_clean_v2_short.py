@@ -2527,18 +2527,23 @@ class SharedColorIdentityRegressionTests(unittest.TestCase):
             self.assertEqual(report["clips"][0]["mode"], "fixed_channel_target")
             self.assertEqual(report["target_stats"]["mean_b"], 118.0)
 
-    def test_shared_finish_is_always_applied_after_master_lut(self) -> None:
-        source = inspect.getsource(media_module.render_video)
-        self.assertIn("CINEMATIC_FINISH_FILTER", source)
-        self.assertNotIn(
-            'if any(str(value or "").strip() for value in grade_filters.values())',
-            source,
-        )
-        self.assertIn("navy-gold-master-v6.cube", source)
-        self.assertEqual(
-            media_module.CINEMATIC_FINISH_VERSION,
-            "clean-v2-navy-gold-depth-finish-v6",
-        )
+    def test_admitted_sources_retain_color_and_stillness_without_blanket_finish(self) -> None:
+        for fmt in ("short", "film", "podcast"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); source = root / "admitted.mp4"
+                with mock.patch.object(media_module, "probe_duration", return_value=4), \
+                     mock.patch.object(media_module, "_run") as run, \
+                     mock.patch.object(media_module, "_write_master_look_lut", side_effect=AssertionError("no forced LUT")), \
+                     mock.patch.object(media_module, "_source_has_natural_motion", side_effect=AssertionError("no forced low-motion zoom")):
+                    media_module.render_video(root / "voice.wav", [source], root / "final.mp4", fmt)
+                self.assertTrue(any(str(source) in call.args[0] for call in run.call_args_list))
+                for call in run.call_args_list:
+                    command = call.args[0]
+                    for flag in ("-vf", "-filter_complex"):
+                        if flag in command:
+                            vf = command[command.index(flag)+1]
+                            for unwanted in ("lut3d=", "lutrgb=", "vignette=", "eq=contrast=", "min(t/"):
+                                self.assertNotIn(unwanted, vf)
 
 
 class Run58ShortRegressionTests(unittest.TestCase):
