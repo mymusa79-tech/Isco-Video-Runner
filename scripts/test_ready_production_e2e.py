@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import tempfile
 import unittest
 import wave
@@ -15,6 +16,7 @@ from unittest import mock
 from clean_v2 import owner_art, owner_pack, production_package
 from clean_v2.contracts import atomic_write_json, compute_brief_sha256
 from clean_v2.media import inspect_final
+from clean_v2.identity_sequence import identity_asset_paths
 from clean_v2.pipeline import CleanV2Pipeline
 from clean_v2.short_timed_text import apply_short_timed_text
 from scripts.test_clean_v2 import _passing_audio_mastering, _passing_final_master_qc, _passing_visual_qa
@@ -82,8 +84,36 @@ class ReadyProductionMediaTests(unittest.TestCase):
             timeline = json.loads((output / "timeline-first.json").read_text())
             kinds = [e["kind"] for e in timeline["identity_events"]]
             self.assertNotIn("channel_identity", kinds); self.assertNotIn("intro", kinds)
-            self.assertTrue((output / ".ala-mahl-signature.png").is_file())
-            self.assertGreaterEqual(len(voice.spoken), 5)
+            self.assertFalse((output / ".ala-mahl-signature.png").exists())
+            self.assertEqual(len(voice.spoken), 6)
+            authored = json.loads((output / "script.json").read_text())["sections"]
+            self.assertEqual(" ".join(text for text, _ in voice.spoken),
+                             " ".join(s["narration"] for s in authored))
+            outro = next(e for e in timeline["identity_events"] if e["kind"] == "outro")
+            spoken_units = [u for u in timeline["audio_units"] if u["provider"] != "deterministic_silence"]
+            self.assertEqual(outro["start"], spoken_units[-1]["end"])
+            self.assertEqual(timeline["audio_units"][-1]["role"], "final_silence")
+            # The last audible sample belongs to the story; the outro may only
+            # start after it, never over the last word or by shortening the voice.
+            with wave.open(str(output / "narration-mastered.wav"), "rb") as audio:
+                samples = array.array("h", audio.readframes(audio.getnframes()))
+                sample_rate = audio.getframerate() * audio.getnchannels()
+            last_audible = next(i for i in range(len(samples) - 1, -1, -1) if samples[i])
+            self.assertGreaterEqual(outro["start"] + 0.001, (last_audible + 1) / sample_rate)
+            self.assertAlmostEqual(outro["end"] - outro["start"], 67 / 30, delta=0.01)
+            self.assertEqual(json.loads((output / "identity-sequence.json").read_text())["sequence"][-1], "ala_mahl_outro")
+            # A late frame proves the full approved animation survives composition,
+            # rather than being frozen at t=0 or cut at the old 1.25-second tail.
+            def frame(path, at):
+                return subprocess.run([
+                    "ffmpeg", "-v", "error", "-ss", str(at), "-i", str(path), "-frames:v", "1",
+                    "-vf", "scale=180:320", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+                ], check=True, capture_output=True, timeout=30).stdout
+            expected = frame(identity_asset_paths("short", template="ala_mahl")["outro"], 2.05)
+            actual = frame(output / "final.mp4", outro["start"] + 2.05)
+            self.assertEqual(len(actual), 180 * 320 * 3)
+            self.assertEqual(len(actual), len(expected))
+            self.assertLess(sum(abs(a - b) for a, b in zip(actual, expected)) / len(actual), 3.0)
             self.assertEqual(json.loads((output / "plan.json").read_text())["short_template"], "ala_mahl")
             self.assertEqual(json.loads((output / "run-manifest.json").read_text())["short_template"], "ala_mahl")
             self.assertTrue(any(k.get("performance_direction") for _, k in voice.spoken))

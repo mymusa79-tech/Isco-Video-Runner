@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ from clean_v2.identity_sequence import (
     SHORT_CHANNEL_DEFINITION,
     assert_spoken_identity,
     identity_timing_profile,
+    identity_asset_paths,
     inject_spoken_identity,
 )
 from clean_v2 import timeline_render
@@ -20,6 +22,43 @@ from clean_v2.visual_cta import _events, _longform_contextual_event
 
 
 class ApprovedIdentityLiteTests(unittest.TestCase):
+    def test_ala_mahl_selects_the_approved_outro_without_changing_other_formats(self) -> None:
+        from clean_v2.media import probe_duration
+
+        usual = identity_asset_paths("short")
+        ala_mahl = identity_asset_paths("short", template="ala_mahl")
+        self.assertEqual(ala_mahl["prayer"], usual["prayer"])
+        self.assertEqual(usual["outro"].name, "short_outro.mp4")
+        self.assertEqual(hashlib.sha256(ala_mahl["outro"].read_bytes()).hexdigest(),
+                         "98053d6287bbabc2767aba2113ae1e02bc034d912fddfe92abf3d311e0aab5b2")
+        self.assertAlmostEqual(identity_timing_profile("short", template="ala_mahl")["final_silence_seconds"],
+                               probe_duration(ala_mahl["outro"]), places=3)
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
+        self.assertEqual(identity_timing_profile("film", template="ala_mahl"), identity_timing_profile("film"))
+        self.assertEqual(identity_timing_profile("podcast", template="ala_mahl"), identity_timing_profile("podcast"))
+        self.assertEqual(identity_asset_paths("film", template="ala_mahl"), identity_asset_paths("film"))
+
+    def test_ala_mahl_saved_audio_keeps_its_window_and_is_copied_without_intro(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            timeline = {"template": "ala_mahl", "voice_seconds_measured": 30.0, "identity_events": [
+                {"kind": "prayer", "start": 2.0, "end": 4.0},
+                {"kind": "post_prayer_silence", "start": 4.0, "end": 4.25},
+                {"kind": "outro", "start": 28.75, "end": 30.0},
+            ]}
+            with mock.patch.object(timeline_render.subprocess, "run") as run:
+                timeline_render.render_identity_composition(root / "saved.mp4", root / "out.mp4",
+                                                            fmt="short", timeline=timeline)
+            command = run.call_args.args[0]
+            filters = command[command.index("-filter_complex") + 1]
+            self.assertIn(str(identity_asset_paths("short", template="ala_mahl")["outro"]), command)
+            self.assertNotIn(str(identity_asset_paths("short")["intro"]), command)
+            self.assertNotIn("-stream_loop", command)
+            self.assertIn("trim=duration=1.250,setpts=PTS-STARTPTS+28.750/TB[outro]", filters)
+            self.assertEqual(command[command.index("-c:a") + 1], "copy")
+            self.assertEqual(command[command.index("-t") + 1], "30.000")
+            self.assertFalse((root / ".ala-mahl-signature.png").exists())
+
     def test_short_logo_has_only_the_spoken_definition_window(self) -> None:
         from clean_v2.pipeline import _synthesize_sectioned_voice
         from clean_v2.timeline_first import build_voice_owned_timeline
