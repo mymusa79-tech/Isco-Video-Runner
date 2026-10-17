@@ -30,7 +30,7 @@ Only the performance directions enter TTS style metadata; they are never appende
 | Podcast section | `{"id":"s1","turns":[{"speaker":"A","text":"Question?"},{"speaker":"B","text":"Answer."}]}` |
 | `roles` | Podcast only, required: `{"A":"listener","B":"host"}`. Existing A=Orus, B=Charon mapping remains. |
 | `performance` | Required `direction` string (may be empty); optional `A`/`B` style directions for Podcast; each ≤800 characters |
-| `scenes` | Ordered list, 1–30 entries, every section covered; Ala Mahl: 3–6 distinct portrait images |
+| `scenes` | Ordered list, 1–30 entries, every section covered; Ala Mahl: 2–4 distinct portrait images (old 5–6-image ZIPs remain accepted) |
 | Scene | `id` (unique lowercase ASCII identifier), `section_id`, `asset`, `start_text`, `motion`, `transition` |
 | `start_text` | Exact unique text inside that section, with speaker labels omitted. First scene of every section starts with its first spoken words. Subsequent anchors must be in text order. |
 | `motion` | `slow_pan`, `slow_zoom`, `hold` |
@@ -47,14 +47,23 @@ No planning, script-writing, tone/factuality rewrite or stock-replacement model 
 
 ## Ala Mahl
 
-`format="short"`, `template="ala_mahl"`. Use 3–6 original 9:16 story images with consistent characters and location.
+`format="short"`, `template="ala_mahl"`. Use 2–4 distinct expressive 9:16 story images.
+Pictures follow meaningful story turns, not every sentence. Old 5–6-image ZIPs remain readable; do not author new ones that way.
+The first picture starts at the beginning of `s1`. A section without a new picture continues the preceding one;
+the first new picture in a covered section still anchors to its first words. The same image can therefore span
+several sections without being listed twice or restarting its movement. All three script sections remain required.
+`hold` is intentional stillness; `slow_pan` and `slow_zoom` are optional authored choices, never added on top.
 Their content and order are the author's responsibility; the importer checks their existence, type, dimensions and linkage.
 The pipeline never generates images, searches stock or replaces them. Audio determines the final shot windows.
 Authored scene anchors inside an audio section use the existing text-proportional timing (not word-level forced alignment).
-Actual mastered duration must be 25–60 seconds. No speed-up, padding to meet the limit or second TTS pass is attempted.
+Actual mastered duration must be 25–120 seconds. No speed-up, padding to meet the limit or second TTS pass is attempted.
 Keeps the usual Short voice and trusted prayer picture, omits the channel definition/logo intro/video outro,
 and places a small **على مهل ☕** signature over the final picture during the terminal breath.
 The cup is drawn locally to avoid missing emoji glyphs. Arabic type uses the installed caption font (Cairo Bold in production).
+Approved ZIP pictures bypass reference matching, the master palette LUT and cinematic finishing.
+Only sizing/cropping, authored movement, transitions and separate caption/identity layers affect the rendered composition;
+the original asset bytes are retained. Non-ZIP Podcast and photographic-still episodes also bypass the global palette finish.
+Stock-only Nidaa episodes keep their existing finish and source-order policy.
 
 ## Identity
 

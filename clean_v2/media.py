@@ -1011,7 +1011,6 @@ def _ai_still_prompt(
     thread = visual_story.get("retention_thread")
     thread = thread if isinstance(thread, Mapping) else {}
     orientation = "vertical 9:16" if fmt == "short" else "horizontal 16:9"
-    visual_world = str(visual_story.get("visual_world") or "").strip()[:320]
     motif = str(thread.get("visual_motif") or "").strip()[:180]
     viewer_intent = str(beat.get("viewer_intent") or "").strip()[:240]
     meaning_target = str(beat.get("meaning_target") or viewer_intent).strip()[:240]
@@ -1023,10 +1022,8 @@ def _ai_still_prompt(
     environment_family = str(beat.get("environment_family") or "").strip()
     hook_visual_rule = (
         "HOOK FRAME: make the first frame visually arresting but truthful to the exact topic. "
-        "Show an immediate observable tension, interrupted action, unusual state, visible consequence, "
-        "or decisive moment; favor close/medium framing, asymmetry, depth, and strong local focal contrast. "
-        "Do not use a passive calm establishing shot, generic desk, coffee cup, window-gazing, slow walking, "
-        "or typing unless that exact action is the semantic tension. "
+        "Show observable tension or a decisive action with stronger local subject contrast and close/medium framing; "
+        "avoid generic establishing shots unrelated to that tension. "
         if role == "hook"
         else ""
     )
@@ -1037,29 +1034,30 @@ def _ai_still_prompt(
         else "Establish one distinctive coherent environment that can be reused later. "
     )
     core = (
-        f"Cinematic photorealistic {orientation} frame for an Arabic self-development video. "
-        f"Visual world: {visual_world}. "
+        f"Natural photographic {orientation} frame, like an unpolished real-camera film still. "
+        f"Scene: {scene}. {reference_rule}{hook_visual_rule}"
+        f"Must visibly include: {must_have}. Specific meaning target: {meaning_target}. "
         f"Recurring motif: {motif}. "
         f"Story role: {role}. Editorial shot role: {shot_role}. "
         f"Environment family: {environment_family}. "
-        f"{hook_visual_rule}"
         f"Viewer intent: {viewer_intent}. "
-        f"Specific meaning target: {meaning_target}. Must visibly include: {must_have}. "
-        f"Avoid generic substitutes: {should_avoid}. Scene: {scene}. "
-        f"{reference_rule}"
-        "Lived-in foreground, midground and background depth, restrained deep navy/charcoal shadow world, "
-        "soft practical light, ivory-neutral highlights and very limited warm-gold accents; never a blue wash. "
-        "One clear focal action, clean negative space for Arabic overlay. For hook only, use stronger "
-        "local subject contrast and a more immediate decisive composition; body/payoff stay restrained."
+        f"Avoid generic substitutes: {should_avoid}. "
+        "Lived-in foreground, midground and background depth. "
+        "One clear focal action; body/payoff stay restrained."
     )
     mandatory_tail = (
         "IMAGE ONLY: do not render any caption, title, subtitle, word, letter, Arabic text, or logo. "
         "If a screen or interface is required by the semantic cue, keep its shapes abstract and all copy illegible; "
         "otherwise avoid interface elements. "
-        "Natural, low-saturation colors and physically logical light; no HDR look, artificial glow or neon. "
+        "Natural, low-saturation to moderate colors, soft contrast, neutral shadows, realistic material textures, "
+        "slight photographic imperfections and fine grain. Window light or ordinary practical lamps only. "
+        "Preserve real white balance; identity navy/gold belongs to graphics, never a global image tint. "
+        "Use no HDR look, artificial glow, golden/orange cast, plastic sheen, artificial haze or neon. "
+        "Keep the lower 25-30% quiet for later captions, without a drawn band or gradient. "
         "No identifiable faces; hands, back view, objects, or environment only. "
         "Do not assume Gulf or traditional dress or setting unless the beat itself requires it. "
-        "No readable text, letters, logos, watermarks, collage, split screen, fantasy glow, "
+        "Keep recurring characters, ordinary clothing, props and lighting consistent with the reference. "
+        "No readable text, letters, logos, watermarks, collage, poster, split screen, fantasy glow, "
         "or exaggerated advertising look."
     )
     core = " ".join(core.split())
@@ -4284,7 +4282,21 @@ def _voice_owned_visual_schedule(
                 slots.append({"path": path, "local_file": path.name, "section_id": sid,
                               "kind": kind, "start": left, "end": right,
                               "duration_seconds": right - left, "timing_basis": basis})
-    return sorted(slots, key=lambda s: s["start"])
+    ordered = sorted(slots, key=lambda s: s["start"])
+    if timeline.get("template") != "ala_mahl":
+        return ordered
+    continuous: list[dict[str, Any]] = []
+    for slot in ordered:
+        asset = by_file.get(slot["local_file"], {}).get("owner_asset")
+        previous = continuous[-1] if continuous else None
+        if (previous and asset and asset == by_file.get(previous["local_file"], {}).get("owner_asset")
+                and abs(previous["end"] - slot["start"]) < 0.001):
+            previous["end"] = slot["end"]
+            previous["duration_seconds"] = previous["end"] - previous["start"]
+            previous["timing_basis"] = "measured_sections_continuing_approved_image"
+        else:
+            continuous.append(slot)
+    return continuous
 
 
 # Same crossfade duration as the Engine's own M9 live-binding dissolve
@@ -4704,13 +4716,14 @@ def _trim_and_grade_clip(
     height: int,
     seconds: float,
     grade_filter: str | None = None,
+    preserve_motion: bool = False,
 ) -> Path:
     """Use real stock motion once; never restart/boomerang a clip to fill a slot."""
     grade = _grade_clip_filter(source) if grade_filter is None else grade_filter
     source_seconds = max(0.01, probe_duration(source))
     from clean_v2.simple_mode import is_simple_mode
 
-    if is_simple_mode() and not _source_has_natural_motion(source, min(seconds, source_seconds)):
+    if not preserve_motion and is_simple_mode() and not _source_has_natural_motion(source, min(seconds, source_seconds)):
         # Still/quiet sources get one bounded linear drift, never cyclic movement.
         # Preserve a moving source, including Film/Podcast, without a second zoom.
         dx, dy = max(2, (width // 30) // 2 * 2), max(2, (height // 30) // 2 * 2)
@@ -4818,6 +4831,7 @@ def _build_section_body_segments(
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
     grade_filters: Mapping[str, str] | None = None,
     boundary_decisions: list[dict[str, Any]] | None = None,
+    preserve_motion: bool = False,
 ) -> list[Path]:
     """Match/trim every body clip, then dissolve only continuity-owned boundaries."""
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -4864,6 +4878,7 @@ def _build_section_body_segments(
                     height=height,
                     seconds=durations[clip_index],
                     grade_filter=grade_filter,
+                    preserve_motion=preserve_motion,
                 )
             )
         merged = trimmed[0]
@@ -4894,6 +4909,13 @@ def render_video(
     portrait = fmt in {"moment", "story", "short"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
     output_dir = Path(output_path).parent
+    approved_package = (output_dir / "production.json").is_file()
+    assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
+    preserve_source_colors = approved_package or fmt == "podcast" or any(
+        isinstance(asset, Mapping) and (asset.get("source_actual") in {"ai_still", "stock_still"}
+                                       or asset.get("provider") == "owner_art")
+        for asset in assets
+    )
 
     timeline: dict[str, Any] = {}
     timeline_path = output_dir / "timeline-first.json"
@@ -4982,10 +5004,9 @@ def render_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Every clip is normalized toward the fixed channel palette target. M8 has
-    # already normalized technical color space; no episode stock clip can become
-    # the creative color authority for the rest of the video.
-    if (output_dir / "production.json").is_file():
+    # Approved artwork, photographic stills and Podcast retain their source
+    # colors. Keep the established stock-only Nidaa finish unchanged.
+    if preserve_source_colors:
         grade_filters = {str(path): "" for path in paths}
     else:
         grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
@@ -5058,6 +5079,7 @@ def render_video(
                 ),
                 grade_filters=grade_filters,
                 boundary_decisions=body_boundary_decisions,
+                preserve_motion=approved_package or fmt == "podcast",
             )
         else:
             body_segments = []
@@ -5100,14 +5122,14 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
-        master_look = (
-            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
-            f"{CINEMATIC_FINISH_FILTER}"
-        )
-        if (output_dir / "production.json").is_file():
-            master_look = "null"
+        master_look = "null"
+        if not preserve_source_colors:
+            master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
+            master_look = (
+                f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
+                f"{CINEMATIC_FINISH_FILTER}"
+            )
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"

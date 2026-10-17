@@ -288,7 +288,10 @@ class OwnerArtVisualSource:
             if not asset.is_file():
                 raise RuntimeError("approved_package_image_missing:" + beat["owner_asset"])
             # The shared renderer trims these sources to its measured audio slots.
-            seconds = float((estimates or {}).get(beat["section_id"]) or 60) + 1
+            sections = {beat["section_id"]}
+            if doc["template"] == "ala_mahl":
+                sections = {b["section_id"] for b in beats if b["owner_asset"] == beat["owner_asset"]}
+            seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
             clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
                                     direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"])
             clips.append(clip)

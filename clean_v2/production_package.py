@@ -126,8 +126,10 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     scenes = doc["scenes"]
     if not isinstance(scenes, list) or not 1 <= len(scenes) <= 30:
         _error("الحزمة تحتاج 1–30 مشهدًا يغطي كل الأقسام.")
-    if doc["template"] == "ala_mahl" and not 3 <= len(scenes) <= 6:
-        _error("على مهل يحتاج 3–6 صور قصصية مرتّبة.")
+    ala_mahl = doc["template"] == "ala_mahl"
+    # V22 authors 2–4 pictures; keep existing 5–6-picture ZIPs readable.
+    if ala_mahl and not 2 <= len(scenes) <= 6:
+        _error("على مهل يحتاج 2–4 صور قصصية؛ حزم 5–6 صور القديمة ما زالت مدعومة.")
     seen: set[str] = set()
     assets: set[str] = set()
     prior = (-1, -1)
@@ -152,7 +154,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         covered.add(sid)
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
-    if covered != set(texts):
+    if ala_mahl and scenes[0]["section_id"] != "s1":
+        _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
+    if not ala_mahl and covered != set(texts):
         _error("يجب أن تغطي الصور جميع أقسام النص.")
     if doc["template"] == "ala_mahl" and len(assets) != len(scenes):
         _error("على مهل يحتاج صورة أصلية مختلفة لكل مشهد؛ لا تكرر الصورة.")
