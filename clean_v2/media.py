@@ -5043,7 +5043,16 @@ def render_video(
             cursor = 0.0
             for slot in visual_schedule:
                 if slot["start"] > cursor + 0.001:
-                    timed_paths.append(gap_source)
+                    # A ZIP-approved still must not expose the generic slate
+                    # between the story and the prayer identity. Hold the
+                    # preceding approved image through this silent boundary;
+                    # the identity compositor replaces it at prayer start.
+                    gap_path = (
+                        timed_paths[-1]
+                        if approved_package and timed_paths and timed_ids[-1] != "__identity__"
+                        else gap_source
+                    )
+                    timed_paths.append(gap_path)
                     timed_durations.append(slot["start"] - cursor)
                     timed_ids.append("__identity__")
                 elif slot["start"] < cursor - 0.001:
