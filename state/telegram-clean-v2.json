@@ -8165,6 +8165,21 @@
       "selected_at": "2026-10-16T17:08:39Z",
       "created_at": "2026-10-16T17:08:39Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-0f0a12fb56",
+      "title": "البدلة التي لم يأتِ صاحبها",
+      "normalized_title": "البدلة التي لم ياتِ صاحبها",
+      "market_query": "البدلة التي لم يأتِ صاحبها",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-17T00:56:55Z",
+      "created_at": "2026-10-17T00:56:55Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -13871,9 +13886,151 @@
         "resume_requested_at": "2026-10-16T19:06:00Z",
         "resume_requested_from_stage": "voice"
       }
+    },
+    "req-2e1b66b3b001": {
+      "schema_version": 1,
+      "request_id": "req-2e1b66b3b001",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "البدلة التي لم يأتِ صاحبها",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-0f0a12fb56",
+      "selected_at": "2026-10-17T00:56:55Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "البدلة التي لم يأتِ صاحبها",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "البدلة التي لم يأتِ صاحبها",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "منذ سبع سنوات، كانت هناك بدلة معلّقة في محل خياط، لم يأتِ أحد لاستلامها.\n\nكان سالم، الخياط العجوز، ينفض عنها الغبار كل أسبوع، ويعيدها إلى مكانها.\n\nنصحه ابنه أكثر من مرة أن يتخلص منها، لكنه كان يجيب:\n\n«صاحبها دفع ثمنها كاملًا. وما زالت أمانة عندي»."
+              },
+              {
+                "id": "s2",
+                "text": "وفي ليلة، قبل إغلاق المحل بدقائق، دخل شاب يحمل إيصالًا قديمًا.\n\nوضعه على الطاولة وسأل:\n\n«هل ما زالت البدلة عندك؟»\n\nنظر سالم إلى الإيصال، ثم إلى الشاب.\n\n«أين صاحبها؟»\n\nقال الشاب:\n\n«كان أبي. توفي قبل ست سنوات».\n\nسكت سالم، ثم أنزل البدلة عن علاقتها.\n\nلاحظ الشاب أن أحد كُمَّيها لم يكتمل.\n\nفسأل باستغراب:\n\n«لماذا لم تنهها؟»"
+              },
+              {
+                "id": "s3",
+                "text": "أخرج سالم ظرفًا صغيرًا من درج ماكينة الخياطة، وقال:\n\n«أبوك طلب مني أن أترك هذا الكُمّ مفتوحًا حتى يعود. كان يريد أن يضع فيه شيئًا بنفسه».\n\nفتح الشاب الظرف.\n\nوجد قطعة قماش صغيرة، مطرّزًا عليها اسمه بخط أبيه.\n\nجلس على الكرسي، وأخذ يقلبها بين أصابعه.\n\nثم قال بصوت منخفض:\n\n«كان أبي يخيط لي ملابسي وأنا صغير... وكنت أظن أنه نسي».\n\nأحضر سالم إبرته وخيطه، وسأل:\n\n«هل تريد أن نكملها الآن؟»\n\nهز الشاب رأسه.\n\nوفي تلك الليلة، لم يغلق سالم المحل في موعده.\n\nللمرة الأولى منذ سبع سنوات، كانت البدلة على الطاولة، لا على العلّاقة.\n\nوكان هناك من ينتظر اكتمالها."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد عربي طبيعي دافئ دون مبالغة عاطفية، مع وقفات قصيرة عند الحوار والكشف، وعدم قص الكلمات."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "منذ سبع سنوات",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_03.png",
+              "start_text": "وفي ليلة، قبل إغلاق المحل",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_05.png",
+              "start_text": "لاحظ الشاب أن أحد كُمَّيها لم يكتمل",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s3",
+              "asset": "assets/scene_06.png",
+              "start_text": "أخرج سالم ظرفًا صغيرًا",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s3",
+              "asset": "assets/scene_07.png",
+              "start_text": "وجد قطعة قماش صغيرة",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s3",
+              "asset": "assets/scene_08.png",
+              "start_text": "أحضر سالم إبرته وخيطه",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_base.png",
+            "text": "انتظرها سبع سنوات"
+          },
+          "publishing": {
+            "title": "البدلة التي لم يأتِ صاحبها | على مهل ☕",
+            "description": "قصة خيالية عن خياط احتفظ ببدلة سبع سنوات، حتى جاء ابن صاحبها ليكتشف سر الكُمّ غير المكتمل.",
+            "hashtags": [
+              "#على_مهل",
+              "#قصة_قصيرة",
+              "#قصص_إنسانية"
+            ]
+          }
+        },
+        "zip_sha256": "5aa70b6f21da43c7933ea311f2f3b176f1d443b22ecd5da501c4aec1eb135a6b",
+        "asset_sha256": {
+          "assets/cover_base.png": "3450200d0dba6cfdaaf3cb9532ad887381d69a5581475a989836ba9cc634888c",
+          "assets/scene_01.png": "7c8a6cf09414fe4c53b82cfb749cae8fd0451267bd960542ac6960b6827ff4eb",
+          "assets/scene_03.png": "df89ff6191e370ac291fcde9b02eb2128ec197b6d4ade2da197e66fa218217cb",
+          "assets/scene_05.png": "15cfbd5d73ab58e4dbf9da894a7aa4a27a6ce430c04fb3f5313dd575d895df1c",
+          "assets/scene_06.png": "76f79cf0cf6787bd2f76e424e412a76ecc12236d46fc7191bf0b0f8989df6cee",
+          "assets/scene_07.png": "e31fa366c15a69ac40d7aef1b39b4af05cad7d6942c8c4da3bf4aaf9fd017769",
+          "assets/scene_08.png": "5a76a4af0744161f45b37d2593aeae9cf1a560f379d042e3716d6afe91d885e5"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "bdad79d9b2c631e947e53620c77f83eb5d6a4f8f0ec33be48701592f0e31a921",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIMYWrSx70B6MgSvnj7efKRRbQ0pwu5AAKKGgACvnGYUlsUHufOJ3XRPQQ",
+          "sha256": "5aa70b6f21da43c7933ea311f2f3b176f1d443b22ecd5da501c4aec1eb135a6b"
+        }
+      }
     }
   },
-  "current_request_id": "req-327f9d240368",
+  "current_request_id": "req-2e1b66b3b001",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -14261,6 +14418,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-17T00:55:49Z",
+  "updated_at": "2026-10-17T00:56:55Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
