@@ -4283,13 +4283,15 @@ def _voice_owned_visual_schedule(
                               "kind": kind, "start": left, "end": right,
                               "duration_seconds": right - left, "timing_basis": basis})
     ordered = sorted(slots, key=lambda s: s["start"])
-    if timeline.get("template") != "ala_mahl":
+    if timeline.get("template") != "ala_mahl" and not (output_dir / "production.json").is_file():
         return ordered
     continuous: list[dict[str, Any]] = []
     for slot in ordered:
         asset = by_file.get(slot["local_file"], {}).get("owner_asset")
         previous = continuous[-1] if continuous else None
-        if (previous and asset and asset == by_file.get(previous["local_file"], {}).get("owner_asset")
+        prior_asset = by_file.get(previous["local_file"], {}) if previous else {}
+        if (previous and asset and asset == prior_asset.get("owner_asset")
+                and by_file.get(slot["local_file"], {}).get("owner_motion") == prior_asset.get("owner_motion")
                 and abs(previous["end"] - slot["start"]) < 0.001):
             previous["end"] = slot["end"]
             previous["duration_seconds"] = previous["end"] - previous["start"]
@@ -4910,12 +4912,6 @@ def render_video(
     width, height = ((1080, 1920) if portrait else (1920, 1080))
     output_dir = Path(output_path).parent
     approved_package = (output_dir / "production.json").is_file()
-    assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
-    preserve_source_colors = approved_package or fmt == "podcast" or any(
-        isinstance(asset, Mapping) and (asset.get("source_actual") in {"ai_still", "stock_still"}
-                                       or asset.get("provider") == "owner_art")
-        for asset in assets
-    )
 
     timeline: dict[str, Any] = {}
     timeline_path = output_dir / "timeline-first.json"
@@ -5004,12 +5000,11 @@ def render_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Approved artwork, photographic stills and Podcast retain their source
-    # colors. Keep the established stock-only Nidaa finish unchanged.
-    if preserve_source_colors:
-        grade_filters = {str(path): "" for path in paths}
-    else:
-        grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
+    # M8 already owns technical SDR/BT.709 normalization. A fixed palette/LUT
+    # cannot establish that a real scene needs correction. Preserve admitted
+    # pixels in every format, including stock-only Nidaa, until such evidence
+    # exists; graphic identity is composed separately.
+    grade_filters = {str(path): "" for path in paths}
 
     opening_count = 3 if opening_enabled else 0
     opening_paths_for_render = paths[:opening_count]
@@ -5040,21 +5035,24 @@ def render_video(
             timed_paths: list[Path] = []
             timed_durations: list[float] = []
             timed_ids: list[str] = []
+            identity_boundary_indexes: set[int] = set()
             cursor = 0.0
             for slot in visual_schedule:
                 if slot["start"] > cursor + 0.001:
+                    identity_boundary_indexes.add(len(timed_paths))
                     # A ZIP-approved still must not expose the generic slate
                     # between the story and the prayer identity. Hold the
                     # preceding approved image through this silent boundary;
                     # the identity compositor replaces it at prayer start.
-                    gap_path = (
-                        timed_paths[-1]
-                        if approved_package and timed_paths and timed_ids[-1] != "__identity__"
-                        else gap_source
-                    )
-                    timed_paths.append(gap_path)
-                    timed_durations.append(slot["start"] - cursor)
-                    timed_ids.append("__identity__")
+                    if approved_package and timed_paths and timed_ids[-1] != "__identity__":
+                        # Extend the running source instead of rendering it again
+                        # from frame zero (which visibly restarted authored pans
+                        # in the post-hook breath). Identity still owns overlays.
+                        timed_durations[-1] += slot["start"] - cursor
+                    else:
+                        timed_paths.append(gap_source)
+                        timed_durations.append(slot["start"] - cursor)
+                        timed_ids.append("__identity__")
                 elif slot["start"] < cursor - 0.001:
                     raise RuntimeError("timeline visual windows overlap")
                 timed_paths.append(slot["path"])
@@ -5063,12 +5061,19 @@ def render_video(
                 cursor = slot["end"]
             terminal = round(duration * 30) / 30
             if terminal > cursor + 0.001:
-                timed_paths.append(gap_source)
-                timed_durations.append(terminal - cursor)
-                timed_ids.append("__identity__")
+                if approved_package and fmt == "short" and timed_paths and timed_ids[-1] != "__identity__":
+                    # A rounded-down last content frame can precede the exact
+                    # outro start by <1 frame. Keep the approved last picture
+                    # beneath that handoff too, rather than flashing the slate.
+                    timed_durations[-1] += terminal - cursor
+                else:
+                    timed_paths.append(gap_source)
+                    timed_durations.append(terminal - cursor)
+                    timed_ids.append("__identity__")
             timed_decisions = _editorial_boundary_decisions(timed_paths, timed_ids, editorial_signals)
             for index, decision in enumerate(timed_decisions):
-                if "__identity__" in {timed_ids[index], timed_ids[index + 1]}:
+                if (index + 1 in identity_boundary_indexes
+                        or "__identity__" in {timed_ids[index], timed_ids[index + 1]}):
                     decision.update(decision="CUT", reason="measured_identity_boundary")
             body_paths_for_render, body_durations_for_render = timed_paths, timed_durations
             body_section_ids, body_boundary_decisions = timed_ids, timed_decisions
@@ -5088,7 +5093,9 @@ def render_video(
                 ),
                 grade_filters=grade_filters,
                 boundary_decisions=body_boundary_decisions,
-                preserve_motion=approved_package or fmt == "podcast",
+                # Admitted clips already contain their intended movement (or
+                # stillness). Low measured motion is not a request for a zoom.
+                preserve_motion=True,
             )
         else:
             body_segments = []
@@ -5133,12 +5140,6 @@ def render_video(
             input_index += 1
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = "null"
-        if not preserve_source_colors:
-            master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
-            master_look = (
-                f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
-                f"{CINEMATIC_FINISH_FILTER}"
-            )
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"

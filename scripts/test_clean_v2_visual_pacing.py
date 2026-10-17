@@ -1704,7 +1704,7 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
         )
         return paths
 
-    def test_opening_and_body_clips_both_receive_the_color_grade(self) -> None:
+    def test_opening_and_body_preserve_admitted_colors_without_a_blanket_grade(self) -> None:
         stub_filter = "eq=contrast=9.999:brightness=0.0100:saturation=0.9000"
         modules = _stub_engine_color_modules(stub_filter)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1729,17 +1729,17 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
             self.assertIn("trim=duration=7.000", filters)
             self.assertIn("trim=duration=11.000", filters)
             self.assertIn("trim=duration=12.000", filters)
-            # ...but all three opening inputs (7s/11s/12s slots) now also
-            # carry the same grade fragment as the body clips instead of
-            # being excluded from it.
-            self.assertEqual(filters.count(stub_filter), 3)
+            # Admitted source pixels survive both opening and body. No fixed
+            # palette, fallback Engine grade, or global finish is inserted.
+            self.assertNotIn(stub_filter, filters)
+            self.assertNotIn("lut3d=", filters)
             pretrim_calls = [
                 command
                 for command in captured
                 if "-vf" in command
                 and stub_filter in command[command.index("-vf") + 1]
             ]
-            self.assertGreaterEqual(len(pretrim_calls), 1)
+            self.assertEqual(pretrim_calls, [])
 
     def test_grade_absent_from_opening_filters_without_engine(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1762,7 +1762,7 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
 
             final_command = captured[-1]
             filters = final_command[final_command.index("-filter_complex") + 1]
-            self.assertIn(media_module.CINEMATIC_FINISH_FILTER, filters)
+            self.assertNotIn(media_module.CINEMATIC_FINISH_FILTER, filters)
             self.assertIn("trim=duration=7.000", filters)
             self.assertIn("trim=duration=12.000", filters)
 

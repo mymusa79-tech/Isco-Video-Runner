@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from clean_v2 import podcast_captions as pc
+from clean_v2.podcast_key_text import PodcastKeyTextError
 
 TEXT = "A: لماذا نشعر بالتعب؟ B: لأن القرارات الصغيرة تستهلك طاقتنا. A: وما الحل؟"
 
@@ -191,8 +192,29 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class FallbackWarningTests(unittest.TestCase):
-    def test_skipped_captions_warn_and_appear_in_report(self) -> None:
+class SparseProductionPolicyTests(unittest.TestCase):
+    def test_sparse_render_retains_caption_free_master_for_the_derivative(self):
+        from unittest import mock
+        from types import SimpleNamespace
+        from clean_v2 import podcast_key_text as key
+
+        for fmt in ("film", "podcast"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); final = root / "final.mp4"
+                final.write_bytes(b"caption-free-original")
+                (root / "timeline-first.json").write_text("{}")
+                def render(*args, **kwargs):
+                    (root / f".final-{fmt}-key-text.mp4").write_bytes(b"with-sparse-text")
+                    return SimpleNamespace(stderr="")
+                with mock.patch.object(key, "build_events", return_value=[{
+                    "text": "هذه عبارة معتمدة.", "start": 0, "end": 3, "role": "hook"}]), \
+                     mock.patch.object(key.subprocess, "run", side_effect=render):
+                    key._apply_sparse_key_text(output_dir=root, final_path=final,
+                        script={"sections": [{"narration": "هذه عبارة معتمدة."}]}, fmt=fmt)
+                self.assertEqual((root / "final-no-captions.mp4").read_bytes(), b"caption-free-original")
+                self.assertEqual(final.read_bytes(), b"with-sparse-text")
+
+    def test_production_uses_sparse_text_without_burning_full_dialogue(self) -> None:
         import contextlib
         import io
         import tempfile
@@ -200,7 +222,6 @@ class FallbackWarningTests(unittest.TestCase):
         from unittest import mock
 
         from clean_v2 import pipeline
-        from clean_v2.podcast_captions import PodcastCaptionError
 
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -208,7 +229,7 @@ class FallbackWarningTests(unittest.TestCase):
             with mock.patch("clean_v2.legacy_cinematic.apply_post_render_layer", return_value={}), \
                  mock.patch("clean_v2.contextual_cta.apply_contextual_cta_overlay", return_value={}), \
                  mock.patch("clean_v2.podcast_captions.apply_podcast_captions",
-                            side_effect=PodcastCaptionError("podcast_captions_text_not_verbatim")), \
+                            side_effect=AssertionError("full captions must not be forced")) as full, \
                  mock.patch("clean_v2.podcast_key_text.apply_podcast_key_text",
                             return_value={"status": "pass"}), \
                  mock.patch("clean_v2.short_audio_polish.apply_topic_audio_polish",
@@ -216,17 +237,14 @@ class FallbackWarningTests(unittest.TestCase):
                  mock.patch("clean_v2.visual_cta.apply_visual_cta_assets",
                             return_value={"status": "skipped"}), \
                  contextlib.redirect_stdout(buf):
-                try:
-                    report = pipeline._run_legacy_cinematic_layer(
-                        output_dir=out, final_path=out / "f.mp4", narration_path=out / "n.wav",
-                        plan={}, script={}, rights=[], fmt="podcast",
-                    )
-                except Exception as exc:  # unrelated later layers must not mask the check
-                    self.skipTest(f"layer needs full env: {exc}")
-        self.assertIn("::warning title=podcast-captions-fallback::", buf.getvalue())
-        self.assertIn("podcast_captions_text_not_verbatim", buf.getvalue())
-        self.assertEqual(report["podcast_captions"]["status"], "skipped")
-        self.assertEqual(report["podcast_captions"]["reason"], "podcast_captions_text_not_verbatim")
+                report = pipeline._run_legacy_cinematic_layer(
+                    output_dir=out, final_path=out / "f.mp4", narration_path=out / "n.wav",
+                    plan={}, script={}, rights=[], fmt="podcast",
+                )
+        full.assert_not_called()
+        self.assertEqual(report["podcast_captions"]["status"], "skipped_sparse_key_text_policy")
+        self.assertFalse(report["podcast_captions"]["burned_into_final_video"])
+        self.assertEqual(report["podcast_key_text"]["status"], "pass")
 
 
 class RealRunRegressionTests(unittest.TestCase):
@@ -241,7 +259,7 @@ class RealRunRegressionTests(unittest.TestCase):
             chunks = stt._phrase_chunks(text, fmt)
             self.assertEqual(" ".join(" ".join(chunks).split()), " ".join(text.replace("،", "،").split()))
 
-    def test_unexpected_caption_error_is_recorded_and_never_blocks(self) -> None:
+    def test_sparse_render_error_is_recorded_and_never_blocks(self) -> None:
         import contextlib
         import io
         from unittest import mock
@@ -254,7 +272,7 @@ class RealRunRegressionTests(unittest.TestCase):
             with mock.patch("clean_v2.legacy_cinematic.apply_post_render_layer", return_value={}), \
                  mock.patch("clean_v2.contextual_cta.apply_contextual_cta_overlay", return_value={}), \
                  mock.patch("clean_v2.podcast_captions.apply_podcast_captions", side_effect=IndexError("boom")), \
-                 mock.patch("clean_v2.podcast_key_text.apply_podcast_key_text", return_value={"status": "pass"}), \
+                 mock.patch("clean_v2.podcast_key_text.apply_podcast_key_text", side_effect=PodcastKeyTextError("fixture_sparse_failure")), \
                  mock.patch("clean_v2.short_audio_polish.apply_topic_audio_polish", return_value={"status": "skipped"}), \
                  mock.patch("clean_v2.visual_cta.apply_visual_cta_assets", return_value={"status": "skipped"}), \
                  contextlib.redirect_stdout(buf):
@@ -262,6 +280,5 @@ class RealRunRegressionTests(unittest.TestCase):
                     output_dir=out, final_path=out / "f.mp4", narration_path=out / "n.wav",
                     plan={}, script={}, rights=[], fmt="podcast",
                 )
-        self.assertEqual(report["podcast_captions"]["status"], "skipped")
-        self.assertIn("podcast_captions_unexpected_error:IndexError", report["podcast_captions"]["reason"])
-        self.assertIn("::warning title=podcast-captions-fallback::", buf.getvalue())
+        self.assertEqual(report["podcast_key_text"]["status"], "skipped")
+        self.assertEqual(report["podcast_key_text"]["reason"], "fixture_sparse_failure")

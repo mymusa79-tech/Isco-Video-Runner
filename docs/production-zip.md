@@ -30,14 +30,14 @@ Only the performance directions enter TTS style metadata; they are never appende
 | Podcast section | `{"id":"s1","turns":[{"speaker":"A","text":"Question?"},{"speaker":"B","text":"Answer."}]}` |
 | `roles` | Podcast only, required: `{"A":"listener","B":"host"}`. Existing A=Orus, B=Charon mapping remains. |
 | `performance` | Required `direction` string (may be empty); optional `A`/`B` style directions for Podcast; each ≤800 characters |
-| `scenes` | Ordered list, 1–30 entries, every section covered; Ala Mahl: 2–4 distinct portrait images (old 5–6-image ZIPs remain accepted) |
+| `scenes` | Ordered list, 1–30 entries, first scene at the beginning of s1; preceding image continues through sections without a new scene. Ala Mahl: 2–4 distinct portrait images (old 5–6-image ZIPs remain accepted) |
 | Scene | `id` (unique lowercase ASCII identifier), `section_id`, `asset`, `start_text`, `motion`, `transition` |
-| `start_text` | Exact unique text inside that section, with speaker labels omitted. First scene of every section starts with its first spoken words. Subsequent anchors must be in text order. |
+| `start_text` | Exact unique text inside that section, with speaker labels omitted. First scene starts at the first words of s1. Later anchors may start inside a section; the preceding image covers earlier words. All anchors stay in text order. |
 | `motion` | `slow_pan`, `slow_zoom`, `hold` |
 | `transition` | `cut`, `dissolve` into that scene. Measured identity boundaries stay cuts. |
 | `editing` | `{"music":"none"}` (no background music in v1 ZIP mode) |
-| `captions` | `{"font":"Cairo Bold","max_lines":2,"enabled":true}`; uses shared format caption owners |
-| `cover` | `{"asset":null,"text":"Short cover text"}` or approved image path. A supplied image is used as the cover; its pixels must already contain any desired text. With null, the existing local cover generator is used. |
+| `captions` | `{"font":"Cairo Bold","max_lines":2,"enabled":true}`; Shorts use timed captions, Film/Podcast use sparse key text. No full dialogue captions forced on Podcast. |
+| `cover` | `{"asset":null,"text":"Short cover text"}` or approved image path. A supplied image is used as the cover; its pixels must already contain any desired text. With null, approved cover text is drawn on the first approved scene (#1165); failure retains the previous fallback. |
 | `publishing` | `title`, `description`, `hashtags` (list of up to 15 `#tags`, no spaces). Preserved in the manual publishing package. |
 | `derivative` | Optional for Film/Podcast: `{"start_text":"Exact beginning sentence.","end_text":"Exact ending sentence."}`. See derivative contract below. |
 
@@ -50,7 +50,7 @@ No planning, script-writing, tone/factuality rewrite or stock-replacement model 
 `format="short"`, `template="ala_mahl"`. Use 2–4 distinct expressive 9:16 story images.
 Pictures follow meaningful story turns, not every sentence. Old 5–6-image ZIPs remain readable; do not author new ones that way.
 The first picture starts at the beginning of `s1`. A section without a new picture continues the preceding one;
-the first new picture in a covered section still anchors to its first words. The same image can therefore span
+new pictures may start at an exact anchor inside a later section. The same image can therefore span
 several sections without being listed twice or restarting its movement. All three script sections remain required.
 `hold` is intentional stillness; `slow_pan` and `slow_zoom` are optional authored choices, never added on top.
 Their content and order are the author's responsibility; the importer checks their existence, type, dimensions and linkage.
@@ -67,7 +67,28 @@ to update the outro: older resumes retain their measured terminal window. No sep
 Approved ZIP pictures bypass reference matching, the master palette LUT and cinematic finishing.
 Only sizing/cropping, authored movement, transitions and separate caption/identity layers affect the rendered composition;
 the original asset bytes are retained. Non-ZIP Podcast and photographic-still episodes also bypass the global palette finish.
-Stock-only Nidaa episodes keep their existing finish and source-order policy.
+Stock-only Nidaa episodes also preserve admitted colors and movement: a fixed navy/gold LUT,
+vignette or low-motion zoom is no longer added at render. M8 technical SDR/BT.709 admission and
+the existing source-order policy remain. This is not an automatic white-balance/exposure repair;
+real source discrepancies need inspection, rather than a blanket palette.
+
+## Meaning-led continuity (V23)
+
+All ZIP formats can retain one image through several sections/turns, including until an anchor
+partway through a later section. This extends schema_version=1 using its existing fields/values;
+old fully covered packages remain readable. Consecutive uses of the same asset and motion are
+rendered as one continuous source, without restarting a pan/zoom at an audio section boundary.
+An explicit change of motion remains a separate authored shot. Identity boundaries remain cuts.
+The silent pre-prayer handoff extends the running approved source rather than replaying frame zero.
+The last approved Short picture also continues beneath the exact outro handoff, preventing a
+one-frame slate when the last spoken sample ends between output frame boundaries.
+The first scene must begin at the first spoken words; the importer cannot judge its semantic relevance.
+
+Podcast keeps the existing at-most-three key text events, instead of the full dialogue-caption pass.
+Both horizontal formats retain a caption-free master for the local derivative before burning sparse text.
+The full-caption renderer and its larger charcoal-band style remain available as offline utilities,
+but no new manifest field toggles them. The ZIP still cannot contain video, a fade-to-black transition,
+arbitrary effects, or background music. Use supported `dissolve` for a crossfade; do not invent fields.
 
 ## Identity
 

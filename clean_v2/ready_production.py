@@ -25,13 +25,13 @@ def build_story(doc: Mapping[str, Any]) -> dict:
         text = spoken_text(section_text(section))
         hook = _first_sentence(text) if sid == "s1" else ""
         scenes = [s for s in doc["scenes"] if s["section_id"] == sid]
-        if not scenes and doc["template"] == "ala_mahl" and beats:
+        if beats and (not scenes or text.index(scenes[0]["start_text"]) > 0):
             # Section boundaries are audio bookkeeping, not picture changes.
             # The renderer joins these continuations into one uninterrupted shot.
             previous = beats[-1]
             scenes = [{"id": f"__continuation_{sid}", "section_id": sid,
                        "asset": previous["owner_asset"], "start_text": text[:300],
-                       "motion": previous["owner_motion"], "transition": "cut"}]
+                       "motion": previous["owner_motion"], "transition": "cut"}, *scenes]
         expanded = [dict(s) for s in scenes]
         if hook and text[len(hook):].strip():
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
