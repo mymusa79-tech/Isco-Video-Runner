@@ -57,9 +57,13 @@ Their content and order are the author's responsibility; the importer checks the
 The pipeline never generates images, searches stock or replaces them. Audio determines the final shot windows.
 Authored scene anchors inside an audio section use the existing text-proportional timing (not word-level forced alignment).
 Actual mastered duration must be 25–120 seconds. No speed-up, padding to meet the limit or second TTS pass is attempted.
-Keeps the usual Short voice and trusted prayer picture, omits the channel definition/logo intro/video outro,
-and places a small **على مهل ☕** signature over the final picture during the terminal breath.
-The cup is drawn locally to avoid missing emoji glyphs. Arabic type uses the installed caption font (Cairo Bold in production).
+Keeps the usual Short voice and trusted prayer picture, omits the channel definition/logo intro,
+and ends with the owner's approved circular **على مهل** logo in `ala_mahl_outro.mp4`.
+This is the existing Nidaa Short outro with only its logo replaced; its subscribe animation is unchanged.
+The complete 67-frame / 30 fps clip occupies 2.233 seconds of terminal silence, after the final spoken word.
+Only that local silence grows from the former 1.25-second signature window; narration and provider calls are unchanged.
+The 25–120-second mastered-duration limit still includes the terminal silence. Existing saved audio is never regenerated
+to update the outro: older resumes retain their measured terminal window. No separate intro or spoken CTA is added.
 Approved ZIP pictures bypass reference matching, the master palette LUT and cinematic finishing.
 Only sizing/cropping, authored movement, transitions and separate caption/identity layers affect the rendered composition;
 the original asset bytes are retained. Non-ZIP Podcast and photographic-still episodes also bypass the global palette finish.

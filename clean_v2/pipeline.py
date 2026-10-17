@@ -1199,7 +1199,7 @@ def _synthesize_sectioned_voice_pass(
                 )
 
         if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
-            timing = identity_timing_profile(fmt)
+            timing = identity_timing_profile(fmt, template=str(ready_doc.get("template") or ""))
             silence_reference = chunk_paths[-1]
             final_silence = silence_reference.parent / "final-silence.wav"
             _write_silence_like(
@@ -5666,7 +5666,7 @@ def _run_audio_mastering_stage(
         ala_mahl = voice_timeline.get("template") == "ala_mahl"
         identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
                              *([] if ala_mahl else ["spoken_channel_definition_with_logo"]), "topic",
-                             "ala_mahl_visual_signature" if ala_mahl else "short_outro"]
+                             "ala_mahl_outro" if ala_mahl else "short_outro"]
     atomic_write_json(
         output_dir / "identity-sequence.json",
         {

@@ -25,6 +25,9 @@ _PODCAST_BRIDGE_MAX_WORDS = 14
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
 _SHORT_OUTRO = _ASSET_DIR / "short_outro.mp4"
+_ALA_MAHL_OUTRO = _ASSET_DIR / "ala_mahl_outro.mp4"
+# The owner's approved 67-frame outro plays once at its original 30 fps.
+ALA_MAHL_OUTRO_SECONDS = 67 / 30
 _LONG_INTRO = _ASSET_DIR / "long_intro.mp4"
 _LONG_OUTRO = _ASSET_DIR / "long_outro.mp4"
 _PODCAST_LOGO_B64 = _ASSET_DIR / "podcast_logo_v8.b64"
@@ -66,10 +69,13 @@ _TIMING_PROFILES = {
 }
 
 
-def identity_timing_profile(fmt: str) -> dict[str, float]:
+def identity_timing_profile(fmt: str, *, template: str = "") -> dict[str, float]:
     if fmt not in _SUPPORTED_IDENTITY_FORMATS:
         raise RuntimeError(f"identity timing unsupported format: {fmt}")
-    return dict(_TIMING_PROFILES[fmt])
+    profile = dict(_TIMING_PROFILES[fmt])
+    if fmt == "short" and template == "ala_mahl":
+        profile["final_silence_seconds"] = ALA_MAHL_OUTRO_SECONDS
+    return profile
 
 
 def _podcast_text_image(text: str, *, size: int, fill: tuple[int, int, int, int]):
@@ -253,6 +259,7 @@ def identity_asset_paths(
     fmt: str,
     *,
     runtime_dir: Path | None = None,
+    template: str = "",
 ) -> dict[str, Path]:
     """Return the approved per-format identity with no provider call or paid dependency."""
     if fmt == "podcast":
@@ -261,6 +268,8 @@ def identity_asset_paths(
         )
     else:
         intro, outro, _width, _height = _asset_pair(fmt)
+    if fmt == "short" and template == "ala_mahl":
+        outro = _ALA_MAHL_OUTRO
     return {"intro": intro, "prayer": _PRAYER_IMAGE, "outro": outro}
 
 

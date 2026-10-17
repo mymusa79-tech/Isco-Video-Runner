@@ -161,9 +161,9 @@ def render_identity_composition(
 
 def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping[str, Any]) -> None:
     """Short logo appears only during the spoken handoff, without a silent intro."""
-    assets = identity_asset_paths("short")
+    assets = identity_asset_paths("short", template=str(timeline.get("template") or ""))
     ala_mahl = timeline.get("template") == "ala_mahl"
-    for kind in (("prayer",) if ala_mahl else ("intro", "prayer", "outro")):
+    for kind in (("prayer", "outro") if ala_mahl else ("intro", "prayer", "outro")):
         if not assets[kind].is_file() or assets[kind].stat().st_size <= 1024:
             raise RuntimeError(f"identity asset missing: {kind}")
     seconds = float(timeline["voice_seconds_measured"])
@@ -192,14 +192,16 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
     )
     extra_inputs = ["-i", str(assets["intro"]), "-i", str(assets["outro"])]
     if ala_mahl:
-        signature = _ala_mahl_signature(destination.parent / ".ala-mahl-signature.png")
-        extra_inputs = ["-loop", "1", "-framerate", "30", "-i", str(signature)]
+        extra_inputs = ["-i", str(assets["outro"])]
         filters = (
             f"[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
             f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,"
             f"trim=duration={end-start:.3f},setpts=PTS-STARTPTS+{start:.3f}/TB[prayer];"
+            f"[2:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
+            f"setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={outro_end-outro_start:.3f},"
+            f"trim=duration={outro_end-outro_start:.3f},setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
             f"[0:v][prayer]overlay=0:0:enable='gte(t,{start:.3f})*lt(t,{end:.3f})'[prayed];"
-            f"[prayed][2:v]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
+            f"[prayed][outro]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
         )
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -209,21 +211,3 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
         "-c:a", "copy", "-movflags", "+faststart", str(destination),
     ], check=True, timeout=1800)
-
-
-def _ala_mahl_signature(destination: Path) -> Path:
-    """A small Arabic signature and a drawn cup, avoiding unsupported emoji glyphs."""
-    from PIL import Image, ImageDraw, ImageFont
-    from .short_timed_text import _caption_font_path
-
-    font = ImageFont.truetype(_caption_font_path(), 76)
-    card = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(card)
-    draw.text((580, 1670), "على مهل", font=font, anchor="mm", direction="rtl", language="ar",
-              fill=(245, 243, 239), stroke_width=2, stroke_fill=(11, 18, 32))
-    draw.arc((306, 1639, 390, 1705), 0, 180, fill=(245, 243, 239), width=5)
-    draw.line((306, 1668, 306, 1639, 390, 1639, 390, 1668), fill=(245, 243, 239), width=5)
-    draw.arc((381, 1642, 413, 1678), 265, 100, fill=(245, 243, 239), width=5)
-    draw.line((298, 1705, 401, 1705), fill=(245, 243, 239), width=5)
-    card.save(destination)
-    return destination
