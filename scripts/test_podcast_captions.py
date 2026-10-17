@@ -138,12 +138,12 @@ class BarTests(unittest.TestCase):
 
     def test_longform_gets_one_fixed_card_per_run_and_a_larger_font(self) -> None:
         ass = pc.build_ass(self.EVENTS)
-        bars = [line for line in ass.splitlines() if r"\p1" in line]
+        bars = [line for line in ass.splitlines() if ",Caption,card," in line]
         self.assertEqual(len(bars), 2)  # 1.0-5.0 merged, 9.0-11.0 separate
         self.assertIn("0:00:01.00,0:00:05.00", bars[0])
         self.assertLessEqual(pc.BAR_BOTTOM, 1080 - 100)  # clear of player controls
         self.assertEqual(pc.FONT_SIZE, 78)
-        text_lines = [line for line in ass.splitlines() if line.startswith("Dialogue: 1,")]
+        text_lines = [line for line in ass.splitlines() if line.startswith("Dialogue: 3,")]
         self.assertEqual(len(text_lines), 3)  # text sits above the band layer
 
     def test_card_is_rounded_centered_and_sized_by_rows(self) -> None:
@@ -155,7 +155,7 @@ class BarTests(unittest.TestCase):
              "text": "ربما تتحمل الخسارة المالية، لكنك تخشى السؤال: ماذا حدث لمشروعك؟ وما الذي سيتغير بعد ذلك؟"},
         ]
         ass = pc.build_ass(events)
-        bars = [line for line in ass.splitlines() if r"\p1" in line]
+        bars = [line for line in ass.splitlines() if ",Caption,card," in line]
         self.assertEqual(len(bars), 2)
         for bar in bars:
             self.assertIn(" b ", bar)  # Bezier corners: a rounded card, not a hard rectangle
@@ -175,8 +175,8 @@ class BarTests(unittest.TestCase):
             self.assertEqual(min(ys) + max(ys), 2 * pc.BAR_CENTER_Y)
         self.assertLessEqual(max(ys_of(bars[1])), 1080 - 100)  # clear of player controls
         for line in ass.splitlines():
-            if line.startswith("Dialogue: 1,"):  # text centred on the card centre whatever the row count
-                self.assertIn(r"\an5\pos(960," + str(pc.BAR_CENTER_Y) + ")", line)
+            if line.startswith("Dialogue: 3,"):  # text centred on the card centre whatever the row count
+                self.assertIn(r"\an5\move(960," + str(pc.BAR_CENTER_Y + 10) + ",960," + str(pc.BAR_CENTER_Y) + ",0,200)", line)
 
     def test_short_has_no_band(self) -> None:
         self.assertNotIn(r"\p1", pc.build_ass(self.EVENTS, fmt="short"))

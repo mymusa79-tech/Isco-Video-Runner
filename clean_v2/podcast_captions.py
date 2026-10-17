@@ -58,8 +58,12 @@ BAR_CENTER_Y = 826
 BAR_ROW_HEIGHT = 125  # Cairo line box at FONT_SIZE
 BAR_PAD = 14
 BAR_RADIUS = 34
-BAR_ALPHA_ASS = "&H50&"  # ~69% opaque
-BAR_COLOUR_ASS = "&H211D1B&"  # charcoal #1B1D21 (BGR)
+BAR_ALPHA_ASS = "&H38&"  # ~78% opaque
+BAR_COLOUR_ASS = "&H26160E&"  # deep navy #0E1626 (BGR), the channel identity blue
+GOLD_ASS = "&H4BA2C9&"  # #C9A24B, identity gold (BGR)
+SPEAKER_ACCENT_ASS = {"A": "&H4BA2C9&", "B": "&HEFF3F5&"}
+BAR_ACCENT_INSET = 30
+BAR_ACCENT_WIDTH = 8
 BAR_TOP = BAR_CENTER_Y - (2 * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
 BAR_BOTTOM = BAR_CENTER_Y + (2 * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
 BAR_MERGE_GAP_SECONDS = 0.35
@@ -241,19 +245,48 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
             spans[-1][2] = max(spans[-1][2], len(rows))
         else:
             spans.append([start, end, len(rows)])
-        position = "" if fmt == "short" else r"\an5\pos(960," + str(BAR_CENTER_Y) + ")"
+        if fmt == "short":
+            lines.append(
+                f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
+                + r"{\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
+            )
+            continue
+        # Layers: 0 soft shadow, 1 navy card, 2 gold hairline + speaker accent, 3 text.
+        # Text eases up ~10 px while fading in (modern lower-third feel) and is centred
+        # inside the card; the thin outline keeps it legible on any picture.
         lines.append(
-            f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
-            + r"{" + position + r"\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
+            f'Dialogue: 3,{_ass_time(start)},{_ass_time(end)},Caption,line,0,0,0,,'
+            + r"{\an5\move(960," + str(BAR_CENTER_Y + 10) + r",960," + str(BAR_CENTER_Y) + r",0,200)"
+            + r"\fs" + str(size) + r"\bord2\blur0.6\fad(120,120)" + colour + "}" + rendered
         )
+        accent = SPEAKER_ACCENT_ASS.get(str(item.get("speaker") or ""), "")
+        if accent:
+            half_bar = int(min(len(rows), 2) * BAR_ROW_HEIGHT * 0.3)
+            x1 = BAR_RIGHT - BAR_ACCENT_INSET
+            shape = _rounded_card(x1 - BAR_ACCENT_WIDTH, BAR_CENTER_Y - half_bar, x1, BAR_CENTER_Y + half_bar, BAR_ACCENT_WIDTH // 2)
+            lines.append(
+                f"Dialogue: 2,{_ass_time(start)},{_ass_time(end)},Caption,accent,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,120)\bord0\shad0\1c" + accent + r"\1a&H20&\p1}" + shape + r"{\p0}"
+            )
     if fmt != "short":
         # One fixed card per run of consecutive captions, so it never flickers between phrases.
         for start, end, rows in spans:
             half = (min(rows, 2) * BAR_ROW_HEIGHT + 2 * BAR_PAD) // 2
-            shape = _rounded_card(BAR_LEFT, BAR_CENTER_Y - half, BAR_RIGHT, BAR_CENTER_Y + half, BAR_RADIUS)
+            top, bottom = BAR_CENTER_Y - half, BAR_CENTER_Y + half
+            shape = _rounded_card(BAR_LEFT, top, BAR_RIGHT, bottom, BAR_RADIUS)
+            shade = _rounded_card(BAR_LEFT, top + 10, BAR_RIGHT, bottom + 10, BAR_RADIUS)
+            window = f"{_ass_time(start)},{_ass_time(end)}"
             lines.append(
-                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,"
-                + r"{\an7\pos(0,0)\fad(100,120)\bord0\shad0\1c" + BAR_COLOUR_ASS + r"\1a" + BAR_ALPHA_ASS + r"\p1}" + shape + r"{\p0}"
+                f"Dialogue: 0,{window},Caption,shade,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\bord0\shad0\blur16\1c&H000000&\1a&H8C&\p1}" + shade + r"{\p0}"
+            )
+            lines.append(
+                f"Dialogue: 1,{window},Caption,card,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\bord0\shad0\1c" + BAR_COLOUR_ASS + r"\1a" + BAR_ALPHA_ASS + r"\p1}" + shape + r"{\p0}"
+            )
+            lines.append(
+                f"Dialogue: 2,{window},Caption,rim,0,0,0,,"
+                + r"{\an7\pos(0,0)\fad(120,140)\shad0\1a&HFF&\bord2\3c" + GOLD_ASS + r"\3a&H80&\p1}" + shape + r"{\p0}"
             )
     lines.append("")
     return "\n".join(lines)
