@@ -18,6 +18,9 @@ LAYER_ID = "security_v1_cinematic_v2_m7_m11"
 REPORT_NAME = "security-cinematic-v2.json"
 
 
+LONG_FORM_NO_EVIDENCE_CARD_FORMATS = frozenset({"podcast", "film"})
+
+
 class CleanV2LayerBlock(RuntimeError):
     """A failure caused by the newly restored legacy quality/cinematic layer."""
 
@@ -240,6 +243,26 @@ def _apply_m10_cards(
             pass
 
 
+def _m10_cards_for_format(
+    fmt: str,
+    final_path: Path,
+    policy: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> dict[str, Any]:
+    if fmt in LONG_FORM_NO_EVIDENCE_CARD_FORMATS:
+        # Podcast and Long own the lower third (dialogue captions / spoken-window key
+        # text). The legacy grey evidence card repeated the same phrase a second time
+        # in a different box, so it is never drawn on these formats.
+        return {
+            **policy,
+            "cards": [],
+            "status": "skipped_long_form_text_owned_by_captions",
+            "cards_suppressed": len(list(policy.get("cards") or [])),
+        }
+    return _apply_m10_cards(final_path, policy, output_dir=output_dir)
+
+
 def apply_post_render_layer(
     *,
     output_dir: Path,
@@ -360,10 +383,8 @@ def apply_post_render_layer(
             _m10_plan(compat_plan, fmt=fmt),
             timeline,
         )
-        m10_report = _apply_m10_cards(
-            final_path,
-            m10_report,
-            output_dir=output_dir,
+        m10_report = _m10_cards_for_format(
+            fmt, final_path, m10_report, output_dir=output_dir
         )
         (output_dir / "m10-cards.json").write_text(
             json.dumps(m10_report, ensure_ascii=False, indent=2), encoding="utf-8"
