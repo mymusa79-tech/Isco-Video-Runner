@@ -92,7 +92,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                     self.assertNotIn("[intro]", filters)
                 else:
                     self.assertIn("[v1][prayer]overlay=0:0", filters)
-                    self.assertIn("between(t,3.000,4.500)", filters)
+                    self.assertIn("gte(t,3.000)*lt(t,4.500)", filters)
                     self.assertIn("between(t,2.000,3.000)", filters)
                     self.assertIn("between(t,10.000,12.000)", filters)
 
