@@ -880,6 +880,32 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
         after = " ".join(text for _role, text in isolated)
         self.assertEqual(" ".join(before.split()), " ".join(after.split()))
 
+    def test_podcast_promo_prefers_real_adjacent_question_answer(self) -> None:
+        sections = [
+            {"id": "s1", "narration": "A: لماذا نتردد؟ B: لأننا نخاف الخطأ."},
+            {
+                "id": "s2",
+                "narration": (
+                    "السبب الحقيقي ليس نقص الإرادة بل الظروف التي تتكرر كل يوم. "
+                    "ولهذا فإن تغيير المكان قد يساعد على تغيير النتيجة في النهاية."
+                ),
+            },
+            {
+                "id": "s3",
+                "narration": (
+                    "A: لماذا أعود إلى القرار نفسه رغم معرفتي بالنتيجة؟ "
+                    "B: لأنك تتعامل مع النتيجة وتترك السبب الذي يعيد القرار كل يوم. "
+                    "A: وما الذي أغيره أولًا؟ B: ابدأ بتغيير الإشارة التي تسبق الفعل."
+                ),
+            },
+        ]
+        promo = _select_podcast_promo_excerpt(sections)
+        self.assertIsNotNone(promo)
+        assert promo is not None
+        self.assertEqual(promo["section_id"], "s3")
+        self.assertTrue(promo["text"].startswith("A:"))
+        self.assertIn("B:", promo["text"])
+
     def test_promo_selection_avoids_recent_pattern_when_an_alternative_exists(self) -> None:
         sections = [
             {"id": "s1", "narration": "A: لماذا نكرر السلوك نفسه؟ B: لأن القرار وحده لا يغير البيئة."},
