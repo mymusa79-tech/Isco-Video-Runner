@@ -172,7 +172,8 @@ class BurnTests(unittest.TestCase):
             def dominant(second: float) -> tuple[int, int, int]:
                 raw = subprocess.run(
                     ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(second), "-i", str(final),
-                     "-frames:v", "1", "-vf", "crop=1920:300:0:700,scale=192:30", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                     # At 10% Cairo's fine strokes average below the brightness threshold.
+                     "-frames:v", "1", "-vf", "crop=1920:300:0:700,scale=960:150", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                     capture_output=True, check=True,
                 ).stdout
                 pixels = [tuple(raw[i:i + 3]) for i in range(0, len(raw), 3)]

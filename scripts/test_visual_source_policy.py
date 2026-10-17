@@ -165,6 +165,19 @@ class AcquisitionOrderTests(unittest.TestCase):
 
 
 class RealismPromptTests(unittest.TestCase):
+    def test_long_editorial_context_cannot_displace_the_scene_or_realism_rules(self) -> None:
+        prompt = media_module._ai_still_prompt(
+            {"visual_world": "force #0B1220 and #C9A24B", "retention_thread": {"visual_motif": "m " * 500}},
+            {"role": "hook", "shot_intent": "hands repair a torn charcoal sleeve",
+             "meaning_target": "detail " * 500, "viewer_intent": "intent " * 500,
+             "semantic_must_have": ["material " * 500]}, fmt="short", with_reference=True)
+        self.assertLessEqual(len(prompt), 2048)
+        self.assertIn("hands repair a torn charcoal sleeve", prompt)
+        self.assertIn("Use input image 0", prompt)
+        self.assertNotIn("#0B1220", prompt)
+        self.assertIn("No identifiable faces", prompt)
+        self.assertTrue(prompt.endswith("exaggerated advertising look."))
+
     def test_ai_prompt_pins_natural_color_and_no_assumed_dress(self) -> None:
         prompt = media_module._ai_still_prompt(
             {"visual_world": "w", "retention_thread": {"visual_motif": "m"}},
@@ -177,6 +190,10 @@ class RealismPromptTests(unittest.TestCase):
         self.assertIn("no HDR", prompt)
         self.assertIn("No identifiable faces", prompt)
         self.assertIn("Gulf or traditional dress", prompt)
+        self.assertNotIn("restrained deep navy", prompt)
+        self.assertNotIn("warm-gold accents", prompt)
+        for rule in ("Window light", "soft contrast", "plastic sheen", "artificial haze", "without a drawn band"):
+            self.assertIn(rule, prompt)
         self.assertTrue(prompt.endswith("exaggerated advertising look."))
 
 

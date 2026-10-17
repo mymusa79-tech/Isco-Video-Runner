@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import array
+import hashlib
 import json
 import math
 import os
@@ -17,7 +18,7 @@ from clean_v2.media import inspect_final
 from clean_v2.pipeline import CleanV2Pipeline
 from clean_v2.short_timed_text import apply_short_timed_text
 from scripts.test_clean_v2 import _passing_audio_mastering, _passing_final_master_qc, _passing_visual_qa
-from scripts.test_production_package import archive_bytes, imported_pack, manifest
+from scripts.test_production_package import ala_mahl_manifest, archive_bytes, imported_pack
 
 
 class LocalVoice:
@@ -40,8 +41,11 @@ class LocalVoice:
 
 
 class ReadyProductionMediaTests(unittest.TestCase):
-    def test_ala_mahl_multiple_approved_images_real_render_without_network(self):
-        doc = manifest(template="ala_mahl")
+    def test_two_and_four_images_real_render_without_network_preserve_the_same_voice(self):
+        self.assertEqual(self._render_approved_images(2), self._render_approved_images(4))
+
+    def _render_approved_images(self, count):
+        doc = ala_mahl_manifest(count)
         pack = imported_pack(doc)
         brief = {"approved_by_user": True, "approved_topic": doc["title"], "format": "short", "language": "ar",
                  "audience": "Arabic-speaking adults", "editorial_intent": "نص معتمد", "research_pack": [],
@@ -58,11 +62,12 @@ class ReadyProductionMediaTests(unittest.TestCase):
             root = Path(temporary); art = root / "art"; output = root / "out"
             data = archive_bytes(doc)
             production_package.extract_archive(data, art, expected_sha256=pack["zip_sha256"])
+            before_assets = {s["asset"]: hashlib.sha256((art / s["asset"]).read_bytes()).hexdigest() for s in doc["scenes"]}
             atomic_write_json(root / "pack.json", pack); atomic_write_json(root / "brief.json", brief)
             stock = mock.Mock(events=[]); router = mock.Mock(events=[])
             router.route.side_effect = AssertionError("approved script must never call a planning/writing model")
             with mock.patch.dict(os.environ, {owner_pack.OWNER_PACK_ENV: str(root / "pack.json"), owner_art.ART_DIR_ENV: str(art),
-                                              "CLEAN_V2_SCENE_REVIEW": "", "CLEAN_V2_RUN_MODE": "simple"}), \
+                                              "CLEAN_V2_SCENE_REVIEW": "", "CLEAN_V2_SIMPLE_MODE": "true"}), \
                  mock.patch("urllib.request.urlopen", side_effect=AssertionError("no network in this integration test")):
                 result = CleanV2Pipeline(
                     router=router, voice_synthesizer=voice, visual_source=owner_art.OwnerArtVisualSource(stock, art),
@@ -85,7 +90,13 @@ class ReadyProductionMediaTests(unittest.TestCase):
             rights = json.loads((output / "rights-manifest.json").read_text())["assets"]
             self.assertEqual({r["asset_id"] for r in rights}, {s["asset"] for s in doc["scenes"]})
             self.assertTrue(all(r["provider"] == "owner_art" for r in rights))
+            self.assertEqual(before_assets, {name: hashlib.sha256((art / name).read_bytes()).hexdigest() for name in before_assets})
+            editing = json.loads((output / "edit-decision-contract.json").read_text())
+            self.assertEqual(len(editing["slots"]), count + 1)  # prayer splits the first picture once
+            self.assertTrue(all(r["owner_motion"] == "hold" for r in rights))
             stock.acquire.assert_not_called(); router.route.assert_not_called()
+            return ([text for text, _kwargs in voice.spoken],
+                    hashlib.sha256((output / "narration-mastered.wav").read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":
