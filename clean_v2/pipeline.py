@@ -843,6 +843,7 @@ def _synthesize_sectioned_voice_pass(
         and not is_ala_mahl
         and str(performance_mode or "").startswith("short_")
     )
+    model = str(getattr(voice_synthesizer, "tts_model", GEMINI38_TTS_MODEL) or GEMINI38_TTS_MODEL)
     if is_nidaa_short and model != GEMINI38_TTS_MODEL:
         raise RuntimeError("Iapetus Nidaa Shorts require the approved Gemini 3.8 Flash TTS model")
     cta_topic_units = 0
