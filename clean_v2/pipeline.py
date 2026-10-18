@@ -1512,7 +1512,8 @@ def _voice_performance_mode_for_brief(
 ) -> str:
     """Map the locked editorial type to Gemini style metadata only.
 
-    Voice identity stays fixed: Charon is the channel voice; Orus appears only
+    Nidaa Short uses the owner-approved Iapetus voice; Charon remains the voice
+    for existing other formats, while Orus appears only
     in explicit dialogue_qa turns. No provider, call-count, or stage change.
     """
     fmt = str(brief.get("format") or "")
