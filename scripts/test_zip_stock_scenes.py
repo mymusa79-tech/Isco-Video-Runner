@@ -125,18 +125,21 @@ class AcquireTests(unittest.TestCase):
         for transition in ("cut", "dissolve"):
             with self.subTest(transition=transition):
                 self.doc["scenes"][1]["transition"] = transition
+                atomic_write_json(self.root / "production.json", self.doc)
                 self.story = ready_production.build_story(self.doc)
                 clips, rights, made = self.run_acquire(self.inner_returning(self.GOOD))
                 self.assertEqual(len(clips), len(rights))
-                self.assertEqual(rights[1]["owner_transition"], transition)
-                signals = {r["local_file"]: r for r in rights}
+                stock_index = next(i for i, row in enumerate(rights) if row.get("provider") == "pexels")
+                self.assertGreater(stock_index, 0)
+                self.assertEqual(rights[stock_index]["owner_transition"], transition)
+                signals = {row["local_file"]: row for row in rights}
                 decisions = _editorial_boundary_decisions(
                     [Path(p) for p in clips],
-                    [r["section_id"] for r in rights],
+                    [row["section_id"] for row in rights],
                     signals,
                 )
-                self.assertEqual(decisions[0]["decision"], transition.upper())
-                self.assertEqual(decisions[0]["reason"], "approved_package_transition")
+                self.assertEqual(decisions[stock_index - 1]["decision"], transition.upper())
+                self.assertEqual(decisions[stock_index - 1]["reason"], "approved_package_transition")
 
     def assert_fell_back(self, inner, reason_prefix):
         clips, rights, made = self.run_acquire(inner)
