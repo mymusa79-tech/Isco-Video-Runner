@@ -41,6 +41,8 @@ from .contracts import (
 from .media import (
     GEMINI38_LITE_PROVIDER,
     GEMINI38_TTS_MODEL,
+    GEMINI38_NIDAA_SHORT_PROVIDER,
+    GEMINI38_NIDAA_SHORT_MIXED_PROVIDER,
     VoiceInfrastructureError,
     concat_wav_parts,
     inspect_final,
@@ -476,7 +478,12 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
-_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({
+    GEMINI38_VOICE_PROVIDER,
+    GEMINI38_LITE_PROVIDER,
+    GEMINI38_NIDAA_SHORT_PROVIDER,
+    GEMINI38_NIDAA_SHORT_MIXED_PROVIDER,
+})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -828,6 +835,16 @@ def _synthesize_sectioned_voice_pass(
     from .ready_production import document
     ready_doc = document(narration_path.parent)
     approved_performance = ready_doc.get("performance") or {}
+    # The imported package identifies Ala Mahl explicitly, even though it shares
+    # format=short with Nidaa. Its legacy narrator/style is not changed.
+    is_ala_mahl = fmt == "short" and ready_doc.get("template") == "ala_mahl"
+    is_nidaa_short = (
+        fmt == "short"
+        and not is_ala_mahl
+        and str(performance_mode or "").startswith("short_")
+    )
+    if is_nidaa_short and model != GEMINI38_TTS_MODEL:
+        raise RuntimeError("Iapetus Nidaa Shorts require the approved Gemini 3.8 Flash TTS model")
     cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
@@ -990,6 +1007,9 @@ def _synthesize_sectioned_voice_pass(
                                 if approved_performance and chunk_role in {"hook", "topic", "outro"} else {})
                 effective_performance_mode = ""
                 requested_performance_mode = str(performance_mode or "").strip()
+                if is_ala_mahl and requested_performance_mode.startswith("short_"):
+                    # Preserve precisely the earlier Ala Mahl delivery style.
+                    requested_performance_mode = requested_performance_mode[len("short_"):]
                 if requested_performance_mode:
                     fixed_identity_closer = " ".join(str(identity_closer or "").split()).strip()
                     is_fixed_identity_outro = (
@@ -1074,7 +1094,12 @@ def _synthesize_sectioned_voice_pass(
                     "CLEAN_V2_VOICE_INFRASTRUCTURE reason=gemini_3_8_only_provider_drift "
                     f"actual={provider}"
                 )
-            if section_provider is None:
+            # Nidaa Short deliberately combines Iapetus narration with fixed
+            # Charon prayer/identity. Only this exact, same-model pairing is
+            # permitted; all other formats keep the strict drift gate.
+            if is_nidaa_short and provider in {GEMINI38_VOICE_PROVIDER, GEMINI38_NIDAA_SHORT_PROVIDER}:
+                section_provider = GEMINI38_NIDAA_SHORT_MIXED_PROVIDER
+            elif section_provider is None:
                 section_provider = provider
             elif provider != section_provider:
                 raise RuntimeError(
@@ -1511,10 +1536,9 @@ def _voice_performance_mode_for_brief(
     if fmt == "short":
         owner_template = str((plan or {}).get("short_template") or "")
         if (plan or {}).get("owner_authored") and owner_template in TEMPLATE_WRITING_DIRECTIVES:
-            # Owner-written Short: the type he chose drives the delivery style, not a
-            # keyword score of his title.
-            return owner_template
-        return str(select_short_template(brief)["template"])
+            # Owner-written Short: the type he chose drives the delivery style.
+            return "short_" + owner_template
+        return "short_" + str(select_short_template(brief)["template"])
     if fmt == "podcast":
         return "podcast_listener_proxy_qa"
     selected = str((plan or {}).get("narrative_format") or "").strip()
