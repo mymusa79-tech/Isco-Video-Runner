@@ -217,6 +217,9 @@ COLD_OPEN_AS_SCENE = (
     "never a general statement, address, or instruction."
 )
 
+V24_SHORT_PLANNING_EDITORIAL = "V24 NIDAA IDENTITY: real conflict; earned payoff. "
+V24_SHORT_PLANNING_VISUAL = "V24 VISUAL DIRECTOR: observable change, not clichés. "
+
 V24_SHORT_EDITORIAL = (
     "V24 NIDAA IDENTITY: A Short is an immediate practical recognition, not a compressed long lecture or "
     "sentimental mini-film. Anchor it to a precise ordinary choice, mistake or consequence. Show one situation, "
@@ -487,11 +490,11 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "not generic مهمة/هدف/عادة.\n"
             "- No channel identity opener, dialogue labels or social CTA. Quotations require explicit "
             "approved evidence and the selected quote_reflection template.\n"
-            f"- {selection['writing_directive']} {V24_SHORT_EDITORIAL}\n"
+            f"- {selection['writing_directive']} {V24_SHORT_PLANNING_EDITORIAL}\n"
             "- SPOKEN_NATURALNESS_LITE: complete grammatical Arabic, concrete observations and natural "
             "sentence-length variation; no fragments, abstract diagnosis, translated/essay filler or "
             "motivational slogans. Check agreement, references and sentence completeness.\n"
-            f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} {V24_SHORT_VISUAL} "
+            f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} {V24_SHORT_PLANNING_VISUAL} "
             "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
             "scroll-stop visual beat; must not feel visually flat. "
             "FIRST-SHOT GATE: s1 names a visible "
