@@ -53,13 +53,20 @@ BRANDS = {
     },
 }
 
-RED_HI, RED_LO = (240, 74, 68), (196, 30, 52)  # the colour only appears after the tap
+RED_HI, RED_LO = (255, 62, 56), (222, 22, 22)  # the colour only appears after the tap
 
 ARABIC_FONT = "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
-    path = next((p for p in (ARABIC_FONT,) if Path(p).is_file()), None)
+    # Prefer Cairo Bold (the channel font) when it is installed; otherwise fall back to Noto.
+    import os, subprocess
+    cairo = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "fonts" / "isco-cairo" / "Cairo.ttf"
+    if not cairo.is_file():
+        out = subprocess.run(["fc-match", "-f", "%{family}|%{file}", "Cairo:weight=bold"], capture_output=True, text=True).stdout
+        fam, _, f = out.partition("|")
+        cairo = Path(f) if "cairo" in fam.lower() and Path(f).is_file() else cairo
+    path = next((p for p in (str(cairo), ARABIC_FONT) if Path(p).is_file()), None)
     if path is None:
         raise SystemExit("no Arabic font available for the outro")
     return ImageFont.truetype(path, size, layout_engine=ImageFont.Layout.RAQM)
@@ -251,11 +258,11 @@ def module_layer(brand: dict, frame: int) -> Image.Image:
     d = ImageDraw.Draw(img)
     mid = (px0 + px1) / 2
     if not subscribed:
-        _text(d, (mid * S, (cy - 2) * S), "اشترك", 78 * S, ink + (int(255 * appear),), bold=3 * S // 2)
+        _text(d, (mid * S, (cy - 2) * S), "اشترك", 92 * S, ink + (int(255 * appear),), bold=3 * S // 2)
     else:
         t = ease_out(seg(frame, CONFIRM_FRAME, CONFIRM_FRAME + 8))
         _check(d, (px0 + 62) * S, cy * S, 22 * S, (255, 255, 255, 255), progress=seg(frame, CONFIRM_FRAME, CONFIRM_FRAME + 9))
-        _text(d, ((mid + 26) * S, (cy - 2) * S), "تم الاشتراك", 56 * S, (255, 255, 255, int(255 * t)), bold=S)
+        _text(d, ((mid + 26) * S, (cy - 2) * S), "تم الاشتراك", 66 * S, (255, 255, 255, int(255 * t)), bold=S)
 
     # --- tap ripple under the arrow tip (the word "اشترك")
     if TAP_FRAME <= frame <= TAP_FRAME + 12:
@@ -281,7 +288,7 @@ def module_layer(brand: dict, frame: int) -> Image.Image:
     # --- helper line under the card
     line_t = ease_out(seg(frame, *TL["text"]))
     if line_t > 0:
-        _text(d, (BOX_W / 2 * S, (338 + (1 - line_t) * 12) * S), "فعّل الجرس ليصلك الجديد", 54 * S,
+        _text(d, (BOX_W / 2 * S, (338 + (1 - line_t) * 12) * S), "فعّل الجرس ليصلك الجديد", 62 * S,
               _lerp(cream, accent, 0.25) + (int(235 * line_t),), bold=S // 2 or 1)
 
     img = img.resize((BOX_W, BOX_H), Image.Resampling.LANCZOS)

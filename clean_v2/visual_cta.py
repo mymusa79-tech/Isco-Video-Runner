@@ -116,8 +116,10 @@ def _cairo_bold_font_path() -> Path:
 
 # Channel identity colours (the same navy + gold as the captions). The old icons copied the
 # platform's own red/white look; these are the channel's, but still read at a glance.
-_GOLD = (201, 162, 75)
-_GOLD_HI = (236, 205, 128)
+_RED = (230, 30, 30)
+_RED_HI = (255, 62, 56)
+_GOLD = _RED
+_GOLD_HI = (255, 255, 255)
 _GLASS = (14, 22, 40)
 _INK = (11, 18, 32)
 _CREAM = (244, 238, 226)
@@ -143,7 +145,7 @@ def _draw_glyph(draw, mode: str, cx: float, cy: float, size: float, fill: tuple[
         draw.polygon([(cx - 0.26 * s, bottom - 0.02 * s), (cx - 0.30 * s, cy + 0.52 * s), (cx - 0.02 * s, bottom - 0.02 * s)], fill=fill)
         for dx in (-0.2, 0.0, 0.2):
             r = 0.055 * s
-            draw.ellipse([cx + dx * s - r, cy - 0.08 * s - r, cx + dx * s + r, cy - 0.08 * s + r], fill=_GLASS + (255,))
+            draw.ellipse([cx + dx * s - r, cy - 0.08 * s - r, cx + dx * s + r, cy - 0.08 * s + r], fill=_RED + (255,))
     elif mode == "share":  # three connected nodes
         nodes = [(cx + 0.30 * s, cy - 0.30 * s), (cx - 0.30 * s, cy), (cx + 0.30 * s, cy + 0.30 * s)]
         width = max(2, int(0.075 * s))
@@ -178,8 +180,8 @@ def _glass_badge(canvas, cx: float, cy: float, radius: float, mode: str) -> None
     ImageDraw.Draw(shadow).ellipse([c - r, c - r + 8 * ss, c + r, c + r + 8 * ss], fill=(0, 0, 0, 150))
     layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(9 * ss)))
     d = ImageDraw.Draw(layer)
-    d.ellipse([c - r, c - r, c + r, c + r], fill=_GLASS + (232,))
-    d.ellipse([c - r, c - r, c + r, c + r], outline=_GOLD + (235,), width=int(3.5 * ss))
+    d.ellipse([c - r, c - r, c + r, c + r], fill=_RED + (255,))
+    d.ellipse([c - r, c - r, c + r, c + r], outline=(255, 255, 255, 245), width=int(4 * ss))
     d.arc([c - r + 8 * ss, c - r + 8 * ss, c + r - 8 * ss, c + r - 8 * ss], 200, 290, fill=(255, 255, 255, 70), width=int(3 * ss))
     _draw_glyph(d, mode, c, c, radius * 1.05 * ss, _GOLD_HI + (255,))
     layer = layer.resize((size, size), Image.Resampling.LANCZOS)
@@ -227,13 +229,13 @@ def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
     gd = ImageDraw.Draw(grad)
     for y in range(grad.height):
         t = y / grad.height
-        gd.line([(0, y), (grad.width, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(_GOLD_HI, _GOLD)) + (255,))
+        gd.line([(0, y), (grad.width, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(_RED_HI, _RED)) + (255,))
     mask = Image.new("L", grad.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, grad.width - 1, grad.height - 1], radius=ph // 2 * ss, fill=255)
     canvas.paste(grad, (0, 12 * ss), mask)
     draw = ImageDraw.Draw(canvas)
 
-    font_size = 62 if fmt == "short" else 58
+    font_size = 80 if fmt == "short" else 72
     font = ImageFont.truetype(
         str(_cairo_bold_font_path()),
         font_size * ss,
@@ -246,12 +248,12 @@ def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
         anchor="mm",
         direction="rtl",
         language="ar",
-        fill=_INK + (255,),
+        fill=(255, 255, 255, 255),
     )
     cx, cy = (pill_width + gap + bell_size / 2) * ss, height / 2 * ss
     r = bell_size / 2 * ss
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_GLASS + (235,), outline=_GOLD + (240,), width=3 * ss)
-    _draw_glyph(draw, "bell", cx, cy, r * 1.0, _GOLD_HI + (255,))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_RED + (255,), outline=(255, 255, 255, 245), width=4 * ss)
+    _draw_glyph(draw, "bell", cx, cy, r * 1.0, (255, 255, 255, 255))
     canvas = canvas.resize((width, height), Image.Resampling.LANCZOS)
 
     destination = Path(destination)
@@ -280,11 +282,11 @@ def _render_short_labeled_icon(destination: Path, *, mode: str) -> Path:
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.truetype(
         str(_cairo_bold_font_path()),
-        42,
+        54,
         layout_engine=ImageFont.Layout.RAQM,
     )
     draw.text(
-        (SHORT_CTA_CARD_WIDTH // 2, SHORT_CTA_ICON_SIZE + 52),
+        (SHORT_CTA_CARD_WIDTH // 2, SHORT_CTA_ICON_SIZE + 58),
         _SHORT_LABEL_BY_MODE[mode],
         font=font,
         anchor="mm",
@@ -845,11 +847,11 @@ def apply_visual_cta_assets(
         "event_count": len(events),
         "short_max_two": fmt != "short" or len(events) <= 1,
         "short_combo_max_seconds": 2.6 if fmt == "short" else None,
-        "short_combo_palette": "channel_gold_navy_glass_arabic_renderer_owned" if fmt == "short" else None,
+        "short_combo_palette": "standard_red_white_cairo_arabic_renderer_owned" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": False,
-        "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell_modern_glass",
-        "icon_renderer": "local_pillow_vector_glass_badges_channel_gold",
+        "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell_modern_flat_red",
+        "icon_renderer": "local_pillow_vector_badges_standard_red",
         "semantic_separation": fmt == "short",
         "spoken_visual_alignment": fmt in {"film", "podcast"},
         "longform_cta_policy": (
