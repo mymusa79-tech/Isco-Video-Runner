@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39097402617",
-  "result": "",
-  "updated_at": 1792298146
+  "result": "success",
+  "updated_at": 1792298199
 }
