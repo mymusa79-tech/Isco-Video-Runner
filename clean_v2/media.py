@@ -153,7 +153,7 @@ GEMINI38_PERFORMANCE_STYLES.update(
      for name, direction in _NIDAA_SHORT_STYLES.items()}
 )
 
-_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\\s*([AB]):\\s*\\S")
+_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
 
 # Visual-pacing bounds for splitting one section's own narration-weighted
 # estimated duration across several distinct same-query clips instead of one
