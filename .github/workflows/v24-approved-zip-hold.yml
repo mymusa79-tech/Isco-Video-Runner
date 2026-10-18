@@ -1,0 +1,33 @@
+name: V24 Approved ZIP Camera Hold Contract
+
+on:
+  push:
+    branches: [agent/v24-zip-static-hold-20261018]
+  pull_request:
+    branches: [main]
+    paths:
+      - clean_v2/owner_art.py
+      - scripts/test_v24_zip_static_hold.py
+      - .github/workflows/v24-approved-zip-hold.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ready-zip-hold:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - run: python -m pip install 'Pillow==12.3.0'
+      - name: Compile camera engine and new ZIP contract
+        run: python -m py_compile clean_v2/owner_art.py scripts/test_v24_zip_static_hold.py
+      - name: Verify approved hold and legacy motion isolation
+        run: python -m unittest scripts.test_v24_zip_static_hold -v
+      - name: Verify ZIP stock fallback and approved scene importer
+        run: python -m unittest scripts.test_zip_stock_scenes scripts.test_production_package -v
