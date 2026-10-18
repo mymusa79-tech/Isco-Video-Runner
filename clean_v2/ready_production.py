@@ -90,11 +90,7 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     script = validate_script({"title": doc["title"], "sections": sections}, plan)
     opener, closer = _brand_signature() if fmt == "film" else ("", "")
     inject_spoken_identity(script["sections"], fmt=fmt, opener=opener, closer=closer)
-    if doc["template"] == "ala_mahl":
-        from .identity_sequence import SHORT_CHANNEL_DEFINITION
-        script["sections"][0]["narration"] = script["sections"][0]["narration"].replace(SHORT_CHANNEL_DEFINITION + " ", "")
-    else:
-        assert_spoken_identity(script["sections"], fmt=fmt, opener=opener, closer=closer)
+    assert_spoken_identity(script["sections"], fmt=fmt, opener=opener, closer=closer)
     # There is no CTA relocation/rewriting in ZIP mode. A CTA can be part of the
     # approved text, at the location the author chose.
     write_cta_report(out_dir / "cta-plan.json", CtaBinding(

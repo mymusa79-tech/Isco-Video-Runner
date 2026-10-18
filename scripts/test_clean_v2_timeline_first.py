@@ -393,9 +393,9 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertIn("force_original_aspect_ratio=decrease", filters)
         self.assertIn("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black", filters)
         self.assertIn("gte(t,3.000)*lt(t,4.750)", filters)
-        self.assertIn(str(assets["intro"]), command)
-        self.assertIn("gte(t,4.750)*lt(t,6.750)", filters)
-        self.assertIn("[branded][outro]overlay", filters)
+        self.assertNotIn(str(assets["intro"]), command)  # no logo card in Shorts
+        self.assertNotIn("[channel]", filters)
+        self.assertIn("[prayed][outro]overlay", filters)
         self.assertIn(str(assets["prayer"]), command)
 
     def test_podcast_identity_pieces_stay_opaque_over_the_same_story_world(self) -> None:

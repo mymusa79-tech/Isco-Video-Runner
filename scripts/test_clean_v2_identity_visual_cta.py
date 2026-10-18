@@ -59,7 +59,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             self.assertEqual(command[command.index("-t") + 1], "30.000")
             self.assertFalse((root / ".ala-mahl-signature.png").exists())
 
-    def test_short_logo_has_only_the_spoken_definition_window(self) -> None:
+    def test_short_has_no_logo_or_spoken_definition_window(self) -> None:
         from clean_v2.pipeline import _synthesize_sectioned_voice
         from clean_v2.timeline_first import build_voice_owned_timeline
         from scripts.test_clean_v2 import _FakeVoice
@@ -76,15 +76,15 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             voice = json.loads((root / "voice-sections.json").read_text())
             roles = [c["role"] for s in voice["sections"] for c in s["chunks"]]
             self.assertNotIn("intro_silence", roles)
-            self.assertIn("channel_identity", roles)
+            self.assertNotIn("channel_identity", roles)  # owner decision: prayer + outro only
             self.assertNotIn("pre_topic_silence", roles)
-            self.assertEqual(roles[:6], ["hook", "post_hook_silence", "prayer", "post_prayer_silence", "channel_identity", "topic"])
+            self.assertEqual(roles[:5], ["hook", "post_hook_silence", "prayer", "post_prayer_silence", "topic"])
             timeline = build_voice_owned_timeline(output_dir=root, narration_path=root / "narration.wav", fmt="short")
             kinds = [e["kind"] for e in timeline["identity_events"]]
             self.assertNotIn("intro", kinds)
             self.assertIn("outro", kinds)
 
-    def test_short_spoken_order_keeps_prayer_and_definition(self) -> None:
+    def test_short_spoken_order_is_hook_prayer_topic_without_channel_definition(self) -> None:
         sections = [
             {
                 "id": "s1",
@@ -106,12 +106,9 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         first = sections[0]["narration"]
         self.assertTrue(first.startswith("قد لا تكون المشكلة في الدافع نفسه."))
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
+        self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 0)  # owner decision: prayer + outro only
         assert_spoken_identity(sections, fmt="short")
-        self.assertIn(
-            f"{PRAYER_SENTENCE} {SHORT_CHANNEL_DEFINITION} حين تتوقف قليلًا",
-            first,
-        )
+        self.assertIn(f"{PRAYER_SENTENCE} حين تتوقف قليلًا", first)
 
     def test_short_spoken_order_normalizes_punctuationless_hook_boundary(self) -> None:
         sections = [
@@ -126,7 +123,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertTrue(first.startswith("قد لا تكون المشكلة في الوقت. "))
         self.assertIn(PRAYER_SENTENCE, first)
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 1)
+        self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 0)
 
     def test_podcast_spoken_order_is_A_question_then_prayer_then_B_answer(self) -> None:
         sections = [
