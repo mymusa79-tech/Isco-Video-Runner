@@ -124,7 +124,7 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertIn(f"selected_template={expected}", context)
         self.assertIn(selected["writing_directive"], context)
         self.assertIn(selected["visual_query_directive"], context)
-        self.assertEqual(_voice_performance_mode_for_brief(brief, None), expected)
+        self.assertEqual(_voice_performance_mode_for_brief(brief, None), "nidaa_short_" + expected)
 
     def test_01_short_why_reframe_runtime(self) -> None:
         self._assert_short_type("why_reframe")
@@ -395,7 +395,7 @@ class RuntimeActivation26Tests(unittest.TestCase):
         self.assertIn("performance_mode=_voice_performance_mode_for_brief", run_source)
 
         for expected, brief in SHORT_CASES.items():
-            self.assertEqual(_voice_performance_mode_for_brief(brief, None), expected)
+            self.assertEqual(_voice_performance_mode_for_brief(brief, None), "nidaa_short_" + expected)
         for expected, brief in FILM_CASES.items():
             self.assertEqual(
                 _voice_performance_mode_for_brief(brief, {"narrative_format": expected}),
