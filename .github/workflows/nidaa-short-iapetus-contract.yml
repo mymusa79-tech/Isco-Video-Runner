@@ -1,0 +1,34 @@
+name: Nidaa Short Iapetus - Isolated Voice Contract
+
+on:
+  push:
+    branches: [agent/nidaa-short-iapetus-voice-v24]
+  pull_request:
+    branches: [main]
+    paths:
+      - clean_v2/media.py
+      - clean_v2/pipeline.py
+      - clean_v2/tts_cache.py
+      - scripts/test_nidaa_short_voice_profile.py
+      - .github/workflows/nidaa-short-iapetus-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  short-voice-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install minimal runtime test dependency
+        run: python -m pip install 'Pillow==12.3.0'
+      - name: Compile changed source and isolated profile test
+        run: python -m py_compile clean_v2/media.py clean_v2/tts_cache.py clean_v2/pipeline.py scripts/test_nidaa_short_voice_profile.py
+      - name: Verify all seven isolated profile invariants (no API calls)
+        run: python -m unittest scripts.test_nidaa_short_voice_profile -v
