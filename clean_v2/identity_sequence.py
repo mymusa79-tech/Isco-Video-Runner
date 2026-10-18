@@ -283,7 +283,9 @@ def _first_sentence(text: str) -> str:
 
 def channel_definition(fmt: str, opener: str = "") -> str:
     if fmt == "short":
-        return SHORT_CHANNEL_DEFINITION
+        # Owner decision (Oct 2026): Shorts carry only the prayer and the outro. There is no
+        # spoken channel definition and no logo card, so nothing is inserted between them.
+        return ""
     if fmt == "podcast":
         # Visual V8 intro owns the series/channel branding. This value remains
         # available as metadata but is intentionally not inserted into speech.
@@ -428,7 +430,7 @@ def assert_spoken_identity(
 
     if joined.count(PRAYER_SENTENCE) != 1:
         raise RuntimeError("identity sequence requires exactly one approved prayer sentence")
-    if fmt != "podcast" and joined.count(definition) != 1:
+    if fmt != "podcast" and definition and joined.count(definition) != 1:
         raise RuntimeError("identity sequence requires exactly one channel-definition sentence")
 
     first = str(sections[0].get("narration") or "")
@@ -436,7 +438,7 @@ def assert_spoken_identity(
     prayer_pos = first.find(PRAYER_SENTENCE)
     if not hook or prayer_pos < len(hook):
         raise RuntimeError("identity sequence order must begin hook -> prayer")
-    if fmt != "podcast":
+    if fmt != "podcast" and definition:
         definition_pos = first.find(definition)
         if definition_pos <= prayer_pos:
             raise RuntimeError("identity sequence order must be hook -> prayer -> channel definition")

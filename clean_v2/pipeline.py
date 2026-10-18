@@ -871,17 +871,11 @@ def _synthesize_sectioned_voice_pass(
                 )
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
             elif fmt == "short":
-                definition = channel_definition("short")
-                definition_pos = section_text.find(definition)
-                ala_mahl = ready_doc.get("template") == "ala_mahl"
-                if definition_pos <= prayer_pos and not ala_mahl:
-                    raise RuntimeError("Short requires the approved spoken channel definition")
+                # Shorts: hook -> prayer -> topic (no spoken channel definition, no logo card).
                 voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
-                if not ala_mahl:
-                    voice_units.append(("channel_identity", definition))
                 voice_units.extend(
                     ("topic", item) for item in _bounded_voice_chunks(
-                        section_text[(prayer_pos + len(PRAYER_SENTENCE)) if ala_mahl else (definition_pos + len(definition)):].strip()
+                        section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
                     )
                 )
             else:
@@ -5557,9 +5551,9 @@ def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
         "reason": "fixed_identity_inserted_after_first_sentence_hook",
-        "canonical_opener": SHORT_CHANNEL_DEFINITION,
+        "canonical_opener": "",
         "canonical_closer": "",
-        "opener": SHORT_CHANNEL_DEFINITION,
+        "opener": "",
         "closer": "",
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
@@ -5691,7 +5685,7 @@ def _run_audio_mastering_stage(
     if fmt == "short":
         ala_mahl = voice_timeline.get("template") == "ala_mahl"
         identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
-                             *([] if ala_mahl else ["spoken_channel_definition_with_logo"]), "topic",
+                             "topic",
                              "ala_mahl_outro" if ala_mahl else "short_outro"]
     atomic_write_json(
         output_dir / "identity-sequence.json",
@@ -6669,8 +6663,8 @@ def _script_prompt(
     identity_handoff_guidance = ""
     if fmt == "short":
         identity_handoff_guidance = (
-            "Short: hook -> natural breath -> approved prayer -> spoken channel definition with its logo -> topic -> Short outro. "
-            "No separate silent logo intro or pre-topic gap. "
+            "Short: hook -> natural breath -> approved prayer -> topic -> Short outro. "
+            "No spoken channel definition, no logo card and no pre-topic gap. "
             "The hook and topic must feel like one continuous thought, not three separate announcements."
         )
     if identity_handoff:

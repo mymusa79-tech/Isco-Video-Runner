@@ -88,7 +88,7 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 self.assertNotIn("ass='", filters)
                 if fmt == "short":
                     self.assertIn("[0:v][prayer]overlay=0:0", filters)
-                    self.assertIn("gte(t,4.750)*lt(t,5.500)", filters)
+                    self.assertNotIn("[channel]", filters)  # prayer + outro only
                     self.assertNotIn("[intro]", filters)
                 else:
                     self.assertIn("[v1][prayer]overlay=0:0", filters)

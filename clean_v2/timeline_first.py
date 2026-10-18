@@ -211,8 +211,8 @@ def _identity_events(
     template: str = "",
 ) -> list[dict[str, Any]]:
     if fmt == "short":
-        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence",
-                    *(("channel_identity",) if template != "ala_mahl" else ()), "final_silence")
+        # Shorts carry only prayer + outro: no spoken channel definition or logo card.
+        required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "final_silence")
         rows = {role: _one_role(units, role) for role in required}
         if any(row is None for row in rows.values()):
             if require_identity:
@@ -224,7 +224,7 @@ def _identity_events(
             for role in required[:-1]
         ]
         events.append({"kind": "topic", "source": "measured_voice_timeline",
-                       "start": float(rows["channel_identity" if template != "ala_mahl" else "post_prayer_silence"]["end"]),
+                       "start": float(rows["post_prayer_silence"]["end"]),
                        "end": float(rows["final_silence"]["start"])})
         for kind in ("outro", "final_silence"):
             events.append({"kind": kind, "source": "measured_silence_chunk",

@@ -6726,7 +6726,6 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
             set(report["trusted_identity"]),
             {
                 self.PRAYER,
-                SHORT_CHANNEL_DEFINITION,
                 SHORT_CHANNEL_DEFINITION_LEGACY,
             },
         )

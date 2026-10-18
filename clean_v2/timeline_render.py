@@ -176,49 +176,30 @@ def _prayer_fill_chain(width: int, height: int) -> str:
 
 
 def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping[str, Any]) -> None:
-    """Short logo appears only during the spoken handoff, without a silent intro."""
+    """Short identity: the prayer picture, then the outro. No logo card between them."""
     assets = identity_asset_paths("short", template=str(timeline.get("template") or ""))
-    ala_mahl = timeline.get("template") == "ala_mahl"
-    for kind in (("prayer", "outro") if ala_mahl else ("intro", "prayer", "outro")):
+    for kind in ("prayer", "outro"):
         if not assets[kind].is_file() or assets[kind].stat().st_size <= 1024:
             raise RuntimeError(f"identity asset missing: {kind}")
     seconds = float(timeline["voice_seconds_measured"])
     prayer = _event(timeline, "prayer")
     breath = _event(timeline, "post_prayer_silence")
     outro = _event(timeline, "outro")
-    channel = None if ala_mahl else _event(timeline, "channel_identity")
     start, end = float(prayer["start"]), float(breath["end"])
     outro_start, outro_end = float(outro["start"]), float(outro["end"])
-    channel_start, channel_end = (float(channel["start"]), float(channel["end"])) if channel else (end, end)
     if not (0 <= start < end <= outro_start < outro_end <= seconds + 0.08):
         raise RuntimeError("short identity bounds invalid")
+    extra_inputs = ["-i", str(assets["outro"])]
     filters = (
         f"[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
         f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,"
         f"trim=duration={end-start:.3f},setpts=PTS-STARTPTS+{start:.3f}/TB[prayer];"
         f"[2:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-        f"setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={channel_end-channel_start:.3f},"
-        f"trim=duration={channel_end-channel_start:.3f},setpts=PTS-STARTPTS+{channel_start:.3f}/TB[channel];"
-        f"[3:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
         f"setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={outro_end-outro_start:.3f},"
         f"trim=duration={outro_end-outro_start:.3f},setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
         f"[0:v][prayer]overlay=0:0:enable='gte(t,{start:.3f})*lt(t,{end:.3f})'[prayed];"
-        f"[prayed][channel]overlay=0:0:enable='gte(t,{channel_start:.3f})*lt(t,{channel_end:.3f})'[branded];"
-        f"[branded][outro]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
+        f"[prayed][outro]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
     )
-    extra_inputs = ["-i", str(assets["intro"]), "-i", str(assets["outro"])]
-    if ala_mahl:
-        extra_inputs = ["-i", str(assets["outro"])]
-        filters = (
-            f"[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
-            f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,"
-            f"trim=duration={end-start:.3f},setpts=PTS-STARTPTS+{start:.3f}/TB[prayer];"
-            f"[2:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
-            f"setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={outro_end-outro_start:.3f},"
-            f"trim=duration={outro_end-outro_start:.3f},setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
-            f"[0:v][prayer]overlay=0:0:enable='gte(t,{start:.3f})*lt(t,{end:.3f})'[prayed];"
-            f"[prayed][outro]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
-        )
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(source), "-loop", "1", "-framerate", "30", "-i", str(assets["prayer"]),

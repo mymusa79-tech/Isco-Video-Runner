@@ -280,7 +280,6 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     from clean_v2.contracts import atomic_write_json, validate_plan, validate_script
     from clean_v2.identity_sequence import (
         PRAYER_SENTENCE,
-        SHORT_CHANNEL_DEFINITION,
         assert_spoken_identity,
         inject_spoken_identity,
     )
@@ -331,17 +330,17 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
         },
         plan,
     )
-    inject_spoken_identity(script["sections"], fmt="short", opener=SHORT_CHANNEL_DEFINITION, closer="")
-    assert_spoken_identity(script["sections"], fmt="short", opener=SHORT_CHANNEL_DEFINITION, closer="")
+    inject_spoken_identity(script["sections"], fmt="short", opener="", closer="")
+    assert_spoken_identity(script["sections"], fmt="short", opener="", closer="")
 
     identity = {
         "schema_version": 1,
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
         "reason": "fixed_identity_inserted_after_first_sentence_hook",
-        "canonical_opener": SHORT_CHANNEL_DEFINITION,
+        "canonical_opener": "",
         "canonical_closer": "",
-        "opener": SHORT_CHANNEL_DEFINITION,
+        "opener": "",
         "closer": "",
         "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
