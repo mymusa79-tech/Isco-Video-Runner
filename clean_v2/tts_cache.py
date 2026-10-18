@@ -51,6 +51,7 @@ def build_binding(
     performance_mode: str,
     provider: str,
     performance_direction: Mapping[str, str] | None = None,
+    short_style_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Bind cached audio to every input that can change the spoken result.
 
@@ -69,6 +70,13 @@ def build_binding(
     }
     if performance_direction:
         result["performance_direction"] = dict(performance_direction)
+    if short_style_sha256 is not None:
+        if not str(performance_mode or "").startswith("short_"):
+            raise ValueError("Short style fingerprint is only allowed for short_* modes")
+        digest = str(short_style_sha256)
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("Invalid Short style SHA-256")
+        result["short_style_sha256"] = digest
     return result
 
 
