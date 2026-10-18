@@ -674,7 +674,15 @@ def _select_podcast_promo_excerpt(
                 length_score = 4 if 28 <= words <= 44 else 2
                 section_score = 2 if 1 <= section_index < total_sections - 1 else 1
                 statement_score = 1 if not excerpt.endswith("؟") else 0
+                # Prefer an authentic contiguous A-question/B-answer exchange.
+                # Never invent, rearrange, or revoice the original dialogue.
+                qa_match = re.search(
+                    r"(?:^|\s)A:\s*[^\n]*?؟\s*B:\s*\S+",
+                    excerpt,
+                )
+                qa_preference = int(bool(qa_match and re.match(r"^A:\s*", excerpt)))
                 score = (
+                    qa_preference,
                     marker_hits * 4 + length_score + section_score + statement_score,
                     -abs(words - 36),
                     -section_index,

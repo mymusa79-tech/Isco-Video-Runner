@@ -196,6 +196,33 @@ def _selection(context: Mapping[str, Any], doc: Mapping[str, Any]) -> tuple[dict
             "selection_basis": "approved_exact_text_measured_audio_units" if requested else "existing_measured_topic_unit"}, ""
 
 
+def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
+    """Visual-only closing invitation over the existing final five seconds.
+
+    Never trims speech, modifies audio, or extends the measured excerpt.
+    """
+    start = max(0.0, duration - 5.0)
+    end = max(start, duration - 0.08)
+    message = "أكمل النقاش في الحلقة الكاملة" if podcast else "شاهد الحلقة الكاملة"
+    # ASS draws a subdued strip high enough to avoid the normal lower captions.
+    return (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
+        "[V4+ Styles]\n"
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
+        "Style: Teaser,Cairo,54,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H990B1220,-1,0,0,0,100,100,0,0,3,2,0,8,65,65,220,1\n"
+        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+        f"Dialogue: 0,{_ass_clock(start)},{_ass_clock(end)},Teaser,,0,0,0,,{message}\n"
+    )
+
+
+def _ass_clock(seconds: float) -> str:
+    centiseconds = max(0, round(seconds * 100))
+    hours, rest = divmod(centiseconds, 360000)
+    minutes, rest = divmod(rest, 6000)
+    secs, centis = divmod(rest, 100)
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
+
 def attempt(root: Path, *, renderer=None) -> dict:
     """Optional extraction; failure is a report, never a parent-production error."""
     root = Path(root)
@@ -246,18 +273,27 @@ def attempt(root: Path, *, renderer=None) -> dict:
             ass = root / f"{prefix}.ass"
             ass.write_text(build_ass(events, fmt="short"), encoding="utf-8")
             (root / f"{prefix}.srt").write_text(build_srt(events), encoding="utf-8")
+            cta_ass = root / f"{prefix}-teaser-cta.ass"
+            cta_ass.write_text(_teaser_cta_ass(window["end"] - window["start"],
+                                              podcast=context["format"] == "podcast"), encoding="utf-8")
+            # Show the invitation over the final five seconds while preserving
+            # every spoken word and the original measured clip duration.
+            excerpt_duration = window["end"] - window["start"]
             _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                  "-vf", "ass='" + _filter_escape_path(ass) + "'", "-map", "0:v:0", "-map", "0:a:0",
-                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "copy", str(final)], timeout=900)
+                  "-vf", "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'",
+                  "-map", "0:v:0", "-map", "0:a:0",
+                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                  "-c:a", "copy", str(final)], timeout=900)
             qc = inspect_final(final)
-            if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-(window["end"]-window["start"])) > 0.15:
+            if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-excerpt_duration) > 0.15:
                 raise RuntimeError("derived_short_stream_or_duration_mismatch")
             final.replace(root / f"{prefix}.mp4")
             atomic_write_json(root / f"{prefix}-qc.json", {**qc, "status": "pass"})
             report = {**base, **window, "status": "pass", "file": f"{prefix}.mp4", "width": 1080, "height": 1920,
                       "duration_seconds": qc["duration_seconds"], "caption_timing": context["caption_timing"],
                       "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
-                      "source_video": source_video.name,
+                      "source_video": source_video.name, "teaser_cta_seconds": 5,
+                      "teaser_cta_over_original_speech": True,
                       "final_master_qc_status": "pass"}
     except Exception as exc:
         report = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:220]}"}
