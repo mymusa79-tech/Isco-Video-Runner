@@ -464,9 +464,9 @@ def build_click(path: Path) -> None:
 
 
 def extract_logo(source: Path, work: Path) -> Image.Image:
-    frame = work / "logo_src.png"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-vf", "select=eq(n\\,0)", "-frames:v", "1", str(frame)], check=True)
-    return Image.open(frame).convert("RGB").crop((0, 100, W, 800))
+    """The brand mark comes from a stored crop of the original outro (never from the file being rebuilt)."""
+    stored = Path(__file__).resolve().parent / "assets" / f"outro_logo_{Path(source).stem}.png"
+    return Image.open(stored).convert("RGB")
 
 
 def build(source_name: str, out_dir: Path, preview_dir: Path | None) -> dict:
