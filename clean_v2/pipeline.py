@@ -294,7 +294,12 @@ _PODCAST_FIXED_PROFILE = {
         "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
         "environments, side light and breathing room. A listener-proxy turn does NOT force a scene cut: keep the current unresolved "
         "scene when the idea has not changed, show the short A question as sparse Cairo key text for only a few seconds, then let the "
-        "text disappear as B answers. Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
+        "text disappear as B answers. This is an editorial documentary about an argument, not a staged "
+        "fictional story: never literalize every metaphor as a ticket, clock, notebook, dark road or window. "
+        "Avoid fake narrative props, repeated rear-view silhouettes and lonely desks. Prefer contemporary "
+        "life evidence, environmental context, comparisons, meaningful varied camera angles and natural "
+        "photographic color; keep the realistic material quality. "
+        "Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
         "state; when useful, move from a tighter unresolved detail on A to a wider/revealing context on B. Never fake two hosts, a studio "
         "interview, split-screen conversation, waveform wallpaper, or Short-like kinetic cutting. The visual layer must remain optional "
         "to understanding and feel like one continuous room around the conversation."
@@ -6059,6 +6064,8 @@ listener with the screen closed.
         "For short only: every section must provide TWO distinct visual intents: visual_query_en and visual_query_alt_en. "
         "Both must show a different observable action, detail or outcome of the SAME section idea, never duplicate B-roll. "
         "Keep one connected visual world; avoid repeated desks and writing props. "
+        "Do not default to faceless backs at desks/windows/lamps; instead frame the actual visible decision, "
+        "and vary viewpoint only because meaning moves, not to simulate random action. "
         "Use hands, posture, back view, silhouette or distant blur; never a clear recognizable face. "
         "Pets, sleeping animals, travel maps and random gadgets are not metaphors for progress unless the topic involves them. "
         "If primary repeats the previous section\'s dominant action family, alternate MUST change to another relevant family."
@@ -6205,6 +6212,12 @@ the SAME unresolved tension through a different action/environment/scale/state. 
 Only a later hook/payoff motif may repeat after visible state change. Keep stock queries concrete, not style-heavy.
 
 VISUAL VARIETY is semantic, not cosmetic. No consecutive same action family; family <=2 uses.
+V24 CAMERA + SOURCE TEST: each beat names an observable action or consequence and an actual new
+information gain. Refuse interchangeable envelopes, clocks, lonely silhouettes, notebooks, windows
+and symbolic close-ups when they do not prove this specific topic. Natural light and material color
+are more important than automatic navy/gold grading. Keep safe caption space without emptying the
+whole lower frame. Use stock for observable matching motion; use exact AI stills or approved owner
+assets for specific scenes/continuity. A new semantic beat does not require a gratuitous cut.
 Desk/laptop/phone/stationery/writing = ONE productivity cluster <=2 unless the topic requires it.
 Prefer stuck -> choosing -> moving -> completed.
 POST-HOOK VISUAL FLOOR — Short, Film, Podcast: preserve specificity. "Person scrolling many tabs on a laptop"

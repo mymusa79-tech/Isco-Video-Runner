@@ -217,6 +217,23 @@ COLD_OPEN_AS_SCENE = (
     "never a general statement, address, or instruction."
 )
 
+V24_SHORT_EDITORIAL = (
+    "V24 NIDAA IDENTITY: A Short is an immediate practical recognition, not a compressed long lecture or "
+    "sentimental mini-film. Anchor it to a precise ordinary choice, mistake or consequence. Show one situation, "
+    "one genuinely useful insight and one earned action. Reject generic inspiration, recycled slogans, staged "
+    "autobiography and decorative storytelling detached from the channel's awareness purpose. Begin inside the "
+    "topic-specific conflict; make the payoff depend on evidence established in THIS video. Never pad duration. "
+)
+V24_SHORT_VISUAL = (
+    "V24 VISUAL DIRECTOR: Every scene earns its place by revealing a specific contradiction, decision, change "
+    "or consequence. Describe what the camera can see, not vague emotion. Avoid repetitive faceless backs, "
+    "notebooks, envelopes, old workshops, clocks, windows, tables and cinematic lamps as generic metaphors; "
+    "show those only when the literal story demands them. Vary useful wide/medium/detail framings, camera "
+    "height and changed action state without decorative cuts. Preserve natural lighting and material color; "
+    "navy/gold are identity accents, not blanket filters. Prefer actual stock motion for real movement and "
+    "precise AI stills for specificity/continuity, never mismatched stock to fill time. "
+)
+
 TEMPLATE_WRITING_DIRECTIVES = {
     "why_reframe": (
         "Short type is why_reframe. Open on one specific mistaken assumption, contrast it with the "
@@ -470,11 +487,11 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "not generic مهمة/هدف/عادة.\n"
             "- No channel identity opener, dialogue labels or social CTA. Quotations require explicit "
             "approved evidence and the selected quote_reflection template.\n"
-            f"- {selection['writing_directive']}\n"
+            f"- {selection['writing_directive']} {V24_SHORT_EDITORIAL}\n"
             "- SPOKEN_NATURALNESS_LITE: complete grammatical Arabic, concrete observations and natural "
             "sentence-length variation; no fragments, abstract diagnosis, translated/essay filler or "
             "motivational slogans. Check agreement, references and sentence completeness.\n"
-            f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} "
+            f"- VISUAL_QUERY_DIRECTION: {selection['visual_query_directive']} {V24_SHORT_VISUAL} "
             "Use visibly different dominant actions or states across s1/s2/s3. s1 needs a template-specific "
             "scroll-stop visual beat; must not feel visually flat. "
             "FIRST-SHOT GATE: s1 names a visible "
@@ -515,7 +532,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "never finish with only a generic slogan or restatement of s2.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
-        f"- {selection['writing_directive']}\n"
+        f"- {selection['writing_directive']} {V24_SHORT_EDITORIAL}\n"
         "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page, but never dumb the idea down. Use complete, grammatically sound "
         "sentences that carry enough context to be understood on first listen. Prefer concrete observations and natural sentence-length variation; "
         "avoid fragments, abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
@@ -524,7 +541,7 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "that same sentence. Fix any such surface-language error in place before returning. "
         "The whole Short should feel like one complete miniature idea, not a chain of motivational captions.\n"
         "- VISUAL_QUERY_DIRECTION: "
-        f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
+        f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} {V24_SHORT_VISUAL} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
         "For s1 create the template-specific scroll-stop visual beat described above; it must read instantly and must not feel visually flat. "
         "LOCAL FIRST-SHOT GATE: visual_query_en for s1 must name an observable action/event AND a readable tension/consequence "
