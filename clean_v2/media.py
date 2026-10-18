@@ -46,7 +46,7 @@ _GEMINI38_ALLOWED_TTS_MODELS = frozenset({GEMINI38_TTS_MODEL, GEMINI38_LITE_TTS_
 GEMINI38_PRIMARY_VOICE = "Charon"
 # Owner-approved Nidaa Short voice: Iapetus also reads the prayer and spoken identity. Other formats remain unchanged.
 GEMINI38_NIDAA_SHORT_PRIMARY_VOICE = "Iapetus"
-GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:NidaaShort"
+GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:Iapetus"
 GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"

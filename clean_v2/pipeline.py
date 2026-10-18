@@ -40,6 +40,7 @@ from .contracts import (
 )
 from .media import (
     GEMINI38_LITE_PROVIDER,
+    GEMINI38_NIDAA_SHORT_PROVIDER,
     GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
     concat_wav_parts,
@@ -476,7 +477,7 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
-_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER, "gemini-3.8:NidaaShort"})
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER, GEMINI38_NIDAA_SHORT_PROVIDER})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
