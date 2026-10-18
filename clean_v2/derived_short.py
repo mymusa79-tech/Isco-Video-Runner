@@ -201,18 +201,17 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
 
     Never trims speech, modifies audio, or extends the measured excerpt.
     """
-    from .short_timed_text import _filter_escape_path  # noqa: F401
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
     message = "أكمل النقاش في الحلقة الكاملة" if podcast else "شاهد القصة كاملة في الفيديو المرتبط"
     # ASS draws a subdued strip high enough to avoid the normal lower captions.
     return (
-        "[Script Info]\\nScriptType: v4.00+\\nPlayResX: 1080\\nPlayResY: 1920\\n"
-        "[V4+ Styles]\\n"
-        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\\n"
-        "Style: Teaser,Cairo,54,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H990B1220,-1,0,0,0,100,100,0,0,3,2,0,8,65,65,220,1\\n"
-        "[Events]\\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\\n"
-        f"Dialogue: 0,{_ass_clock(start)},{_ass_clock(end)},Teaser,,0,0,0,,{message}\\n"
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
+        "[V4+ Styles]\n"
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
+        "Style: Teaser,Cairo,54,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H990B1220,-1,0,0,0,100,100,0,0,3,2,0,8,65,65,220,1\n"
+        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+        f"Dialogue: 0,{_ass_clock(start)},{_ass_clock(end)},Teaser,,0,0,0,,{message}\n"
     )
 
 
