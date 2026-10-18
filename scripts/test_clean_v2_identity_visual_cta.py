@@ -33,7 +33,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
                          "e841e9261835025afd84af7ad59105dd3d146cddc2b1ae506aca085da0ce4bd0")
         self.assertAlmostEqual(identity_timing_profile("short", template="ala_mahl")["final_silence_seconds"],
                                probe_duration(ala_mahl["outro"]), places=3)
-        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.7)
         self.assertEqual(identity_timing_profile("film", template="ala_mahl"), identity_timing_profile("film"))
         self.assertEqual(identity_timing_profile("podcast", template="ala_mahl"), identity_timing_profile("podcast"))
         self.assertEqual(identity_asset_paths("film", template="ala_mahl"), identity_asset_paths("film"))

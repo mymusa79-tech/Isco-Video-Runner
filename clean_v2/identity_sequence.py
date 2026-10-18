@@ -45,7 +45,8 @@ _TIMING_PROFILES = {
         "intro_silence_seconds": 0.00,
         "post_prayer_silence_seconds": 0.25,
         "pre_topic_silence_seconds": 0.00,
-        "final_silence_seconds": 1.25,
+        # ~0.45 s of quiet so the last sentence lands, then the full 67-frame outro.
+        "final_silence_seconds": 2.7,
     },
     "film": {
         "post_hook_silence_seconds": 1.15,

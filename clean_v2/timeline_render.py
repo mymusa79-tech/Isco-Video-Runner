@@ -191,8 +191,14 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         raise RuntimeError("short identity bounds invalid")
     extra_inputs = ["-i", str(assets["outro"])]
     filters = (
-        f"[1:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,"
+        # The approved square prayer card stays uncropped, centred over a soft blurred
+        # copy of itself so a vertical Short has no black bars above and below.
+        f"[1:v]split=2[prayerbgsrc][prayerfgsrc];"
+        f"[prayerbgsrc]scale=1080:1920:force_original_aspect_ratio=increase,"
+        f"crop=1080:1920,boxblur=60:8[prayerbg];"
+        f"[prayerfgsrc]scale=1080:1920:force_original_aspect_ratio=decrease[prayerfg];"
+        f"[prayerbg][prayerfg]overlay=(W-w)/2:(H-h)/2,"
+        f"setsar=1,fps=30,"
         f"trim=duration={end-start:.3f},setpts=PTS-STARTPTS+{start:.3f}/TB[prayer];"
         f"[2:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,"
         f"setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={outro_end-outro_start:.3f},"
