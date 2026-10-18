@@ -47,16 +47,25 @@ def build_story(doc: Mapping[str, Any]) -> dict:
         for within, scene in enumerate(expanded):
             role = "hook" if hook and text.index(scene["start_text"]) < len(hook) else "body"
             query = f"approved owner illustration scene {len(beats) + 1}"
+            intent = query
             stock = scene.get("stock") if isinstance(scene.get("stock"), dict) else None
+            must_have = [query]
             if stock:
                 # Real stock is only a request: `owner_asset` below stays the approved
                 # image that is used whenever no clip is admitted.
                 query = str(stock["query_en"]).strip()
+                intent, must_have = query, [query]
+                # The owner's own `must_show` (what the clip has to show, and what it must not)
+                # now reaches the existing visual review instead of being ignored.
+                must_show = str(stock.get("must_show") or "").strip()
+                if must_show:
+                    intent = f"{query}. Must show: {must_show}"
+                    must_have = [query, must_show]
             beats.append({
                 "id": scene["id"], "section_id": sid, "role": role,
                 "viewer_intent": scene["start_text"], "meaning_target": scene["start_text"],
-                "shot_intent": query, "stock_query_en": query, "source_preference": "stock_motion",
-                "semantic_must_have": [query], "semantic_should_avoid": [], "display_text_ar": "",
+                "shot_intent": intent, "stock_query_en": query, "source_preference": "stock_motion",
+                "semantic_must_have": must_have, "semantic_should_avoid": [], "display_text_ar": "",
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
                 "owner_asset": scene["asset"], "owner_motion": scene["motion"], "owner_transition": scene["transition"],
