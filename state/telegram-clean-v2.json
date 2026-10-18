@@ -8255,6 +8255,21 @@
       "selected_at": "2026-10-18T04:30:19Z",
       "created_at": "2026-10-18T04:30:19Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-eebf7b191e",
+      "title": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+      "normalized_title": "قبل ان تضيع شهرًا اخر اختبر اسبوعًا",
+      "market_query": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-18T06:13:42Z",
+      "created_at": "2026-10-18T06:13:42Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -15172,9 +15187,153 @@
         "started_at": "2026-10-18T04:31:59Z",
         "finished_at": "2026-10-18T04:36:42Z"
       }
+    },
+    "req-c71a8d777479": {
+      "schema_version": 1,
+      "request_id": "req-c71a8d777479",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-eebf7b191e",
+      "selected_at": "2026-10-18T06:13:42Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قبل أن تمنح مشروعك شهرًا آخر… اختبر فكرة واحدة هذا الأسبوع. كثرة العمل لا تعني أنك عرفت سبب تعثّره."
+              },
+              {
+                "id": "s2",
+                "text": "تخيّل نجّارًا صنع عشرة رفوف خشبية للبيع، ولم يبع منها واحدًا. قرر أن يصنع عشرة أخرى بتصميم أجمل. ثم غيّر خطته: عرض نموذجًا واحدًا بالسعر الذي ينوي البيع به، وسأل زبائن محتملين إن كانوا سيطلبونه. تكررت ملاحظة واحدة: الرف كبير على المساحات التي يحتاجونه فيها. فجرّب مقاسًا أصغر قبل أن يصنع كمية جديدة."
+              },
+              {
+                "id": "s3",
+                "text": "أسبوع واحد لا يضمن النجاح، ولا يكفي دائمًا للحكم النهائي. لكنه قد يكشف ما لا تكشفه شهور من تكرار العمل نفسه. قبل أن تستثمر وقتًا إضافيًا، اختبر افتراضًا واحدًا بنتيجة يمكنك قياسها."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى طبيعية بنبرة صديق يشرح فكرة عملية. الخطاف مباشر، وفاصل تنفس قصير، وتسارع خفيف أثناء المثال ثم خاتمة واضحة. لا تضف كلمات إلى النص ولا تدّع نجاحًا مضمونًا."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "قبل أن تمنح مشروعك شهرًا آخر… اختبر فكرة واحدة هذا الأسبوع.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "تخيّل نجّارًا صنع عشرة رفوف خشبية للبيع، ولم يبع منها واحدًا.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "carpenter hands sanding wooden shelf",
+                "query_alt_en": "woodworker hands sanding wooden board",
+                "must_show": "Hands sanding wood in a workshop; no visible faces"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "ثم غيّر خطته: عرض نموذجًا واحدًا بالسعر الذي ينوي البيع به،",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "فجرّب مقاسًا أصغر قبل أن يصنع كمية جديدة.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "carpenter measuring wooden plank",
+                "query_alt_en": "woodworker measuring timber with tape",
+                "must_show": "Hands measuring a piece of wood; no visible faces"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s3",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "أسبوع واحد لا يضمن النجاح، ولا يكفي دائمًا للحكم النهائي.",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "اختبر قبل أن تُكمل"
+          },
+          "publishing": {
+            "title": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+            "description": "هل يحتاج مشروعك إلى مزيد من العمل، أم إلى اختبار صغير يكشف سبب التعثر؟ مثال نجار يوضح كيف نختبر افتراضًا قبل استثمار وقت جديد. قصة توضيحية وليست واقعة حقيقية أو وعدًا بالنجاح.",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#اتخاذ_القرار",
+              "#المشاريع",
+              "#التطوير_الذاتي"
+            ]
+          }
+        },
+        "zip_sha256": "8b5d4cf04bfdf0b01c7462b07bae3efe62becd16b51bf1462d4dbc1c1c8fc0a2",
+        "asset_sha256": {
+          "assets/cover.jpg": "dfa361b59c95c8cb01a5ba8ac7c63e48f387056ba5dad5ce21bcbd44be5cd10c",
+          "assets/scene_01.jpg": "19c53fc3448cce3821415793c97ad49483fbec3f8fe1c0596a706a0141c7eaa8",
+          "assets/scene_02.jpg": "be2d9801b31ed0dfd0acf24926bbb1b5245f0140b5cac54a2789663c0c302600",
+          "assets/scene_03.jpg": "145041e09f4b1f8e28628a9ed2a26fa06739c74117e922eb4ec45d9a5e3c0d33",
+          "assets/scene_04.jpg": "ec1ef50b8d7256f80dc879909e515f0ad4a058fb780654bea4dc1a5b7fd07a8d",
+          "assets/scene_05.jpg": "dcf4c307d1388efcf5ab6129116644dea3213be4314aaa2a5dfa40972b71a115"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "66ac80d9ffc4f49da48e988abe051039693bee0a53239e1147ab3912f127ee4c",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIMy2rUY36ABq3m2MhBhIZAe8D7PGCxAAKNHQACAyKhUj9CO_iyMxMEPQQ",
+          "sha256": "8b5d4cf04bfdf0b01c7462b07bae3efe62becd16b51bf1462d4dbc1c1c8fc0a2"
+        }
+      }
     }
   },
-  "current_request_id": "req-94e689d7de27",
+  "current_request_id": "req-c71a8d777479",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -15562,6 +15721,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-18T06:13:03Z",
+  "updated_at": "2026-10-18T06:13:42Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
