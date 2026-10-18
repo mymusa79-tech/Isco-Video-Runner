@@ -9,8 +9,12 @@ import tempfile
 import unittest
 import zipfile
 import io
+import shutil
+import subprocess
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image
 
 from clean_v2 import owner_art, ready_production
 from scripts.test_production_package import archive_bytes, manifest
@@ -86,6 +90,39 @@ class ApprovedZipHoldTests(unittest.TestCase):
             self.assertTrue(any(r["owner_transition"] == "cut" for r in rights))
             self.assertTrue(all(r["owner_approved"] for r in rights))
             inner.acquire.assert_not_called()
+
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required for encoded-frame proof")
+    def test_actual_approved_hold_has_identical_distant_encoded_frames(self):
+        """A real 2-second MP4 must have no camera drift, not just a plausible filter."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.png"
+            target = root / "static-hold.mp4"
+            image = Image.new("RGB", (320, 180))
+            pixels = image.load()
+            for y in range(180):
+                for x in range(320):
+                    pixels[x, y] = ((x * 7) % 256, (y * 11) % 256, ((x + y) * 3) % 256)
+            image.save(source)
+            owner_art.make_motion_clip(
+                source, target, seconds=2.0, direction=0,
+                portrait=False, motion_kind="hold", respect_hold=True,
+            )
+            decoded = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-i", str(target),
+                    "-vf", "select=eq(n\\,8)+eq(n\\,45),scale=64:36",
+                    "-frames:v", "2", "-f", "rawvideo", "-pix_fmt", "gray", "-",
+                ],
+                check=True, capture_output=True, timeout=45,
+            ).stdout
+            frame_size = 64 * 36
+            self.assertEqual(len(decoded), 2 * frame_size)
+            left, right = decoded[:frame_size], decoded[frame_size:]
+            mean_diff = sum(abs(x - y) for x, y in zip(left, right)) / frame_size
+            self.assertLessEqual(mean_diff, 0.5, f"approved static hold unexpectedly moved: MAD={mean_diff}")
 
 
 if __name__ == "__main__":
