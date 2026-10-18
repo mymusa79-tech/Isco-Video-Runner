@@ -288,7 +288,7 @@ def module_layer(brand: dict, frame: int) -> Image.Image:
     # --- helper line under the card
     line_t = ease_out(seg(frame, *TL["text"]))
     if line_t > 0:
-        _text(d, (BOX_W / 2 * S, (338 + (1 - line_t) * 12) * S), "فعّل الجرس ليصلك الجديد", 62 * S,
+        _text(d, (BOX_W / 2 * S, (338 + (1 - line_t) * 12) * S), "فعّل التنبيهات ليصلك الجديد", 62 * S,
               _lerp(cream, accent, 0.25) + (int(235 * line_t),), bold=S // 2 or 1)
 
     img = img.resize((BOX_W, BOX_H), Image.Resampling.LANCZOS)

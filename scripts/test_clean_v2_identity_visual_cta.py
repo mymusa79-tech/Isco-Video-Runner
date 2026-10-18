@@ -30,7 +30,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(ala_mahl["prayer"], usual["prayer"])
         self.assertEqual(usual["outro"].name, "short_outro.mp4")
         self.assertEqual(hashlib.sha256(ala_mahl["outro"].read_bytes()).hexdigest(),
-                         "88d42ced30b3e690b5f9728d8b96b86714b74915713387a4fd5d86db43cff63f")
+                         "42294b53243ebad30a681d37744c384372845398c32edb40b0e43b213fd6122d")
         self.assertAlmostEqual(identity_timing_profile("short", template="ala_mahl")["final_silence_seconds"],
                                probe_duration(ala_mahl["outro"]), places=3)
         self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
