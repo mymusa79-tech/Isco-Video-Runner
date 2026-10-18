@@ -32,3 +32,5 @@ jobs:
         run: python -m py_compile clean_v2/media.py clean_v2/tts_cache.py clean_v2/pipeline.py scripts/test_nidaa_short_voice_profile.py
       - name: Verify all seven isolated profile invariants (no API calls)
         run: python -m unittest scripts.test_nidaa_short_voice_profile -v
+      - name: Regress production Gemini voice path and stable cache (no API calls)
+        run: python -m unittest scripts.test_clean_v2_voice scripts.test_tts_cache_workflow_key scripts.test_short_voice_v2 -v
