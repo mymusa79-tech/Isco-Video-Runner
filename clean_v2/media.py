@@ -44,6 +44,10 @@ GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
 GEMINI38_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 _GEMINI38_ALLOWED_TTS_MODELS = frozenset({GEMINI38_TTS_MODEL, GEMINI38_LITE_TTS_MODEL})
 GEMINI38_PRIMARY_VOICE = "Charon"
+GEMINI38_NIDAA_SHORT_VOICE = "Iapetus"  # Owner-approved after Arabic listening audition.
+GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:Iapetus"
+GEMINI38_NIDAA_SHORT_MIXED_PROVIDER = "gemini-3.8:Charon+Iapetus"
+GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
@@ -118,7 +122,38 @@ GEMINI38_PERFORMANCE_STYLES = {
     ),
 }
 
-_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*([AB]):\s*\S")
+# Separate Short delivery. Long, podcast and Ala Mahl retain their original styles.
+_NIDAA_SHORT_BASE_STYLE = (
+    "Natural Modern Standard Arabic male narrator. Short-form vertical delivery: alert, "
+    "present and forward-moving from the first word; more energy and conviction than "
+    "long-form narration; brisk natural pace with short pauses only at real turns; "
+    "firm stress on key words; finish sentences decisively without fading. Same grounded, "
+    "conversational identity; never shout, never imitate a newsreader or sales announcer. "
+)
+_NIDAA_SHORT_STYLES = {
+    "short_why_reframe": (
+        "Open with direct tension that challenges an assumption; stress the mistaken belief, "
+        "then land the reframe with conviction and warmth."
+    ),
+    "short_inner_dialogue": (
+        "An honest inner voice with real stakes: lively questioning, natural urgency and "
+        "curiosity on questions. Finish the thought decisively without theatrical hesitation."
+    ),
+    "short_micro_story": (
+        "Concrete storytelling with momentum: quick setup, one brief pause before the turn, "
+        "then a confident, clearly audible payoff."
+    ),
+    "short_quote_reflection": (
+        "Focused and present; emphasize key words of the approved quote, avoid sleepy pacing, "
+        "and close with quiet conviction."
+    ),
+}
+GEMINI38_PERFORMANCE_STYLES.update(
+    {name: _NIDAA_SHORT_BASE_STYLE + direction
+     for name, direction in _NIDAA_SHORT_STYLES.items()}
+)
+
+_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\\s*([AB]):\\s*\\S")
 
 # Visual-pacing bounds for splitting one section's own narration-weighted
 # estimated duration across several distinct same-query clips instead of one
@@ -362,7 +397,7 @@ def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     return turns
 
 
-def _spoken_voice_roles(transcript: str) -> dict[str, str]:
+def _spoken_voice_roles(transcript: str, *, primary_voice: str = GEMINI38_PRIMARY_VOICE) -> dict[str, str]:
     """Bind every supported narration shape to the fixed Gemini voice roster."""
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
@@ -371,7 +406,7 @@ def _spoken_voice_roles(transcript: str) -> dict[str, str]:
             "questioner": GEMINI38_QUESTIONER_VOICE,
             "responder": GEMINI38_PRIMARY_VOICE,
         }
-    return {"mode": "single_narrator", "narrator": GEMINI38_PRIMARY_VOICE}
+    return {"mode": "single_narrator", "narrator": primary_voice}
 
 
 def _gemini38_synthesize(
@@ -678,12 +713,24 @@ class GeminiOnlyVoiceSynthesizer:
             )
 
         is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
-        primary_voice = GEMINI38_LITE_PRIMARY_VOICE if is_lite else self.EXPECTED_PRIMARY_VOICE
+        is_nidaa_short = str(performance_mode or "").startswith("short_")
+        if is_nidaa_short and is_lite:
+            raise RuntimeError("Nidaa Short Iapetus requires the approved Gemini 3.8 Flash TTS model")
+        primary_voice = (
+            GEMINI38_NIDAA_SHORT_VOICE if is_nidaa_short
+            else (GEMINI38_LITE_PRIMARY_VOICE if is_lite else self.EXPECTED_PRIMARY_VOICE)
+        )
         questioner_voice = self.EXPECTED_QUESTIONER_VOICE
-        provider = GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
-        reference_profile = GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
+        provider = (
+            GEMINI38_NIDAA_SHORT_PROVIDER if is_nidaa_short
+            else (GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER)
+        )
+        reference_profile = (
+            GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if is_nidaa_short
+            else (GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE)
+        )
 
-        self.voice_roles = _spoken_voice_roles(transcript)
+        self.voice_roles = _spoken_voice_roles(transcript, primary_voice=primary_voice)
         self.last_provider = None
         self.fallback_used = self.tts_model != GEMINI38_TTS_MODEL
         self.voice_approval_status = None
@@ -695,6 +742,19 @@ class GeminiOnlyVoiceSynthesizer:
 
         from .tts_cache import build_binding, persist, restore
 
+        # Only the new Short cache namespace incorporates the effective style text.
+        # Old cache fingerprints remain byte-identical for film, podcast and Ala Mahl.
+        short_style_digest = None
+        if is_nidaa_short:
+            if performance_mode not in _NIDAA_SHORT_STYLES:
+                raise RuntimeError(f"Unsupported Nidaa Short performance mode: {performance_mode}")
+            final_style = GEMINI38_PERFORMANCE_STYLES[performance_mode]
+            if performance_direction:
+                final_style += " " + " ".join(
+                    part for part in (str(performance_direction.get("direction") or ""),)
+                    if part
+                )
+            short_style_digest = hashlib.sha256(final_style.encode("utf-8")).hexdigest()
         cache_binding = build_binding(
             transcript=transcript,
             model=self.tts_model,
@@ -702,6 +762,7 @@ class GeminiOnlyVoiceSynthesizer:
             questioner_voice=questioner_voice,
             performance_mode=performance_mode,
             provider=provider,
+            **({"short_style_sha256": short_style_digest} if short_style_digest else {}),
             **({"performance_direction": performance_direction} if performance_direction else {}),
         )
         if restore(cache_binding, output_path):
