@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from clean_v2 import owner_art, production_package as package, ready_production
+from clean_v2.media import _editorial_boundary_decisions
 from clean_v2.contracts import atomic_write_json
 from scripts.test_production_package import archive_bytes, manifest
 
@@ -67,6 +68,7 @@ class AcquireTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.doc = with_stock(manifest("short"), [1])
+        self.doc["scenes"][1]["transition"] = "cut"
         atomic_write_json(self.root / "production.json", self.doc)
         for name, raw in package.inspect_archive(archive_bytes(self.doc))["files"].items():
             if name != "production.json":
@@ -111,12 +113,33 @@ class AcquireTests(unittest.TestCase):
         stock_rows = [r for r in rights if r.get("provider") == "pexels"]
         self.assertEqual(len(stock_rows), 1)
         self.assertEqual(stock_rows[0]["approved_fallback_asset"], "assets/scene_02.png")
+        self.assertEqual(stock_rows[0]["owner_transition"], "cut")
         self.assertTrue(stock_rows[0]["local_file"].startswith("visual-stock-"))
         self.assertEqual(len(clips), len(rights))
         self.assertEqual(len(made), len(rights) - 1)  # the stock beat made no image clip
         beat = self.sub_plan["visual_story"]["beats"][0]
         self.assertTrue(beat["_ai_fallback_pass"])
         self.assertNotIn("owner_asset", beat)
+
+    def test_matching_stock_does_not_erase_approved_transition_when_rendered(self):
+        for transition in ("cut", "dissolve"):
+            with self.subTest(transition=transition):
+                self.doc["scenes"][1]["transition"] = transition
+                atomic_write_json(self.root / "production.json", self.doc)
+                self.story = ready_production.build_story(self.doc)
+                clips, rights, made = self.run_acquire(self.inner_returning(self.GOOD))
+                self.assertEqual(len(clips), len(rights))
+                stock_index = next(i for i, row in enumerate(rights) if row.get("provider") == "pexels")
+                self.assertGreater(stock_index, 0)
+                self.assertEqual(rights[stock_index]["owner_transition"], transition)
+                signals = {row["local_file"]: row for row in rights}
+                decisions = _editorial_boundary_decisions(
+                    [Path(p) for p in clips],
+                    [row["section_id"] for row in rights],
+                    signals,
+                )
+                self.assertEqual(decisions[stock_index - 1]["decision"], transition.upper())
+                self.assertEqual(decisions[stock_index - 1]["reason"], "approved_package_transition")
 
     def assert_fell_back(self, inner, reason_prefix):
         clips, rights, made = self.run_acquire(inner)

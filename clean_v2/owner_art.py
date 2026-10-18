@@ -80,13 +80,16 @@ def punch_times(seconds: float) -> list[float]:
 def make_motion_clip(
     image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0,
     portrait: bool = False, motion_kind: str = "slow_pan",
+    respect_hold: bool = False,
 ) -> Path:
     """A picture with a smooth, sub-pixel camera move.
 
     slow_pan: drift across a slightly enlarged image. Podcast: two gentle diagonal moves; film:
     four distinct moves over a larger margin, so consecutive images never move the same way.
-    slow_zoom: a push-in. hold: a very small push-in so a still never looks frozen.
-    A hold / zoom that lasts longer than about 7 s also gets short punch-ins, like a human editor.
+    slow_zoom: a push-in. Legacy hold: a barely visible push-in.
+    With respect_hold=True (approved ZIP only), 'hold' means truly STATIC:
+    never zoom, pan or add timed punch-ins. Non-ZIP/legacy behavior is unchanged.
+    Other hold / zoom shots longer than about 7 s retain legacy punch-ins.
     """
     from .media import _run
 
@@ -100,7 +103,10 @@ def make_motion_clip(
     if motion_kind == "slow_zoom":
         zoom, x, y = f"1.0+{ZOOM_PUSH}*{eased}", centre_x, centre_y
     elif motion_kind == "hold":
-        zoom, x, y = f"1.0+{HOLD_PUSH}*{eased}", centre_x, centre_y
+        zoom, x, y = (
+            ("1.0", "0", "0") if respect_hold
+            else (f"1.0+{HOLD_PUSH}*{eased}", centre_x, centre_y)
+        )
     else:
         extra_w, extra_h = (176, 98) if film else (112, 62)
         if film:
@@ -116,7 +122,7 @@ def make_motion_clip(
             2: (f"{fx}*{eased}", f"{fy}/2"),              # straight right
             3: (f"{fx}/2", f"{fy}*{eased}"),              # straight down
         }[style]
-    if motion_kind in {"hold", "slow_zoom"}:
+    if motion_kind in {"hold", "slow_zoom"} and not (respect_hold and motion_kind == "hold"):
         for moment in punch_times(seconds):
             u = f"clip((on/30-{moment:.3f})/{PUNCH_SECONDS},0,1)"
             zoom += f"+{PUNCH_PUSH}*({u})*({u})*(3-2*({u}))"
@@ -368,13 +374,19 @@ class OwnerArtVisualSource:
                 admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
                     clips.append(admitted[0])
-                    rights.append({**admitted[1], "beat_id": beat["id"], "stock_requested": True,
+                    rights.append({**admitted[1], "beat_id": beat["id"],
+                                   "section_id": beat["section_id"],
+                                   # Stock changes picture source, never the owner's
+                                   # approved transition at this exact voice anchor.
+                                   "owner_transition": beat["owner_transition"],
+                                   "stock_requested": True,
                                    "approved_fallback_asset": beat["owner_asset"], "owner_approved": False})
                     continue
                 stock_note = {"stock_requested": True, "stock_fallback_reason": reason}
             seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
             clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
-                                    direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"])
+                                    direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"],
+                                    respect_hold=True)
             clips.append(clip)
             rights.append({**dict(beat), "beat_id": beat["id"], "provider": PROVIDER,
                            "asset_id": beat["owner_asset"], "local_file": clip.name, "source_actual": PROVIDER,
