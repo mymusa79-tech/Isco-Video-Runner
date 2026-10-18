@@ -8285,6 +8285,21 @@
       "selected_at": "2026-10-18T13:16:04Z",
       "created_at": "2026-10-18T13:16:04Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-836ab903cb",
+      "title": "التحسين الذي أفسد المهمة",
+      "normalized_title": "التحسين الذي افسد المهمة",
+      "market_query": "التحسين الذي أفسد المهمة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-18T20:01:06Z",
+      "created_at": "2026-10-18T20:01:06Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -15516,9 +15531,161 @@
         "started_at": "2026-10-18T13:17:00Z",
         "finished_at": "2026-10-18T13:21:44Z"
       }
+    },
+    "req-838777b05885": {
+      "schema_version": 1,
+      "request_id": "req-838777b05885",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "التحسين الذي أفسد المهمة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-836ab903cb",
+      "selected_at": "2026-10-18T20:01:06Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "التحسين الذي أفسد المهمة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "التحسين الذي أفسد المهمة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "بدأ الاجتماع من دون التقرير… رغم أنه كان جاهزًا منذ الصباح!"
+              },
+              {
+                "id": "s2",
+                "text": "كان المدير ينتظر صفحةً واحدة تلخّص النتائج. أنهى الموظف الصفحة مبكرًا، لكنه أراد أن يبدو عمله أكثر إتقانًا. أضاف رسمًا، ثم جدولًا، ثم انشغل بتنسيقهما. وحين عاد إلى زر الإرسال، كان الاجتماع قد بدأ."
+              },
+              {
+                "id": "s3",
+                "text": "لم تنقصه المهارة؛ لكنه أخّر المطلوب من أجل إضافات لم تُطلب.\n\nحين تنتهي مما طُلب منك، أرسله أولًا."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى طبيعية بصوت المسار المعتمد Iapetus دون تبديل، كما لو كنت تروي موقفًا لزميل. نبرة واضحة بلا حزن أو مبالغة، ووقفة طبيعية بعد الهوك. لا تقطع أي كلمة، وأنهِ الخطوة العملية بثقة هادئة."
+          },
+          "scenes": [
+            {
+              "id": "meeting",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "بدأ الاجتماع من دون التقرير",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "onepage",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "كان المدير ينتظر صفحةً واحدة تلخّص النتائج.",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "addchart",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "لكنه أراد أن يبدو عمله أكثر إتقانًا.",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "extras",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "ثم جدولًا، ثم انشغل بتنسيقهما.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "late",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "وحين عاد إلى زر الإرسال، كان الاجتماع قد بدأ.",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "contrast",
+              "section_id": "s3",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "لم تنقصه المهارة؛",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "send",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "حين تنتهي مما طُلب منك، أرسله أولًا.",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/scene_01.jpg",
+            "text": "جاهز… ولم يُرسل!"
+          },
+          "publishing": {
+            "title": "التحسين الذي أفسد المهمة | نداء اليقظة",
+            "description": "كان التقرير جاهزًا، لكن الاجتماع بدأ قبل إرساله. موقف تمثيلي قصير عن الفرق بين إتمام المطلوب والتحسين الذي يؤخر التسليم.",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#إدارة_الوقت",
+              "#الإتقان",
+              "#تطوير_الذات",
+              "#شورت"
+            ]
+          }
+        },
+        "zip_sha256": "ef86967c1f00c2e5493e8a4e14775463f545020c8ab1f34ed60dfd99cfc8452a",
+        "asset_sha256": {
+          "assets/scene_01.jpg": "cb6e205388cddc1bdc30f8f60d0aaf2768f924c8f0314dfdb2877b46caadb9ac",
+          "assets/scene_02.jpg": "1a6863548b48f25779323417d4ec1d2bdcac2c7871cdd74a5a231cc50e0aa54c",
+          "assets/scene_03.jpg": "7b22b51c781e3435ac697a06c5e4fee9836d0ec91cadfb51682b512b61b435e8",
+          "assets/scene_04.jpg": "795e051e3b5ca048d325b60d12e25c391b0d8d7c827e9a99e7d8471b1bb3f4d0",
+          "assets/scene_05.jpg": "167a203b2de12e133f6ed87b9b7b478fccf666d34ec47bda9430f3349785acfa",
+          "assets/scene_06.jpg": "3743442bdc1bf0ed9585c09fbccb799667f92a654a246618cb6b02809e66c32d",
+          "assets/scene_07.jpg": "62d18093c40a6b393ef9a0ea865255f31d1a5c42f05a526e9a042fd69895c890"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6998bbe64e261ebc9f606c8fbd3984f64405b0151c7862a5141084595a7e6bb8",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIM5WrVJWvY-9D0NIScq4dtMfNQWAhhAAJ5IAACY3-oUleZjdltYMhtPQQ",
+          "sha256": "ef86967c1f00c2e5493e8a4e14775463f545020c8ab1f34ed60dfd99cfc8452a"
+        }
+      }
     }
   },
-  "current_request_id": "req-32b4dc8b1f3e",
+  "current_request_id": "req-838777b05885",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -15906,6 +16073,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-18T19:51:03Z",
+  "updated_at": "2026-10-18T20:01:06Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
