@@ -203,7 +203,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     """
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
-    message = "أكمل النقاش في الحلقة الكاملة" if podcast else "أكمل القصة في الفيديو الكامل"
+    message = "أكمل النقاش في الحلقة الكاملة" if podcast else "شاهد الحلقة الكاملة"
     # ASS draws a subdued strip high enough to avoid the normal lower captions.
     return (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
