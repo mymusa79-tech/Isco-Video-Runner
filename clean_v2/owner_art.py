@@ -55,43 +55,77 @@ def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WI
     return destination
 
 
+# Camera moves are rendered from a 3x supersampled copy of the picture. The old version cropped at whole
+# output pixels (and the 720x1280 clip is later enlarged 1.5x), so a slow pan advanced in irregular 1-2 px
+# jumps and a zoom wobbled by a pixel: a visible tremor. Measured on a real Short (phase correlation):
+# pan residual 0.29 px (old) -> 0.09 px (3x), at about 1.8x the encode time of a still clip.
+MOTION_SUPERSAMPLE = 3
+HOLD_PUSH = 0.035         # "hold" still breathes: a barely visible push-in over the shot
+ZOOM_PUSH = 0.10          # slow_zoom: a clear but gentle push-in
+PUNCH_PUSH = 0.04         # an editor's punch-in on a long still shot
+PUNCH_SECONDS = 0.45
+PUNCH_EVERY = 7.0         # a long still gets a punch-in about every 7 s, never faster
+
+
+def _smooth(expr: str) -> str:
+    return f"({expr})*({expr})*(3-2*({expr}))"
+
+
+def punch_times(seconds: float) -> list[float]:
+    """Moments (s) of the editor-style punch-ins for a still held this long; none on a short shot."""
+    count = min(3, int(float(seconds) // PUNCH_EVERY))
+    return [round(float(seconds) * (index + 1) / (count + 1), 3) for index in range(count)]
+
+
 def make_motion_clip(
     image: Path, destination: Path, *, seconds: float, direction: int, film: bool = False, motion: float = 1.0,
     portrait: bool = False, motion_kind: str = "slow_pan",
 ) -> Path:
-    """Slow drift across a slightly enlarged image (cheap: a crop, no per-frame scaling).
+    """A picture with a smooth, sub-pixel camera move.
 
-    Podcast: two gentle diagonal moves. Film: four distinct moves over a larger margin, so
-    consecutive images never move the same way.
+    slow_pan: drift across a slightly enlarged image. Podcast: two gentle diagonal moves; film:
+    four distinct moves over a larger margin, so consecutive images never move the same way.
+    slow_zoom: a push-in. hold: a very small push-in so a still never looks frozen.
+    A hold / zoom that lasts longer than about 7 s also gets short punch-ins, like a human editor.
     """
     from .media import _run
 
     seconds = max(2.0, float(seconds))
     width, height = (720, 1280) if portrait else (CLIP_WIDTH, CLIP_HEIGHT)
-    extra_w, extra_h = (176, 98) if film else (112, 62)
-    if film:
-        extra_w, extra_h = round(extra_w * motion / 2) * 2, round(extra_h * motion / 2) * 2
-    big_w, big_h = width + extra_w, height + extra_h
-    forward = f"t/{seconds:.3f}"
-    backward = f"(1-t/{seconds:.3f})"
-    style = direction % (4 if film else 2)
-    x, y = {
-        0: (f"{extra_w}*{forward}", f"{extra_h}*{backward}"),   # up-right
-        1: (f"{extra_w}*{backward}", f"{extra_h}*{forward}"),   # down-left
-        2: (f"{extra_w}*{forward}", f"{extra_h}/2"),            # straight right
-        3: (f"{extra_w}/2", f"{extra_h}*{forward}"),            # straight down
-    }[style]
-    vf = (
-        f"scale={big_w}:{big_h}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height}:x='{x}':y='{y}',"
-        "setsar=1,fps=30,format=yuv420p"
-    )
+    S = MOTION_SUPERSAMPLE
+    frames = max(2, round(seconds * 30))
+    progress = f"min(1,on/{frames - 1})"
+    eased = f"({progress})*({progress})*(3-2*({progress}))"
+    centre_x, centre_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     if motion_kind == "slow_zoom":
-        vf = (f"scale={width*2}:{height*2}:force_original_aspect_ratio=increase,"
-              f"zoompan=z='1.02+0.04*on/{round(seconds*30)}':x='iw/2-iw/zoom/2':"
-              f"y='ih/2-ih/zoom/2':d=1:s={width}x{height}:fps=30,setsar=1,format=yuv420p")
+        zoom, x, y = f"1.0+{ZOOM_PUSH}*{eased}", centre_x, centre_y
     elif motion_kind == "hold":
-        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30,format=yuv420p"
+        zoom, x, y = f"1.0+{HOLD_PUSH}*{eased}", centre_x, centre_y
+    else:
+        extra_w, extra_h = (176, 98) if film else (112, 62)
+        if film:
+            extra_w, extra_h = round(extra_w * motion / 2) * 2, round(extra_h * motion / 2) * 2
+        zoom = f"{(width + extra_w) / width:.5f}"
+        ratio = (height + extra_h) / height
+        # a pan keeps one zoom; the vertical room comes from the (slightly larger) vertical share
+        fx, fy = "(iw-iw/zoom)", f"(ih-ih/zoom)*{min(1.0, (ratio - 1) / max(1e-6, (width + extra_w) / width - 1)):.4f}"
+        style = direction % (4 if film else 2)
+        x, y = {
+            0: (f"{fx}*{eased}", f"{fy}*(1-{eased})"),    # up-right
+            1: (f"{fx}*(1-{eased})", f"{fy}*{eased}"),    # down-left
+            2: (f"{fx}*{eased}", f"{fy}/2"),              # straight right
+            3: (f"{fx}/2", f"{fy}*{eased}"),              # straight down
+        }[style]
+    if motion_kind in {"hold", "slow_zoom"}:
+        for moment in punch_times(seconds):
+            u = f"clip((on/30-{moment:.3f})/{PUNCH_SECONDS},0,1)"
+            zoom += f"+{PUNCH_PUSH}*({u})*({u})*(3-2*({u}))"
+    vf = (
+        f"scale={width * S}:{height * S}:force_original_aspect_ratio=increase:flags=bicubic,"
+        f"crop={width * S}:{height * S},"
+        f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps=30,"
+        "setsar=1,format=yuv420p"
+    )
     destination.parent.mkdir(parents=True, exist_ok=True)
     _run(
         [
@@ -100,7 +134,7 @@ def make_motion_clip(
             "-vf", vf, "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
             "-pix_fmt", "yuv420p", str(destination),
         ],
-        timeout=600,
+        timeout=1800,
     )
     return destination
 
