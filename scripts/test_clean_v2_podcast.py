@@ -885,11 +885,11 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
 
         self.assertEqual(_ass_clock(65.12), "0:01:05.12")
         podcast = _teaser_cta_ass(28.0, podcast=True)
-        self.assertIn("Dialogue: 0,0:00:23.00,0:00:27.92,Teaser", podcast)
+        self.assertIn("Dialogue: 0,0:00:28.00,0:00:32.92,Teaser", podcast)
         self.assertIn("أكمل النقاش في الحلقة الكاملة", podcast)
         self.assertIn("[Events]\\nFormat:", podcast)
         film = _teaser_cta_ass(7.0, podcast=False)
-        self.assertIn("Dialogue: 0,0:00:02.00,0:00:06.92,Teaser", film)
+        self.assertIn("Dialogue: 0,0:00:07.00,0:00:11.92,Teaser", film)
         self.assertIn("شاهد القصة كاملة", film)
 
     def test_podcast_promo_prefers_real_adjacent_question_answer(self) -> None:
