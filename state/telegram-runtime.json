@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "التحسين الذي أفسد المهمة",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39161443859",
-  "result": "",
-  "updated_at": 1792353922
+  "result": "success",
+  "updated_at": 1792353960
 }
