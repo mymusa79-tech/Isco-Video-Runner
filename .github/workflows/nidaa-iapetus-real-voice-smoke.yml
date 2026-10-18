@@ -1,0 +1,53 @@
+name: Nidaa Iapetus Real Voice Continuity Smoke
+
+on:
+  push:
+    branches: [agent/nidaa-short-iapetus-voice-v24]
+    paths:
+      - scripts/nidaa_iapetus_full_sequence_probe.py
+      - .github/workflows/nidaa-iapetus-real-voice-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  real-audio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLEAN_V2_TTS_CACHE_PATH: ""
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Generate actual Iapetus hook, prayer, channel identification and topic
+        run: python scripts/nidaa_iapetus_full_sequence_probe.py
+      - name: Send only the finished test sequence to private Telegram
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${TELEGRAM_BOT_TOKEN}" && -n "${TELEGRAM_CHAT_ID}" ]]; then
+            curl -fsS --max-time 100 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendAudio" \
+              -F "chat_id=${TELEGRAM_CHAT_ID}" \
+              -F "caption=تجربة Iapetus الشورت — هوك ثم دعاء وتعريف وموضوع، للمراجعة فقط" \
+              -F "audio=@iapetus-sequence/Nidaa_Iapetus_full_identity_test.wav" > /dev/null
+            echo "Sent full voice review to owner Telegram"
+          else
+            echo "No Telegram credentials; artifact will remain available"
+          fi
+      - name: Upload generated WAV review samples
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nidaa-iapetus-full-voice-continuity-smoke
+          path: iapetus-sequence/
+          retention-days: 7
+          if-no-files-found: warn

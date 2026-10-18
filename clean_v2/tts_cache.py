@@ -51,6 +51,7 @@ def build_binding(
     performance_mode: str,
     provider: str,
     performance_direction: Mapping[str, str] | None = None,
+    style_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Bind cached audio to every input that can change the spoken result.
 
@@ -69,6 +70,9 @@ def build_binding(
     }
     if performance_direction:
         result["performance_direction"] = dict(performance_direction)
+    # Preserve byte-for-byte identical cache bindings for existing content.
+    if style_sha256:
+        result["style_sha256"] = str(style_sha256)
     return result
 
 

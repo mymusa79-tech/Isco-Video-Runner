@@ -123,7 +123,7 @@ class TypeLineTests(unittest.TestCase):
                 {"format": "short", "approved_topic": "قصة ذات يوم"},
                 {"owner_authored": True, "short_template": "why_reframe"},
             ),
-            "why_reframe",
+            "nidaa_short_why_reframe",
         )
 
 
