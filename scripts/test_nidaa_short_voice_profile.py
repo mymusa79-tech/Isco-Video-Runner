@@ -67,7 +67,7 @@ class NidaaShortVoiceProfileTests(unittest.TestCase):
             self.assertIn("nidaa_short_" + name, GEMINI38_PERFORMANCE_STYLES)
             self.assertNotEqual(
                 GEMINI38_PERFORMANCE_STYLES["nidaa_short_" + name],
-                GEMINI38_PERFORMANCE_STYLES[name],
+                GEMINI38_PERFORMANCE_STYLES.get(name, GEMINI38_NARRATOR_STYLE),
             )
 
     def test_nidaa_content_iapetus_identity_charon(self):
