@@ -10,7 +10,8 @@ from typing import Any, Mapping
 from .media import probe_duration
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
-_CLICK = _ASSET_DIR / "click_ORIGINAL.wav"
+# A soft modern UI tap + tiny chime (synthesised by scripts/build_modern_outro.py; nothing licensed).
+_CLICK = _ASSET_DIR / "ui_click_modern.wav"
 SFX_TARGET_REL_DB = -15.0
 SFX_MIN_REL_DB = -19.0
 SFX_MAX_REL_DB = -12.0
@@ -113,63 +114,145 @@ def _cairo_bold_font_path() -> Path:
     raise RuntimeError("cairo_bold_font_missing_for_cta")
 
 
+# Channel identity colours (the same navy + gold as the captions). The old icons copied the
+# platform's own red/white look; these are the channel's, but still read at a glance.
+_GOLD = (201, 162, 75)
+_GOLD_HI = (236, 205, 128)
+_GLASS = (14, 22, 40)
+_INK = (11, 18, 32)
+_CREAM = (244, 238, 226)
+_GLYPH_SS = 4
+
+
+def _draw_glyph(draw, mode: str, cx: float, cy: float, size: float, fill: tuple[int, ...]) -> None:
+    """Vector glyph for like / comment / share / bell, centred on (cx, cy); `size` is its box side."""
+    import math
+
+    s = size
+    if mode == "like":  # heart
+        pts = []
+        for i in range(0, 360, 4):
+            t = math.radians(i)
+            x = 16 * math.sin(t) ** 3
+            y = -(13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t))
+            pts.append((cx + x / 34 * s, cy + (y + 1.5) / 34 * s))
+        draw.polygon(pts, fill=fill)
+    elif mode == "comment":  # speech bubble with a tail and three dots
+        left, top, right, bottom = cx - 0.5 * s, cy - 0.42 * s, cx + 0.5 * s, cy + 0.26 * s
+        draw.rounded_rectangle([left, top, right, bottom], radius=0.2 * s, fill=fill)
+        draw.polygon([(cx - 0.26 * s, bottom - 0.02 * s), (cx - 0.30 * s, cy + 0.52 * s), (cx - 0.02 * s, bottom - 0.02 * s)], fill=fill)
+        for dx in (-0.2, 0.0, 0.2):
+            r = 0.055 * s
+            draw.ellipse([cx + dx * s - r, cy - 0.08 * s - r, cx + dx * s + r, cy - 0.08 * s + r], fill=_GLASS + (255,))
+    elif mode == "share":  # three connected nodes
+        nodes = [(cx + 0.30 * s, cy - 0.30 * s), (cx - 0.30 * s, cy), (cx + 0.30 * s, cy + 0.30 * s)]
+        width = max(2, int(0.075 * s))
+        draw.line([nodes[1], nodes[0]], fill=fill, width=width)
+        draw.line([nodes[1], nodes[2]], fill=fill, width=width)
+        for nx, ny in nodes:
+            r = 0.16 * s
+            draw.ellipse([nx - r, ny - r, nx + r, ny + r], fill=fill)
+    else:  # bell
+        pts = []
+        for i in range(0, 181, 6):
+            a = math.radians(180 - i)
+            pts.append((math.cos(a) * 0.62, -0.18 - math.sin(a) * 0.62))
+        pts += [(0.62, 0.10), (0.86, 0.46), (-0.86, 0.46), (-0.62, 0.10)]
+        k = 0.5 * s
+        draw.polygon([(cx + x * k, cy + y * k + 0.04 * s) for x, y in pts], fill=fill)
+        r = 0.095 * s
+        draw.ellipse([cx - r, cy - 0.5 * s - r + 0.04 * s, cx + r, cy - 0.5 * s + r + 0.04 * s], fill=fill)
+        draw.ellipse([cx - 0.18 * k, cy + 0.62 * k + 0.04 * s - 0.18 * k, cx + 0.18 * k, cy + 0.62 * k + 0.04 * s + 0.18 * k], fill=fill)
+
+
+def _glass_badge(canvas, cx: float, cy: float, radius: float, mode: str) -> None:
+    """A glass disc with a gold rim and a gold glyph: the modern replacement for the old icon pictures."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    ss = _GLYPH_SS
+    size = int(radius * 2 + 30)
+    layer = Image.new("RGBA", (size * ss, size * ss), (0, 0, 0, 0))
+    c = size * ss / 2
+    r = radius * ss
+    shadow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).ellipse([c - r, c - r + 8 * ss, c + r, c + r + 8 * ss], fill=(0, 0, 0, 150))
+    layer.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(9 * ss)))
+    d = ImageDraw.Draw(layer)
+    d.ellipse([c - r, c - r, c + r, c + r], fill=_GLASS + (232,))
+    d.ellipse([c - r, c - r, c + r, c + r], outline=_GOLD + (235,), width=int(3.5 * ss))
+    d.arc([c - r + 8 * ss, c - r + 8 * ss, c + r - 8 * ss, c + r - 8 * ss], 200, 290, fill=(255, 255, 255, 70), width=int(3 * ss))
+    _draw_glyph(d, mode, c, c, radius * 1.05 * ss, _GOLD_HI + (255,))
+    layer = layer.resize((size, size), Image.Resampling.LANCZOS)
+    canvas.alpha_composite(layer, (int(cx - size / 2), int(cy - size / 2)))
+
+
+def _render_modern_icon(destination: Path, *, mode: str, size: int = 256) -> Path:
+    """Square transparent icon for the landscape formats (no label)."""
+    from PIL import Image
+
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    _glass_badge(canvas, size / 2, size / 2, size / 2 - 22, mode)
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(destination, "PNG")
+    return destination
+
+
 def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
-    """Create one local Arabic Subscribe + Bell CTA. No provider call, no English UI."""
+    """Create one local Arabic Subscribe + Bell CTA. No provider call, no English UI.
+
+    The button is the channel's gold (not a platform-red copy); the red state belongs to the
+    outro, where the button turns red after the tap.
+    """
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
     except ImportError as exc:
         raise RuntimeError("pillow_missing_for_cta") from exc
 
     width = SHORT_COMBO_WIDTH if fmt == "short" else HORIZONTAL_COMBO_WIDTH
     height = 150 if fmt == "short" else 142
-    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    ss = 2
+    canvas = Image.new("RGBA", (width * ss, height * ss), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     bell_size = height - 24
     gap = 14
     pill_width = width - bell_size - gap
     pill_box = (0, 12, pill_width, height - 12)
-    bell_box = (pill_width + gap, 12, width, height - 12)
-
-    draw.rounded_rectangle(
-        pill_box,
-        radius=(height - 24) // 2,
-        fill=(214, 42, 51, 248),
-        outline=(244, 240, 233, 245),
-        width=3,
-    )
-    draw.ellipse(
-        bell_box,
-        fill=(246, 243, 237, 248),
-        outline=(24, 22, 20, 90),
-        width=2,
-    )
+    ph = height - 24
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle([x * ss for x in (4, 20, pill_width - 4, height - 6)], radius=ph // 2 * ss, fill=(0, 0, 0, 120))
+    canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(8 * ss)))
+    draw = ImageDraw.Draw(canvas)
+    grad = Image.new("RGBA", (pill_width * ss, ph * ss))
+    gd = ImageDraw.Draw(grad)
+    for y in range(grad.height):
+        t = y / grad.height
+        gd.line([(0, y), (grad.width, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(_GOLD_HI, _GOLD)) + (255,))
+    mask = Image.new("L", grad.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, grad.width - 1, grad.height - 1], radius=ph // 2 * ss, fill=255)
+    canvas.paste(grad, (0, 12 * ss), mask)
+    draw = ImageDraw.Draw(canvas)
 
     font_size = 62 if fmt == "short" else 58
     font = ImageFont.truetype(
         str(_cairo_bold_font_path()),
-        font_size,
+        font_size * ss,
         layout_engine=ImageFont.Layout.RAQM,
     )
-    text_x = pill_width // 2
-    text_y = height // 2 - 2
     draw.text(
-        (text_x, text_y),
+        (pill_width // 2 * ss, (height // 2 - 2) * ss),
         "اشترك",
         font=font,
         anchor="mm",
         direction="rtl",
         language="ar",
-        fill=(246, 243, 237, 255),
-        stroke_width=1,
-        stroke_fill=(110, 18, 25, 190),
+        fill=_INK + (255,),
     )
-
-    bell = Image.open(_ICON_BY_MODE["bell"]).convert("RGBA")
-    target = bell_size - 42
-    bell.thumbnail((target, target), Image.Resampling.LANCZOS)
-    bx = bell_box[0] + (bell_size - bell.width) // 2
-    by = 12 + (bell_size - bell.height) // 2
-    canvas.alpha_composite(bell, (bx, by))
+    cx, cy = (pill_width + gap + bell_size / 2) * ss, height / 2 * ss
+    r = bell_size / 2 * ss
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_GLASS + (235,), outline=_GOLD + (240,), width=3 * ss)
+    _draw_glyph(draw, "bell", cx, cy, r * 1.0, _GOLD_HI + (255,))
+    canvas = canvas.resize((width, height), Image.Resampling.LANCZOS)
 
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +261,7 @@ def _render_arabic_subscribe_combo(destination: Path, *, fmt: str) -> Path:
 
 
 def _render_short_labeled_icon(destination: Path, *, mode: str) -> Path:
-    """Render one visual-only Short CTA icon with its Arabic action label below it."""
+    """Render one visual-only Short CTA chip: a glass badge with its glyph and the Arabic action label."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError as exc:
@@ -192,11 +275,7 @@ def _render_short_labeled_icon(destination: Path, *, mode: str) -> Path:
         (SHORT_CTA_CARD_WIDTH, SHORT_CTA_CARD_HEIGHT),
         (0, 0, 0, 0),
     )
-    icon = Image.open(_ICON_BY_MODE[mode]).convert("RGBA")
-    icon.thumbnail((SHORT_CTA_ICON_SIZE, SHORT_CTA_ICON_SIZE), Image.Resampling.LANCZOS)
-    ix = (SHORT_CTA_CARD_WIDTH - icon.width) // 2
-    iy = 8
-    canvas.alpha_composite(icon, (ix, iy))
+    _glass_badge(canvas, SHORT_CTA_CARD_WIDTH / 2, SHORT_CTA_ICON_SIZE / 2 + 10, SHORT_CTA_ICON_SIZE / 2 - 10, mode)
 
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.truetype(
@@ -211,7 +290,7 @@ def _render_short_labeled_icon(destination: Path, *, mode: str) -> Path:
         anchor="mm",
         direction="rtl",
         language="ar",
-        fill=(246, 243, 237, 255),
+        fill=_CREAM + (255,),
         stroke_width=3,
         stroke_fill=(18, 22, 28, 220),
     )
@@ -559,7 +638,9 @@ def _render(
         return
 
     width, height = ((1080, 1920) if fmt == "short" else (1920, 1080))
-    icon_size = 150 if fmt == "short" else 105
+    # Each format gets what it needs: Shorts carry labelled chips; the film gets larger, calmer
+    # glyphs; the podcast keeps them small so the two-host layout and key text stay clear.
+    icon_size = {"short": 150, "film": 120, "podcast": 92}.get(fmt, 105)
 
     command = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -570,6 +651,7 @@ def _render(
         _render_arabic_subscribe_combo(combo_path, fmt=fmt)
 
     short_labeled_paths: dict[str, Path] = {}
+    horizontal_icon_paths: list[Path] = []
     if fmt == "short":
         for event in events:
             if event.mode == "subscribe_combo":
@@ -585,7 +667,10 @@ def _render(
             command.extend(["-loop", "1", "-framerate", "30", "-i", str(combo_path)])
             input_specs.append(("combo", next_index, event))
         else:
-            asset = short_labeled_paths.get(event.mode, _ICON_BY_MODE[event.mode])
+            asset = short_labeled_paths.get(event.mode)
+            if asset is None:
+                asset = _render_modern_icon(dest.parent / f".cta-icon-{event.mode}.png", mode=event.mode)
+                horizontal_icon_paths.append(asset)
             command.extend(["-loop", "1", "-framerate", "30", "-i", str(asset)])
             input_specs.append(("icon", next_index, event))
         next_index += 1
@@ -671,7 +756,7 @@ def _render(
         _run(command, timeout=1800 if fmt in {"film", "podcast"} else 240)
     finally:
         combo_path.unlink(missing_ok=True)
-        for path in short_labeled_paths.values():
+        for path in [*short_labeled_paths.values(), *horizontal_icon_paths]:
             path.unlink(missing_ok=True)
 
 
@@ -760,10 +845,11 @@ def apply_visual_cta_assets(
         "event_count": len(events),
         "short_max_two": fmt != "short" or len(events) <= 1,
         "short_combo_max_seconds": 2.6 if fmt == "short" else None,
-        "short_combo_palette": "red_offwhite_arabic_renderer_owned" if fmt == "short" else None,
+        "short_combo_palette": "channel_gold_navy_glass_arabic_renderer_owned" if fmt == "short" else None,
         "one_action_per_normal_event": True,
         "combo_is_single_approved_reference_asset": False,
-        "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell",
+        "combo_renderer": "local_pillow_cairo_bold_arabic_subscribe_plus_bell_modern_glass",
+        "icon_renderer": "local_pillow_vector_glass_badges_channel_gold",
         "semantic_separation": fmt == "short",
         "spoken_visual_alignment": fmt in {"film", "podcast"},
         "longform_cta_policy": (
