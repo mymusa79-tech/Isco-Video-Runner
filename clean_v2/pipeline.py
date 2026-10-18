@@ -294,9 +294,7 @@ _PODCAST_FIXED_PROFILE = {
         "One fixed خارج النص visual grammar: calm contained medium/wide compositions, tactile real interiors or contextual "
         "environments, side light and breathing room. A listener-proxy turn does NOT force a scene cut: keep the current unresolved "
         "scene when the idea has not changed, show the short A question as sparse Cairo key text for only a few seconds, then let the "
-        "text disappear as B answers. This is an editorial documentary, not a staged metaphor. "
-        "Avoid fake narrative props. Prefer natural contextual scenes with varied justified camera angles. "
-        "Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
+        "text disappear as B answers. Change the image only when B introduces a genuinely new mechanism, consequence, environment or "
         "state; when useful, move from a tighter unresolved detail on A to a wider/revealing context on B. Never fake two hosts, a studio "
         "interview, split-screen conversation, waveform wallpaper, or Short-like kinetic cutting. The visual layer must remain optional "
         "to understanding and feel like one continuous room around the conversation."
@@ -6061,7 +6059,6 @@ listener with the screen closed.
         "For short only: every section must provide TWO distinct visual intents: visual_query_en and visual_query_alt_en. "
         "Both must show a different observable action, detail or outcome of the SAME section idea, never duplicate B-roll. "
         "Keep one connected visual world; avoid repeated desks and writing props. "
-        
         "Use hands, posture, back view, silhouette or distant blur; never a clear recognizable face. "
         "Pets, sleeping animals, travel maps and random gadgets are not metaphors for progress unless the topic involves them. "
         "If primary repeats the previous section\'s dominant action family, alternate MUST change to another relevant family."

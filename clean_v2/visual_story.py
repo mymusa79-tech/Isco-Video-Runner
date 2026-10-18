@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 
 CHANNEL_VISUAL_IDENTITY = (
-    "Grounded photographic realism, natural daylight or plausible practical light, varied camera viewpoints and believable materials; navy and gold are restrained brand accents, not mandatory grading. Every scene must demonstrate a meaningful observable choice, consequence or state change, never a generic symbol chosen for mood. Avoid repetitive rear-view people, notebooks, envelopes, old workshops, clocks, windows, desks and empty roads unless literally demanded by the approved topic. Keep the visual world coherent while varying medium, wide and detail angles when meaningful. Respect Arabic and Islamic culture: modest dress, no suggestive imagery and no recognizable faces. Avoid forced melancholy, glow, HDR and glossy lifestyle advertising."
+    "Grounded cinematic realism with quiet premium depth: restrained dark navy and charcoal shadows, ivory-neutral highlights, rare gold accent, soft practical directional lighting, natural contrast and colors; no blanket blue wash. Show observable state change from friction toward clarity and earned small wins, not repeated props, forced melancholy or glossy lifestyle brightness. Prefer globally understandable, visually meaningful scenes, wide views, hands and objects; no identifiable faces. Respect Arabic and Islamic culture: modest dress, no suggestive or sexualized imagery; a modestly dressed woman is welcome where meaningful. Never force Arab or Western styling without a topic-specific reason."
 )
 VISUAL_WORLD_DEFAULT = CHANNEL_VISUAL_IDENTITY
 CHANNEL_VISUAL_AVOID = (
