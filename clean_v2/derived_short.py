@@ -201,8 +201,8 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
 
     Never trims speech, modifies audio, or extends the measured excerpt.
     """
-    start = max(0.0, duration - 5.0)
-    end = max(start, duration - 0.08)
+    start = duration
+    end = duration + 4.92
     message = "أكمل النقاش في الحلقة الكاملة" if podcast else "شاهد القصة كاملة في الفيديو المرتبط"
     # ASS draws a subdued strip high enough to avoid the normal lower captions.
     return (
@@ -276,18 +276,26 @@ def attempt(root: Path, *, renderer=None) -> dict:
             cta_ass = root / f"{prefix}-teaser-cta.ass"
             cta_ass.write_text(_teaser_cta_ass(window["end"] - window["start"],
                                               podcast=context["format"] == "podcast"), encoding="utf-8")
+            # Finish the complete spoken excerpt first; freeze the final frame
+            # for five silent seconds so the CTA never overlaps or clips speech.
+            excerpt_duration = window["end"] - window["start"]
             _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                  "-vf", "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'", "-map", "0:v:0", "-map", "0:a:0",
-                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "copy", str(final)], timeout=900)
+                  "-vf", "ass='" + _filter_escape_path(ass) + "',tpad=stop_mode=clone:stop_duration=5,"
+                         "ass='" + _filter_escape_path(cta_ass) + "'",
+                  "-af", "apad=pad_dur=5", "-t", f"{excerpt_duration + 5:.3f}",
+                  "-map", "0:v:0", "-map", "0:a:0",
+                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                  "-c:a", "aac", "-b:a", "192k", str(final)], timeout=900)
             qc = inspect_final(final)
-            if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-(window["end"]-window["start"])) > 0.15:
+            if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-(excerpt_duration + 5)) > 0.15:
                 raise RuntimeError("derived_short_stream_or_duration_mismatch")
             final.replace(root / f"{prefix}.mp4")
             atomic_write_json(root / f"{prefix}-qc.json", {**qc, "status": "pass"})
             report = {**base, **window, "status": "pass", "file": f"{prefix}.mp4", "width": 1080, "height": 1920,
                       "duration_seconds": qc["duration_seconds"], "caption_timing": context["caption_timing"],
                       "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
-                      "source_video": source_video.name,
+                      "source_video": source_video.name, "teaser_cta_seconds": 5,
+                      "teaser_cta_after_speech": True,
                       "final_master_qc_status": "pass"}
     except Exception as exc:
         report = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:220]}"}
