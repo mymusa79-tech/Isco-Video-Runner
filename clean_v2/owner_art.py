@@ -274,6 +274,44 @@ class OwnerArtVisualSource:
             return self._inner.acquire(plan, output_dir, fmt, max_visuals, section_estimated_seconds)
         return clips, rights
 
+    def _try_stock(self, beat: Mapping[str, Any], plan: Mapping[str, Any], output_dir: Path, fmt: str):
+        """One real stock clip for this beat, or (None, reason) so the approved image is used.
+
+        Uses the existing stock layer for exactly this beat. The free-AI route is closed here
+        (the approved image IS the fallback), and a clip is admitted only when it is real stock
+        whose own descriptive metadata passes the conservative semantic check. Anything else,
+        including any exception, falls back to the approved image; this never blocks production.
+        """
+        from .media import _stock_review_semantic_fit
+
+        stock = dict(beat["owner_stock"])
+        query, alternate = stock["query_en"], stock.get("query_alt_en", "")
+        single = {k: v for k, v in beat.items() if k not in {"owner_asset", "owner_motion", "owner_transition", "owner_stock"}}
+        single.update(stock_query_en=query, stock_query_alt_en=alternate, source_preference="stock_motion",
+                      _ai_fallback_pass=True)
+        sub_plan = {
+            "sections": [{"id": beat["section_id"], "visual_query_en": query, "visual_query_alt_en": alternate}],
+            "visual_story": {"beats": [single]},
+        }
+        workdir = Path(output_dir) / f"stock-{beat['id']}"
+        try:
+            found_clips, found_rights = self._inner.acquire(sub_plan, workdir, fmt, 1, None)
+        except Exception as exc:  # the approved image covers any stock failure
+            return None, f"stock_error:{type(exc).__name__}"
+        if len(found_clips) != 1 or len(found_rights) != 1:
+            return None, "stock_no_single_clip"
+        row = dict(found_rights[0])
+        if str(row.get("source_actual") or "") not in {"stock_motion", "stock_still"}:
+            return None, "no_admitted_stock_candidate"
+        if not _stock_review_semantic_fit(query, row):
+            return None, "stock_metadata_not_matching_query"
+        # Every per-beat search names its clip visual-01.mp4: give it a unique name next to the
+        # other clips so rights rows and the renderer can never confuse two beats.
+        final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
+        Path(found_clips[0]).replace(final)
+        row["local_file"] = final.name
+        return (final, row), ""
+
     def _acquire_ready(self, plan, output_dir, fmt, estimates):
         """One existing motion clip per approved beat; never fall back to stock."""
         from .production_package import validate_manifest
@@ -291,13 +329,23 @@ class OwnerArtVisualSource:
             sections = {beat["section_id"]}
             if doc["template"] == "ala_mahl":
                 sections = {b["section_id"] for b in beats if b["owner_asset"] == beat["owner_asset"]}
+            stock_note: dict[str, Any] = {}
+            if beat.get("owner_stock"):
+                admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
+                if admitted is not None:
+                    clips.append(admitted[0])
+                    rights.append({**admitted[1], "beat_id": beat["id"], "stock_requested": True,
+                                   "approved_fallback_asset": beat["owner_asset"], "owner_approved": False})
+                    continue
+                stock_note = {"stock_requested": True, "stock_fallback_reason": reason}
             seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
             clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
                                     direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"])
             clips.append(clip)
             rights.append({**dict(beat), "beat_id": beat["id"], "provider": PROVIDER,
                            "asset_id": beat["owner_asset"], "local_file": clip.name, "source_actual": PROVIDER,
-                           "owner_approved": True, "creator": "owner supplied", "attribution_required": False})
+                           "owner_approved": True, "creator": "owner supplied", "attribution_required": False,
+                           **stock_note})
         if not clips:
             raise RuntimeError("approved_package_has_no_images")
         return clips, rights

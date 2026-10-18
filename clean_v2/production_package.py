@@ -43,6 +43,26 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
     return value
 
 
+# Optional real-stock scene (Nidaa Short and Film only). The scene's required `asset` stays the
+# approved image used whenever the client cannot admit a matching clip, so a stock scene can
+# never leave a gap and the archive never carries video or URLs.
+STOCK_MAX_SCENES = {"short": 3, "film": 4}
+_STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
+
+
+def _stock(value: Any, fmt: str, template: str) -> dict:
+    if fmt not in STOCK_MAX_SCENES or template == "ala_mahl":
+        _error("لقطات الستوك للشورت نداء والفيلم فقط؛ البودكاست وعلى مهل صور معتمدة فقط.")
+    stock = _object(value, {"query_en"}, {"query_alt_en", "must_show"}, field="scene.stock")
+    for key in ("query_en", "query_alt_en"):
+        if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
+                             or not 2 <= len(stock[key].split()) <= 9):
+            _error(f"{key} استعلام إنجليزي من 2–9 كلمات بأحرف إنجليزية فقط.")
+    if "must_show" in stock:
+        _text(stock["must_show"], "scene.stock.must_show", 120)
+    return stock
+
+
 def _asset(value: Any) -> str:
     if not isinstance(value, str) or not _ASSET.fullmatch(value):
         _error("مسار الصورة يجب أن يكون مثل assets/scene_01.png بأحرف إنجليزية وأرقام.")
@@ -135,7 +155,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     prior = (-1, -1)
     covered = set()
     for scene in scenes:
-        _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, field="scene")
+        _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, {"stock"}, field="scene")
+        if "stock" in scene:
+            _stock(scene["stock"], fmt, doc["template"])
         sid = scene["section_id"]
         identifier = scene["id"]
         if not isinstance(identifier, str) or not _ID.fullmatch(identifier) or identifier in seen or sid not in texts:
@@ -154,6 +176,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         covered.add(sid)
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
+    stock_count = sum(1 for scene in scenes if "stock" in scene)
+    if stock_count > STOCK_MAX_SCENES.get(fmt, 0):
+        _error(f"لقطات الستوك قليلة عمدًا: {STOCK_MAX_SCENES.get(fmt, 0)} كحد أقصى لهذا النوع.")
     if ala_mahl and scenes[0]["section_id"] != "s1":
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):

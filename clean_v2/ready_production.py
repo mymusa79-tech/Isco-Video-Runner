@@ -42,10 +42,16 @@ def build_story(doc: Mapping[str, Any]) -> dict:
             if not body_scenes or text.index(body_scenes[0]["start_text"]) > len(hook) + 1:
                 shared = dict(hook_scenes[-1])
                 shared.update(id=shared["id"] + "__topic", start_text=remainder[:300])
+                shared.pop("stock", None)  # the virtual hold reuses the approved image, never a second stock search
                 expanded.insert(len(hook_scenes), shared)
         for within, scene in enumerate(expanded):
             role = "hook" if hook and text.index(scene["start_text"]) < len(hook) else "body"
             query = f"approved owner illustration scene {len(beats) + 1}"
+            stock = scene.get("stock") if isinstance(scene.get("stock"), dict) else None
+            if stock:
+                # Real stock is only a request: `owner_asset` below stays the approved
+                # image that is used whenever no clip is admitted.
+                query = str(stock["query_en"]).strip()
             beats.append({
                 "id": scene["id"], "section_id": sid, "role": role,
                 "viewer_intent": scene["start_text"], "meaning_target": scene["start_text"],
@@ -54,6 +60,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
                 "owner_asset": scene["asset"], "owner_motion": scene["motion"], "owner_transition": scene["transition"],
+                **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
             })
     beats[-1]["role"] = "payoff"
     return {"schema_version": 2, "visual_world": CHANNEL_VISUAL_IDENTITY,
