@@ -154,9 +154,9 @@ class SimpleEditorialRegressionTests(unittest.TestCase):
             {"start": 3, "end": 5, "text": "اختر خطوة صغيرة اليوم", "role": "payoff"},
         ]
         with mock.patch.dict(os.environ, {SIMPLE_MODE_ENV: "1"}):
-            self.assertEqual(_font_size_for_event(TimedTextEvent(0, 1, "عمل", "hook")), 116)
+            self.assertEqual(_font_size_for_event(TimedTextEvent(0, 1, "عمل", "hook")), 144)
             ass = build_rich_ass(events)
-        self.assertIn("Style: Caption,Cairo,116,", ass)
+        self.assertIn("Style: Caption,Cairo,144,", ass)
         self.assertIn(",0,0,1,3,0,5,", ass)
         self.assertEqual(ass.count("Dialogue: "), 3)
         self.assertNotIn(r"\\fs166", ass)

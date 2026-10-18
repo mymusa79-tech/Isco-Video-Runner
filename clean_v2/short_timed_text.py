@@ -29,6 +29,9 @@ BODY_FONT = "Cairo"
 FOCUS_FONT = BODY_FONT
 BODY_FONT_SIZE = 166
 FOCUS_FONT_SIZE = 166
+# Simple-mode Shorts: was 116 (about 37% of the frame width on two rows, too small on a phone).
+# 144 is the start size; the fitter still shrinks a long phrase (never below 120) to keep two rows.
+SIMPLE_CAPTION_FONT_SIZE = 144
 FOCUS_SCALE = 1.00
 BODY_WRAP_WORDS = 6
 MAX_CAPTION_LINES = 2
@@ -886,7 +889,7 @@ def _font_size_for_event(item: TimedTextEvent) -> int:
     if is_simple_mode():
         # A stable phone-sized caption; long phrases split into two rows rather
         # than ballooning over the footage on individual cards.
-        return 116
+        return SIMPLE_CAPTION_FONT_SIZE
     words = len(_clean(item.text).split())
     size = ROLE_BASE_FONT_SIZE[item.role]
     if words <= 2:
@@ -942,7 +945,7 @@ def build_rich_ass(
 
     from .simple_mode import is_simple_mode
     simple_caption = is_simple_mode()
-    caption_style_size = 116 if simple_caption else BODY_FONT_SIZE
+    caption_style_size = SIMPLE_CAPTION_FONT_SIZE if simple_caption else BODY_FONT_SIZE
     caption_outline = 3 if simple_caption else 4
     lines = [
         "[Script Info]",
@@ -1058,8 +1061,8 @@ def render_progressive_text(
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
-        "focus_font_size": 116 if _font_size_for_event(validated[0]) == 116 else FOCUS_FONT_SIZE,
-        "body_font_size": 116 if _font_size_for_event(validated[0]) == 116 else BODY_FONT_SIZE,
+        "focus_font_size": SIMPLE_CAPTION_FONT_SIZE if _font_size_for_event(validated[0]) == SIMPLE_CAPTION_FONT_SIZE else FOCUS_FONT_SIZE,
+        "body_font_size": SIMPLE_CAPTION_FONT_SIZE if _font_size_for_event(validated[0]) == SIMPLE_CAPTION_FONT_SIZE else BODY_FONT_SIZE,
         "body_wrap_words": BODY_WRAP_WORDS,
         "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
