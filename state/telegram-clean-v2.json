@@ -8270,6 +8270,21 @@
       "selected_at": "2026-10-18T06:13:42Z",
       "created_at": "2026-10-18T06:13:42Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-8f20dbeab8",
+      "title": "ساعدته… فأفسدت عليه عمله!",
+      "normalized_title": "ساعدته فافسدت عليه عمله",
+      "market_query": "ساعدته… فأفسدت عليه عمله!",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-18T13:16:04Z",
+      "created_at": "2026-10-18T13:16:04Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -15331,9 +15346,162 @@
           "sha256": "8b5d4cf04bfdf0b01c7462b07bae3efe62becd16b51bf1462d4dbc1c1c8fc0a2"
         }
       }
+    },
+    "req-32b4dc8b1f3e": {
+      "schema_version": 1,
+      "request_id": "req-32b4dc8b1f3e",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "ساعدته… فأفسدت عليه عمله!",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-8f20dbeab8",
+      "selected_at": "2026-10-18T13:16:04Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "ساعدته… فأفسدت عليه عمله!",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "ساعدته… فأفسدت عليه عمله!",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "ساعده ليوفّر عليه الوقت… فأضاع عليه ساعتين!"
+              },
+              {
+                "id": "s2",
+                "text": "رأى زميله مشغولًا، ففتح ملفه وعدّل ترتيبه بسرعة، ظنًّا أنه يساعده. لكن الزميل كان يرتّبه بهذه الطريقة لسبب محدد. وحين عاد، لم يفهم ما الذي تغيّر، فجلس يعيد كل شيء من البداية. المشكلة هنا ليست سوء النية… بل أنك قد تساعد بالطريقة التي تناسبك أنت، لا بالطريقة التي يحتاجها هو."
+              },
+              {
+                "id": "s3",
+                "text": "لهذا، قبل أن تتدخل في عمل أحد، لا تبدأ بالفعل مباشرة. اسأله أولًا: ماذا تحتاج مني بالضبط؟ سؤال صغير كهذا… قد يحفظ الوقت، ويحفظ الود أيضًا."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "Keep the currently approved Iapetus voice for the entire Nidaa Short, including prayer and channel definition. Natural firm delivery for topic, neutral respectful identity; never cut spoken words. Outro only after last spoken word."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01_hook.png",
+              "start_text": "ساعده ليوفّر عليه الوقت… فأضاع عليه ساعتين!",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02_intervention.png",
+              "start_text": "رأى زميله مشغولًا، ففتح ملفه",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands rearranging documents on office desk",
+                "query_alt_en": "faceless worker organizing papers beside laptop",
+                "must_show": "Hands rearrange documents at a laptop desk; no visible face, logos or legible text"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03_reason.png",
+              "start_text": "لكن الزميل كان يرتّبه بهذه الطريقة",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04_rework.png",
+              "start_text": "وحين عاد، لم يفهم ما الذي تغيّر",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands searching through office papers at desk",
+                "query_alt_en": "closeup hands resorting scattered documents with laptop",
+                "must_show": "Hands search through misplaced desk documents without a visible face or readable text"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05_understanding.png",
+              "start_text": "المشكلة هنا ليست سوء النية",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s3",
+              "asset": "assets/scene_06_ask_first.png",
+              "start_text": "لهذا، قبل أن تتدخل في عمل أحد",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_clean.png",
+            "text": "ساعدته… فأفسدت عليه عمله!"
+          },
+          "publishing": {
+            "title": "ساعدته… فأفسدت عليه عمله!",
+            "description": "أحيانًا لا تكون المشكلة في النية، بل في طريقة المساعدة نفسها. قبل أن تتدخل في عمل أحد، اسأله أولًا: ماذا تحتاج مني بالضبط؟",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#وعي",
+              "#تطوير_الذات",
+              "#العمل"
+            ]
+          }
+        },
+        "zip_sha256": "a13f8b16f7690952de3812c107ce4bca74dfef356208863084c8b3697b23f1b4",
+        "asset_sha256": {
+          "assets/cover_clean.png": "2348667562423145a56324d6cce97cfa88b3bcab45ed7ce9f5195cbef6d7c076",
+          "assets/scene_01_hook.png": "35ba0ed3c00b37f8a4105d82fa8af8280f72c877e2c97d1e731483a3a81f2aa1",
+          "assets/scene_02_intervention.png": "889ed339ae0c85679b99ad65900d641587e5c6846d1ca9b9379a86cf9314824e",
+          "assets/scene_03_reason.png": "eb48afdad55fac3f9265e1495669658c9030a399f9bea6cc75ffecaf59edfad6",
+          "assets/scene_04_rework.png": "e911451365fca1fa7eca2e532cdb2c5b74369b04ff7393849efdd450b9fb98e9",
+          "assets/scene_05_understanding.png": "9dd48f3d3961129d98d7758d04ef926200c4935e50090dff7059537ad0a40d17",
+          "assets/scene_06_ask_first.png": "c3d63adb6d471a35c80882ee488484fb327be9c7900868867d173e26726798cf"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "90f90cc3006da0a5c07bbf7ef21bfc40b32fc0c3facb86b829efb1a8b3290a63",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIM1WrUxnkqHjQtqwAB2uATyW4ZrW5A9gACOx4AAgMioVJVXQ1ToLSgcj0E",
+          "sha256": "a13f8b16f7690952de3812c107ce4bca74dfef356208863084c8b3697b23f1b4"
+        }
+      }
     }
   },
-  "current_request_id": "req-c71a8d777479",
+  "current_request_id": "req-32b4dc8b1f3e",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -15721,6 +15889,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-18T13:14:22Z",
+  "updated_at": "2026-10-18T13:16:05Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
