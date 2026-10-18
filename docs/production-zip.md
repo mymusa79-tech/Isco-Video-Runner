@@ -32,6 +32,7 @@ Only the performance directions enter TTS style metadata; they are never appende
 | `performance` | Required `direction` string (may be empty); optional `A`/`B` style directions for Podcast; each ≤800 characters |
 | `scenes` | Ordered list, 1–30 entries, every section covered; Ala Mahl: 2–4 distinct portrait images (old 5–6-image ZIPs remain accepted) |
 | Scene | `id` (unique lowercase ASCII identifier), `section_id`, `asset`, `start_text`, `motion`, `transition` |
+| `stock` (optional) | Nidaa Short and Film only; never Podcast or Ala Mahl. `{"query_en":"person walking on sidewalk","query_alt_en":"…","must_show":"…"}`: English 2–9 word query; no other fields, no URLs. At most 3 stock scenes in a Short and 4 in a Film. The scene's required `asset` is the approved fallback image: it is used whenever the client cannot admit a real stock clip (no result, provider/quota/key failure, or descriptive metadata that does not match the query). No AI image is generated in its place. The report records `stock_fallback_reason` per scene. |
 | `start_text` | Exact unique text inside that section, with speaker labels omitted. First scene of every section starts with its first spoken words. Subsequent anchors must be in text order. |
 | `motion` | `slow_pan`, `slow_zoom`, `hold` |
 | `transition` | `cut`, `dissolve` into that scene. Measured identity boundaries stay cuts. |
