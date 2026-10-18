@@ -352,6 +352,20 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             self.assertEqual((events["topic"]["start"], events["topic"]["end"]), (13.45, 27.45))
 
 
+    def test_short_outro_plays_in_full_after_a_breath(self) -> None:
+        from clean_v2.identity_sequence import ALA_MAHL_OUTRO_SECONDS
+        from clean_v2.timeline_first import _identity_events
+        units = [
+            {"role": "hook", "start": 0.0, "end": 3.0},
+            {"role": "post_hook_silence", "start": 3.0, "end": 3.25},
+            {"role": "prayer", "start": 3.25, "end": 6.0},
+            {"role": "post_prayer_silence", "start": 6.0, "end": 6.25},
+            {"role": "final_silence", "start": 30.0, "end": 32.7},
+        ]
+        events = {e["kind"]: e for e in _identity_events(units, voice_seconds=32.7, require_identity=True)}
+        self.assertAlmostEqual(events["outro"]["end"] - events["outro"]["start"], ALA_MAHL_OUTRO_SECONDS, places=3)
+        self.assertGreater(events["outro"]["start"], 30.4)
+
     def test_identity_animation_preserves_the_story_world_beneath_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -391,7 +405,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertNotIn("ass='", filters)
         self.assertIn("[0:v][prayer]overlay=0:0", filters)
         self.assertIn("force_original_aspect_ratio=decrease", filters)
-        self.assertIn("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black", filters)
+        self.assertIn("boxblur=60:8[prayerbg]", filters)
         self.assertIn("gte(t,3.000)*lt(t,4.750)", filters)
         self.assertNotIn(str(assets["intro"]), command)  # no logo card in Shorts
         self.assertNotIn("[channel]", filters)
@@ -449,7 +463,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
         self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.65)
         self.assertEqual(identity_timing_profile("podcast")["intro_silence_seconds"], 6.00)
         self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.00)
-        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 1.25)
+        self.assertEqual(identity_timing_profile("short")["final_silence_seconds"], 2.7)
         self.assertEqual(identity_timing_profile("film")["final_silence_seconds"], 3.50)
         self.assertEqual(identity_timing_profile("podcast")["final_silence_seconds"], 6.50)
 

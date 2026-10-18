@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .identity_sequence import ALA_MAHL_OUTRO_SECONDS
 from .media import probe_duration
 
 CONTRACT_ID = "clean-v2-timeline-first-v1"
@@ -226,10 +227,14 @@ def _identity_events(
         events.append({"kind": "topic", "source": "measured_voice_timeline",
                        "start": float(rows["post_prayer_silence"]["end"]),
                        "end": float(rows["final_silence"]["start"])})
-        for kind in ("outro", "final_silence"):
-            events.append({"kind": kind, "source": "measured_silence_chunk",
-                           "start": float(rows["final_silence"]["start"]),
-                           "end": float(rows["final_silence"]["end"])})
+        final_start = float(rows["final_silence"]["start"])
+        final_end = float(rows["final_silence"]["end"])
+        # The outro plays in full at the end; anything before it is a breath after the last word.
+        outro_start = min(max(final_start, final_end - ALA_MAHL_OUTRO_SECONDS), final_end)
+        events.append({"kind": "outro", "source": "measured_silence_chunk",
+                       "start": outro_start, "end": final_end})
+        events.append({"kind": "final_silence", "source": "measured_silence_chunk",
+                       "start": final_start, "end": final_end})
         return events
     hook = _one_role(units, "hook")
     prayer = _one_role(units, "prayer")
