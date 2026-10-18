@@ -890,7 +890,7 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
         self.assertIn("[Events]\nFormat:", podcast)
         film = _teaser_cta_ass(7.0, podcast=False)
         self.assertIn("Dialogue: 0,0:00:02.00,0:00:06.92,Teaser", film)
-        self.assertIn("شاهد القصة كاملة", film)
+        self.assertIn("أكمل القصة في الفيديو الكامل", film)
 
     def test_podcast_promo_prefers_real_adjacent_question_answer(self) -> None:
         sections = [
