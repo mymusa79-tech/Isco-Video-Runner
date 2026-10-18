@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "متى يكون الانسحاب قرارًا شجاعًا؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39087369518",
-  "result": "success",
-  "updated_at": 1792289015
+  "topic": "قبل أن تضيع شهرًا آخر… اختبر أسبوعًا",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39097402617",
+  "result": "",
+  "updated_at": 1792297924
 }
