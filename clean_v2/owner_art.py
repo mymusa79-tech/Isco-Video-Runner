@@ -374,7 +374,12 @@ class OwnerArtVisualSource:
                 admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
                     clips.append(admitted[0])
-                    rights.append({**admitted[1], "beat_id": beat["id"], "stock_requested": True,
+                    rights.append({**admitted[1], "beat_id": beat["id"],
+                                   "section_id": beat["section_id"],
+                                   # Stock changes picture source, never the owner's
+                                   # approved transition at this exact voice anchor.
+                                   "owner_transition": beat["owner_transition"],
+                                   "stock_requested": True,
                                    "approved_fallback_asset": beat["owner_asset"], "owner_approved": False})
                     continue
                 stock_note = {"stock_requested": True, "stock_fallback_reason": reason}
