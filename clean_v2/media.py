@@ -44,6 +44,10 @@ GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
 GEMINI38_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 _GEMINI38_ALLOWED_TTS_MODELS = frozenset({GEMINI38_TTS_MODEL, GEMINI38_LITE_TTS_MODEL})
 GEMINI38_PRIMARY_VOICE = "Charon"
+# Owner-approved Nidaa Short voice. Other formats, prayer and identity stay Charon.
+GEMINI38_NIDAA_SHORT_PRIMARY_VOICE = "Iapetus"
+GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:NidaaShort"
+GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus+Charon:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
@@ -78,7 +82,36 @@ GEMINI38_PODCAST_ANSWER_STYLE = (
     "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
     "simple-deep conversational delivery, unhurried but not sleepy, never announcer or lecture tone."
 )
+GEMINI38_NIDAA_SHORT_BASE_STYLE = (
+    "Short-form Modern Standard Arabic delivery: alert, present and forward-moving from the "
+    "first word; more energy and conviction than long-form narration; brisk natural pace "
+    "with short pauses only at real turns; stress important words and land sentences clearly. "
+    "Grounded, human and conversational, no shouting, newsreader or sales pitch. "
+)
+GEMINI38_NIDAA_SHORT_STYLES = {
+    "nidaa_short_why_reframe": (
+        "Challenge one mistaken assumption with a sharp, direct opening; "
+        "emphasize the false belief, then land the useful reframe with conviction and warmth."
+    ),
+    "nidaa_short_inner_dialogue": (
+        "An honest inner voice with real stakes: curious, lively self-questioning, "
+        "quick natural rhythm; land the conclusion decisively without fading or acting."
+    ),
+    "nidaa_short_micro_story": (
+        "Vivid and concrete, quicker through the setup, one brief pause at the turn, "
+        "then an earned, clear and confident payoff."
+    ),
+    "nidaa_short_quote_reflection": (
+        "Focused, present, emphasize only the quotation's meaningful words, "
+        "never sleepy or ponderous, close with quiet conviction."
+    ),
+}
+
 GEMINI38_PERFORMANCE_STYLES = {
+    **{
+        mode: GEMINI38_NIDAA_SHORT_BASE_STYLE + detail
+        for mode, detail in GEMINI38_NIDAA_SHORT_STYLES.items()
+    },
     "why_reframe": (
         "Same Charon identity. Clear and lightly incisive: open the mistaken frame with controlled tension, "
         "then become warmer and steadier as the useful reframe lands. Never salesy or preachy."
@@ -678,12 +711,31 @@ class GeminiOnlyVoiceSynthesizer:
             )
 
         is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
-        primary_voice = GEMINI38_LITE_PRIMARY_VOICE if is_lite else self.EXPECTED_PRIMARY_VOICE
+        # The exact same text can be spoken by a different voice only when the
+        # Nidaa Short mode is explicitly selected. Never infer it from length.
+        short_profile = str(performance_mode or "").startswith("nidaa_short_")
+        if short_profile and is_lite:
+            raise RuntimeError("Nidaa Short Iapetus is approved on Flash TTS only; lite is not a substitute")
+        short_identity = str(performance_mode or "") == "nidaa_short_identity"
+        primary_voice = (
+            self.EXPECTED_PRIMARY_VOICE if short_identity
+            else GEMINI38_NIDAA_SHORT_PRIMARY_VOICE if short_profile
+            else GEMINI38_LITE_PRIMARY_VOICE if is_lite
+            else self.EXPECTED_PRIMARY_VOICE
+        )
         questioner_voice = self.EXPECTED_QUESTIONER_VOICE
-        provider = GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
-        reference_profile = GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
+        provider = (
+            GEMINI38_NIDAA_SHORT_PROVIDER if short_profile
+            else GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
+        )
+        reference_profile = (
+            GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if short_profile
+            else GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
+        )
 
         self.voice_roles = _spoken_voice_roles(transcript)
+        if short_profile and self.voice_roles.get("mode") == "single_narrator":
+            self.voice_roles["narrator"] = primary_voice
         self.last_provider = None
         self.fallback_used = self.tts_model != GEMINI38_TTS_MODEL
         self.voice_approval_status = None
@@ -695,6 +747,17 @@ class GeminiOnlyVoiceSynthesizer:
 
         from .tts_cache import build_binding, persist, restore
 
+        # New short profiles bind the exact final metadata style. Legacy
+        # bindings are passed unchanged, preserving long/podcast/old cache keys.
+        style_binding = {}
+        if short_profile:
+            style = GEMINI38_PERFORMANCE_STYLES.get(
+                str(performance_mode or ""), GEMINI38_NARRATOR_STYLE
+            )
+            if performance_direction:
+                direction = str(performance_direction.get("direction") or "")
+                style += " " + " ".join(v for v in (direction,) if v)
+            style_binding["style_sha256"] = hashlib.sha256(style.encode("utf-8")).hexdigest()
         cache_binding = build_binding(
             transcript=transcript,
             model=self.tts_model,
@@ -703,6 +766,7 @@ class GeminiOnlyVoiceSynthesizer:
             performance_mode=performance_mode,
             provider=provider,
             **({"performance_direction": performance_direction} if performance_direction else {}),
+            **style_binding,
         )
         if restore(cache_binding, output_path):
             self.last_provider = provider

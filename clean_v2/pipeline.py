@@ -476,7 +476,7 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
-_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER})
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER, "gemini-3.8:NidaaShort"})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -1002,6 +1002,10 @@ def _synthesize_sectioned_voice_pass(
                     # while a fixed identity closer never inherits a dramatic mode.
                     if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
+                    elif requested_performance_mode.startswith("nidaa_short_"):
+                        # Short prayer and spoken logo remain the original Charon
+                        # with neutral delivery, within the same short provider route.
+                        effective_performance_mode = "nidaa_short_identity"
                 if require_charon_only:
                     if effective_performance_mode:
                         voice_synthesizer.synthesize(
@@ -1501,6 +1505,8 @@ _AUDIT_NARRATIVE_FORMAT_OVERRIDES = {
 def _voice_performance_mode_for_brief(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any] | None = None,
+    *,
+    ready_template: str = "",
 ) -> str:
     """Map the locked editorial type to Gemini style metadata only.
 
@@ -1511,10 +1517,19 @@ def _voice_performance_mode_for_brief(
     if fmt == "short":
         owner_template = str((plan or {}).get("short_template") or "")
         if (plan or {}).get("owner_authored") and owner_template in TEMPLATE_WRITING_DIRECTIVES:
-            # Owner-written Short: the type he chose drives the delivery style, not a
-            # keyword score of his title.
-            return owner_template
-        return str(select_short_template(brief)["template"])
+            template = owner_template
+        else:
+            template = str(select_short_template(brief)["template"])
+        # 'على مهل' is a separate series, not a short with increased energy.
+        # Preserve its existing Charon and performance behavior unchanged.
+        series_name = str(brief.get("series_name") or "")
+        is_ala_mahl = (
+            ready_template == "ala_mahl"
+            or owner_template == "ala_mahl"
+            or str(brief.get("template") or "") == "ala_mahl"
+            or "على مهل" in series_name
+        )
+        return template if is_ala_mahl else f"nidaa_short_{template}"
     if fmt == "podcast":
         return "podcast_listener_proxy_qa"
     selected = str((plan or {}).get("narrative_format") or "").strip()
@@ -7931,6 +7946,9 @@ class CleanV2Pipeline:
                         performance_mode=_voice_performance_mode_for_brief(
                             brief,
                             plan,
+                            ready_template=str(
+                                _read_json_object(output_dir / "production.json").get("template") or ""
+                            ),
                         ),
                     ),
                 )
