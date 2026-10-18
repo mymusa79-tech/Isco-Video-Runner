@@ -887,7 +887,7 @@ class PodcastDerivedShortLiteTests(unittest.TestCase):
         podcast = _teaser_cta_ass(28.0, podcast=True)
         self.assertIn("Dialogue: 0,0:00:23.00,0:00:27.92,Teaser", podcast)
         self.assertIn("أكمل النقاش في الحلقة الكاملة", podcast)
-        self.assertIn("[Events]\\nFormat:", podcast)
+        self.assertIn("[Events]\nFormat:", podcast)
         film = _teaser_cta_ass(7.0, podcast=False)
         self.assertIn("Dialogue: 0,0:00:02.00,0:00:06.92,Teaser", film)
         self.assertIn("شاهد القصة كاملة", film)
