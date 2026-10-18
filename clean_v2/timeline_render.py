@@ -200,11 +200,22 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         f"[0:v][prayer]overlay=0:0:enable='gte(t,{start:.3f})*lt(t,{end:.3f})'[prayed];"
         f"[prayed][outro]overlay=0:0:enable='gte(t,{outro_start:.3f})'[vout]"
     )
+    audio = ["-map", "0:a:0", "-c:a", "copy"]
+    if str(timeline.get("template") or "") != "ala_mahl":
+        # Nidaa Short: the outro's tap sound is mixed in at the outro window.
+        filters += (
+        f";[2:a]atrim=duration={outro_end-outro_start:.3f},asetpts=PTS-STARTPTS,"
+        f"adelay={int(round(outro_start*1000))}:all=1,volume=0.7,aformat=sample_rates=48000:channel_layouts=mono[aoutro];"
+        f"[0:a]aformat=sample_rates=48000:channel_layouts=mono[avoice];"
+        f"[avoice][aoutro]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
+        f"alimiter=limit=0.84:level=disabled[aout]"
+        )
+        audio = ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(source), "-loop", "1", "-framerate", "30", "-i", str(assets["prayer"]),
         *extra_inputs, "-filter_complex", filters,
-        "-map", "[vout]", "-map", "0:a:0", "-t", f"{seconds:.3f}",
+        "-map", "[vout]", *audio, "-t", f"{seconds:.3f}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
-        "-c:a", "copy", "-movflags", "+faststart", str(destination),
+        "-movflags", "+faststart", str(destination),
     ], check=True, timeout=1800)

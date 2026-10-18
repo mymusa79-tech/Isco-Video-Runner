@@ -183,6 +183,28 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
             self.assertIn("[aout]", command)
             self.assertEqual(command[command.index("-t") + 1], "30.000")
 
+    def test_short_identity_mixes_outro_tap_sound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = {kind: root / f"{kind}.mp4" for kind in ("prayer", "outro")}
+            for path in assets.values():
+                path.write_bytes(b"fixture" * 300)
+            timeline = {"voice_seconds_measured": 30.0, "identity_events": [
+                {"kind": "prayer", "start": 5.0, "end": 8.0},
+                {"kind": "post_prayer_silence", "start": 8.0, "end": 8.25},
+                {"kind": "outro", "start": 27.0, "end": 29.2},
+            ]}
+            with mock.patch.object(timeline_render, "identity_asset_paths", return_value=assets), \
+                 mock.patch.object(timeline_render.subprocess, "run") as run:
+                timeline_render.render_identity_composition(root / "source.mp4", root / "final.mp4",
+                                                           fmt="short", timeline=timeline)
+            command = run.call_args.args[0]
+            filters = command[command.index("-filter_complex") + 1]
+            self.assertIn("[2:a]atrim=duration=2.200", filters)
+            self.assertIn("adelay=27000", filters)
+            self.assertIn("amix=inputs=2", filters)
+            self.assertIn("[aout]", command)
+
     def test_short_keeps_one_visual_only_social_cta(self) -> None:
         cases = (
             (36.0, "كيف تنهض عندما تفقد الدافع؟", "comment"),
