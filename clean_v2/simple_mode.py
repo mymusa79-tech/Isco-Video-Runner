@@ -117,6 +117,35 @@ def tone_audit_state(output_dir: Path) -> str:
     return "reviewed"
 
 
+def _use_approved_image(clip: Path, row: dict[str, Any], beat: Mapping[str, Any], *,
+                        index: int, fmt: str, seconds: float, reason: str) -> bool:
+    """A rejected optional stock clip is replaced by the owner's approved image, never by a bare background.
+
+    Only rows that asked for stock over an approved package image qualify; everything else
+    keeps the existing local replacement. Returns True when the clip file was rewritten.
+    """
+    approved = str(row.get("approved_fallback_asset") or "")
+    if not (row.get("stock_requested") and approved):
+        return False
+    try:
+        from .owner_art import PROVIDER, art_dir, make_motion_clip
+
+        directory = art_dir()
+        asset = directory / approved if directory else None
+        if asset is None or not asset.is_file():
+            return False
+        rejected = {k: row.get(k) for k in ("provider", "asset_id", "source_url", "creator", "source_actual")}
+        make_motion_clip(asset, clip, seconds=float(seconds) + 1, direction=index, portrait=fmt == "short",
+                         motion_kind=str(beat.get("owner_motion") or "slow_pan"))
+    except Exception:
+        return False
+    row.update(provider=PROVIDER, source_actual=PROVIDER, asset_id=approved, source_url="",
+               creator="owner supplied", creator_url="", attribution_required=False, owner_approved=True,
+               visual_verification="owner_designed_art", replacement_reason=reason, rejected_source=rejected)
+    row.pop("visual_evidence", None)
+    return True
+
+
 def simple_visual_qa(
     *,
     output_dir: Path,
@@ -271,6 +300,13 @@ def simple_visual_qa(
             row["visual_evidence"] = provenance
             row["visual_verification"] = "observed_matched"
             previous_observation = str(audit["observed_visual"])
+        elif _use_approved_image(clip, row, beat, index=index, fmt=fmt,
+                                 seconds=display.get(local_file, 12.0), reason=reason):
+            reviews.append({"local_file": local_file, "decision": "owner_designed_art",
+                            "reason": f"stock_rejected_approved_image:{reason}",
+                            "observed_visual": audit.get("observed_visual"), "proof": audit.get("observed_proof_status"),
+                            "face": audit.get("observed_face_status"), "aesthetic_scores_advisory": True})
+            continue
         else:
             recipe = local_visual_recipe(beat)
             create_fallback_visual(clip, portrait=fmt in {"short", "story", "moment"}, beat=beat,
