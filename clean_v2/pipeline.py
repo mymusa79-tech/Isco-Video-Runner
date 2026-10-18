@@ -7950,7 +7950,7 @@ class CleanV2Pipeline:
                             plan,
                             ready_template=str(
                                 _read_json_object(output_dir / "production.json").get("template") or ""
-                            ),
+                            ) if (output_dir / "production.json").is_file() else "",
                         ),
                     ),
                 )
