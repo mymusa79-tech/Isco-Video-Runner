@@ -1,0 +1,155 @@
+name: Nidaa Short Male Voice Listening Test
+
+on:
+  push:
+    branches:
+      - agent/nidaa-short-voice-audition-20261018-3male
+    paths:
+      - .github/workflows/nidaa-short-male-voice-audition.yml
+
+permissions:
+  contents: read
+
+jobs:
+  three-voice-audition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Synthesize exactly three male Arabic samples via existing Gemini key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audition
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          import wave
+          from pathlib import Path
+
+          secret = os.environ.get("GEMINI_API_KEY", "").strip()
+          if not secret:
+              raise SystemExit("GEMINI_API_KEY repository secret missing or empty")
+          voices = ("Iapetus", "Achird", "Alnilam")
+          text = (
+              "أنت لا تحتاج أن تشعر بالثقة قبل أن تبدأ. "
+              "كم مرة أجّلت خطوة لأنك تنتظر أن تصبح مستعدًا؟ "
+              "الحقيقة أن الثقة تنمو بعد التجربة. "
+              "جرّب اليوم خطوة صغيرة كنت تؤجلها، "
+              "واترك النتيجة تخبرك بما تستطيع."
+          )
+          style = (
+              "Natural conversational Modern Standard Arabic adult male voice; "
+              "alert, present and clear from the first word; confident but human, "
+              "brisk natural pace; stress key words; brief pauses at real turns; "
+              "land the final sentence with conviction. No shouting, no newsreader, "
+              "no sales pitch, no exaggerated acting."
+          )
+          model = "gemini-3.8-flash-tts"
+          results = []
+          for idx, voice in enumerate(voices, 1):
+              payload = {
+                  "model": model,
+                  "input": [{
+                      "type": "user_input",
+                      "content": [{
+                          "type": "text",
+                          "text": text,
+                          "annotations": [{"type": "speech_metadata", "style": style}]
+                      }]
+                  }],
+                  "response_format": {"type": "audio"},
+                  "generation_config": {"speech_config": [{"voice": voice}]}
+              }
+              request = urllib.request.Request(
+                  "https://generativelanguage.googleapis.com/v1beta/interactions",
+                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                  headers={"x-goog-api-key": secret, "Content-Type": "application/json"},
+                  method="POST",
+              )
+              outcome = {"voice": voice, "status": "failed"}
+              for attempt in range(1, 3):
+                  try:
+                      with urllib.request.urlopen(request, timeout=150) as response:
+                          data = json.load(response)
+                      encoded = ""
+                      for step in reversed(data.get("steps", [])):
+                          for part in reversed(step.get("content", [])):
+                              if part.get("type") == "audio" and part.get("data"):
+                                  encoded = part["data"]
+                                  break
+                          if encoded:
+                              break
+                      if not encoded:
+                          raise RuntimeError("no audio block")
+                      wav_bytes = base64.b64decode(encoded, validate=True)
+                      if not wav_bytes.startswith(b"RIFF"):
+                          raise RuntimeError("not RIFF WAV")
+                      filename = "0" + str(idx) + "_" + voice + "_nidaa_short.wav"
+                      path = Path("audition") / filename
+                      path.write_bytes(wav_bytes)
+                      with wave.open(str(path), "rb") as wav:
+                          if wav.getnchannels() != 1 or wav.getsampwidth() != 2 or wav.getframerate() != 24000:
+                              raise RuntimeError("unexpected audio format")
+                          seconds = round(wav.getnframes() / wav.getframerate(), 2)
+                      outcome = {"voice": voice, "file": filename, "status": "ok", "seconds": seconds}
+                      print(voice + " OK duration=" + str(seconds) + "s")
+                      break
+                  except urllib.error.HTTPError as exc:
+                      print(voice + " HTTP " + str(exc.code) + " attempt " + str(attempt))
+                      outcome["error"] = "HTTP " + str(exc.code)
+                      if exc.code not in (429, 500, 502, 503, 504):
+                          break
+                      if attempt < 2:
+                          time.sleep(55)
+                  except Exception as exc:
+                      print(voice + " " + type(exc).__name__)
+                      outcome["error"] = type(exc).__name__
+                      break
+              results.append(outcome)
+              if idx < len(voices):
+                  time.sleep(20)
+          Path("audition/manifest.json").write_text(
+              json.dumps({"model": model, "text": text, "style": style, "samples": results},
+                         ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print("Voice samples generated: " + str(sum(x["status"] == "ok" for x in results)) + "/3")
+          PY
+
+      - name: Send available samples to owner's existing Telegram chat
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            echo "Telegram credentials unavailable; download GitHub Actions artifact instead."
+            exit 0
+          fi
+          shopt -s nullglob
+          for f in audition/*.wav; do
+            label="$(basename "$f" .wav)"
+            if curl -fsS --max-time 55 -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendAudio" \
+                -F "chat_id=$TELEGRAM_CHAT_ID" \
+                -F "caption=تجربة صوت نداء اليقظة - $label" \
+                -F "audio=@$f" -o /dev/null; then
+              echo "Telegram sent $label"
+            else
+              echo "Telegram delivery failed for $label (artifact remains available)"
+            fi
+          done
+
+      - name: Upload three listening WAVs and manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nidaa-short-three-male-voice-samples
+          path: audition/
+          if-no-files-found: warn
+          retention-days: 7
