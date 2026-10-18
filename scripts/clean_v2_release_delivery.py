@@ -296,6 +296,24 @@ def _published_parent_youtube_video_id(value: object) -> str | None:
     return video_id
 
 
+_GENERIC_SECTION_TITLE = re.compile(r"^\s*(?:ال)?جزء\s*\d*\s*$")
+
+
+def _derived_hook_title(text: object, *, limit: int = 62) -> str:
+    """Pick the first complete question (else first sentence) of the excerpt."""
+    body = _compact(text)
+    if not body:
+        return ""
+    parts = [p.strip() for p in re.split(r"(?<=[؟?!.])\s+", body) if p.strip()]
+    pick = next((p for p in parts if p.endswith(("؟", "?")) and len(p.split()) >= 3), "")
+    pick = pick or next((p for p in parts if len(p.split()) >= 3), "")
+    pick = pick.rstrip(".!").strip()
+    if len(pick) > limit:
+        cut = pick[:limit].rsplit(" ", 1)[0].rstrip("،,:؛ ")
+        pick = cut + "…"
+    return pick
+
+
 def _derived_short_publish_metadata(
     root: Path,
     *,
@@ -313,6 +331,9 @@ def _derived_short_publish_metadata(
             selected = row
             break
     angle = _compact(selected.get("cover_text") or selected.get("heading"))
+    hook = _derived_hook_title(report.get("text"))
+    if hook and (not angle or _GENERIC_SECTION_TITLE.match(angle)):
+        angle = hook
     if not angle:
         angle = _compact(parent.get("topic") or parent.get("title") or "مقتطف من الحلقة")
     title = _youtube_title(
