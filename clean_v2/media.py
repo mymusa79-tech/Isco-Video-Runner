@@ -44,10 +44,10 @@ GEMINI38_TTS_MODEL = "gemini-3.8-flash-tts"
 GEMINI38_LITE_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 _GEMINI38_ALLOWED_TTS_MODELS = frozenset({GEMINI38_TTS_MODEL, GEMINI38_LITE_TTS_MODEL})
 GEMINI38_PRIMARY_VOICE = "Charon"
-# Owner-approved Nidaa Short voice. Other formats, prayer and identity stay Charon.
+# Owner-approved Nidaa Short voice: Iapetus also reads the prayer and spoken identity. Other formats remain unchanged.
 GEMINI38_NIDAA_SHORT_PRIMARY_VOICE = "Iapetus"
 GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:NidaaShort"
-GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus+Charon:Orus"
+GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
@@ -716,10 +716,10 @@ class GeminiOnlyVoiceSynthesizer:
         short_profile = str(performance_mode or "").startswith("nidaa_short_")
         if short_profile and is_lite:
             raise RuntimeError("Nidaa Short Iapetus is approved on Flash TTS only; lite is not a substitute")
-        short_identity = str(performance_mode or "") == "nidaa_short_identity"
+        # Consistent Iapetus timbre for every Nidaa Short voice unit.
+        # Identity units use neutral performance metadata, NOT a second voice.
         primary_voice = (
-            self.EXPECTED_PRIMARY_VOICE if short_identity
-            else GEMINI38_NIDAA_SHORT_PRIMARY_VOICE if short_profile
+            GEMINI38_NIDAA_SHORT_PRIMARY_VOICE if short_profile
             else GEMINI38_LITE_PRIMARY_VOICE if is_lite
             else self.EXPECTED_PRIMARY_VOICE
         )

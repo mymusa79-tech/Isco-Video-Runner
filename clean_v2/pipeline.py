@@ -997,14 +997,15 @@ def _synthesize_sectioned_voice_pass(
                         and bool(fixed_identity_closer)
                         and " ".join(chunk_text.split()).strip() == fixed_identity_closer
                     )
-                    # Prayer + channel definition keep the neutral established Charon
-                    # identity. Editorial performance begins at the hook and topic,
-                    # while a fixed identity closer never inherits a dramatic mode.
+                    # Keep the same Iapetus speaker throughout Nidaa Shorts:
+                    # prayer and channel definition use neutral performance while
+                    # hook and topic use the short-specific style. Other series
+                    # continue using their approved voices and identity rules.
                     if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
                     elif requested_performance_mode.startswith("nidaa_short_"):
-                        # Short prayer and spoken logo remain the original Charon
-                        # with neutral delivery, within the same short provider route.
+                        # Prayer and spoken logo retain Iapetus with neutral style;
+                        # no voice switch at the identity boundary.
                         effective_performance_mode = "nidaa_short_identity"
                 if require_charon_only:
                     if effective_performance_mode:

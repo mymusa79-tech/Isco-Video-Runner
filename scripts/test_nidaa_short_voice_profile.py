@@ -70,7 +70,7 @@ class NidaaShortVoiceProfileTests(unittest.TestCase):
                 GEMINI38_PERFORMANCE_STYLES.get(name, GEMINI38_NARRATOR_STYLE),
             )
 
-    def test_nidaa_content_iapetus_identity_charon(self):
+    def test_nidaa_content_and_identity_use_iapetus(self):
         events = []
         def fake(_key, _text, path, **kw):
             events.append(kw)
@@ -87,12 +87,21 @@ class NidaaShortVoiceProfileTests(unittest.TestCase):
             synth.synthesize("اللهم صل وسلم.", Path(tmp) / "prayer.wav",
                              performance_mode="nidaa_short_identity")
             self.assertEqual(synth.last_provider, GEMINI38_NIDAA_SHORT_PROVIDER)
-            self.assertEqual(synth.voice_roles["narrator"], "Charon")
-            self.assertEqual(events[-1]["primary_voice"], "Charon")
+            self.assertEqual(synth.voice_roles["narrator"], "Iapetus")
+            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
+            self.assertEqual(events[-1]["performance_mode"], "nidaa_short_identity")
             self.assertEqual(
                 GEMINI38_PERFORMANCE_STYLES.get("nidaa_short_identity", GEMINI38_NARRATOR_STYLE),
                 GEMINI38_NARRATOR_STYLE,
             )
+            synth.synthesize("هنا نداء اليقظة؛ وعي أوضح للحياة اليومية.", Path(tmp) / "identity.wav",
+                             performance_mode="nidaa_short_identity")
+            self.assertEqual(synth.voice_roles["narrator"], "Iapetus")
+            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
+            synth.synthesize("جرّب اليوم خطوة واحدة.", Path(tmp) / "outro.wav",
+                             performance_mode="nidaa_short_micro_story")
+            self.assertEqual(synth.voice_roles["narrator"], "Iapetus")
+            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
             synth.synthesize("نص طويل.", Path(tmp) / "film.wav", performance_mode="direct_cinematic")
             self.assertEqual(synth.voice_roles["narrator"], "Charon")
             self.assertEqual(events[-1]["primary_voice"], "Charon")
