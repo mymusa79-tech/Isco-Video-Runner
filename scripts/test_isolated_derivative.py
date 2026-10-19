@@ -217,6 +217,18 @@ class DerivativeTests(unittest.TestCase):
             derived_short.attempt(root, renderer=renderer)
             self.assertEqual(renderer.call_args.args[0].name, "final.mp4")
 
+    def test_retry_archive_carries_the_caption_free_master(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root / "source"; parent_fixture(source)
+            (source / "final-no-captions.mp4").write_bytes(b"CLEAN-MASTER")
+            derived_short.freeze_primary(source); derived_short.prepare_retry_source(source)
+            retry = root / "retry"; retry.mkdir(); shutil.copy2(source / "final.mp4", retry / "final.mp4")
+            derived_short.restore_retry_source(source / "derivative-source.zip", retry)
+            self.assertEqual((retry / "final-no-captions.mp4").read_bytes(), b"CLEAN-MASTER")
+            renderer = mock.Mock(side_effect=RuntimeError("stop after source check"))
+            derived_short.attempt(retry, renderer=renderer)
+            self.assertEqual(renderer.call_args.args[0].name, "final-no-captions.mp4")
+
     def test_changed_parent_is_never_silently_reused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); parent_fixture(root)

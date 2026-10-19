@@ -5134,6 +5134,10 @@ def render_video(
             visual_schedule[-1]["duration_seconds"] = visual_schedule[-1]["end"] - visual_schedule[-1]["start"]
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
+        if approved_package and fmt in {"film", "podcast"}:
+            from .board_scene import rerender_scheduled
+
+            rerender_scheduled(output_dir, visual_schedule, assets, fmt)  # explainer boards: exact slot, never raises
     elif fmt == "short":
         short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
         paths, durations = _enforce_short_hook_shot_cap(
