@@ -19,6 +19,9 @@ from .production_package import section_text, spoken_text
 INPUT_NAMES = ("final.mp4", "narration-mastered.wav", "timeline-first.json", "voice-sections.json",
                "script.json", "production.json", "derivative-context.json")
 CAPTION_ROLES = {"topic", "outro", "promo_short", "cta_topic"}
+# Text-free master kept beside the parent so a retry cuts the Short from it, not from the captioned final.
+CLEAN_MASTER = "final-no-captions.mp4"
+CLEAN_MASTER_MAX_BYTES = 400 * 1024 * 1024
 
 
 def _read(path: Path) -> dict:
@@ -124,6 +127,9 @@ def prepare_retry_source(root: Path) -> None:
         for name in (*INPUT_NAMES[1:], "primary-success.json"):
             if (root / name).is_file():
                 out.write(root / name, name)
+        clean = root / CLEAN_MASTER
+        if clean.is_file() and 0 < clean.stat().st_size <= CLEAN_MASTER_MAX_BYTES:
+            out.write(clean, CLEAN_MASTER, compress_type=zipfile.ZIP_STORED)
 
 
 def verify_primary(root: Path) -> dict:
@@ -280,7 +286,7 @@ def attempt(root: Path, *, renderer=None) -> dict:
             temporary += [raw, final]
             # Podcast burns long captions into final.mp4; cut from the caption-free
             # master when this run kept one (retry from a release has final.mp4 only).
-            source_video = root / "final-no-captions.mp4"
+            source_video = root / CLEAN_MASTER
             if not source_video.is_file():
                 source_video = root / "final.mp4"
             (renderer or render_derived_short)(source_video, raw,
@@ -335,10 +341,10 @@ def attempt(root: Path, *, renderer=None) -> dict:
 
 
 def restore_retry_source(archive: Path, root: Path) -> None:
-    allowed = set(INPUT_NAMES[1:]) | {"primary-success.json"}
+    allowed = set(INPUT_NAMES[1:]) | {"primary-success.json", CLEAN_MASTER}
     with zipfile.ZipFile(archive) as source:
         names = source.namelist()
-        if len(names) != len(set(names)) or not set(names) <= allowed or sum(i.file_size for i in source.infolist()) > 512*1024*1024:
+        if len(names) != len(set(names)) or not set(names) <= allowed or sum(i.file_size for i in source.infolist()) > 1024*1024*1024:
             raise RuntimeError("unsafe_derivative_retry_source")
         for name in names:
             destination = root / name
