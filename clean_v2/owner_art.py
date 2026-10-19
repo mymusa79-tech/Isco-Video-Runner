@@ -352,6 +352,26 @@ class OwnerArtVisualSource:
         row["local_file"] = final.name
         return (final, row), ""
 
+    def _board_clip(self, beat: Mapping[str, Any], output_dir: Path, fmt: str, section_seconds: float):
+        """The explainer board for this beat from an estimated slot, or (None, reason) -> approved image.
+
+        Built here from the estimate so the clip is always a complete board; render_video rebuilds it
+        to the measured slot when the voice timeline is known. Any failure keeps the approved image.
+        """
+        from . import board_scene
+
+        info = beat["owner_board"]
+        try:
+            scene_words = max(1, len(str(info["text"]).split()))
+            share = scene_words / max(scene_words, int(info.get("section_words") or scene_words))
+            seconds = max(8.0, float(section_seconds) * share)
+            times = board_scene.reveal_times(str(info["text"]), info["spec"]["items"], seconds, compress=0.7)
+            clip = board_scene.render_board_clip(info["spec"], self._directory, output_dir / f"visual-owner-{beat['id']}.mp4",
+                                                 seconds=seconds, times=times, fmt=fmt)
+            return clip, {"board_rendered": True, "owner_board_root": str(self._directory)}
+        except Exception as exc:  # the approved image is the fallback; production never stops for a board
+            return None, {"board_fallback_reason": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
     def _acquire_ready(self, plan, output_dir, fmt, estimates):
         """One existing motion clip per approved beat; never fall back to stock."""
         from .production_package import validate_manifest
@@ -384,14 +404,19 @@ class OwnerArtVisualSource:
                     continue
                 stock_note = {"stock_requested": True, "stock_fallback_reason": reason}
             seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
-            clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
-                                    direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"],
-                                    respect_hold=True)
+            board_note: dict[str, Any] = {}
+            clip = None
+            if beat.get("owner_board"):
+                clip, board_note = self._board_clip(beat, output_dir, fmt, seconds)
+            if clip is None:
+                clip = make_motion_clip(asset, output_dir / f"visual-owner-{beat['id']}.mp4", seconds=seconds,
+                                        direction=index, portrait=fmt == "short", motion_kind=beat["owner_motion"],
+                                        respect_hold=True)
             clips.append(clip)
             rights.append({**dict(beat), "beat_id": beat["id"], "provider": PROVIDER,
                            "asset_id": beat["owner_asset"], "local_file": clip.name, "source_actual": PROVIDER,
                            "owner_approved": True, "creator": "owner supplied", "attribution_required": False,
-                           **stock_note})
+                           **stock_note, **board_note})
         if not clips:
             raise RuntimeError("approved_package_has_no_images")
         return clips, rights

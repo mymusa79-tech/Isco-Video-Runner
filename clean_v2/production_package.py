@@ -21,7 +21,7 @@ MAX_ZIP_BYTES = 18 * 1024 * 1024  # below Telegram's standard getFile limit
 MAX_EXPANDED_BYTES = 96 * 1024 * 1024
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_JSON_BYTES = 300 * 1024
-MAX_FILES = 65
+MAX_FILES = 90
 MAX_PIXELS = 25_000_000
 _ASSET = re.compile(r"assets/[A-Za-z0-9_-]+\.(?:png|jpg|jpeg|webp)\Z", re.I)
 _ID = re.compile(r"[a-z][a-z0-9_]{0,30}\Z")
@@ -62,6 +62,33 @@ def _stock(value: Any, fmt: str, template: str) -> dict:
     if "must_show" in stock:
         _text(stock["must_show"], "scene.stock.must_show", 120)
     return stock
+
+
+def _board(value: Any, fmt: str) -> dict:
+    """Optional explainer board on a Film / Podcast scene (see board_scene.py)."""
+    from . import board_scene
+
+    if fmt not in board_scene.BOARD_MAX_SCENES:
+        _error("اللوحة التوضيحية للفيلم والبودكاست فقط.")
+    board = _object(value, {"layout", "items"}, {"title", "theme"}, field="scene.board")
+    layouts = board_scene.PODCAST_LAYOUTS if fmt == "podcast" else board_scene.LAYOUTS
+    if board["layout"] not in layouts:
+        _error("layout اللوحة: " + " / ".join(sorted(layouts)) + ".")
+    if board.get("theme", "paper") not in board_scene.THEMES:
+        _error("theme اللوحة: paper أو slate.")
+    if "title" in board:
+        _text(board["title"], "board.title", board_scene.MAX_TITLE_CHARS, empty=True)
+    low, high = layouts[board["layout"]]
+    items = board["items"]
+    if not isinstance(items, list) or not low <= len(items) <= high:
+        _error(f"عناصر لوحة {board['layout']}: من {low} إلى {high}.")
+    for item in items:
+        _object(item, {"label", "at_text"}, {"asset"}, field="board.item")
+        _text(item["label"], "board.item.label", board_scene.MAX_LABEL_CHARS)
+        _text(item["at_text"], "board.item.at_text", 200)
+        if item.get("asset") is not None:
+            _asset(item["asset"])
+    return board
 
 
 def _asset(value: Any) -> str:
@@ -156,9 +183,15 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     prior = (-1, -1)
     covered = set()
     for scene in scenes:
-        _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, {"stock"}, field="scene")
+        _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, {"stock", "board"}, field="scene")
         if "stock" in scene:
             _stock(scene["stock"], fmt, doc["template"])
+        if "board" in scene:
+            if "stock" in scene:
+                _error("المشهد إما لوحة أو ستوك، لا الاثنان.")
+            for board_item in _board(scene["board"], fmt)["items"]:
+                if board_item.get("asset"):
+                    assets.add(board_item["asset"])
         sid = scene["section_id"]
         identifier = scene["id"]
         if not isinstance(identifier, str) or not _ID.fullmatch(identifier) or identifier in seen or sid not in texts:
@@ -177,6 +210,31 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         covered.add(sid)
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
+    board_scenes = [scene for scene in scenes if "board" in scene]
+    if board_scenes:
+        from .board_scene import BOARD_MAX_SCENES
+
+        if len(board_scenes) > BOARD_MAX_SCENES[fmt]:
+            _error(f"عدد اللوحات: {BOARD_MAX_SCENES[fmt]} كحد أقصى لهذا النوع.")
+        if scenes[0] in board_scenes:
+            _error("أول مشهد (الهوك) لا يكون لوحة؛ ابدأ بصورة ثم ضع اللوحة بعده.")
+        for index, scene in enumerate(scenes):
+            if "board" not in scene:
+                continue
+            text = spoken_text(texts[scene["section_id"]])
+            begin = text.index(scene["start_text"])
+            following = [s for s in scenes[index + 1:] if s["section_id"] == scene["section_id"]]
+            end = text.index(following[0]["start_text"]) if following else len(text)
+            span = text[begin:end]
+            last = -1
+            for board_item in scene["board"]["items"]:
+                needle = " ".join(board_item["at_text"].split())
+                if span.count(needle) != 1:
+                    _error(f"at_text «{needle[:40]}» يجب أن يطابق نصًا واحدًا حرفيًا داخل مشهد اللوحة {scene['id']}.")
+                position = span.index(needle)
+                if position <= last:
+                    _error(f"رتّب عناصر اللوحة {scene['id']} بحسب ورودها في الكلام.")
+                last = position
     stock_count = sum(1 for scene in scenes if "stock" in scene)
     stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
     if stock_count > stock_cap:
@@ -218,11 +276,36 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             _error("المشتق متاح للفيلم والبودكاست فقط.")
         for key in ("start_text", "end_text"):
             _text(derivative[key], f"derivative.{key}", 1500)
+        _derivative_avoids_boards(doc, texts, derivative)
         # Invalid/missing anchors are intentionally NOT a parent-production gate.
         # The optional extractor records the precise skip reason after parent success.
     if available is not None and assets - available:
         _error("صور أساسية مفقودة: " + "، ".join(sorted(assets - available)))
     return doc
+
+
+def _derivative_avoids_boards(doc: Mapping[str, Any], texts: Mapping[str, str], derivative: Mapping[str, Any]) -> None:
+    """A vertical derivative would crop a 16:9 board; it must not cover one."""
+    boards = [s for s in doc["scenes"] if "board" in s]
+    if not boards:
+        return
+    offsets, whole = {}, ""
+    for sid, text in texts.items():
+        offsets[sid] = len(whole)
+        whole += spoken_text(text) + " "
+    first = whole.find(" ".join(derivative["start_text"].split()))
+    last = whole.find(" ".join(derivative["end_text"].split()))
+    if first < 0 or last < 0:
+        return
+    last += len(" ".join(derivative["end_text"].split()))
+    for scene in boards:
+        text = spoken_text(texts[scene["section_id"]])
+        begin = text.index(scene["start_text"])
+        nxt = [s for s in doc["scenes"] if s["section_id"] == scene["section_id"] and text.index(s["start_text"]) > begin]
+        end = text.index(nxt[0]["start_text"]) if nxt else len(text)
+        lo, hi = offsets[scene["section_id"]] + begin, offsets[scene["section_id"]] + end
+        if lo < last and hi > first:
+            _error("مقطع derivative يقطع لوحة توضيحية؛ اجعله خارج مشاهد اللوحات.")
 
 
 def is_zip_document(message: Mapping[str, Any]) -> bool:
