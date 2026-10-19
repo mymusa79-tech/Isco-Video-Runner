@@ -190,5 +190,37 @@ class AcquireTests(unittest.TestCase):
         inner.acquire.assert_not_called()
 
 
+class ReplacementGeometryTests(unittest.TestCase):
+    """The pipeline hands visual QA fmt="story" for a Short; a rejected stock clip replaced by the
+    approved image must stay 9:16 (it was rendered 16:9 and centre-cropped ~3x in production)."""
+
+    def test_rejected_stock_replacement_is_portrait_for_every_short_format_name(self):
+        from clean_v2 import simple_mode
+
+        for fmt in ("short", "story", "moment"):
+            with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "scene.jpg").write_bytes(b"img")
+                row = {"stock_requested": True, "approved_fallback_asset": "scene.jpg", "provider": "pexels"}
+                with mock.patch.object(owner_art, "art_dir", return_value=root), \
+                        mock.patch.object(owner_art, "make_motion_clip") as make:
+                    self.assertTrue(simple_mode._use_approved_image(
+                        root / "c.mp4", row, {"owner_motion": "hold"}, index=0, fmt=fmt, seconds=10.0, reason="x"))
+                self.assertTrue(make.call_args.kwargs["portrait"])
+                self.assertTrue(make.call_args.kwargs["respect_hold"])
+
+    def test_film_replacement_stays_landscape(self):
+        from clean_v2 import simple_mode
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scene.jpg").write_bytes(b"img")
+            row = {"stock_requested": True, "approved_fallback_asset": "scene.jpg", "provider": "pexels"}
+            with mock.patch.object(owner_art, "art_dir", return_value=root), \
+                    mock.patch.object(owner_art, "make_motion_clip") as make:
+                simple_mode._use_approved_image(root / "c.mp4", row, {}, index=0, fmt="film", seconds=10.0, reason="x")
+            self.assertFalse(make.call_args.kwargs["portrait"])
+
+
 if __name__ == "__main__":
     unittest.main()
