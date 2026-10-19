@@ -30,7 +30,7 @@ PROFILES = {
 MAX_ITEMS = 8
 MAX_TITLE_CHARS = 40
 MAX_LABEL_CHARS = 30
-BOARD_MAX_SCENES = {"film": 10, "podcast": 4}
+BOARD_MAX_SCENES = {"film": 14, "podcast": 8}
 
 _PALETTE = {
     "slate": {
