@@ -3861,9 +3861,11 @@ def render_derived_short(
     vf = (
         "[0:v]split=2[bg0][fg0];"
         "[bg0]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,boxblur=20:2[bg];"
-        "[fg0]scale=1040:-2[fg];"
-        "[bg][fg]overlay=(W-w)/2:(H-h)/2:format=auto,format=yuv420p[v]"
+        "crop=1080:1920,boxblur=26:3,eq=brightness=-0.22:saturation=0.9[bg];"
+        "[fg0]scale=1080:-2[fg];"
+        # Full-width picture high in the frame; the Short caption (y~1260) sits on the dark
+        # blurred area below it, clear of the YouTube UI zone, and the CTA card (y 250-400) above.
+        "[bg][fg]overlay=0:430:format=auto,format=yuv420p[v]"
     )
     _run(
         [
