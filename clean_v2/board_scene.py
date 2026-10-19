@@ -755,4 +755,3 @@ def blocked_windows(output_dir: Path, margin: float = 0.4) -> list[tuple[float, 
 
 def drop_events_over_boards(events: Sequence[Mapping[str, Any]], windows: Sequence[tuple[float, float]]) -> list[Mapping[str, Any]]:
     return [e for e in events if not any(float(e["start"]) < end and float(e["end"]) > begin for begin, end in windows)]
-
