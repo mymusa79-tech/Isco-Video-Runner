@@ -23,14 +23,20 @@ LAYOUTS = {"row": (2, 5), "steps": (2, 5), "grid": (3, 8), "hub": (3, 7)}
 # Podcast keeps its dialogue caption card over y=687..965, so its boards live in the upper part
 # only; Film's sparse key text is suppressed while a board is on screen (see blocked_windows).
 PODCAST_LAYOUTS = {"row": (2, 5), "steps": (2, 4), "grid": (3, 6)}
+# Nidaa Short boards are portrait: vertical steps or a 2-column grid, kept above the static caption
+# (centred at y=1260) and clear of the platform's top and bottom interface.
+SHORT_LAYOUTS = {"steps": (2, 4), "grid": (3, 4)}
+_LANDSCAPE = {"width": 1920, "height": 1080, "left_edge": 120, "right_edge": 1800, "title_w": 1250, "steps_w": 1500, "dots_y": 44}
 PROFILES = {
-    "film": {"title_y": 100, "title_size": 76, "bar_y": 150, "top": 250, "top_plain": 110, "bottom": 1010},
-    "podcast": {"title_y": 60, "title_size": 50, "bar_y": 94, "top": 150, "top_plain": 50, "bottom": 650},
+    "film": {**_LANDSCAPE, "title_y": 100, "title_size": 76, "bar_y": 150, "top": 250, "top_plain": 110, "bottom": 1010},
+    "podcast": {**_LANDSCAPE, "title_y": 60, "title_size": 50, "bar_y": 94, "top": 150, "top_plain": 50, "bottom": 650},
+    "short": {"width": 1080, "height": 1920, "left_edge": 80, "right_edge": 1000, "title_w": 780, "steps_w": 920, "dots_y": 200,
+              "title_y": 270, "title_size": 62, "bar_y": 322, "top": 380, "top_plain": 240, "bottom": 1060},
 }
 MAX_ITEMS = 8
 MAX_TITLE_CHARS = 40
 MAX_LABEL_CHARS = 30
-BOARD_MAX_SCENES = {"film": 14, "podcast": 8}
+BOARD_MAX_SCENES = {"film": 14, "podcast": 8, "short": 2}
 
 _PALETTE = {
     "slate": {
@@ -187,22 +193,25 @@ def _lerp(a, b, p: float):
     return tuple(round(a[i] + (b[i] - a[i]) * p) for i in range(len(a)))
 
 
-def _background(theme_name: str):
+def _background(theme_name: str, width: int = WIDTH, height: int = HEIGHT):
     """Soft gradient with blurred colour light and a whisper of film grain (deterministic)."""
     import numpy as np
     from PIL import Image, ImageDraw, ImageFilter
 
     theme = _PALETTE[theme_name]
     top, bottom = theme["bg_top"], theme["bg_bot"]
-    column = np.linspace(0.0, 1.0, HEIGHT)[:, None, None]
+    column = np.linspace(0.0, 1.0, height)[:, None, None]
+    sx, sy = width / WIDTH, height / HEIGHT
+    k = 1.0 if (width, height) == (WIDTH, HEIGHT) else 0.8
     base = (np.array(top, dtype=np.float32) * (1 - column) + np.array(bottom, dtype=np.float32) * column)
-    img = Image.fromarray(np.repeat(base, WIDTH, axis=1).astype(np.uint8), "RGB").convert("RGBA")
+    img = Image.fromarray(np.repeat(base, width, axis=1).astype(np.uint8), "RGB").convert("RGBA")
     for (cx, cy), radius, colour, strength in theme["blobs"]:
-        layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+        cx, cy, radius = cx * sx, cy * sy, radius * k
+        layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         ImageDraw.Draw(layer).ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=colour + (int(255 * strength),))
         img = Image.alpha_composite(img, layer.filter(ImageFilter.GaussianBlur(radius * 0.55)))
     rng = np.random.default_rng(7)
-    grain = rng.normal(0, theme["grain"], (HEIGHT, WIDTH, 1)).astype(np.float32)
+    grain = rng.normal(0, theme["grain"], (height, width, 1)).astype(np.float32)
     arr = np.clip(np.asarray(img.convert("RGB"), dtype=np.float32) + grain, 0, 255).astype(np.uint8)
     return Image.fromarray(arr, "RGB").convert("RGBA")
 
@@ -318,14 +327,16 @@ def _header(title: str, theme, accent, profile):
     """Right-aligned title with an accent bar (editorial, reads naturally in Arabic)."""
     from PIL import Image, ImageDraw
 
-    size, lines = _fit_label(title, 1250, profile["title_size"], 44, 1)
+    page, right = profile["width"], profile["right_edge"]
+    size, lines = _fit_label(title, profile["title_w"], profile["title_size"], 44, 1)
     width = _text_size(lines[0], _font(size))[0]
-    layer = _text_layer(lines, size, theme["ink"], 1400, align="right")
-    out = Image.new("RGBA", (WIDTH, 240), (0, 0, 0, 0))
-    out.alpha_composite(layer, (RIGHT_EDGE - 1400, int(profile["title_y"] - layer.height / 2)))
-    bar = Image.new("RGBA", (WIDTH * 2, 40), (0, 0, 0, 0))
-    ImageDraw.Draw(bar).rounded_rectangle((RIGHT_EDGE * 2 - 150, 0, RIGHT_EDGE * 2, 20), 10, fill=accent + (255,))
-    out.alpha_composite(bar.resize((WIDTH, 20), Image.LANCZOS), (0, profile["bar_y"]))
+    layer_w = profile["title_w"] + 150
+    layer = _text_layer(lines, size, theme["ink"], layer_w, align="right")
+    out = Image.new("RGBA", (page, max(240, profile["bar_y"] + 40)), (0, 0, 0, 0))
+    out.alpha_composite(layer, (right - layer_w, int(profile["title_y"] - layer.height / 2)))
+    bar = Image.new("RGBA", (page * 2, 40), (0, 0, 0, 0))
+    ImageDraw.Draw(bar).rounded_rectangle((right * 2 - 150, 0, right * 2, 20), 10, fill=accent + (255,))
+    out.alpha_composite(bar.resize((page, 20), Image.LANCZOS), (0, profile["bar_y"]))
     return out
 
 
@@ -357,10 +368,10 @@ def _geometry(layout: str, n: int, has_title: bool, profile) -> list[dict[str, A
     cells: list[dict[str, Any]] = []
     if layout == "row":
         gap = 46
-        card_w = int(min(400, (RIGHT_EDGE - LEFT_EDGE - gap * (n - 1)) / n))
+        card_w = int(min(400, (profile["right_edge"] - profile["left_edge"] - gap * (n - 1)) / n))
         card_h = int(min(span - 10, 600 if not compact else 440))
         group = card_w * n + gap * (n - 1)
-        right = (WIDTH + group) / 2
+        right = (profile["width"] + group) / 2
         cy = top + span / 2
         for k in range(n):
             cx = right - card_w / 2 - k * (card_w + gap)
@@ -368,18 +379,18 @@ def _geometry(layout: str, n: int, has_title: bool, profile) -> list[dict[str, A
     elif layout == "steps":
         row_h = min(190, (span - 4) / n)
         for k in range(n):
-            cells.append({"cx": WIDTH / 2, "cy": top + 2 + row_h * (k + 0.5), "w": 1500, "h": int(row_h - (12 if compact else 24)),
+            cells.append({"cx": profile["width"] / 2, "cy": top + 2 + row_h * (k + 0.5), "w": profile["steps_w"], "h": int(row_h - (12 if compact else 24)),
                           "plate": int(min(row_h - 36, 140))})
     elif layout == "grid":
         cols = 2 if n <= 4 else 3 if n <= 6 else 4
         rows = math.ceil(n / cols)
         gap = 34
-        cell_w = (RIGHT_EDGE - LEFT_EDGE - gap * (cols - 1)) / cols
+        cell_w = (profile["right_edge"] - profile["left_edge"] - gap * (cols - 1)) / cols
         cell_h = (span - gap * (rows - 1)) / rows
         for k in range(n):
             r, c = divmod(k, cols)
             in_row = cols if r < rows - 1 else n - cols * (rows - 1)
-            right = (WIDTH + in_row * cell_w + (in_row - 1) * gap) / 2
+            right = (profile["width"] + in_row * cell_w + (in_row - 1) * gap) / 2
             cells.append({"cx": right - cell_w / 2 - c * (cell_w + gap), "cy": top + cell_h / 2 + r * (cell_h + gap),
                           "w": int(cell_w), "h": int(cell_h), "plate": int(min(cell_h * (0.46 if compact else 0.42), cell_w * 0.5, 190))})
     else:  # hub
@@ -413,9 +424,10 @@ class _Item:
         pad = self.card_pad
         number = f"{self.index + 1:02d}"
         if self.layout == "steps":
-            size, lines = _fit_label(label, 880, 64, 38)
-            text = _text_layer(lines, size, self.theme["ink"], 900, align="right")
-            self.card.alpha_composite(text, (pad + w - 190 - 900, int(pad + h / 2 - text.height / 2)))
+            label_w = int(min(880, w - 190 - 64 - plate - 30))
+            size, lines = _fit_label(label, label_w, 64, 38)
+            text = _text_layer(lines, size, self.theme["ink"], label_w + 20, align="right")
+            self.card.alpha_composite(text, (pad + w - 190 - (label_w + 20), int(pad + h / 2 - text.height / 2)))
             badge = _badge(self.index + 1, 84, self.accent)
             self.card.alpha_composite(badge, (int(pad + w - 70 - badge.width / 2), int(pad + h / 2 - badge.height / 2)))
             self.plate_at = (pad + 64 + plate / 2, pad + h / 2)  # picture on the left of the row
@@ -615,29 +627,30 @@ def reveal_times(scene_text: str, items: Sequence[Mapping[str, Any]], seconds: f
 # --------------------------------------------------------------------------- render
 def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *, seconds: float,
                       times: Sequence[float], fmt: str = "film") -> Path:
-    """Render the board to destination (1920x1080, 30 fps, h264). Raises BoardError on any problem."""
+    """Render the board to destination (1920x1080, or 1080x1920 for a Short; 30 fps, h264). Raises BoardError on any problem."""
     layout, theme_name = str(board["layout"]), str(board.get("theme") or "slate")
     specs = list(board["items"])
-    allowed = PODCAST_LAYOUTS if fmt == "podcast" else LAYOUTS
-    profile = PROFILES["podcast" if fmt == "podcast" else "film"]
+    allowed = PODCAST_LAYOUTS if fmt == "podcast" else SHORT_LAYOUTS if fmt == "short" else LAYOUTS
+    profile = PROFILES[fmt if fmt in {"podcast", "short"} else "film"]
+    width, height = profile["width"], profile["height"]
     if layout not in allowed or theme_name not in THEMES or len(times) != len(specs):
         raise BoardError("board_spec_invalid")
     title = str(board.get("title") or "").strip()
     theme = _PALETTE[theme_name]
     geometry = _geometry(layout, len(specs), bool(title) or layout == "hub", profile)
     items = [_Item(i, spec, geometry[i], layout, theme_name, Path(root)) for i, spec in enumerate(specs)]
-    background = _background(theme_name)
+    background = _background(theme_name, width, height)
     frames = max(2, round(float(seconds) * FPS))
     header = _header(title, theme, theme["accents"][0], profile) if title and layout != "hub" else None
     hub = _hub_core(title, theme, theme["accents"][0]) if layout == "hub" else None
-    dot_y = profile["title_y"] if header is not None else 44
-    dots = [(LEFT_EDGE + 12 + k * 30, dot_y) for k in range(len(items))]
+    dot_y = profile["title_y"] if header is not None else profile["dots_y"]
+    dots = [(profile["left_edge"] + 12 + k * 30, dot_y) for k in range(len(items))]
 
     tmp = Path(destination).with_suffix(".board.mp4")
     Path(destination).parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-         "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+         "-s", f"{width}x{height}", "-r", str(FPS), "-i", "-", "-an", "-c:v", "libx264", "-preset", "ultrafast",
          "-tune", "animation", "-crf", "17", "-pix_fmt", "yuv420p", "-vf", "setsar=1", str(tmp)],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
@@ -652,7 +665,7 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
         for k in range(frames):
             t = k / FPS
             if header is not None and not header_done and t - 0.12 >= 0.6:
-                _paste(base, header, (WIDTH / 2, 120)); header_done = True
+                _paste(base, header, (width / 2, header.height / 2)); header_done = True
             if hub is not None and not hub_done and t - 0.1 >= 0.7:
                 _paste(base, hub, hub_centre); hub_done = True
             for i, item in enumerate(items):
@@ -669,7 +682,7 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
             frame = base.copy()
             if header is not None and not header_done:
                 p = _out_cubic((t - 0.12) / 0.6)
-                _paste(frame, header, (WIDTH / 2, 120), alpha=p, offset=(26 * (1 - p), 0))
+                _paste(frame, header, (width / 2, header.height / 2), alpha=p, offset=(26 * (1 - p), 0))
             if hub is not None and not hub_done:
                 p = _out_back((t - 0.1) / 0.7)
                 _paste(frame, hub, hub_centre, scale=0.7 + 0.3 * p, alpha=min(1.0, max(0.0, (t - 0.1) / 0.3)))

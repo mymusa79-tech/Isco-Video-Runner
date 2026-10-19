@@ -5134,7 +5134,7 @@ def render_video(
             visual_schedule[-1]["duration_seconds"] = visual_schedule[-1]["end"] - visual_schedule[-1]["start"]
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
-        if approved_package and fmt in {"film", "podcast"}:
+        if approved_package and fmt in {"film", "podcast", "short"}:
             from .board_scene import rerender_scheduled
 
             rerender_scheduled(output_dir, visual_schedule, assets, fmt)  # explainer boards: exact slot, never raises
