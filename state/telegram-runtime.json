@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "التحسين الذي أفسد المهمة",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39161443859",
-  "result": "success",
-  "updated_at": 1792353960
+  "topic": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39202320768",
+  "result": "",
+  "updated_at": 1792386059
 }
