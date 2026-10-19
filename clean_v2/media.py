@@ -4513,11 +4513,19 @@ def _sample_rgb_stats(path: Path) -> _RgbStats:
     )
 
 
-def _reference_match_filter(source: _RgbStats, reference: _RgbStats, *, fmt: str = "film") -> str:
+def _reference_match_filter(
+    source: _RgbStats,
+    reference: _RgbStats,
+    *,
+    fmt: str = "film",
+    strength_override: float | None = None,
+    scale_limits: tuple[float, float] | None = None,
+) -> str:
     """Build one bounded, gently format-scaled RGB transfer per source clip."""
     from .simple_mode import is_simple_mode
     factor = (1.0 if is_simple_mode() else COLOR_MATCH_FORMAT_FACTOR.get(fmt, COLOR_MATCH_FORMAT_FACTOR["film"]))
-    strength = COLOR_MATCH_STRENGTH * factor
+    strength = COLOR_MATCH_STRENGTH * factor if strength_override is None else strength_override
+    scale_min, scale_max = scale_limits or (COLOR_MATCH_SCALE_MIN, COLOR_MATCH_SCALE_MAX)
     expressions: list[str] = []
     for channel, source_mean, source_std, ref_mean, ref_std in (
         ("r", source.mean_r, source.std_r, reference.mean_r, reference.std_r),
@@ -4527,8 +4535,8 @@ def _reference_match_filter(source: _RgbStats, reference: _RgbStats, *, fmt: str
         raw_ratio = (ref_std / source_std) if source_std >= 2.0 else 1.0
         scale = _clamp_color(
             1.0 + ((raw_ratio - 1.0) * strength),
-            COLOR_MATCH_SCALE_MIN,
-            COLOR_MATCH_SCALE_MAX,
+            scale_min,
+            scale_max,
         )
         target_mean = source_mean + ((ref_mean - source_mean) * strength)
         offset = _clamp_color(
@@ -4540,6 +4548,73 @@ def _reference_match_filter(source: _RgbStats, reference: _RgbStats, *, fmt: str
             f"{channel}='clip(val*{scale:.6f}{offset:+.6f},0,255)'"
         )
     return "lutrgb=" + ":".join(expressions)
+
+
+PACKAGE_PALETTE_STRENGTH = 0.92
+PACKAGE_PALETTE_SCALE_LIMITS = (0.88, 1.12)
+
+
+def _package_palette_match_filters(
+    paths: list[Path],
+    asset_rows: list[Any],
+    *,
+    fmt: str,
+) -> dict[str, str]:
+    """Pull real stock clips toward the owner-approved pictures of the SAME package.
+
+    In an approved ZIP the owner's pictures are the colour authority (they are never
+    graded). A stock clip drops in between them with its own raw colour, so each stock clip
+    is matched, once and constantly (no per-frame grading), to the average colour
+    statistics of the package's approved pictures. Measurement failures leave a clip
+    untouched. Strong but bounded, so skin and sky never turn into a filter look.
+    """
+    stock_files: set[str] = set()
+    owner_files: set[str] = set()
+    for row in asset_rows:
+        if not isinstance(row, Mapping):
+            continue
+        name = str(row.get("local_file") or "")
+        if not name:
+            continue
+        if row.get("owner_approved") is True:
+            owner_files.add(name)
+        elif row.get("source_actual") in {"stock_motion", "stock_still"}:
+            stock_files.add(name)
+    unique: dict[str, Path] = {}
+    for raw in paths:
+        unique.setdefault(str(raw), Path(raw))
+    owner_paths = [p for p in unique.values() if p.name in owner_files]
+    stock_paths = [p for p in unique.values() if p.name in stock_files]
+    if not owner_paths or not stock_paths:
+        return {}
+    measured: list[_RgbStats] = []
+    for path in owner_paths:
+        try:
+            measured.append(_sample_rgb_stats(path))
+        except Exception:
+            continue
+    if not measured:
+        return {}
+    count = float(len(measured))
+    reference = _RgbStats(
+        mean_r=sum(m.mean_r for m in measured) / count,
+        mean_g=sum(m.mean_g for m in measured) / count,
+        mean_b=sum(m.mean_b for m in measured) / count,
+        std_r=sum(m.std_r for m in measured) / count,
+        std_g=sum(m.std_g for m in measured) / count,
+        std_b=sum(m.std_b for m in measured) / count,
+    )
+    filters: dict[str, str] = {}
+    for path in stock_paths:
+        try:
+            stats = _sample_rgb_stats(path)
+        except Exception:
+            continue
+        filters[str(path)] = _reference_match_filter(
+            stats, reference, fmt=fmt,
+            strength_override=PACKAGE_PALETTE_STRENGTH, scale_limits=PACKAGE_PALETTE_SCALE_LIMITS,
+        )
+    return filters
 
 
 def _grade_clip_filter(path: Path) -> str:
@@ -5072,6 +5147,8 @@ def render_video(
     # colors. Keep the established stock-only Nidaa finish unchanged.
     if preserve_source_colors:
         grade_filters = {str(path): "" for path in paths}
+        if approved_package:
+            grade_filters.update(_package_palette_match_filters(paths, list(assets), fmt=fmt))
     else:
         grade_filters = _build_reference_color_plan(paths, output_dir, fmt=fmt)
 
