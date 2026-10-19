@@ -31,11 +31,11 @@ class ContractTests(unittest.TestCase):
         package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
     def test_stock_may_cover_every_scene(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30, "podcast": 3})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30, "podcast": 8})
 
-    def test_podcast_takes_at_most_three_stock_scenes(self):
+    def test_podcast_takes_at_most_eight_stock_scenes(self):
         package.validate_manifest(with_stock(manifest("podcast"), [0]))
-        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 3)
+        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 8)
 
     def test_ala_mahl_takes_at_most_two_ambient_stock_scenes(self):
         base = manifest(template="ala_mahl")
@@ -161,6 +161,42 @@ class AcquireTests(unittest.TestCase):
                 )
                 self.assertEqual(decisions[stock_index - 1]["decision"], transition.upper())
                 self.assertEqual(decisions[stock_index - 1]["reason"], "approved_package_transition")
+
+    def test_clip_matching_only_the_alternate_query_is_admitted(self):
+        row = dict(self.GOOD, retrieval_description="close up of shoes on urban pavement")
+        _clips, rights, _made = self.run_acquire(self.inner_returning(row))
+        self.assertEqual(len([r for r in rights if r.get("provider") == "pexels"]), 1)
+
+    def test_clip_matching_only_must_show_is_admitted(self):
+        self.doc["scenes"][1]["stock"]["must_show"] = "hands opening workbook"
+        atomic_write_json(self.root / "production.json", self.doc)
+        self.story = ready_production.build_story(self.doc)
+        row = dict(self.GOOD, retrieval_description="hands opening a workbook on a wooden table")
+        _clips, rights, _made = self.run_acquire(self.inner_returning(row))
+        self.assertEqual(len([r for r in rights if r.get("provider") == "pexels"]), 1)
+
+    def test_unrelated_clip_is_still_rejected_even_with_three_descriptions(self):
+        self.doc["scenes"][1]["stock"]["must_show"] = "hands opening workbook"
+        atomic_write_json(self.root / "production.json", self.doc)
+        self.story = ready_production.build_story(self.doc)
+        self.assert_fell_back(self.inner_returning(dict(self.GOOD, retrieval_description="beautiful mountain landscape sunset")),
+                              "stock_metadata")
+
+    def test_report_names_the_reason_for_every_scene_that_asked_for_stock(self):
+        from clean_v2.simple_mode import stock_outcomes
+
+        self.assertEqual(stock_outcomes(self.root), {})
+        atomic_write_json(self.root / "rights-manifest.json", {"assets": [
+            {"beat_id": "scene_02", "stock_requested": True, "source_actual": "stock_motion", "owner_approved": False},
+            {"beat_id": "scene_05", "stock_requested": True, "source_actual": "owner_art",
+             "stock_fallback_reason": "stock_metadata_not_matching_query", "owner_approved": True},
+            {"beat_id": "scene_07", "stock_requested": True, "source_actual": "owner_art",
+             "replacement_reason": "visual_review_rejected", "stock_fallback_reason": "x", "owner_approved": True},
+            {"beat_id": "scene_08", "source_actual": "owner_art"},
+        ]})
+        self.assertEqual(stock_outcomes(self.root), {"requested": 3, "used": 1, "fallbacks": [
+            {"scene": "scene_05", "reason": "stock_metadata_not_matching_query"},
+            {"scene": "scene_07", "reason": "visual_review_rejected"}]})
 
     def assert_fell_back(self, inner, reason_prefix):
         clips, rights, made = self.run_acquire(inner)
