@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "غيّر المدير الموظف… لكن المشكلة بقيت!",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39231476498",
-  "result": "success",
-  "updated_at": 1792402975
+  "topic": "كل ليلة تقرر أن تتغير… فلماذا لا تبدأ؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39246189164",
+  "result": "",
+  "updated_at": 1792409978
 }
