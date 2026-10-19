@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -561,6 +562,11 @@ def _apply_sparse_key_text(
         font_used = resolved_font(completed.stderr, BODY_FONT)
         if not rendered.is_file() or rendered.stat().st_size <= 0:
             raise PodcastKeyTextError("podcast_key_text_render_missing_or_empty")
+        # Keep the text-free master (Film and Podcast): the derived Short is cut
+        # from it so key text is never burned a second time inside the 9:16 clip.
+        clean_master = Path(output_dir) / "final-no-captions.mp4"
+        if not clean_master.exists():
+            shutil.copy2(Path(final_path), clean_master)
         os.replace(rendered, Path(final_path))
     except PodcastKeyTextError:
         rendered.unlink(missing_ok=True)
