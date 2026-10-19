@@ -8300,6 +8300,21 @@
       "selected_at": "2026-10-18T20:01:06Z",
       "created_at": "2026-10-18T20:01:06Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-fef33aae2b",
+      "title": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+      "normalized_title": "غيّر المدير الموظف لكن المشكلة بقيت",
+      "market_query": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-19T04:59:31Z",
+      "created_at": "2026-10-19T04:59:31Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -15700,9 +15715,185 @@
         "started_at": "2026-10-18T20:02:22Z",
         "finished_at": "2026-10-18T20:06:02Z"
       }
+    },
+    "req-d2b6ae283323": {
+      "schema_version": 1,
+      "request_id": "req-d2b6ae283323",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-fef33aae2b",
+      "selected_at": "2026-10-19T04:59:31Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "غيّر المدير الموظف… لكن الطرود عادت من جديد! في متجر صغير، كانت بعض الطلبات تعود كل مساء دون تسليم. ظن المدير أن موظف الشحن هو السبب، فاستبدله."
+              },
+              {
+                "id": "s2",
+                "text": "جاء موظف جديد، وبذل جهده… لكن المشكلة تكررت. هذه المرة، بدل أن يلومه المدير، تتبّع رحلة الطرد، من استلام الطلب حتى خروجه مع السائق. فاكتشف أن بعض العناوين ناقصة، وأرقام التواصل لم تُراجع أصلًا. الموظفان كانا يحاولان إصلاح خطأ بدأ قبل وصول الطرود إليهما."
+              },
+              {
+                "id": "s3",
+                "text": "غيّر المتجر خطوة واحدة: صار تأكيد العنوان ورقم التواصل شرطًا لتجهيز أي طلب. وفي الأيام التالية، قلّت الطرود العائدة. إذا تكررت المشكلة مع شخصين، فلا تتعجل لوم الثالث. اسأل أولًا: أين يتعطل العمل؟"
+              }
+            ]
+          },
+          "performance": {
+            "direction": "صوت الراوي الطبيعي بأسلوب محادثة؛ وقفة قصيرة بعد تكرار المشكلة، دون مبالغة. لا يُغيّر صوت الهوية الثابت."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "غيّر المدير الموظف…",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "stacked cardboard parcels on small shop shelf",
+                "must_show": "Stacked parcels inside a modest shipping shop; no clear faces",
+                "query_alt_en": "cardboard delivery boxes on warehouse shelves"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "في متجر صغير،",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "ظن المدير أن موظف الشحن هو السبب،",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "جاء موظف جديد،",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "worker checking returned parcels in shipping shop",
+                "query_alt_en": "parcel worker standing beside stacked boxes",
+                "must_show": "A shipping worker seen from behind with returned cardboard parcels on a counter; no clear faces or readable labels."
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "فاكتشف أن بعض العناوين ناقصة،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands checking incomplete delivery address forms",
+                "query_alt_en": "shipping paperwork on parcel shop counter",
+                "must_show": "Close-up of hands reviewing delivery forms with visibly empty address fields; no readable personal information or logos."
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s3",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "غيّر المتجر خطوة واحدة:",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "two workers checking parcel order paperwork",
+                "query_alt_en": "workers reviewing shipping forms at desk",
+                "must_show": "Two workers reviewing one paper shipping form at the shop counter, seen from behind or hands only; no clear faces."
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وفي الأيام التالية،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "courier picking up parcels from shop counter",
+                "must_show": "Courier collecting taped parcels at the shipping counter; no clear faces",
+                "query_alt_en": "delivery driver collecting cardboard boxes"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "المشكلة لم تكن في الموظف"
+          },
+          "publishing": {
+            "title": "غيّر المدير الموظف… لكن المشكلة بقيت!",
+            "description": "قصة تمثيلية قصيرة عن متجر استبدل موظفًا بآخر بعدما ظن أن سبب الطرود العائدة هو الموظف، ثم اكتشف أن الخلل بدأ قبل مرحلة الشحن. أحيانًا يبدأ الحل بتتبّع خطوات العمل قبل لوم الأشخاص.\n\nاسأل أولًا: أين يتعطل العمل؟\n\n#نداء_اليقظة #قصة_قصيرة #حل_المشكلات",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#قصة_قصيرة",
+              "#حل_المشكلات"
+            ]
+          }
+        },
+        "zip_sha256": "7d279f4bbd9ae4e7c6aced315bb44cfbf28a6afbb44f81b3beb5149ba4bde1db",
+        "asset_sha256": {
+          "assets/scene_01.jpg": "c5c1c3d6096483ee4b0c329039315cdacfa7c55db7c661b38f528d69e31829f5",
+          "assets/scene_02.jpg": "624a7f9d67511065b92c6b28969dbb4975b879b2567cad9c477a475acde5c7d5",
+          "assets/scene_03.jpg": "78fc1c0e288cf75cb596ee22c9de0f97c492669f5949f52db1cadeee13fdfe33",
+          "assets/scene_04.jpg": "dab2e3beb06bb2a3a296659c3479888437e24bd68828765d585645323f630322",
+          "assets/scene_05.jpg": "11b372869bbfa5ffc8ad88aae017d7d4738dc6ea5eae76ca2b39cef9eb366025",
+          "assets/scene_06.jpg": "45acb51ef22368a32c07d4b6223875b26589c2832eac41375dd5316a6863d020",
+          "assets/scene_07.jpg": "e4bc8a98289c36fc905d08bcdd4e1eb7b9508e6003d373082c53037872af4e15",
+          "assets/cover.jpg": "2bb7269eaccc01946789c4fb786d0ed2c2299479e55830ede61d685152f46ecb"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "90612f28156c05d131beaf43ad8171c6497febb3fe69daad1ae3543ceecdf7b7",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAINAAFq1aOTnwyOcAu8aYJj2JYnvTWRewAC1yAAAmN_qFLdmTsY_kDsCj0E",
+          "sha256": "7d279f4bbd9ae4e7c6aced315bb44cfbf28a6afbb44f81b3beb5149ba4bde1db"
+        }
+      }
     }
   },
-  "current_request_id": "req-838777b05885",
+  "current_request_id": "req-d2b6ae283323",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -16090,6 +16281,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-19T04:45:35Z",
+  "updated_at": "2026-10-19T04:59:32Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
