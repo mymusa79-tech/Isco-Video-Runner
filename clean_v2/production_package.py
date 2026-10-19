@@ -46,7 +46,7 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # Optional real-stock scene (Nidaa Short and Film only). The scene's required `asset` stays the
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
 # never leave a gap and the archive never carries video or URLs.
-STOCK_MAX_SCENES = {"short": 3, "film": 4}
+STOCK_MAX_SCENES = {"short": 7, "film": 30}  # any scene may ask for stock; the approved image stays its fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
@@ -178,7 +178,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
     stock_count = sum(1 for scene in scenes if "stock" in scene)
     if stock_count > STOCK_MAX_SCENES.get(fmt, 0):
-        _error(f"لقطات الستوك قليلة عمدًا: {STOCK_MAX_SCENES.get(fmt, 0)} كحد أقصى لهذا النوع.")
+        _error(f"لقطات الستوك: {STOCK_MAX_SCENES.get(fmt, 0)} كحد أقصى لهذا النوع.")
     if ala_mahl and scenes[0]["section_id"] != "s1":
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):

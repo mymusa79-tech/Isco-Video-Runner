@@ -27,11 +27,11 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len([s for s in package.validate_manifest(with_stock(manifest("short"), [1]))["scenes"] if "stock" in s]), 1)
         package.inspect_archive(archive_bytes(with_stock(manifest("short"), [0, 1, 2])))
         package.inspect_archive(archive_bytes(with_stock(manifest("film"), [0, 1, 2, 3])))
+        every = len(manifest("short")["scenes"])
+        package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
-    def test_stock_scenes_are_capped(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 3, "film": 4})
-        with self.assertRaises(Exception):
-            package.validate_manifest(with_stock(manifest("film"), [0, 1, 2, 3, 4]))
+    def test_stock_may_cover_every_scene(self):
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30})
 
     def test_podcast_and_ala_mahl_never_take_stock(self):
         for doc in (with_stock(manifest("podcast"), [0]), with_stock(manifest(template="ala_mahl"), [0])):
