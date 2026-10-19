@@ -31,7 +31,7 @@ BODY_FONT_SIZE = 166
 FOCUS_FONT_SIZE = 166
 # Simple-mode Shorts: was 116 (about 37% of the frame width on two rows, too small on a phone).
 # 144 is the start size; the fitter still shrinks a long phrase (never below 120) to keep two rows.
-SIMPLE_CAPTION_FONT_SIZE = 144
+SIMPLE_CAPTION_FONT_SIZE = 136  # 144 filled too much of the frame; still clearly larger than the old 116
 FOCUS_SCALE = 1.00
 BODY_WRAP_WORDS = 6
 MAX_CAPTION_LINES = 2
@@ -39,11 +39,11 @@ ARABIC_WORD_GAP = " "  # Natural Arabic word spacing; avoid stretched thin-space
 CAPTION_MIN_WORDS = 2
 CAPTION_LONGFORM_MIN_WORDS = 4
 CAPTION_MAX_WORDS = 12
-CAPTION_Y = 1300  # was 1400: the second line sat under YouTube's handle / Remix chip (starts ~y=1430)
+CAPTION_Y = 1260  # was 1400: the second line sat under YouTube's handle / Remix chip (starts ~y=1430)
 CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
-SHORT_CAPTION_STROKE = r"\bord8\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"  # navy-black stroke, soft shadow
+SHORT_CAPTION_STROKE = r"\bord7\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"  # navy-black stroke, soft shadow
 CAPTION_EXTRUDE_X = 0
 CAPTION_EXTRUDE_Y = 0
 CAPTION_SHADOW_X = 0
@@ -67,7 +67,7 @@ SAFE_X_MAX = 900
 SAFE_Y_MIN = 1160
 SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
-COMPOSITION_Y = 1300
+COMPOSITION_Y = 1260
 ROLE_BASE_FONT_SIZE = {
     "hook": 190,
     "beat": 168,

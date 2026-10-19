@@ -1932,7 +1932,7 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(ass.count("Dialogue:"), len(events))
         self.assertNotIn(r"\clip(", ass)
         self.assertNotIn(r"\t(0,", ass)
-        self.assertIn(r"\pos(540,1300)", ass)
+        self.assertIn(r"\pos(540,1260)", ass)
         self.assertIn(r"\fs", ass)
         self.assertNotIn("drawbox", ass)
 

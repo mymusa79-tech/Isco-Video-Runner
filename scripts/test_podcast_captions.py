@@ -182,7 +182,7 @@ class BarTests(unittest.TestCase):
         ass = pc.build_ass(self.EVENTS, fmt="short")
         style = next(line for line in ass.splitlines() if line.startswith("Style: Caption"))
         fields = style.split(",")
-        self.assertGreaterEqual(int(fields[2]), 116)
+        self.assertGreaterEqual(int(fields[2]), 120)
         self.assertGreaterEqual(int(fields[-2]), 560)   # MarginV: text bottom edge at or above y=1360
         self.assertGreaterEqual(int(fields[-4]), 100)   # side margins keep text off the action buttons
 

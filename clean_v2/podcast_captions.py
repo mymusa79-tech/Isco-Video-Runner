@@ -47,7 +47,7 @@ SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
 SPEAKER_ASS = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}
 FONT_SIZE = 78  # ~7.2% of the 1080 px frame (72 before); two rows still fit the safe width
 MARGIN_V = 150
-SHORT_CAPTION_FONT_SIZE = 116  # was 92: too small on a phone
+SHORT_CAPTION_FONT_SIZE = 128  # was 92: too small on a phone; still well short of filling the frame
 SHORT_CAPTION_MARGIN_V = 570   # bottom edge of the text at y=1350 of 1920 (was 1490, under YouTube's UI)
 # Rounded semi-transparent charcoal card behind long-form captions. It is centred
 # horizontally and sized per run of captions: one row gets a slim card, two rows the
@@ -254,7 +254,7 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
         if fmt == "short":
             lines.append(
                 f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
-                + r"{\fs" + str(size) + r"\bord8\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"
+                + r"{\fs" + str(size) + r"\bord7\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"
                 + r"\fad(100,120)" + colour + "}" + rendered
             )
             continue

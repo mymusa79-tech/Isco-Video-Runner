@@ -59,7 +59,7 @@ class TextVisualPolishV2Tests(unittest.TestCase):
             {"start": 8.0, "end": 12.0, "text": "الخطوة الصغيرة فتحت الطريق", "role": "payoff"},
         ]
         ass = text_module.build_rich_ass(events)
-        self.assertIn(r"\bord8", ass)
+        self.assertIn(r"\bord7", ass)
         self.assertIn(r"\shad4", ass)
         self.assertNotIn(r"\t(0,", ass)  # still static: no pop, wipe or karaoke
 
