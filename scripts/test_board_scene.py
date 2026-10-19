@@ -117,6 +117,24 @@ class ContractTests(unittest.TestCase):
         with mock.patch.dict(board_scene.BOARD_MAX_SCENES, {"film": 1}), self.assertRaises(Exception):
             package.validate_manifest(doc)
 
+    def test_podcast_boards_stay_above_the_dialogue_caption_card(self):
+        # The caption card occupies y=687..965 and stays on screen over every board.
+        profile = board_scene.PROFILES["podcast"]
+        for layout, (low, high) in board_scene.PODCAST_LAYOUTS.items():
+            for n in range(low, high + 1):
+                for titled in (True, False):
+                    for cell in board_scene._geometry(layout, n, titled, profile):
+                        with self.subTest(layout=layout, n=n, titled=titled):
+                            self.assertLessEqual(cell["cy"] + cell["h"] / 2, 687 - 20)
+
+    def test_podcast_captions_are_never_dropped_over_a_board(self):
+        import inspect
+        from clean_v2 import podcast_captions
+
+        source = inspect.getsource(podcast_captions)
+        self.assertNotIn("board_scene", source)
+        self.assertNotIn("drop_events_over_boards", source)
+
     def test_board_caps_per_format(self):
         self.assertEqual(board_scene.BOARD_MAX_SCENES, {"film": 14, "podcast": 8})
 
