@@ -135,8 +135,11 @@ def _use_approved_image(clip: Path, row: dict[str, Any], beat: Mapping[str, Any]
         if asset is None or not asset.is_file():
             return False
         rejected = {k: row.get(k) for k in ("provider", "asset_id", "source_url", "creator", "source_actual")}
-        make_motion_clip(asset, clip, seconds=float(seconds) + 1, direction=index, portrait=fmt == "short",
-                         motion_kind=str(beat.get("owner_motion") or "slow_pan"))
+        # The pipeline hands visual QA fmt="story" for a Short: portrait must follow the same
+        # set the renderer uses, or the replacement is a 16:9 clip centre-cropped to ~3x.
+        make_motion_clip(asset, clip, seconds=float(seconds) + 1, direction=index,
+                         portrait=fmt in {"short", "story", "moment"},
+                         motion_kind=str(beat.get("owner_motion") or "slow_pan"), respect_hold=True)
     except Exception:
         return False
     row.update(provider=PROVIDER, source_actual=PROVIDER, asset_id=approved, source_url="",
