@@ -46,13 +46,14 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # Optional real-stock scene (Nidaa Short and Film only). The scene's required `asset` stays the
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
 # never leave a gap and the archive never carries video or URLs.
-STOCK_MAX_SCENES = {"short": 7, "film": 30}  # any scene may ask for stock; the approved image stays its fallback
+ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
+STOCK_MAX_SCENES = {"short": 7, "film": 30, "podcast": 3}  # any scene may ask for stock; the approved image stays its fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
 def _stock(value: Any, fmt: str, template: str) -> dict:
-    if fmt not in STOCK_MAX_SCENES or template == "ala_mahl":
-        _error("لقطات الستوك للشورت نداء والفيلم فقط؛ البودكاست وعلى مهل صور معتمدة فقط.")
+    if fmt not in STOCK_MAX_SCENES:
+        _error("لقطات الستوك لنداء شورت والفيلم وعلى مهل والبودكاست فقط.")
     stock = _object(value, {"query_en"}, {"query_alt_en", "must_show"}, field="scene.stock")
     for key in ("query_en", "query_alt_en"):
         if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
@@ -177,8 +178,19 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
     stock_count = sum(1 for scene in scenes if "stock" in scene)
-    if stock_count > STOCK_MAX_SCENES.get(fmt, 0):
-        _error(f"لقطات الستوك: {STOCK_MAX_SCENES.get(fmt, 0)} كحد أقصى لهذا النوع.")
+    stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
+    if stock_count > stock_cap:
+        _error(f"لقطات الستوك: {stock_cap} كحد أقصى لهذا النوع.")
+    if ala_mahl and stock_count:
+        # A section without its own picture continues the previous picture. A stock clip
+        # there would jump back to its still fallback in the middle of the story.
+        for index, scene in enumerate(scenes):
+            if "stock" not in scene:
+                continue
+            number = int(scene["section_id"][1:])
+            last_of_section = index + 1 == len(scenes) or scenes[index + 1]["section_id"] != scene["section_id"]
+            if last_of_section and f"s{number + 1}" in texts and f"s{number + 1}" not in {x["section_id"] for x in scenes}:
+                _error("لقطة الستوك في على مهل لا تكون آخر مشهد قبل قسم يكمل الصورة نفسها.")
     if ala_mahl and scenes[0]["section_id"] != "s1":
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):

@@ -1,4 +1,4 @@
-"""Optional real-stock scenes in an approved ZIP (Nidaa Short + Film only), image fallback always."""
+"""Optional real-stock scenes in an approved ZIP (Nidaa Short, Film, and two ambient inserts in Ala Mahl), image fallback always."""
 from __future__ import annotations
 
 import copy
@@ -31,12 +31,26 @@ class ContractTests(unittest.TestCase):
         package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
     def test_stock_may_cover_every_scene(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30, "podcast": 3})
 
-    def test_podcast_and_ala_mahl_never_take_stock(self):
-        for doc in (with_stock(manifest("podcast"), [0]), with_stock(manifest(template="ala_mahl"), [0])):
-            with self.assertRaises(Exception):
-                package.validate_manifest(doc)
+    def test_podcast_takes_at_most_three_stock_scenes(self):
+        package.validate_manifest(with_stock(manifest("podcast"), [0]))
+        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 3)
+
+    def test_ala_mahl_takes_at_most_two_ambient_stock_scenes(self):
+        base = manifest(template="ala_mahl")
+        package.validate_manifest(with_stock(base, [0]))
+        package.validate_manifest(with_stock(base, [0, 1]))
+        self.assertEqual(package.ALA_MAHL_STOCK_MAX, 2)
+        with self.assertRaises(Exception):
+            package.validate_manifest(with_stock(base, [0, 1, 2]))
+
+    def test_ala_mahl_stock_cannot_precede_a_continued_picture(self):
+        doc = manifest(template="ala_mahl")
+        doc["scenes"] = [s for s in doc["scenes"] if s["section_id"] != "s2"]  # s2 continues s1's picture
+        with self.assertRaises(Exception):
+            package.validate_manifest(with_stock(doc, [0]))
+        package.validate_manifest(with_stock(doc, [1]))  # s3's own picture is not continued
 
     def test_query_must_be_a_short_english_phrase_and_fields_are_closed(self):
         for bad in ({"query_en": "رجل يمشي"}, {"query_en": "walk"}, {"query_en": "a b c d e f g h i j"},
@@ -53,6 +67,13 @@ class ContractTests(unittest.TestCase):
 
 
 class StoryTests(unittest.TestCase):
+    def test_ala_mahl_beat_carries_the_stock_request_and_its_approved_image(self):
+        story = ready_production.build_story(with_stock(manifest(template="ala_mahl"), [1]))
+        stock = [b for b in story["beats"] if b.get("owner_stock")]
+        self.assertEqual(len(stock), 1)
+        self.assertTrue(stock[0]["owner_asset"].startswith("assets/"))
+        self.assertEqual(stock[0]["source_preference"], "stock_motion")
+
     def test_beat_keeps_the_approved_image_and_carries_the_stock_request(self):
         story = ready_production.build_story(with_stock(manifest("short"), [1]))
         beats = story["beats"]
