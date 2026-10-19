@@ -521,6 +521,11 @@ def _apply_sparse_key_text(
             f"{fmt}_key_text_speech_timing_unavailable:{type(exc).__name__}"
         ) from exc
     events = build_events(script=script, timeline=timeline, closer=closer, fmt=fmt, cues=cues)
+    from clean_v2.board_scene import blocked_windows, drop_events_over_boards
+
+    boards = blocked_windows(Path(output_dir))
+    if boards:  # an explainer board carries its own text; never write over it
+        events = drop_events_over_boards(events, boards)
     narration = " ".join(
         str(item.get("narration") or "") for item in (script.get("sections") or []) if isinstance(item, Mapping)
     )
