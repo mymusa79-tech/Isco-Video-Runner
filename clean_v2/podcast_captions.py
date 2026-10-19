@@ -254,7 +254,8 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
         if fmt == "short":
             lines.append(
                 f'Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Caption,,0,0,0,,'
-                + r"{\fs" + str(size) + r"\fad(100,120)" + colour + "}" + rendered
+                + r"{\fs" + str(size) + r"\bord8\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"
+                + r"\fad(100,120)" + colour + "}" + rendered
             )
             continue
         # Layers: 0 soft shadow, 1 navy card, 2 gold hairline + speaker accent, 3 text.

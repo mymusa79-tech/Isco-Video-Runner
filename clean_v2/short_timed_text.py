@@ -39,10 +39,11 @@ ARABIC_WORD_GAP = " "  # Natural Arabic word spacing; avoid stretched thin-space
 CAPTION_MIN_WORDS = 2
 CAPTION_LONGFORM_MIN_WORDS = 4
 CAPTION_MAX_WORDS = 12
-CAPTION_Y = 1400
+CAPTION_Y = 1300  # was 1400: the second line sat under YouTube's handle / Remix chip (starts ~y=1430)
 CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
+SHORT_CAPTION_STROKE = r"\bord8\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"  # navy-black stroke, soft shadow
 CAPTION_EXTRUDE_X = 0
 CAPTION_EXTRUDE_Y = 0
 CAPTION_SHADOW_X = 0
@@ -66,7 +67,7 @@ SAFE_X_MAX = 900
 SAFE_Y_MIN = 1160
 SAFE_Y_MAX = 1520
 COMPOSITION_X = 540
-COMPOSITION_Y = 1400
+COMPOSITION_Y = 1300
 ROLE_BASE_FONT_SIZE = {
     "hook": 190,
     "beat": 168,
@@ -946,7 +947,7 @@ def build_rich_ass(
     from .simple_mode import is_simple_mode
     simple_caption = is_simple_mode()
     caption_style_size = SIMPLE_CAPTION_FONT_SIZE if simple_caption else BODY_FONT_SIZE
-    caption_outline = 3 if simple_caption else 4
+    caption_outline = 3 if simple_caption else 4  # the event tags below set the real stroke
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -973,8 +974,10 @@ def build_rich_ass(
         plain = _ass_wrap_words(item.text, fmt="short", font_size=font_size)
         start = _ass_time(item.start)
         end = _ass_time(item.end)
+        # Modern Shorts caption: thick dark stroke + soft drop shadow (legible on white paper
+        # or sky, where the old thin stroke vanished). Captions stay static: no pop, wipe or karaoke.
         motion = r"\fad(140,200)"
-        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + motion
+        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + SHORT_CAPTION_STROKE + motion
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
             f"{{{face_tag}\\c{PRIMARY_ASS}}}{plain}"
