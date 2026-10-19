@@ -381,6 +381,32 @@ def simple_opening_director(**_kwargs: Any) -> dict[str, Any]:
     return {"status": "skipped_simple_mode", "slots": []}
 
 
+def stock_outcomes(output_dir: Path) -> dict[str, Any]:
+    """What happened to every scene that asked for stock: used, or the recorded reason it was not.
+
+    Read from the final rights manifest, so it reflects both the metadata check at import time and
+    the later picture review. Empty when no scene asked for stock, so other reports stay unchanged.
+    """
+    import json
+
+    try:
+        payload = json.loads((Path(output_dir) / "rights-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    rows = [r for r in (payload.get("assets") or []) if isinstance(r, Mapping) and r.get("stock_requested")] \
+        if isinstance(payload, Mapping) else []
+    if not rows:
+        return {}
+    used, fallbacks = 0, []
+    for row in rows:
+        if row.get("source_actual") in {"stock_motion", "stock_still"} and not row.get("owner_approved"):
+            used += 1
+        else:
+            fallbacks.append({"scene": str(row.get("beat_id") or ""),
+                              "reason": str(row.get("replacement_reason") or row.get("stock_fallback_reason") or "unknown")[:160]})
+    return {"requested": len(rows), "used": used, "fallbacks": fallbacks}
+
+
 def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     """Honest end-of-run report built only from recorded data."""
     output_dir = Path(output_dir)
@@ -424,6 +450,7 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
         "publish_decision": "owner",
         "scene_review": scene_review_report,
         **({"owner_designed_art_clips": owner_art_clips} if owner_art_clips else {}),
+        **({"stock_scenes": stock_scenes} if (stock_scenes := stock_outcomes(output_dir)) else {}),
         "statement": (
             f"{scenes} scenes: {stock} stock clips chosen by similarity ranking, "
             + (f"{owner_art_clips} owner-designed images, " if owner_art_clips else "")

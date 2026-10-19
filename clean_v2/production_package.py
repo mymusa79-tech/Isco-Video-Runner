@@ -47,7 +47,7 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
 # never leave a gap and the archive never carries video or URLs.
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
-STOCK_MAX_SCENES = {"short": 7, "film": 30, "podcast": 3}  # any scene may ask for stock; the approved image stays its fallback
+STOCK_MAX_SCENES = {"short": 7, "film": 30, "podcast": 8}  # any scene may ask for stock; the approved image stays its fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
