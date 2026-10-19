@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "كل ليلة تقرر أن تتغير… فلماذا لا تبدأ؟",
-  "stage": "🎙️ خارج النص · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39246189164",
-  "result": "",
-  "updated_at": 1792411899
+  "result": "success",
+  "updated_at": 1792412476
 }
