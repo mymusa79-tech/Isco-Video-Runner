@@ -203,11 +203,11 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     """
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
-    message = "أكمل النقاش في الحلقة الكاملة" if podcast else "شاهد الحلقة الكاملة"
+    message = "أكمل النقاش\\Nفي الحلقة الكاملة" if podcast else "شاهد الحلقة الكاملة"
     from .podcast_captions import BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card
 
     # Navy + gold card (same identity as the captions), high enough to clear them.
-    left, right, top, bottom = 90, 990, 250, 400
+    left, right, top, bottom = 60, 1020, 130, 410
     stamp = f"{_ass_clock(start)},{_ass_clock(end)}"
     fade = r"\fad(260,200)"
 
@@ -219,7 +219,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
         "ScaledBorderAndShadow: yes\n"
         "[V4+ Styles]\n"
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-        "Style: Teaser,Cairo,56,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
+        "Style: Teaser,Cairo,92,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
         f"Dialogue: 0,{stamp},Teaser,shade,0,0,0,,"
         f"{shape('&H000000&', '&H78&', chr(92) + 'blur16')}{_rounded_card(left, top + 10, right, bottom + 10, 44)}{{\\p0}}\n"
@@ -231,7 +231,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
         f"Dialogue: 2,{stamp},Teaser,accent,0,0,0,,"
         f"{shape(GOLD_ASS, '&H00&')}{_rounded_card(right - 52, top + 36, right - 42, bottom - 36, 5)}{{\\p0}}\n"
         f"Dialogue: 3,{stamp},Teaser,line,0,0,0,,"
-        f"{{\\an5\\pos(505,{(top + bottom) // 2}){fade}}}{message}\n"
+        f"{{\\an5\\pos(520,{(top + bottom) // 2}){fade}}}{message}\n"
     )
 
 
