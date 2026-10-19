@@ -343,7 +343,12 @@ class OwnerArtVisualSource:
         row = dict(found_rights[0])
         if str(row.get("source_actual") or "") not in {"stock_motion", "stock_still"}:
             return None, "no_admitted_stock_candidate"
-        if not _stock_review_semantic_fit(query, row):
+        # The editor wrote three descriptions of the same wanted picture: the main query, the broader
+        # alternate and `must_show`. Provider titles rarely repeat one phrase word for word, so a clip
+        # that fits any of the three is the clip the editor asked for. The same strict fit check runs
+        # on each; nothing is loosened inside it.
+        wanted = [query, alternate, str(stock.get("must_show") or "")]
+        if not any(text.strip() and _stock_review_semantic_fit(text, row) for text in wanted):
             return None, "stock_metadata_not_matching_query"
         # Every per-beat search names its clip visual-01.mp4: give it a unique name next to the
         # other clips so rights rows and the renderer can never confuse two beats.
