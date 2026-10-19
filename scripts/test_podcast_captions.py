@@ -178,6 +178,14 @@ class BarTests(unittest.TestCase):
             if line.startswith("Dialogue: 3,"):  # text centred on the card centre whatever the row count
                 self.assertIn(r"\an5\move(960," + str(pc.BAR_CENTER_Y + 10) + ",960," + str(pc.BAR_CENTER_Y) + ",0,200)", line)
 
+    def test_short_caption_is_large_and_clear_of_youtube_ui(self) -> None:
+        ass = pc.build_ass(self.EVENTS, fmt="short")
+        style = next(line for line in ass.splitlines() if line.startswith("Style: Caption"))
+        fields = style.split(",")
+        self.assertGreaterEqual(int(fields[2]), 116)
+        self.assertGreaterEqual(int(fields[-2]), 560)   # MarginV: text bottom edge at or above y=1360
+        self.assertGreaterEqual(int(fields[-4]), 100)   # side margins keep text off the action buttons
+
     def test_short_has_no_band(self) -> None:
         self.assertNotIn(r"\p1", pc.build_ass(self.EVENTS, fmt="short"))
 

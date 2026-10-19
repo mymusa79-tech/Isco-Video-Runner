@@ -47,6 +47,8 @@ SPEAKER_HEX = {"A": "#C9A24B", "B": "#F5F3EF"}
 SPEAKER_ASS = {"A": r"\c&H4BA2C9&", "B": r"\c&HEFF3F5&"}
 FONT_SIZE = 78  # ~7.2% of the 1080 px frame (72 before); two rows still fit the safe width
 MARGIN_V = 150
+SHORT_CAPTION_FONT_SIZE = 116  # was 92: too small on a phone
+SHORT_CAPTION_MARGIN_V = 570   # bottom edge of the text at y=1350 of 1920 (was 1490, under YouTube's UI)
 # Rounded semi-transparent charcoal card behind long-form captions. It is centred
 # horizontally and sized per run of captions: one row gets a slim card, two rows the
 # full one. Text is centred INSIDE the card (an5), so one-line captions no longer sit
@@ -221,8 +223,12 @@ def _rounded_card(left: int, top: int, right: int, bottom: int, radius: int) -> 
 
 
 def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> str:
-    width, height, font_size, margin = (1080, 1920, 92, 430) if fmt == "short" else (1920, 1080, FONT_SIZE, MARGIN_V)
-    side_margin = 90 if fmt == "short" else 140
+    # Short: bigger text, lifted clear of YouTube's own lower UI (handle, description, the
+    # "Remix this scene" chip start near y=1430 of 1920) and of the right-hand action buttons.
+    width, height, font_size, margin = (
+        (1080, 1920, SHORT_CAPTION_FONT_SIZE, SHORT_CAPTION_MARGIN_V) if fmt == "short" else (1920, 1080, FONT_SIZE, MARGIN_V)
+    )
+    side_margin = 110 if fmt == "short" else 140
     lines = [
         "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2", "ScaledBorderAndShadow: yes",
         f"PlayResX: {width}", f"PlayResY: {height}", "YCbCr Matrix: TV.709", "",
