@@ -117,6 +117,9 @@ class ContractTests(unittest.TestCase):
         with mock.patch.dict(board_scene.BOARD_MAX_SCENES, {"film": 1}), self.assertRaises(Exception):
             package.validate_manifest(doc)
 
+    def test_board_caps_per_format(self):
+        self.assertEqual(board_scene.BOARD_MAX_SCENES, {"film": 14, "podcast": 8})
+
     def test_derivative_may_not_cover_a_board(self):
         doc = film_doc()
         doc["derivative"] = {"start_text": "في البداية بدت الخطوة أصغر", "end_text": "تنتظره"}
