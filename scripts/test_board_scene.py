@@ -117,6 +117,38 @@ class ContractTests(unittest.TestCase):
         with mock.patch.dict(board_scene.BOARD_MAX_SCENES, {"film": 1}), self.assertRaises(Exception):
             package.validate_manifest(doc)
 
+    def test_short_accepts_steps_and_grid_only_and_two_boards_at_most(self):
+        def short_doc(layout):
+            doc = manifest("short")
+            spec = board(layout, 3)
+            for item in spec["items"]:
+                item.pop("asset")
+            doc["scenes"][1]["board"] = spec
+            return doc
+
+        package.validate_manifest(short_doc("steps"))
+        package.validate_manifest(short_doc("grid"))
+        for layout in ("row", "hub"):
+            with self.subTest(layout=layout), self.assertRaises(Exception):
+                package.validate_manifest(short_doc(layout))
+        doc = short_doc("steps")
+        doc["scenes"][2]["board"] = copy.deepcopy(doc["scenes"][1]["board"])
+        with mock.patch.dict(board_scene.BOARD_MAX_SCENES, {"short": 1}), self.assertRaises(Exception):
+            package.validate_manifest(doc)
+
+    def test_short_boards_stay_above_the_static_caption(self):
+        # The Short caption is centred at y=1260; two lines at the largest size start near y=1120.
+        profile = board_scene.PROFILES["short"]
+        for layout, (low, high) in board_scene.SHORT_LAYOUTS.items():
+            for n in range(low, high + 1):
+                for titled in (True, False):
+                    for cell in board_scene._geometry(layout, n, titled, profile):
+                        with self.subTest(layout=layout, n=n, titled=titled):
+                            self.assertLessEqual(cell["cy"] + cell["h"] / 2, 1070)
+                            self.assertGreaterEqual(cell["cy"] - cell["h"] / 2, 200)
+                            self.assertGreaterEqual(cell["cx"] - cell["w"] / 2, 40)
+                            self.assertLessEqual(cell["cx"] + cell["w"] / 2, 1040)
+
     def test_podcast_boards_stay_above_the_dialogue_caption_card(self):
         # The caption card occupies y=687..965 and stays on screen over every board.
         profile = board_scene.PROFILES["podcast"]
@@ -136,7 +168,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("drop_events_over_boards", source)
 
     def test_board_caps_per_format(self):
-        self.assertEqual(board_scene.BOARD_MAX_SCENES, {"film": 14, "podcast": 8})
+        self.assertEqual(board_scene.BOARD_MAX_SCENES, {"film": 14, "podcast": 8, "short": 2})
 
     def test_derivative_may_not_cover_a_board(self):
         doc = film_doc()
@@ -232,6 +264,15 @@ class RenderTests(unittest.TestCase):
             {"label": "الثالث بتفصيل أطول قليلًا", "at_text": "كلمة", "asset": "assets/board_01.png"}]}
         info = probe(self.render(spec, 7.0, fmt="podcast"))
         self.assertAlmostEqual(float(info["format"]["duration"]), 7.0, delta=0.1)
+
+    def test_short_boards_render_portrait(self):
+        for layout, n in (("steps", 4), ("grid", 4)):
+            with self.subTest(layout=layout):
+                spec = {"layout": layout, "theme": "slate", "title": "ثلاث خطوات", "items": [
+                    {"label": f"الخطوة رقم {i + 1}", "at_text": "كلمة"} for i in range(n)]}
+                info = probe(self.render(spec, 6.0, fmt="short"))
+                self.assertEqual((info["streams"][0]["width"], info["streams"][0]["height"]), (1080, 1920))
+                self.assertAlmostEqual(float(info["format"]["duration"]), 6.0, delta=0.1)
 
     def test_bad_spec_raises_instead_of_producing_a_broken_clip(self):
         with self.assertRaises(board_scene.BoardError):

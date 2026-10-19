@@ -69,9 +69,10 @@ def _board(value: Any, fmt: str) -> dict:
     from . import board_scene
 
     if fmt not in board_scene.BOARD_MAX_SCENES:
-        _error("اللوحة التوضيحية للفيلم والبودكاست فقط.")
+        _error("اللوحة التوضيحية للفيلم والبودكاست وشورت النداء فقط.")
     board = _object(value, {"layout", "items"}, {"title", "theme"}, field="scene.board")
-    layouts = board_scene.PODCAST_LAYOUTS if fmt == "podcast" else board_scene.LAYOUTS
+    layouts = (board_scene.PODCAST_LAYOUTS if fmt == "podcast" else board_scene.SHORT_LAYOUTS if fmt == "short"
+               else board_scene.LAYOUTS)
     if board["layout"] not in layouts:
         _error("layout اللوحة: " + " / ".join(sorted(layouts)) + ".")
     if board.get("theme", "paper") not in board_scene.THEMES:
