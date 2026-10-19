@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
   "topic": "غيّر المدير الموظف… لكن المشكلة بقيت!",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39202320768",
-  "result": "success",
-  "updated_at": 1792386429
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39231476498",
+  "result": "",
+  "updated_at": 1792402678
 }
