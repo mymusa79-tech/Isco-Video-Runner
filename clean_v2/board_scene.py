@@ -19,10 +19,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
-LAYOUTS = {"row": (2, 5), "steps": (2, 5), "grid": (3, 8), "hub": (3, 7)}
+LAYOUTS = {"row": (2, 5), "steps": (2, 5), "grid": (3, 8), "hub": (3, 7), "compare": (2, 2)}
 # Podcast keeps its dialogue caption card over y=687..965, so its boards live in the upper part
 # only; Film's sparse key text is suppressed while a board is on screen (see blocked_windows).
-PODCAST_LAYOUTS = {"row": (2, 5), "steps": (2, 4), "grid": (3, 6)}
+PODCAST_LAYOUTS = {"row": (2, 5), "steps": (2, 4), "grid": (3, 6), "compare": (2, 2)}
 # Nidaa Short boards are portrait: vertical steps or a 2-column grid, kept above the static caption
 # (centred at y=1260) and clear of the platform's top and bottom interface.
 SHORT_LAYOUTS = {"steps": (2, 4), "grid": (3, 4)}
@@ -39,6 +39,15 @@ MAX_LABEL_CHARS = 30
 BOARD_MAX_SCENES = {"film": 14, "podcast": 8, "short": 2}
 
 _PALETTE = {
+    # Optional restrained editorial direction. Legacy slate/paper pixels are untouched.
+    "editorial": {
+        "bg_top": (17, 24, 32), "bg_bot": (17, 24, 32), "grain": 1.0,
+        "blobs": [], "ink": (244, 241, 233),
+        "card_fill": (30, 40, 47, 248), "card_light": 0.0,
+        "card_border": (135, 152, 151, 110), "shadow": (0, 0, 0, 52),
+        "plate_alpha": 34, "dot_off": (135, 152, 151, 65),
+        "accents": [(197, 163, 106)], "editorial": True,
+    },
     "slate": {
         "bg_top": (10, 14, 30), "bg_bot": (22, 26, 60), "grain": 2.6,
         "blobs": [((1560, 170), 540, (96, 80, 255), 0.42), ((260, 930), 580, (0, 194, 168), 0.25), ((1120, 1010), 500, (255, 77, 141), 0.18)],
@@ -225,8 +234,20 @@ def _rounded(size, radius, fill, scale=2):
 
 
 def _glass_card(w: int, h: int, radius: int, theme, accent):
-    """Translucent card: soft shadow, faint top light, hairline border, small accent tab."""
+    """Preserve glass for legacy themes; draw restrained flat cards for editorial."""
     from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
+    if theme.get("editorial"):
+        pad = 80
+        canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
+        shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(shadow)
+        d.rounded_rectangle((pad, pad + 6, pad + w, pad + h + 6), radius=24, fill=theme["shadow"])
+        canvas = Image.alpha_composite(canvas, shadow.filter(ImageFilter.GaussianBlur(14)))
+        d = ImageDraw.Draw(canvas)
+        d.rounded_rectangle((pad, pad, pad + w, pad + h), radius=24,
+                            fill=theme["card_fill"], outline=theme["card_border"], width=2)
+        return canvas, pad
 
     pad = 80
     s = 2
@@ -376,6 +397,18 @@ def _geometry(layout: str, n: int, has_title: bool, profile) -> list[dict[str, A
         for k in range(n):
             cx = right - card_w / 2 - k * (card_w + gap)
             cells.append({"cx": cx, "cy": cy, "w": card_w, "h": card_h, "gap": gap, "plate": int(min(card_w * 0.7, card_h * 0.52, 280))})
+    elif layout == "compare":
+        # Two parallel states without the causal arrow used by row.
+        gap = 70
+        usable = profile["right_edge"] - profile["left_edge"]
+        card_w = int(min(725, (usable - gap) / 2))
+        card_h = int(min(span - 10, 600 if not compact else 440))
+        cy = top + span / 2
+        centre_offset = (card_w + gap) / 2
+        for k in range(2):
+            cells.append({"cx": profile["width"] / 2 + (centre_offset if k == 0 else -centre_offset),
+                          "cy": cy, "w": card_w, "h": card_h,
+                          "plate": int(min(card_w * 0.35, card_h * 0.43, 210))})
     elif layout == "steps":
         row_h = min(190, (span - 4) / n)
         for k in range(n):
@@ -525,7 +558,7 @@ def _line(canvas, p1, p2, colour, progress: float, width: int = 5):
 def _glow(item: _Item, alpha: float, canvas):
     from PIL import Image, ImageDraw, ImageFilter
 
-    if alpha <= 0.01:
+    if alpha <= 0.01 or item.theme.get("editorial"):
         return
     if item.glow is None:
         w, h = item.cell["w"] + 220, item.cell["h"] + 220
@@ -544,9 +577,10 @@ def _hub_core(title: str, theme, accent):
     size = 420
     img = Image.new("RGBA", (size * s, size * s), (0, 0, 0, 0))
     c = size * s / 2
-    glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse((c - 150 * s, c - 150 * s, c + 150 * s, c + 150 * s), fill=accent + (150,))
-    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(40 * s)))
+    if not theme.get("editorial"):
+        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse((c - 150 * s, c - 150 * s, c + 150 * s, c + 150 * s), fill=accent + (150,))
+        img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(40 * s)))
     d = ImageDraw.Draw(img)
     r = 138 * s
     d.ellipse((c - r, c - r, c + r, c + r), fill=accent + (255,))
@@ -558,16 +592,30 @@ def _hub_core(title: str, theme, accent):
     return img.resize((size, size), Image.LANCZOS)
 
 
+def _editorial_arrow(canvas, centre, accent, progress: float) -> None:
+    """A quiet right-to-left flow arrow, without a circular animated badge."""
+    from PIL import Image, ImageDraw
+    if progress <= 0.01:
+        return
+    arrow = Image.new("RGBA", (66, 32), (0, 0, 0, 0))
+    d = ImageDraw.Draw(arrow)
+    ink = accent + (int(190 * min(1.0, progress)),)
+    d.line(((57, 16), (10, 16)), fill=ink, width=3)
+    d.line(((20, 6), (10, 16), (20, 26)), fill=ink, width=3, joint="curve")
+    _paste(canvas, arrow, centre)
+
+
 def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: bool) -> None:
     """Draw item at u seconds after its reveal. final=True draws the settled form (no glow)."""
     cell = item.cell
+    editorial = bool(item.theme.get("editorial"))
     ox, oy = item.cell["cx"], item.cell["cy"]
     if final:
         card_p = plate_p = chip_p = 1.0
     else:
-        card_p = _out_cubic(u / 0.62)
-        plate_p = (u - 0.14) / 0.55
-        chip_p = (u + 0.12) / 0.45
+        card_p = _out_cubic(u / (0.32 if editorial else 0.62))
+        plate_p = (u - (0.08 if editorial else 0.14)) / (0.28 if editorial else 0.55)
+        chip_p = (u + 0.12) / (0.28 if editorial else 0.45)
         _glow(item, max(0.0, 1 - u / SETTLE_SECONDS) * min(1.0, u / 0.25), canvas)
     if item.layout == "hub":
         a = cell["hub"]
@@ -576,15 +624,21 @@ def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: boo
         end_r = min(cell["w"] / (2 * max(0.2, abs(math.cos(ang)))), cell["h"] / (2 * max(0.2, abs(math.sin(ang))))) * 0.98
         _line(canvas, (a[0] + reach * math.cos(ang), a[1] + reach * math.sin(ang)),
               (ox - end_r * math.cos(ang), oy - end_r * math.sin(ang)), item.accent, 1.0 if final else _out_cubic((u + 0.1) / 0.5))
-    _paste(canvas, item.card, (ox, oy), scale=0.965 + 0.035 * card_p, alpha=min(1.0, card_p * 1.6), offset=(0, (1 - card_p) * 44))
+    _paste(canvas, item.card, (ox, oy), scale=(1.0 if editorial else 0.965 + 0.035 * card_p),
+           alpha=min(1.0, card_p * 1.6), offset=(0, (1 - card_p) * (10 if editorial else 44)))
     px, py = item.plate_at
     left, top = ox - cell["w"] / 2 - item.card_pad, oy - cell["h"] / 2 - item.card_pad
-    p = 1.0 if final else _out_back(plate_p)
-    _paste(canvas, item.plate, (left + px, top + py), scale=0.5 + 0.5 * p, alpha=1.0 if final else min(1.0, max(0.0, plate_p * 2.5)),
-           offset=(0, 0 if final else (1 - card_p) * 44))
+    p = 1.0 if final else (_out_cubic(plate_p) if editorial else _out_back(plate_p))
+    _paste(canvas, item.plate, (left + px, top + py), scale=(1.0 if editorial else 0.5 + 0.5 * p),
+           alpha=1.0 if final else min(1.0, max(0.0, plate_p * 2.5)),
+           offset=(0, 0 if final else (1 - card_p) * (10 if editorial else 44)))
     if item.layout == "row" and item.index > 0:
         prev = items[item.index - 1].cell
-        _chip(canvas, ((prev["cx"] - prev["w"] / 2 + ox + cell["w"] / 2) / 2, oy), item.accent, 1.0 if final else chip_p)
+        arrow_at = ((prev["cx"] - prev["w"] / 2 + ox + cell["w"] / 2) / 2, oy)
+        if editorial:
+            _editorial_arrow(canvas, arrow_at, item.accent, 1.0 if final else chip_p)
+        else:
+            _chip(canvas, arrow_at, item.accent, 1.0 if final else chip_p)
 
 
 # --------------------------------------------------------------------------- timing
