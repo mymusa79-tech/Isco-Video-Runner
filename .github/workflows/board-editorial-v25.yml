@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+      - name: Install FFmpeg for actual Board video tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Install local rendering dependencies (no external provider)
         run: python -m pip install 'Pillow==12.3.0' numpy
       - name: Compile board and importer
