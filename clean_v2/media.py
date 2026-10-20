@@ -2330,6 +2330,12 @@ class StockVisualSource:
         ai_hook_reference: Path | None = None
         ai_route_available = True
         ai_fallbacks_used = [0]
+        # Bound the automatic stock-search tail. Exact editor-pinned URLs retain
+        # their existing direct-fetch route; only open-ended discovery is capped.
+        stock_search_deadline = (
+            time.monotonic() + 900.0
+            if fmt == "film" and is_simple_mode() else float("inf")
+        )
 
         def _admit_stock_candidate(
             candidate: dict[str, Any],
@@ -2463,6 +2469,10 @@ class StockVisualSource:
             competitive_motion = not as_still and role in {"hook", "payoff"}
 
             for query_variant_index, raw_query in enumerate(queries):
+                if time.monotonic() >= stock_search_deadline:
+                    self._event("stock_search", str(raw_query), "budget_exhausted",
+                                wire_attempted=False, reason="simple_film_900s_total")
+                    return False
                 query = prepare_query(raw_query)
                 if not query:
                     continue
@@ -2473,6 +2483,8 @@ class StockVisualSource:
                     # then the three winners compete on the same bounded local score.
                     candidates: list[dict[str, Any]] = []
                     for finder in finders:
+                        if time.monotonic() >= stock_search_deadline:
+                            return False
                         candidate = finder(query, portrait=portrait)
                         if candidate is not None:
                             candidates.append(candidate)
@@ -2549,6 +2561,8 @@ class StockVisualSource:
 
                 # Body/still beats keep the low-cost sequential policy.
                 for finder in finders:
+                    if time.monotonic() >= stock_search_deadline:
+                        return False
                     candidate = finder(query, portrait=portrait)
                     if candidate is None:
                         continue
