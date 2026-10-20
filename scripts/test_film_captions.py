@@ -191,5 +191,29 @@ class FilmCaptionTimingTests(unittest.TestCase):
 
 
 
+    def test_film_stock_plan_fails_fast_when_vision_budget_insufficient(self) -> None:
+        from clean_v2.owner_pack import OwnerPackError
+        from clean_v2.ready_production import ensure_film_stock_review_budget
+
+        doc = {
+            "format": "film",
+            "scenes": [
+                {"id": f"scene{i:02d}", "stock": {"query_en": "hand moves phone"}}
+                for i in range(18)
+            ],
+        }
+        with self.assertRaisesRegex(OwnerPackError, "18 مشهد ستوك"):
+            ensure_film_stock_review_budget(doc, max_reviews=5)
+        # One budgeted candidate is only an attempt, not an admitted clip.
+        ensure_film_stock_review_budget(
+            {**doc, "scenes": doc["scenes"][:5]}, max_reviews=5
+        )
+        # Podcast retains its independent 0–3 stock planning policy.
+        ensure_film_stock_review_budget(
+            {**doc, "format": "podcast"}, max_reviews=5
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
