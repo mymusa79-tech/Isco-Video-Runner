@@ -149,6 +149,59 @@ def _use_approved_image(clip: Path, row: dict[str, Any], beat: Mapping[str, Any]
     return True
 
 
+STOCK_CONTINUE_MIN_SECONDS = 1.5   # a stock clip shorter than this is not worth a scene
+STOCK_CONTINUE_FADE_SECONDS = 0.8  # dissolve from the short stock clip into the approved image
+
+
+def _continue_short_clip_with_image(clip: Path, row: dict[str, Any], beat: Mapping[str, Any], *,
+                                    index: int, fmt: str, seconds: float) -> bool:
+    """A reviewed stock clip shorter than its slot plays first; the scene's approved image finishes the slot.
+
+    Same idea as a pinned link (owner_art._try_pinned): the real moving clip is kept for as long as it lasts,
+    then dissolves into the owner's approved image. Never loops, reverses or stretches the clip. Returns True
+    when ``clip`` was rewritten to the full slot length; False leaves it untouched (caller falls back to the
+    plain approved-image replacement).
+    """
+    approved = str(row.get("approved_fallback_asset") or "")
+    if not (row.get("stock_requested") and approved):
+        return False
+    try:
+        from .media import _run, probe_duration
+        from .owner_art import CLIP_HEIGHT, CLIP_WIDTH, art_dir, make_motion_clip
+
+        length = probe_duration(clip)
+        if length < STOCK_CONTINUE_MIN_SECONDS or length + 0.08 >= seconds:
+            return False
+        directory = art_dir()
+        asset = directory / approved if directory else None
+        if asset is None or not asset.is_file():
+            return False
+        portrait = fmt in {"short", "story", "moment"}
+        fade = STOCK_CONTINUE_FADE_SECONDS
+        tail = clip.with_name(f"{clip.stem}.tail.mp4")
+        joined = clip.with_name(f"{clip.stem}.joined.mp4")
+        make_motion_clip(asset, tail, seconds=seconds - length + fade + 0.5, direction=index, portrait=portrait,
+                         motion_kind=str(beat.get("owner_motion") or "slow_pan"), respect_hold=True)
+        width, height = (720, 1280) if portrait else (CLIP_WIDTH, CLIP_HEIGHT)
+        graph = (f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                 "fps=30,setsar=1,format=yuv420p[a];[1:v]fps=30,setsar=1,format=yuv420p[b];"
+                 f"[a][b]xfade=transition=fade:duration={fade}:offset={length - fade:.3f}[v]")
+        _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(clip), "-i", str(tail),
+              "-filter_complex", graph, "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+              "-crf", "22", "-pix_fmt", "yuv420p", str(joined)], timeout=300)
+        tail.unlink(missing_ok=True)
+        if not joined.is_file() or joined.stat().st_size <= 0 or probe_duration(joined) + 0.2 < seconds:
+            joined.unlink(missing_ok=True)
+            return False
+        joined.replace(clip)
+    except Exception:
+        for name in (f"{clip.stem}.tail.mp4", f"{clip.stem}.joined.mp4"):
+            clip.with_name(name).unlink(missing_ok=True)
+        return False
+    row.update(stock_continues_with_image=True, stock_source_seconds=round(length, 2))
+    return True
+
+
 def simple_visual_qa(
     *,
     output_dir: Path,
@@ -278,8 +331,14 @@ def simple_visual_qa(
                 accepted = False
                 reason = "observed_source_policy_conflict"
         if accepted and row.get("source_actual") == "stock_motion" and display.get(local_file) and probe_duration(clip) + .08 < display[local_file]:
-            accepted = False
-            reason = "source_too_short_without_replay"
+            # Keep the verified moving part, then let the scene's approved image finish the slot.
+            # Without an approved image (or if the join fails) the clip is rejected as before.
+            if _continue_short_clip_with_image(clip, row, beat, index=index, fmt=fmt, seconds=float(display[local_file])):
+                provenance = {**provenance, "source_sha256": _sha256(clip),
+                              "continuation": "stock_then_owner_approved_image"}
+            else:
+                accepted = False
+                reason = "source_too_short_without_replay"
         # An owner-picked clip is the owner's editorial decision. The automatic
         # review may only override it for an objective safety/policy risk (a
         # recognisable face or a true risk flag), never for "not proven matched".
@@ -411,7 +470,9 @@ def stock_outcomes(output_dir: Path) -> dict[str, Any]:
     pinned = [r for r in rows if r.get("stock_pinned_requested")]
     pinned_used = sum(1 for r in pinned if r.get("stock_pinned") and r.get("source_actual") in {"stock_motion", "stock_still"}
                       and not r.get("owner_approved"))
+    continued = sum(1 for r in rows if r.get("stock_continues_with_image"))
     return {"requested": len(rows), "used": used, "fallbacks": fallbacks,
+            **({"continued_with_approved_image": continued} if continued else {}),
             **({"pinned_requested": len(pinned), "pinned_used": pinned_used,
                 "pinned_continued_with_image": sum(1 for r in pinned if r.get("pinned_continues_with_image"))} if pinned else {})}
 

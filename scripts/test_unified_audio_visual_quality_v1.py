@@ -62,7 +62,9 @@ class UnifiedAudioVisualQualityV1Tests(unittest.TestCase):
         film = identity_timing_profile("film")
         podcast = identity_timing_profile("podcast")
         self.assertEqual(short["intro_silence_seconds"], 0.00)
-        self.assertEqual(film["intro_silence_seconds"], 2.20)
+        # Film has no separate branded intro; its spoken definition owns the logo.
+        self.assertEqual(film["intro_silence_seconds"], 0.00)
+        self.assertEqual(film["post_hook_silence_seconds"], 0.35)
         self.assertEqual(podcast["intro_silence_seconds"], 6.00)
         self.assertEqual(podcast["post_hook_silence_seconds"], 0.75)
         self.assertEqual(podcast["post_prayer_silence_seconds"], 0.65)

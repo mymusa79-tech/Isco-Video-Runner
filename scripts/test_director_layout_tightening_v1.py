@@ -93,7 +93,12 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
                 else:
                     self.assertIn("[v1][prayer]overlay=0:0", filters)
                     self.assertIn("gte(t,3.000)*lt(t,4.500)", filters)
-                    self.assertIn("gte(t,2.000)*lt(t,3.000)", filters)
+                    if fmt == "podcast":
+                        self.assertIn("gte(t,2.000)*lt(t,3.000)", filters)  # Podcast V8 keeps its intro
+                    else:
+                        # Film has no independent intro overlay over the hook/prayer boundary.
+                        self.assertNotIn("gte(t,2.000)*lt(t,3.000)", filters)
+                        self.assertNotIn("[intro]", filters)
                     self.assertIn("gte(t,10.000)*lt(t,12.000)", filters)
 
     def test_rule_7_format_asset_groups_are_distinct_and_timing_contract_is_shared(self) -> None:
@@ -113,8 +118,8 @@ class DirectorLayoutTighteningV1Tests(unittest.TestCase):
         self.assertEqual(len({short_outro.name, film_outro.name, podcast_outro.name}), 3)
         for fmt in ("short", "film", "podcast"):
             profile = identity_timing_profile(fmt)
-            if fmt == "short":
-                self.assertEqual(profile["intro_silence_seconds"], 0)
+            if fmt in {"short", "film"}:
+                self.assertEqual(profile["intro_silence_seconds"], 0)  # Film: no separate intro
             else:
                 self.assertGreater(profile["intro_silence_seconds"], 0)
             self.assertGreater(profile["final_silence_seconds"], 0)

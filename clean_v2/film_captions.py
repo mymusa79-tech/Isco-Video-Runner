@@ -5,6 +5,7 @@ identity and outro windows stay clear. This does not add inference providers.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +28,94 @@ MAX_ROWS = 2
 
 class FilmCaptionError(RuntimeError):
     pass
+
+
+# A viewer reads about 3-4 Arabic words a second; 40 cues above 6 words/second once shipped as
+# an unreadable opening. Anything above this ceiling is a timing bug, never a style choice.
+MAX_WORDS_PER_SECOND = 6.0
+MIN_EVENT_SECONDS = 0.30
+OVERLAP_TOLERANCE = 0.002
+
+
+def validate_caption_events(events: Sequence[Mapping[str, Any]], *, voice_seconds: float | None = None) -> dict[str, Any]:
+    """Objective checks on the voice-timed cue list; raises FilmCaptionError on the first class of failure.
+
+    Sorted, non-overlapping, positive-length, readable speed, inside the voice. Returns the measured
+    numbers so the report can show them (never a bare "pass").
+    """
+    if not events:
+        raise FilmCaptionError("film_caption_voice_events_missing")
+    rates: list[float] = []
+    previous_end = 0.0
+    previous_start = -1.0
+    for event in events:
+        start, end = float(event["start"]), float(event["end"])
+        if end <= start or end - start < MIN_EVENT_SECONDS:
+            raise FilmCaptionError("film_caption_cue_too_short")
+        if start < previous_start - OVERLAP_TOLERANCE:
+            raise FilmCaptionError("film_caption_cues_unsorted")
+        if start < previous_end - OVERLAP_TOLERANCE:
+            raise FilmCaptionError("film_caption_cues_overlap")
+        words = len(str(event["text"]).split())
+        rate = words / (end - start)
+        if rate > MAX_WORDS_PER_SECOND:
+            raise FilmCaptionError("film_caption_reading_speed_too_high")
+        rates.append(rate)
+        previous_start, previous_end = start, end
+    if start < 0 or (voice_seconds and previous_end > float(voice_seconds) + 0.5):
+        raise FilmCaptionError("film_caption_outside_voice")
+    ordered = sorted(rates)
+    return {
+        "cue_count": len(events),
+        "max_words_per_second": round(ordered[-1], 2),
+        "median_words_per_second": round(ordered[len(ordered) // 2], 2),
+        "first_start": round(float(events[0]["start"]), 3),
+        "last_end": round(previous_end, 3),
+        "ceiling_words_per_second": MAX_WORDS_PER_SECOND,
+    }
+
+
+def validate_srt_text(text: str, expected_cues: int) -> None:
+    """The SRT sidecar must be sequentially numbered, well-formed and time-ordered."""
+    import re
+
+    blocks = [b for b in text.strip().split("\n\n") if b.strip()]
+    if len(blocks) != expected_cues:
+        raise FilmCaptionError("film_caption_srt_cue_count_mismatch")
+    stamp = re.compile(r"^(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})$")
+    last_end = -1.0
+    for number, block in enumerate(blocks, 1):
+        lines = block.split("\n")
+        match = stamp.match(lines[1]) if len(lines) >= 3 else None
+        if lines[0] != str(number) or not match:
+            raise FilmCaptionError("film_caption_srt_malformed")
+        g = [int(x) for x in match.groups()]
+        start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
+        end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
+        if end <= start or start < last_end - OVERLAP_TOLERANCE:
+            raise FilmCaptionError("film_caption_srt_time_order")
+        last_end = end
+
+
+def validate_ass_text(text: str, expected_cues: int) -> None:
+    """The ASS sidecar must carry one Dialogue per cue with the Film style and ordered times."""
+    import re
+
+    rows = [line for line in text.splitlines() if line.startswith("Dialogue:")]
+    if len(rows) != expected_cues:
+        raise FilmCaptionError("film_caption_ass_cue_count_mismatch")
+    stamp = re.compile(r"^Dialogue: 0,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Film,")
+    last_end = -1.0
+    for row in rows:
+        match = stamp.match(row)
+        if not match:
+            raise FilmCaptionError("film_caption_ass_malformed")
+        g = [int(x) for x in match.groups()]
+        start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 100
+        end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 100
+        if end <= start or start < last_end - 0.02:
+            raise FilmCaptionError("film_caption_ass_time_order")
+        last_end = end
 
 
 def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
@@ -97,10 +186,21 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
     events = drop_events_over_boards(events, blocked_windows(root))
     if not events:
         raise FilmCaptionError("film_caption_all_events_on_boards")
+    voice_seconds = None
+    try:
+        import json
+
+        voice_seconds = float(json.loads((root / "timeline-first.json").read_text(encoding="utf-8")).get("voice_seconds_measured") or 0) or None
+    except (OSError, ValueError, TypeError):
+        voice_seconds = None
+    quality = validate_caption_events(events, voice_seconds=voice_seconds)
     ass_path = root / "film-captions.ass"
     srt_path = root / "film-captions.srt"
-    ass_path.write_text(build_ass(events), encoding="utf-8")
-    srt_path.write_text(build_srt(events), encoding="utf-8")
+    ass_text, srt_text = build_ass(events), build_srt(events)
+    validate_ass_text(ass_text, len(events))
+    validate_srt_text(srt_text, len(events))
+    ass_path.write_text(ass_text, encoding="utf-8")
+    srt_path.write_text(srt_text, encoding="utf-8")
     rendered = root / ".final-film-captions.mp4"
     try:
         completed = subprocess.run(
@@ -135,6 +235,7 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         "max_rows": MAX_ROWS, "position": "cinematic_bottom_safe_area",
         "style": "unboxed_offwhite_with_sparse_gold_word_no_podcast_card",
         "timing": mode,
+        "quality": quality,
         "timing_note": "voice chunk windows measured, phrase boundaries pause-snapped or character-weighted; not word-level alignment",
         "clean_windows": "prayer, channel identity, structural silences and outro",
         "sidecars": [srt_path.name, ass_path.name],

@@ -6,8 +6,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import shutil
+import subprocess
+
 from clean_v2.film_captions import (
     FilmCaptionError, build_ass, build_srt, apply_film_captions,
+    validate_caption_events, validate_srt_text, validate_ass_text, MAX_WORDS_PER_SECOND,
 )
 from clean_v2.podcast_captions import build_events
 from clean_v2.timeline_render import render_identity_composition
@@ -97,6 +101,90 @@ class FilmCaptionsTests(unittest.TestCase):
             self.assertIn("[0:v]null[v1]", graph)
             self.assertIn("[channel]", graph)
             self.assertNotIn("[intro]", graph)
+
+REAL_RUN = Path(__file__).parent / "fixtures" / "film_real_run_v25_2"
+
+
+def _real_events():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for name in ("timeline-first.json", "voice-sections.json"):
+            shutil.copy(REAL_RUN / name, root / name)
+        events, _mode = build_events(root, fmt="film", caption_roles=frozenset({"hook", "topic"}))
+    return events
+
+
+class FilmCaptionQualityTests(unittest.TestCase):
+    """Automatic proof on the measured timing of a real 11-minute Film (the V25.2 run)."""
+
+    def test_real_run_cues_are_ordered_non_overlapping_and_readable(self) -> None:
+        events = _real_events()
+        stats = validate_caption_events(events, voice_seconds=662.51)
+        self.assertGreater(stats["cue_count"], 150)
+        self.assertLessEqual(stats["max_words_per_second"], MAX_WORDS_PER_SECOND)
+        self.assertLessEqual(stats["max_words_per_second"], 4.5)
+        validate_srt_text(build_srt(events), len(events))
+        validate_ass_text(build_ass(events), len(events))
+
+    def test_the_old_crammed_opening_is_rejected(self) -> None:
+        # The shipped SRT put 16 cues into the first 4.6 seconds (24-30 words/second).
+        crammed = [{"start": 0.1 * i, "end": 0.1 * i + 0.1, "text": "لماذا تفتح هاتفك للمرة الثالثة وأنت تحاول"}
+                   for i in range(16)]
+        with self.assertRaises(FilmCaptionError):
+            validate_caption_events(crammed)
+        fast = [{"start": 0.0, "end": 1.0, "text": "كلمة " * 7}]
+        with self.assertRaisesRegex(FilmCaptionError, "reading_speed"):
+            validate_caption_events(fast)
+
+    def test_overlap_unsorted_and_outside_voice_are_rejected(self) -> None:
+        ok = {"start": 0.0, "end": 2.0, "text": "جملة قصيرة هادئة"}
+        with self.assertRaisesRegex(FilmCaptionError, "overlap"):
+            validate_caption_events([ok, {"start": 1.5, "end": 4.0, "text": "جملة ثانية هادئة"}])
+        with self.assertRaisesRegex(FilmCaptionError, "unsorted"):
+            validate_caption_events([{"start": 5.0, "end": 7.0, "text": "جملة قصيرة هادئة"},
+                                     {"start": 1.0, "end": 3.0, "text": "جملة ثانية هادئة"}])
+        with self.assertRaisesRegex(FilmCaptionError, "outside_voice"):
+            validate_caption_events([{"start": 10.0, "end": 14.0, "text": "جملة قصيرة هادئة"}], voice_seconds=9.0)
+        with self.assertRaisesRegex(FilmCaptionError, "too_short"):
+            validate_caption_events([{"start": 0.0, "end": 0.1, "text": "جملة"}])
+
+    def test_malformed_sidecars_are_rejected(self) -> None:
+        events = [{"start": 0.0, "end": 2.0, "text": "جملة قصيرة هادئة"},
+                  {"start": 2.0, "end": 4.0, "text": "جملة ثانية هادئة"}]
+        srt = build_srt(events)
+        with self.assertRaises(FilmCaptionError):
+            validate_srt_text(srt, 3)
+        with self.assertRaises(FilmCaptionError):
+            validate_srt_text(srt.replace("00:00:02,000 --> 00:00:04,000", "00:00:02.000 -> 00:00:04.000"), 2)
+        with self.assertRaises(FilmCaptionError):
+            validate_srt_text(srt.replace("2\n00:00:02", "5\n00:00:02"), 2)
+        ass = build_ass(events)
+        with self.assertRaises(FilmCaptionError):
+            validate_ass_text(ass, 3)
+        with self.assertRaises(FilmCaptionError):
+            validate_ass_text(ass.replace(",Film,", ",Default,"), 2)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg required")
+    def test_real_timing_burns_into_a_real_video_end_to_end(self) -> None:
+        # Burns the real V25.2 cue list over a short test video: proves the render path runs, not just the parsers.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("timeline-first.json", "voice-sections.json"):
+                shutil.copy(REAL_RUN / name, root / name)
+            final = root / "final.mp4"
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                            "-i", "color=c=0x223344:size=1920x1080:rate=30:duration=6",
+                            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "6",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(final)],
+                           check=True, timeout=120)
+            report = apply_film_captions(output_dir=root, final_path=final)
+            self.assertEqual(report["status"], "pass")
+            self.assertLessEqual(report["quality"]["max_words_per_second"], MAX_WORDS_PER_SECOND)
+            self.assertTrue(final.is_file() and final.stat().st_size > 0)
+            self.assertTrue((root / "final-no-captions.mp4").is_file())
+            self.assertTrue((root / "film-captions.srt").is_file())
+            self.assertTrue((root / "film-captions.ass").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
