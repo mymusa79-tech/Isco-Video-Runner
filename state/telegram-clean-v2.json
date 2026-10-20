@@ -8390,6 +8390,21 @@
       "selected_at": "2026-10-20T17:39:41Z",
       "created_at": "2026-10-20T17:39:41Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-9d40cc910c",
+      "title": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
+      "normalized_title": "قلت حاضر فتاخر زميلك حين تتحول الموافقة السريعة الي مشكلة",
+      "market_query": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-20T18:04:42Z",
+      "created_at": "2026-10-20T18:04:42Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -17898,9 +17913,224 @@
         "started_at": "2026-10-20T17:41:31Z",
         "finished_at": "2026-10-20T17:47:08Z"
       }
+    },
+    "req-c3f02edd374d": {
+      "schema_version": 1,
+      "request_id": "req-c3f02edd374d",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-9d40cc910c",
+      "selected_at": "2026-10-20T18:04:42Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قلتَ «حاضر» لتتفادى إحراجًا صغيرًا… فأوقعت غيرك في مشكلة!"
+              },
+              {
+                "id": "s2",
+                "text": "زميلك يطلب منك مراجعة ملف اليوم، وأمامك تقرير وعدت بتسليمه قبل نهاية الدوام.\n\nتعرف أن وقتك لا يكفي للمهمتين.\n\nومع ذلك تقول فورًا: «حاضر».\n\nلماذا؟\n\nلأن الاعتذار أمامه الآن يبدو أصعب من تأجيل عمل لا يراه.\n\nوكان بإمكانك طلب موعد آخر، لكنك اخترت الجواب الأسرع قبل حساب تكلفته.\n\nتمضي الساعة، ثم الثانية.\n\nيتأخر تقريرك، وينتظر زميل آخر مستندًا يحتاجه لإكمال عمله.\n\nوالمفارقة؟\n\nكلمة «حاضر» أرضت شخصًا أمامك، لكنها أخّرت شخصًا كان يعتمد عليك."
+              },
+              {
+                "id": "s3",
+                "text": "قبل الموافقة التالية، انظر إلى التزاماتك، وقل بوضوح:\n\n«أنهي تقريري اليوم، وأراجع ملفك غدًا».\n\nهكذا يعرف الآخر متى يستطيع الاعتماد عليك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "نداء اليقظة: أداء حاد طبيعي، إيقاع حي لا حكاية هادئة. توقف قصير بعد «لماذا؟» و«والمفارقة؟». لا صراخ ولا نبرة علاجية. لا تُضف الهوية الثابتة أو الصلاة إلى النص؛ العميل يضيفهما. احترم آخر حرف قبل الأوترو."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "قلتَ «حاضر» لتتفادى إحراجًا صغيرًا… فأوقعت غيرك في مشكلة!",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "زميلك يطلب منك مراجعة ملف اليوم",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/man-doing-paperwork-8731298/",
+                "query_en": "man doing paperwork at desk",
+                "query_alt_en": "office employee reading paper report",
+                "must_show": "Hands review paper documents"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تعرف أن وقتك لا يكفي للمهمتين.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/a-woman-handing-out-a-paper-to-her-coworker-5492941/",
+                "query_en": "office colleague handing out paperwork",
+                "query_alt_en": "two coworkers sharing papers",
+                "must_show": "Hands pass papers between colleagues"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "ومع ذلك تقول فورًا: «حاضر».",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/a-male-handing-out-documents-to-a-female-office-worker-6099465/",
+                "query_en": "coworkers handing folder at office",
+                "query_alt_en": "colleague passes documents to worker",
+                "must_show": "Worker receives new folder"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "لأن الاعتذار أمامه الآن يبدو أصعب",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://coverr.co/videos/typing-on-a-laptop-h8fqlubtec",
+                "query_en": "hands typing quickly on laptop",
+                "query_alt_en": "hands working at office computer",
+                "must_show": "Hands typing on a keyboard"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "تمضي الساعة، ثم الثانية.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "url": "https://coverr.co/videos/workers-typing-and-closing-their-laptops-y9zxynpskg",
+                "query_en": "workers closing laptops after work",
+                "query_alt_en": "employees packing up workplace",
+                "must_show": "Employees close laptops"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "يتأخر تقريرك، وينتظر زميل آخر مستندًا",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/man-stress-at-work-7581377/",
+                "query_en": "overwhelmed man working at desk",
+                "query_alt_en": "office employee under deadline",
+                "must_show": "Desk with unfinished office paperwork"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "قبل الموافقة التالية، انظر إلى التزاماتك",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "«أنهي تقريري اليوم، وأراجع ملفك غدًا».",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_01.jpg",
+            "text": "قلت حاضر فتأخر زميلك"
+          },
+          "publishing": {
+            "title": "قول حاضر دون حساب | كيف تصنع الموافقة مشكلة أكبر؟",
+            "description": "توافق على طلب إضافي حتى لا تُحرج زميلًا، لكن ماذا يحدث لو كان لديك وعد سابق؟ شورت من نداء اليقظة عن ثمن الموافقة السريعة، والحدود العملية في العمل.\n\n#نداء_اليقظة #قول_لا #ضغوط_العمل #إدارة_الوقت",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#قول_لا",
+              "#ضغوط_العمل",
+              "#إدارة_الوقت"
+            ],
+            "tags": [
+              "نداء اليقظة",
+              "قول لا",
+              "ضغوط العمل",
+              "حدود العمل",
+              "إدارة الوقت"
+            ]
+          }
+        },
+        "zip_sha256": "6ee63e872c31f6ea95c94ae423ab91c3a14d772a042c73f25533f88a132111ae",
+        "asset_sha256": {
+          "assets/cover_01.jpg": "232e0564ddf2479706da5371636d8360004ea979c5f1dc756a4f0b82a09e40a3",
+          "assets/cover_02.jpg": "5d76251d9e42d41d09d5dd0ab283d8aa9a7e9921522c99720bbb6864713243d3",
+          "assets/cover_03.jpg": "02313de71f179e45d6ff8720ce884c7e5d34a3c292d573e523652809a99b0271",
+          "assets/scene_01.jpg": "bd79c828f88ab62a131b894beba82c0833e85677e869118e8e5aba13b020342f",
+          "assets/scene_02.jpg": "1745f15e31c529f01a98cb8acbdcce02b431d7e78df45fcd571fad9092615bbb",
+          "assets/scene_03.jpg": "f0a2d28da093c1a30234f42c087c1913e94ae6c6a2da4a662484b19585ba1e10",
+          "assets/scene_04.jpg": "ae6d8390629076b8b2300ad0b48948959c954e0655e8eb7f3847ba21f2bd0981",
+          "assets/scene_05.jpg": "096b7bd247fd4280b9f2dfcb353c3dcf7139dd11becbeb7630ac1faef83ef60c",
+          "assets/scene_06.jpg": "29771f1194ddff9bdf502ecc7e2812f535e694c321a112f9abb745b08f85ff71",
+          "assets/scene_07.jpg": "993f6f2089bb3b1e5bb97e95e2fde333362d7ac8458592827e7ad0365f9ddb7d",
+          "assets/scene_08.jpg": "a2e228a1abcfe2b2627b6d77b5252ffa3462f1ff1fb1bde1abd426c0c4b13e08",
+          "assets/scene_09.jpg": "ca2a760fda9a09a53669b3bed8435e0df72d30f629fca8656a95eeed33606e84"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "cfeeb86543a0703ad379de1336cf3b562c650f1c51e2402599a5db2116e92e70",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAINgWrXrRyivid7fpP-HQkLk3--acWiAAKAIgACHGbBUqmtC7-CCO70PQQ",
+          "sha256": "6ee63e872c31f6ea95c94ae423ab91c3a14d772a042c73f25533f88a132111ae"
+        }
+      }
     }
   },
-  "current_request_id": "req-391760f4b6f1",
+  "current_request_id": "req-c3f02edd374d",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -18369,6 +18599,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-20T18:04:16Z",
+  "updated_at": "2026-10-20T18:04:42Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
