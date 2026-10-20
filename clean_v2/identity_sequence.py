@@ -49,10 +49,12 @@ _TIMING_PROFILES = {
         "final_silence_seconds": 2.7,
     },
     "film": {
-        "post_hook_silence_seconds": 1.15,
-        "intro_silence_seconds": 2.20,
-        "post_prayer_silence_seconds": 0.45,
-        "pre_topic_silence_seconds": 0.85,
+        # Hook -> prayer -> spoken channel definition (with logo) -> topic -> outro.
+        # No standalone silent branded intro: it repeated the logo unnecessarily.
+        "post_hook_silence_seconds": 0.35,
+        "intro_silence_seconds": 0.00,  # compatibility metadata only; not inserted
+        "post_prayer_silence_seconds": 0.25,
+        "pre_topic_silence_seconds": 0.25,
         "final_silence_seconds": 3.50,
     },
     "podcast": {
