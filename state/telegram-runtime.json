@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39412090472",
-  "result": "success",
-  "updated_at": 1792499473
+  "topic": "مكالمة عن مصباح",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39468233383",
+  "result": "",
+  "updated_at": 1792518098
 }
