@@ -1147,7 +1147,8 @@ def _synthesize_sectioned_voice_pass(
                         "role": "post_hook_silence",
                     }
                 )
-                if fmt != "short":
+                if fmt == "podcast":
+                    # Podcast V8 retains its dedicated intro; Film skips it entirely.
                     intro_path = chunk_path.parent / "intro-silence.wav"
                     _write_silence_like(chunk_path, intro_path, timing["intro_silence_seconds"])
                     chunk_paths.append(intro_path)
@@ -5673,7 +5674,6 @@ def _run_audio_mastering_stage(
         else [
             "hook",
             "post_hook_silence_on_story_frame",
-            "intro_silence_with_fully_opaque_intro",
             "prayer_sentence_with_fully_opaque_visual",
             "channel_definition",
             "pre_topic_structural_silence",
