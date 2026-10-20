@@ -43,8 +43,8 @@ _PALETTE = {
     "editorial": {
         "bg_top": (17, 24, 32), "bg_bot": (17, 24, 32), "grain": 1.0,
         "blobs": [], "ink": (244, 241, 233),
-        "card_fill": (30, 40, 47, 248), "card_light": 0.0,
-        "card_border": (135, 152, 151, 110), "shadow": (0, 0, 0, 52),
+        "card_fill": (38, 49, 55, 248), "card_light": 0.0,
+        "card_border": (145, 160, 156, 135), "shadow": (0, 0, 0, 52),
         "plate_alpha": 34, "dot_off": (135, 152, 151, 65),
         "accents": [(197, 163, 106)], "editorial": True,
     },
@@ -358,7 +358,8 @@ def _header(title: str, theme, accent, profile):
     from PIL import Image, ImageDraw
 
     page, right = profile["width"], profile["right_edge"]
-    size, lines = _fit_label(title, profile["title_w"], profile["title_size"], 44, 1)
+    headline_size = max(profile["title_size"], 82) if theme.get("editorial") and profile["width"] == WIDTH else profile["title_size"]
+    size, lines = _fit_label(title, profile["title_w"], headline_size, 44, 1)
     width = _text_size(lines[0], _font(size))[0]
     layer_w = profile["title_w"] + 150
     layer = _text_layer(lines, size, theme["ink"], layer_w, align="right")
@@ -466,20 +467,26 @@ class _Item:
         pad = self.card_pad
         number = f"{self.index + 1:02d}"
         if self.layout == "steps":
-            label_w = int(min(880, w - 190 - 64 - plate - 30))
-            size, lines = _fit_label(label, label_w, 64, 38)
+            editorial = bool(self.theme.get("editorial"))
+            right_reserved = 75 if editorial else 190
+            label_w = int(min(1050 if editorial else 880, w - right_reserved - 64 - plate - 30))
+            size, lines = _fit_label(label, label_w, 86 if editorial else 64, 48 if editorial else 38)
             text = _text_layer(lines, size, self.theme["ink"], label_w + 20, align="right")
-            self.card.alpha_composite(text, (pad + w - 190 - (label_w + 20), int(pad + h / 2 - text.height / 2)))
-            badge = _badge(self.index + 1, 84, self.accent)
-            self.card.alpha_composite(badge, (int(pad + w - 70 - badge.width / 2), int(pad + h / 2 - badge.height / 2)))
+            self.card.alpha_composite(text, (pad + w - right_reserved - (label_w + 20), int(pad + h / 2 - text.height / 2)))
+            if not editorial:
+                badge = _badge(self.index + 1, 84, self.accent)
+                self.card.alpha_composite(badge, (int(pad + w - 70 - badge.width / 2), int(pad + h / 2 - badge.height / 2)))
             self.plate_at = (pad + 64 + plate / 2, pad + h / 2)  # picture on the left of the row
         else:
-            size, lines = _fit_label(label, w - 56, 48 if self.layout != "hub" else 40, 28)
+            editorial = bool(self.theme.get("editorial"))
+            font_size = (84 if w >= 600 else 70) if editorial else (48 if self.layout != "hub" else 40)
+            size, lines = _fit_label(label, w - 56, font_size, 42 if editorial else 28)
             text = _text_layer(lines, size, self.theme["ink"], w - 28)
             bottom_gap = 26 if self.layout != "hub" else 20
             self.card.alpha_composite(text, (pad + 14, int(pad + h - bottom_gap - text.height)))
-            ghost = _text_layer([number], int(min(96, h * 0.2)), self.accent + (70,), 200, align="right")
-            self.card.alpha_composite(ghost, (pad + w - 214, pad + 30))
+            if not editorial:
+                ghost = _text_layer([number], int(min(96, h * 0.2)), self.accent + (70,), 200, align="right")
+                self.card.alpha_composite(ghost, (pad + w - 214, pad + 30))
             top_room = h - bottom_gap - text.height - 40
             self.plate_at = (pad + w / 2, pad + 40 + top_room / 2)
         self.plate_at = (self.plate_at[0], self.plate_at[1])
@@ -719,7 +726,8 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
     try:
         base = background.copy()
         for k, centre in enumerate(dots):
-            _dot(base, centre, 7, 0.0, theme, items[k].accent)
+            if not theme.get("editorial"):
+                _dot(base, centre, 7, 0.0, theme, items[k].accent)
         header_done = hub_done = False
         settled = [False] * len(items)
         last_key = None
@@ -734,7 +742,8 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
             for i, item in enumerate(items):
                 if not settled[i] and t >= times[i] + SETTLE_SECONDS:
                     _draw_item(base, item, items, SETTLE_SECONDS, True)
-                    _dot(base, dots[i], 7, 1.0, theme, item.accent)
+                    if not theme.get("editorial"):
+                        _dot(base, dots[i], 7, 1.0, theme, item.accent)
                     settled[i] = True
             active = [i for i in range(len(items)) if not settled[i] and t >= times[i] - 0.12]
             intro = (header is not None and not header_done) or (hub is not None and not hub_done)
@@ -752,7 +761,8 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
             for i in active:
                 u = max(0.0, t - times[i])
                 _draw_item(frame, items[i], items, u, False)
-                _dot(frame, dots[i], 7, min(1.0, u / 0.3), theme, items[i].accent)
+                if not theme.get("editorial"):
+                    _dot(frame, dots[i], 7, min(1.0, u / 0.3), theme, items[i].accent)
             last_bytes = frame.convert("RGB").tobytes()
             last_key = key
             proc.stdin.write(last_bytes)
