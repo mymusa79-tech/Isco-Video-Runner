@@ -28,6 +28,24 @@ channel:
     middle: "deeper understanding and controlled emotional movement"
     end: "clarity, agency, grounded hope, and a practical next step"
 
+format_identities:
+  nidaa_short:
+    viewer_experience: "A swift confrontation with an observable habit and one honest move."
+    editorial_guard: "Do not mechanically reuse 'not X but Y' or the same closing command."
+    visual_pace: "Fast, purposeful, not frantic; no mandatory board."
+  nidaa_film:
+    viewer_experience: "Investigate a live problem, compare explanations and evidence, test objections."
+    editorial_guard: "Not an extended Short and not a one-voice podcast; distinguish fact, inference and uncertainty."
+    visual_pace: "Research-oriented real-world shots; explanatory boards only when understanding improves."
+  kharij_al_nass:
+    viewer_experience: "Listener A voices an unresolved wound; B stays with it without a magical reassurance."
+    editorial_guard: "Meaningful A/B objections, never divide a lecture into two voices."
+    visual_pace: "Slow abstract visuals; audio is primary and boards are rare."
+  ala_mahl:
+    viewer_experience: "A small human story, memory or relationship, with a costly choice and its result."
+    editorial_guard: "No self-improvement sermon and no appended moral lesson."
+    visual_pace: "Two to four story images, restrained motion, no explanatory boards."
+
 story_principles:
   - "Every section must change the viewer's understanding, not merely restate the topic."
   - "Progress from observation to mechanism to implication to action."
@@ -122,8 +140,10 @@ episode_beats:
       - "abrupt CTA replacing the real ending"
 
 format_layouts:
+  # ZIP has exactly five technical sections; the eight beats below are editorial
+  # jobs within those sections, never eight separate script.sections.
   film:
-    section_count: 8
+    section_count: 5
     beats:
       - hook
       - recognition
