@@ -387,5 +387,72 @@ class ScheduledRerenderTests(unittest.TestCase):
         self.assertEqual(board_scene.blocked_windows(self.out), [])
 
 
+
+class EditorialBoardV25Tests(unittest.TestCase):
+    """Opt-in modern theme and two-column comparison; no legacy theme changes."""
+
+    def test_editorial_palette_is_restrained_without_coloured_blobs(self):
+        theme = board_scene._PALETTE["editorial"]
+        self.assertEqual(theme["blobs"], [])
+        self.assertEqual(len(theme["accents"]), 1)
+        self.assertEqual(theme["bg_top"], theme["bg_bot"])
+        self.assertIn("slate", board_scene.THEMES)
+        self.assertIn("paper", board_scene.THEMES)
+
+    def test_editorial_theme_passes_real_zip_schema(self):
+        doc = film_doc(theme="editorial")
+        inspected = package.inspect_archive(pack(doc))
+        self.assertEqual(inspected["manifest"]["scenes"][1]["board"]["theme"], "editorial")
+
+    def test_compare_is_exactly_two_noncausal_items_in_film_and_podcast(self):
+        self.assertEqual(board_scene.LAYOUTS["compare"], (2, 2))
+        self.assertEqual(board_scene.PODCAST_LAYOUTS["compare"], (2, 2))
+        self.assertNotIn("compare", board_scene.SHORT_LAYOUTS)
+        doc = film_doc(layout="compare", n=2, theme="editorial")
+        package.validate_manifest(doc)
+        doc["scenes"][1]["board"]["items"].append(
+            {"label": "الزيادة المرفوضة", "at_text": S2_ITEMS[2]})
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc)
+
+        pod = manifest("podcast")
+        pod["scenes"][1]["board"] = {
+            "layout": "compare", "theme": "editorial", "title": "مقارنة",
+            "items": [
+                {"label": "الافتراض", "at_text": "لماذا تبدو الخطوة 2"},
+                {"label": "الواقع", "at_text": "في البداية بدت الخطوة"}]}
+        package.validate_manifest(pod)
+
+    def test_comparison_geometry_is_horizontal_and_podcast_caption_safe(self):
+        for fmt in ("film", "podcast"):
+            profile = board_scene.PROFILES[fmt]
+            for has_title in (True, False):
+                cells = board_scene._geometry("compare", 2, has_title, profile)
+                self.assertEqual(len(cells), 2)
+                self.assertGreater(cells[0]["cx"], cells[1]["cx"])
+                self.assertLess(cells[0]["cx"] - cells[0]["w"] / 2, profile["right_edge"])
+                self.assertLessEqual(cells[1]["cx"] + cells[1]["w"] / 2, profile["right_edge"])
+                if fmt == "podcast":
+                    for cell in cells:
+                        self.assertLessEqual(cell["cy"] + cell["h"] / 2, 667)
+
+    def test_editorial_comparison_renders_without_broken_frames(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            spec = {
+                "layout": "compare", "theme": "editorial", "title": "الافتراض والواقع",
+                "items": [
+                    {"label": "الافتراض", "at_text": "أولًا"},
+                    {"label": "الواقع", "at_text": "ثم"}],
+            }
+            out = root / "compare.mp4"
+            times = board_scene.reveal_times("أولًا نفكر ثم نرى الواقع", spec["items"], 4.0)
+            board_scene.render_board_clip(spec, root, out, seconds=4.0, times=times, fmt="film")
+            data = probe(out)
+            self.assertEqual(
+                (data["streams"][0]["width"], data["streams"][0]["height"]), (1920, 1080))
+            self.assertAlmostEqual(float(data["format"]["duration"]), 4.0, delta=0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
