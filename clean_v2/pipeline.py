@@ -4545,6 +4545,13 @@ def _run_legacy_cinematic_layer(
                         final_path=final_path,
                     )
                 except Exception as exc:
+                    # Approved ZIP explicitly promises captions.enabled=true.
+                    # Do not deliver another image-only Film with no burned
+                    # narration captions and label it a successful production.
+                    if (Path(output_dir) / "production.json").is_file():
+                        raise RuntimeError(
+                            f"APPROVED_FILM_CAPTIONS_REQUIRED:{type(exc).__name__}:{str(exc)[:120]}"
+                        ) from exc
                     print(
                         "::warning title=film-captions-fallback::"
                         "Film full captions were not burned; sparse key text fallback. "
