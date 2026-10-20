@@ -20,6 +20,8 @@ PROVIDER = "owner_art"
 WIDTH, HEIGHT = 1920, 1080
 COVER_SIZE = (1280, 720)
 CLIP_WIDTH, CLIP_HEIGHT = 1280, 720  # the Podcast render size; no point encoding more
+PINNED_MIN_SECONDS = 1.5   # a pinned clip shorter than this is not worth a scene
+PINNED_FADE_SECONDS = 0.8  # dissolve from a short pinned clip into the approved image
 _IMAGE_RE = re.compile(r"^image-(\d+)\.jpg$")
 
 
@@ -357,6 +359,76 @@ class OwnerArtVisualSource:
         row["local_file"] = final.name
         return (final, row), ""
 
+    def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
+                    seconds: float, index: int):
+        """The exact Pexels/Pixabay video or photo the editor linked, or (None, reason) -> approved image.
+
+        Fetched by id, no search. A clip shorter than the scene plays first and the scene's approved
+        image continues it to the end of the slot. Pictures run as an owner image would. The normal
+        picture review still judges the result afterwards (objective risks only), so this never
+        becomes an unchecked path; any failure keeps the approved image.
+        """
+        from . import pinned_stock
+        from .media import _download_media, _run, probe_duration
+
+        portrait = fmt == "short"
+        try:
+            cand = pinned_stock.fetch_candidate(str(beat["owner_stock"]["url"]), portrait=portrait)
+        except pinned_stock.PinnedStockError as exc:
+            return None, str(exc)
+        work = Path(output_dir) / f"pinned-{beat['id']}"
+        work.mkdir(parents=True, exist_ok=True)
+        final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
+        photo = cand["media_kind"] == "photo"
+        source = work / ("source.jpg" if photo else "source.mp4")
+        preflight = getattr(self._inner, "media_preflight", None)
+        extra: dict[str, Any] = {}
+        try:
+            _download_media(cand["download_url"], source)
+            if photo:
+                make_motion_clip(source, final, seconds=seconds, direction=index, portrait=portrait,
+                                 motion_kind=beat["owner_motion"], respect_hold=True)
+                if preflight is not None and preflight(final) is not None:
+                    final.unlink(missing_ok=True)
+                    return None, "pinned_security_blocked"
+            else:
+                if preflight is not None and preflight(source) is not None:
+                    return None, "pinned_security_blocked"
+                transform = getattr(self._inner, "media_transform", None)
+                clip = Path(transform(source)) if transform is not None else source
+                length = probe_duration(clip)
+                if length < PINNED_MIN_SECONDS:
+                    return None, "pinned_clip_too_short"
+                if length + 0.08 >= seconds:
+                    clip.replace(final)
+                else:
+                    fade = PINNED_FADE_SECONDS
+                    tail = work / "tail.mp4"
+                    make_motion_clip(asset, tail, seconds=seconds - length + fade + 0.5, direction=index,
+                                     portrait=portrait, motion_kind=beat["owner_motion"], respect_hold=True)
+                    width, height = (720, 1280) if portrait else (CLIP_WIDTH, CLIP_HEIGHT)
+                    graph = (f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                             "fps=30,setsar=1,format=yuv420p[a];[1:v]fps=30,setsar=1,format=yuv420p[b];"
+                             f"[a][b]xfade=transition=fade:duration={fade}:offset={length - fade:.3f}[v]")
+                    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(clip), "-i", str(tail),
+                          "-filter_complex", graph, "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+                          "-crf", "22", "-pix_fmt", "yuv420p", str(final)], timeout=300)
+                    extra = {"pinned_continues_with_image": True, "pinned_source_seconds": round(length, 2)}
+        except Exception as exc:  # the approved image covers any failure
+            final.unlink(missing_ok=True)
+            return None, f"pinned_prepare_failed:{type(exc).__name__}"
+        row = {
+            "provider": cand["provider"], "asset_id": cand["asset_id"], "source_url": cand["source_url"],
+            "creator": cand["creator"], "creator_url": cand["creator_url"], "query": "pinned_url",
+            "local_file": final.name, "media_kind": cand["media_kind"], "attribution_required": False,
+            "source_actual": "stock_still" if photo else "stock_motion", "stock_pinned": True,
+            "viewer_intent": str(beat.get("viewer_intent") or ""), "meaning_target": str(beat.get("meaning_target") or ""),
+            "shot_intent": str(beat.get("shot_intent") or ""), "writer_anchor_ar": str(beat.get("writer_anchor_ar") or ""),
+            "display_text_ar": "", "role": str(beat.get("role") or ""), "shot_role": str(beat.get("shot_role") or ""),
+            **extra,
+        }
+        return (final, row), ""
+
     def _board_clip(self, beat: Mapping[str, Any], output_dir: Path, fmt: str, section_seconds: float):
         """The explainer board for this beat from an estimated slot, or (None, reason) -> approved image.
 
@@ -395,8 +467,13 @@ class OwnerArtVisualSource:
             if doc["template"] == "ala_mahl":
                 sections = {b["section_id"] for b in beats if b["owner_asset"] == beat["owner_asset"]}
             stock_note: dict[str, Any] = {}
+            seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
             if beat.get("owner_stock"):
-                admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
+                pinned = bool(beat["owner_stock"].get("url"))
+                if pinned:
+                    admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index)
+                else:
+                    admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
                     clips.append(admitted[0])
                     rights.append({**admitted[1], "beat_id": beat["id"],
@@ -405,10 +482,11 @@ class OwnerArtVisualSource:
                                    # approved transition at this exact voice anchor.
                                    "owner_transition": beat["owner_transition"],
                                    "stock_requested": True,
+                                   **({"stock_pinned_requested": True} if pinned else {}),
                                    "approved_fallback_asset": beat["owner_asset"], "owner_approved": False})
                     continue
-                stock_note = {"stock_requested": True, "stock_fallback_reason": reason}
-            seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
+                stock_note = {"stock_requested": True, "stock_fallback_reason": reason,
+                              **({"stock_pinned_requested": True} if pinned else {})}
             board_note: dict[str, Any] = {}
             clip = None
             if beat.get("owner_board"):
@@ -425,6 +503,26 @@ class OwnerArtVisualSource:
         if not clips:
             raise RuntimeError("approved_package_has_no_images")
         return clips, rights
+
+
+def apply_owner_derivative_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any]:
+    """The cover the editor designed for the derived Short, if the approved package carries one.
+
+    Replaces the frame-crop cover Cover Lite just made. Fail-soft: anything wrong keeps that cover.
+    """
+    try:
+        directory = art_dir()
+        if not directory or not (directory / "production.json").is_file():
+            return report
+        doc = json.loads((directory / "production.json").read_text(encoding="utf-8"))
+        cover = (doc.get("derivative") or {}).get("cover")
+        if not isinstance(cover, dict) or not cover.get("asset"):
+            return report
+        normalize_image(directory / cover["asset"], Path(cover_path), (1080, 1920))
+        return {**report, "status": "pass", "source": "owner_derivative_cover_image",
+                "cover_text": str(cover.get("text") or ""), "provider_calls_added": 0}
+    except Exception as exc:  # fail-soft: the generated cover stays
+        return {**report, "owner_derivative_cover": f"unavailable:{type(exc).__name__}:{str(exc)[:120]}"}
 
 
 def apply_owner_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any]:

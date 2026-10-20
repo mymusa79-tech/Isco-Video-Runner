@@ -54,7 +54,8 @@ def build_story(doc: Mapping[str, Any]) -> dict:
             if stock:
                 # Real stock is only a request: `owner_asset` below stays the approved
                 # image that is used whenever no clip is admitted.
-                query = str(stock["query_en"]).strip()
+                # A pinned scene (stock.url) may omit the search words; the link itself is the choice.
+                query = str(stock.get("query_en") or stock.get("must_show") or "editor pinned stock footage").strip()
                 intent, must_have = query, [query]
                 # The owner's own `must_show` (what the clip has to show, and what it must not)
                 # now reaches the existing visual review instead of being ignored.

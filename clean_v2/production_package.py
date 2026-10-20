@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .owner_pack import LONG_TYPES, SHORT_TYPES, OwnerPackError
+from .pinned_stock import parse_stock_url
 
 MAX_ZIP_BYTES = 18 * 1024 * 1024  # below Telegram's standard getFile limit
 MAX_EXPANDED_BYTES = 96 * 1024 * 1024
@@ -37,6 +38,27 @@ def _object(value: Any, required: set[str], optional: set[str] = frozenset(), *,
     return value
 
 
+def _publishing(value: Any, field: str) -> dict:
+    """YouTube-ready title / description / hashtags (and optional tags) with the platform's own hard limits."""
+    pub = _object(value, {"title", "description", "hashtags"}, {"tags"}, field=field)
+    _text(pub["title"], f"{field}.title", 100)  # YouTube rejects titles over 100 characters
+    _text(pub["description"], f"{field}.description", 5000, empty=True)
+    if len(pub["description"].encode("utf-8")) > 5000:  # YouTube counts bytes: Arabic letters take two
+        _error(f"وصف {field} يتجاوز 5000 بايت (حد يوتيوب؛ الحرف العربي بايتان).")
+    if not isinstance(pub["hashtags"], list) or len(pub["hashtags"]) > 15:
+        _error("hashtags قائمة من 15 وسمًا كحد أقصى.")
+    for tag in pub["hashtags"]:
+        if not isinstance(tag, str) or not re.fullmatch(r"#[\w\u0600-\u06ff]{1,80}", tag):
+            _error("الهاشتاق يجب أن يبدأ بـ # دون فراغات.")
+    if "tags" in pub:
+        tags = pub["tags"]
+        if (not isinstance(tags, list) or len(tags) > 15
+                or any(not isinstance(t, str) or not t.strip() or len(t) > 40 or "," in t or "\x00" in t for t in tags)
+                or len(",".join(tags)) > 450):
+            _error("tags قائمة من 15 وسمًا نصيًا كحد أقصى (كل منها ≤40 حرفًا بلا فاصلة، والمجموع ≤450).")
+    return pub
+
+
 def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -> str:
     if not isinstance(value, str) or len(value) > maximum or (not empty and not value.strip()) or "\x00" in value:
         _error(f"النص في {field} فارغ أو غير صالح أو طويل جدًا.")
@@ -45,7 +67,8 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 
 # Optional real-stock scene (Nidaa Short and Film only). The scene's required `asset` stays the
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
-# never leave a gap and the archive never carries video or URLs.
+# never leave a gap and the archive never carries video. `url` (a Pexels/Pixabay page link the editor
+# verified) pins the exact clip or photo; it is only a string and the client still reviews the result.
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
 STOCK_MAX_SCENES = {"short": 7, "film": 30, "podcast": 8}  # any scene may ask for stock; the approved image stays its fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
@@ -54,7 +77,15 @@ _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 def _stock(value: Any, fmt: str, template: str) -> dict:
     if fmt not in STOCK_MAX_SCENES:
         _error("لقطات الستوك لنداء شورت والفيلم وعلى مهل والبودكاست فقط.")
-    stock = _object(value, {"query_en"}, {"query_alt_en", "must_show"}, field="scene.stock")
+    pinned = isinstance(value, dict) and "url" in value
+    stock = _object(value, set() if pinned else {"query_en"}, {"query_en", "query_alt_en", "must_show", "url"}, field="scene.stock")
+    if pinned:
+        from .pinned_stock import parse_stock_url
+
+        try:
+            parse_stock_url(stock["url"])
+        except ValueError:
+            _error("stock.url: رابط صفحة فيديو أو صورة من Pexels أو Pixabay فقط (https).")
     for key in ("query_en", "query_alt_en"):
         if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
                              or not 2 <= len(stock[key].split()) <= 9):
@@ -237,6 +268,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
                     _error(f"رتّب عناصر اللوحة {scene['id']} بحسب ورودها في الكلام.")
                 last = position
     stock_count = sum(1 for scene in scenes if "stock" in scene)
+    pinned_ids = [parse_stock_url(scene["stock"]["url"])[:3:2] for scene in scenes if "url" in scene.get("stock", {})]
+    if len(pinned_ids) != len(set(pinned_ids)):
+        _error("stock.url مكرر: لكل مشهد مقطع أو صورة مختلفة.")
     stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
     if stock_count > stock_cap:
         _error(f"لقطات الستوك: {stock_cap} كحد أقصى لهذا النوع.")
@@ -262,21 +296,23 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("نص الغلاف لا يتجاوز 6 كلمات.")
     if cover["asset"] is not None:
         assets.add(_asset(cover["asset"]))
-    publishing = _object(doc["publishing"], {"title", "description", "hashtags"}, field="publishing")
-    _text(publishing["title"], "publishing.title", 120)
-    _text(publishing["description"], "publishing.description", 5000, empty=True)
-    if not isinstance(publishing["hashtags"], list) or len(publishing["hashtags"]) > 15:
-        _error("hashtags قائمة من 15 وسمًا كحد أقصى.")
-    for tag in publishing["hashtags"]:
-        if not isinstance(tag, str) or not re.fullmatch(r"#[\w\u0600-\u06ff]{1,80}", tag):
-            _error("الهاشتاق يجب أن يبدأ بـ # دون فراغات.")
+    _publishing(doc["publishing"], "publishing")
     derivative = doc.get("derivative")
     if derivative is not None:
-        _object(derivative, {"start_text", "end_text"}, field="derivative")
+        _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field="derivative")
         if fmt == "short":
             _error("المشتق متاح للفيلم والبودكاست فقط.")
         for key in ("start_text", "end_text"):
             _text(derivative[key], f"derivative.{key}", 1500)
+        if "cover" in derivative:
+            # The derived Short's own cover, designed by the editor (portrait 9:16), never a frame crop.
+            dcover = _object(derivative["cover"], {"asset", "text"}, field="derivative.cover")
+            _text(dcover["text"], "derivative.cover.text", 100, empty=True)
+            if len(dcover["text"].split()) > 6:
+                _error("نص غلاف المشتق لا يتجاوز 6 كلمات.")
+            assets.add(_asset(dcover["asset"]))
+        if "publishing" in derivative:
+            _publishing(derivative["publishing"], "derivative.publishing")
         _derivative_avoids_boards(doc, texts, derivative)
         # Invalid/missing anchors are intentionally NOT a parent-production gate.
         # The optional extractor records the precise skip reason after parent success.

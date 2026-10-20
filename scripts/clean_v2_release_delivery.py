@@ -247,9 +247,10 @@ def _provider_attribution_lines(root: Path) -> list[str]:
 def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, Any]:
     production = _read_json(Path(root) / "production.json")
     if production:
-        publishing = production["publishing"]
+        publishing = dict(production["publishing"])
+        tags = [str(t) for t in publishing.pop("tags", []) or []]
         return {"schema_version": 1, "kind": kind, "topic": topic, **publishing,
-                "youtube_tags": [], "video_file": "video.mp4", "cover_file": "cover.jpg",
+                "youtube_tags": tags, "video_file": "video.mp4", "cover_file": "cover.jpg",
                 "publication_mode": "manual", "source": "approved_production_json"}
     plan = _read_json(Path(root) / "plan.json")
     raw_title = _compact(plan.get("title") or topic or "نداء اليقظة")
@@ -325,6 +326,22 @@ def _derived_short_publish_metadata(
     plan = _read_json(Path(root) / "plan.json")
     report = _read_json(Path(root) / f"{short_prefix}.json")
     section_id = _compact(report.get("section_id"))
+    owned = ((_read_json(Path(root) / "production.json").get("derivative") or {}).get("publishing"))
+    if isinstance(owned, dict) and owned.get("title"):
+        # The editor wrote this derived Short's own title/description/hashtags (checked against
+        # YouTube's limits when the package was imported); use them as written.
+        return {
+            "schema_version": 1, "kind": "derived_short", "parent_kind": parent_kind,
+            "title": str(owned["title"]), "topic": _compact(parent.get("topic")),
+            "description": str(owned.get("description") or ""),
+            "hashtags": [str(h) for h in owned.get("hashtags") or []],
+            "youtube_tags": [str(t) for t in owned.get("tags") or []],
+            "video_file": "derived-short.mp4", "cover_file": "derived-short-cover.jpg",
+            "source_section_id": section_id or None,
+            "suggested_related_video_id": _published_parent_youtube_video_id(published_parent_youtube_video_id),
+            "related_video_assignment": "manual_youtube_studio", "publication_mode": "manual",
+            "source": "approved_production_json",
+        }
     selected: dict[str, Any] = {}
     for row in plan.get("sections") or []:
         if isinstance(row, dict) and _compact(row.get("id")) == section_id:
