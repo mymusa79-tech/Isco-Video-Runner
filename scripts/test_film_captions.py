@@ -110,5 +110,86 @@ class FilmCaptionTimingTests(unittest.TestCase):
         self.assertIn(r"\p1", ass)  # Podcast keeps its own card
 
 
+    def test_film_identity_has_one_logo_only_during_spoken_definition(self) -> None:
+        from clean_v2 import timeline_render
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = {kind: root / f"{kind}.mp4" for kind in ("intro", "prayer", "outro")}
+            for path in assets.values():
+                path.write_bytes(b"fixture" * 300)
+            events = [
+                {"kind": "hook", "start": 0.0, "end": 4.0},
+                {"kind": "post_hook_silence", "start": 4.0, "end": 4.35},
+                {"kind": "prayer", "start": 4.35, "end": 6.5},
+                {"kind": "post_prayer_silence", "start": 6.5, "end": 6.75},
+                {"kind": "channel_identity", "start": 6.75, "end": 10.0},
+                {"kind": "pre_topic_silence", "start": 10.0, "end": 10.25},
+                {"kind": "topic", "start": 10.25, "end": 35.0},
+                {"kind": "outro", "start": 35.0, "end": 38.5},
+                {"kind": "final_silence", "start": 35.0, "end": 38.5},
+            ]
+            with (
+                mock.patch.object(timeline_render, "identity_asset_paths", return_value=assets),
+                mock.patch.object(timeline_render.subprocess, "run") as run,
+            ):
+                timeline_render.render_identity_composition(
+                    root / "base.mp4", root / "composed.mp4",
+                    fmt="film", timeline={
+                        "voice_seconds_measured": 38.5,
+                        "identity_events": events,
+                    },
+                )
+            command = run.call_args.args[0]
+            filters = command[command.index("-filter_complex") + 1]
+            self.assertIn("[0:v][prayer]overlay=0:0", filters)
+            self.assertIn("[v2][channel]overlay=0:0", filters)
+            self.assertNotIn("[0:v][intro]overlay", filters)
+            self.assertNotIn("[v1][prayer]", filters)
+            self.assertEqual(filters.count("[v2][channel]overlay"), 1)
+            self.assertIn("gte(t,6.750)", filters)
+            self.assertIn("lt(t,10.250)", filters)
+
+    def test_stock_editor_action_does_not_duplicate_retrieval_query(self) -> None:
+        from clean_v2.ready_production import build_story
+
+        doc = {
+            "title": "هاتف صامت",
+            "template": "direct_cinematic",
+            "script": {
+                "sections": [
+                    {"id": "s1", "narration": "لماذا تمسك هاتفك؟ ثم تتركه وتعود للعمل."},
+                ],
+            },
+            "scenes": [
+                {
+                    "id": "a1", "section_id": "s1",
+                    "asset": "assets/scene_01.jpg",
+                    "start_text": "لماذا تمسك هاتفك؟",
+                    "motion": "hold", "transition": "cut",
+                    "stock": {
+                        "query_en": "person reaches phone at desk",
+                        "must_show": "hand reaching for phone, no visible face",
+                    },
+                },
+                {
+                    "id": "a2", "section_id": "s1",
+                    "asset": "assets/scene_02.jpg",
+                    "start_text": "ثم تتركه",
+                    "motion": "hold", "transition": "cut",
+                },
+            ],
+        }
+        story = build_story(doc)
+        beat = story["beats"][0]
+        self.assertEqual(beat["stock_query_en"], "person reaches phone at desk")
+        self.assertEqual(
+            beat["semantic_must_have"],
+            ["hand reaching for phone, no visible face"],
+        )
+        self.assertEqual(beat["shot_intent"], "hand reaching for phone, no visible face")
+
+
+
 if __name__ == "__main__":
     unittest.main()
