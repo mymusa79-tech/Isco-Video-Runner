@@ -86,8 +86,10 @@ class FilmCaptionsTests(unittest.TestCase):
                     {"kind": "final_silence", "start": 19.5, "end": 23.0},
                 ],
             }
-            with mock.patch("clean_v2.timeline_render.identity_asset_paths", return_value=assets), \\
-                 mock.patch("clean_v2.timeline_render.subprocess.run") as runner:
+            with (
+                mock.patch("clean_v2.timeline_render.identity_asset_paths", return_value=assets),
+                mock.patch("clean_v2.timeline_render.subprocess.run") as runner,
+            ):
                 render_identity_composition(root / "source.mp4", root / "final.mp4",
                                             fmt="film", timeline=timeline)
             cmd = runner.call_args.args[0]
