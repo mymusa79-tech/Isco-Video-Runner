@@ -1147,7 +1147,9 @@ def _synthesize_sectioned_voice_pass(
                         "role": "post_hook_silence",
                     }
                 )
-                if fmt != "short":
+                if fmt == "podcast":
+                    # Film branding is already visible while the single
+                    # spoken channel identity is heard. No second intro beat.
                     intro_path = chunk_path.parent / "intro-silence.wav"
                     _write_silence_like(chunk_path, intro_path, timing["intro_silence_seconds"])
                     chunk_paths.append(intro_path)
