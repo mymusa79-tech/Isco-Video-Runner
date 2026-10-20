@@ -2324,8 +2324,14 @@ class StockVisualSource:
                             "stock_query_alt_en": answer_alt, "source_preference": "stock_motion",
                             "hold_reason": "idea_continues", "environment_family": "local_symbolic",
                             "_local_content_window": True}
-                    insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
-                    beats.insert(insertion, beat)
+                    # A 30-scene approved Film must not silently become 31
+                    # when an extra post-prayer source is synthesized.
+                    if len(beats) < max(1, int(max_visuals)):
+                        insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
+                        beats.insert(insertion, beat)
+                    else:
+                        self._event("visual_planning", answer_query, "extra_beat_skipped",
+                                    wire_attempted=False, reason="max_visuals_scene_capacity")
 
         ai_hook_reference: Path | None = None
         ai_route_available = True
