@@ -10,6 +10,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from clean_v2.podcast_captions import build_ass as build_dialogue_ass
+from clean_v2.film_captions import build_ass as build_film_open_ass
 from clean_v2.podcast_key_text import build_ass as build_sparse_ass
 from clean_v2.short_timed_text import build_rich_ass
 from clean_v2.visual_cta import VisualCtaEvent, _cta_position, _render as render_cta
@@ -53,11 +54,17 @@ def main() -> None:
         _render_color_frame(size="1080x1920", ass=short_ass, at=at, output=root / name)
 
     film_events = [
-        {"start": 0.0, "end": 5.0, "text": "فكرة واحدة تغيّر اتجاه يومك", "role": "hook"},
+        {"start": 0.0, "end": 5.0,
+         "text": "لماذا نستمر في قرار نعرف أنه لم يعد يناسبنا بعدما تغيرت الظروف؟",
+         "role": "hook"},
+        {"start": 5.0, "end": 10.0,
+         "text": "حين تتغير المعلومات قد يصبح التراجع عن قرار قديم هو الخطوة الأدق.",
+         "role": "topic"},
     ]
     film_ass = root / "film-preview.ass"
-    film_ass.write_text(build_sparse_ass(film_events, fmt="film"), encoding="utf-8")
+    film_ass.write_text(build_film_open_ass(film_events), encoding="utf-8")
     _render_color_frame(size="1920x1080", ass=film_ass, at=1.0, output=root / "film.png")
+    _render_color_frame(size="1920x1080", ass=film_ass, at=6.0, output=root / "film-body.png")
 
     podcast_events = [
         {"start": 0.0, "end": 5.0, "text": "أحيانًا المشكلة ليست فيما تفعله", "role": "hook"},
