@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "قلت حاضر… فتأخر زميلك | حين تتحول الموافقة السريعة إلى مشكلة",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39472104915",
-  "result": "",
-  "updated_at": 1792520124
+  "result": "success",
+  "updated_at": 1792520180
 }
