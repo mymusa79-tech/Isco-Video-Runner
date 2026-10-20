@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "podcast",
   "kind": "",
   "topic": "كل ليلة تقرر أن تتغير… فلماذا لا تبدأ؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39246189164",
-  "result": "success",
-  "updated_at": 1792412476
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39349740634",
+  "result": "",
+  "updated_at": 1792457287
 }
