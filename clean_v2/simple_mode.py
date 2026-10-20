@@ -416,6 +416,40 @@ def stock_outcomes(output_dir: Path) -> dict[str, Any]:
                 "pinned_continued_with_image": sum(1 for r in pinned if r.get("pinned_continues_with_image"))} if pinned else {})}
 
 
+def film_motion_preflight(rights: list[dict[str, Any]]) -> dict[str, Any]:
+    """Guard costly Film render when most requested moving scenes became stills.
+
+    Do not approve unknown stock pixels merely to fill a quota. This is an
+    editorial admission check, not a replacement for safety/semantic review.
+    It runs *after* final-cut QA and *before* any expensive full-film render.
+    """
+    import math
+    from collections import Counter
+
+    primary = [row for row in rights if isinstance(row, Mapping)
+               and not row.get("pacing_auxiliary")]
+    requested = [row for row in primary if row.get("stock_requested")
+                 and str(row.get("source_preference") or "") != "stock_still"]
+    used = [row for row in requested
+            if row.get("source_actual") == "stock_motion"
+            and not row.get("owner_approved")]
+    needed = min(5, max(2, math.ceil(len(requested) / 4))) if len(requested) >= 6 else 0
+    reason_counts = Counter(
+        str(row.get("replacement_reason") or row.get("stock_fallback_reason") or "unverified_or_not_selected")
+        for row in requested if row not in used
+    )
+    status = "needs_verified_motion" if needed and len(used) < needed else "pass"
+    return {
+        "status": status,
+        "format": "film",
+        "requested_motion_scenes": len(requested),
+        "verified_or_owner_selected_motion_scenes": len(used),
+        "minimum_motion_scenes": needed,
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "policy": "no_unverified_clip_admission_and_no_zero-motion_film_render",
+    }
+
+
 def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     """Honest end-of-run report built only from recorded data."""
     output_dir = Path(output_dir)
