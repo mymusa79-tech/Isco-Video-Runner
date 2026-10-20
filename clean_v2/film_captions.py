@@ -5,7 +5,6 @@ identity and outro windows stay clear. This does not add inference providers.
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -59,14 +58,14 @@ def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
             for word in row.split():
                 escaped = _rtl_row([word])
                 if word_index == focus:
-                    escaped = r"{\\1c" + GOLD_ASS + "}" + escaped + r"{\\1c" + WHITE_ASS + "}"
+                    escaped = r"{\1c" + GOLD_ASS + "}" + escaped + r"{\1c" + WHITE_ASS + "}"
                 pieces.append(escaped)
                 word_index += 1
             rendered_rows.append(" ".join(pieces))
-        rendered = r"\\N".join(rendered_rows)
+        rendered = r"\N".join(rendered_rows)
         lines.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Film,,0,0,0,,"
-            + r"{\\fs" + str(font_size) + r"\\fad(100,130)\\blur0.5}"
+            + r"{\fs" + str(font_size) + r"\fad(100,130)\blur0.5}"
             + rendered
         )
     return "\n".join(lines) + "\n"
