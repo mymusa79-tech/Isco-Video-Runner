@@ -91,6 +91,12 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         raise FilmCaptionError(f"film_caption_alignment_failed:{type(exc).__name__}") from exc
     if not events:
         raise FilmCaptionError("film_caption_voice_events_missing")
+    # Board text has its own reading order; keep its visual window free
+    # of film captions so neither layer obscures the other.
+    from .board_scene import blocked_windows, drop_events_over_boards
+    events = drop_events_over_boards(events, blocked_windows(root))
+    if not events:
+        raise FilmCaptionError("film_caption_all_events_on_boards")
     ass_path = root / "film-captions.ass"
     srt_path = root / "film-captions.srt"
     ass_path.write_text(build_ass(events), encoding="utf-8")
