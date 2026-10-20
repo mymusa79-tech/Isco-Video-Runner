@@ -1,0 +1,282 @@
+{
+  "audio_units": [
+    {
+      "chunk": 1,
+      "duration_seconds": 10.64,
+      "end": 10.64,
+      "file": "audio/01-chunks/01.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "hook",
+      "section_id": "s1",
+      "start": 0.0
+    },
+    {
+      "chunk": 2,
+      "duration_seconds": 1.15,
+      "end": 11.79,
+      "file": "audio/01-chunks/post-hook-silence.wav",
+      "provider": "deterministic_silence",
+      "role": "post_hook_silence",
+      "section_id": "s1",
+      "start": 10.64
+    },
+    {
+      "chunk": 3,
+      "duration_seconds": 2.2,
+      "end": 13.99,
+      "file": "audio/01-chunks/intro-silence.wav",
+      "provider": "deterministic_silence",
+      "role": "intro_silence",
+      "section_id": "s1",
+      "start": 11.79
+    },
+    {
+      "chunk": 4,
+      "duration_seconds": 3.6,
+      "end": 17.59,
+      "file": "audio/01-chunks/02.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "prayer",
+      "section_id": "s1",
+      "start": 13.99
+    },
+    {
+      "chunk": 5,
+      "duration_seconds": 0.45,
+      "end": 18.04,
+      "file": "audio/01-chunks/post-prayer-silence.wav",
+      "provider": "deterministic_silence",
+      "role": "post_prayer_silence",
+      "section_id": "s1",
+      "start": 17.59
+    },
+    {
+      "chunk": 6,
+      "duration_seconds": 10.88,
+      "end": 28.92,
+      "file": "audio/01-chunks/03.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "channel_identity",
+      "section_id": "s1",
+      "start": 18.04
+    },
+    {
+      "chunk": 7,
+      "duration_seconds": 0.85,
+      "end": 29.77,
+      "file": "audio/01-chunks/pre-topic-silence.wav",
+      "provider": "deterministic_silence",
+      "role": "pre_topic_silence",
+      "section_id": "s1",
+      "start": 28.92
+    },
+    {
+      "chunk": 8,
+      "duration_seconds": 117.92,
+      "end": 147.69,
+      "file": "audio/01-chunks/04.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s1",
+      "start": 29.77
+    },
+    {
+      "chunk": 1,
+      "duration_seconds": 133.12,
+      "end": 280.81,
+      "file": "audio/02.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s2",
+      "start": 147.69
+    },
+    {
+      "chunk": 1,
+      "duration_seconds": 129.6,
+      "end": 410.41,
+      "file": "audio/03.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s3",
+      "start": 280.81
+    },
+    {
+      "chunk": 1,
+      "duration_seconds": 23.96,
+      "end": 434.37,
+      "file": "audio/04-chunks/01.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s4",
+      "start": 410.41
+    },
+    {
+      "chunk": 2,
+      "duration_seconds": 21.16,
+      "end": 455.53,
+      "file": "audio/04-chunks/02.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s4",
+      "start": 434.37
+    },
+    {
+      "chunk": 3,
+      "duration_seconds": 77.88,
+      "end": 533.41,
+      "file": "audio/04-chunks/03.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s4",
+      "start": 455.53
+    },
+    {
+      "chunk": 1,
+      "duration_seconds": 115.76,
+      "end": 649.17,
+      "file": "audio/05-chunks/01.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "topic",
+      "section_id": "s5",
+      "start": 533.41
+    },
+    {
+      "chunk": 2,
+      "duration_seconds": 9.84,
+      "end": 659.01,
+      "file": "audio/05-chunks/02.wav",
+      "provider": "gemini-3.8:Charon",
+      "role": "outro",
+      "section_id": "s5",
+      "start": 649.17
+    },
+    {
+      "chunk": 3,
+      "duration_seconds": 3.5,
+      "end": 662.51,
+      "file": "audio/05-chunks/final-silence.wav",
+      "provider": "deterministic_silence",
+      "role": "final_silence",
+      "section_id": "s5",
+      "start": 659.01
+    }
+  ],
+  "contract_id": "clean-v2-timeline-first-v1",
+  "duration_repair_attempts": 0,
+  "editorial_target_seconds": null,
+  "format": "film",
+  "identity_events": [
+    {
+      "duration_seconds": 10.64,
+      "end": 10.64,
+      "kind": "hook",
+      "source": "measured_voice_chunk",
+      "start": 0.0
+    },
+    {
+      "duration_seconds": 2.2,
+      "end": 13.99,
+      "kind": "intro",
+      "source": "measured_intro_silence",
+      "start": 11.79
+    },
+    {
+      "duration_seconds": 3.6,
+      "end": 17.59,
+      "kind": "prayer",
+      "source": "measured_voice_chunk",
+      "start": 13.99
+    },
+    {
+      "duration_seconds": 0.45,
+      "end": 18.04,
+      "kind": "post_prayer_silence",
+      "source": "measured_structural_silence",
+      "start": 17.59
+    },
+    {
+      "duration_seconds": 10.88,
+      "end": 28.92,
+      "kind": "channel_identity",
+      "source": "measured_voice_chunk",
+      "start": 18.04
+    },
+    {
+      "duration_seconds": 0.85,
+      "end": 29.77,
+      "kind": "pre_topic_silence",
+      "source": "measured_structural_silence",
+      "start": 28.92
+    },
+    {
+      "duration_seconds": 629.24,
+      "end": 659.01,
+      "kind": "topic",
+      "source": "measured_voice_timeline",
+      "start": 29.77
+    },
+    {
+      "duration_seconds": 3.5,
+      "end": 662.51,
+      "kind": "outro",
+      "source": "post_payoff_terminal_silence",
+      "start": 659.01
+    },
+    {
+      "duration_seconds": 3.5,
+      "end": 662.51,
+      "kind": "final_silence",
+      "source": "measured_silence_chunk",
+      "start": 659.01
+    }
+  ],
+  "maximum_editorial_seconds": null,
+  "minimum_editorial_seconds": null,
+  "provider_calls_added": 0,
+  "raw_audio_unit_seconds": 662.51,
+  "reason": null,
+  "retime_policy": "measured_audio_units_scaled_to_mastered_voice_only",
+  "retime_scale": 1.0,
+  "safety_maximum_seconds": 3600.0,
+  "schema_version": 1,
+  "section_events": [
+    {
+      "duration_seconds": 147.69,
+      "end": 147.69,
+      "section_id": "s1",
+      "start": 0.0
+    },
+    {
+      "duration_seconds": 133.12,
+      "end": 280.81,
+      "section_id": "s2",
+      "start": 147.69
+    },
+    {
+      "duration_seconds": 129.6,
+      "end": 410.41,
+      "section_id": "s3",
+      "start": 280.81
+    },
+    {
+      "duration_seconds": 123.0,
+      "end": 533.41,
+      "section_id": "s4",
+      "start": 410.41
+    },
+    {
+      "duration_seconds": 129.1,
+      "end": 662.51,
+      "section_id": "s5",
+      "start": 533.41
+    }
+  ],
+  "source": "clean-v2-timeline-first-v1",
+  "status": "pass",
+  "template": "problem_reveal_solution",
+  "time_compression": false,
+  "time_extension": false,
+  "timeline_owner": "measured_gemini38_voice",
+  "tts_regeneration_for_duration": false,
+  "voice_seconds_measured": 662.51
+}

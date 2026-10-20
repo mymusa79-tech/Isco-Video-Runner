@@ -2324,12 +2324,24 @@ class StockVisualSource:
                             "stock_query_alt_en": answer_alt, "source_preference": "stock_motion",
                             "hold_reason": "idea_continues", "environment_family": "local_symbolic",
                             "_local_content_window": True}
-                    insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
-                    beats.insert(insertion, beat)
+                    # A 30-scene approved Film must not silently become 31
+                    # when an extra post-prayer source is synthesized.
+                    if len(beats) < max(1, int(max_visuals)):
+                        insertion = max((i for i, b in enumerate(beats) if b["section_id"] == sid), default=-1) + 1
+                        beats.insert(insertion, beat)
+                    else:
+                        self._event("visual_planning", answer_query, "extra_beat_skipped",
+                                    wire_attempted=False, reason="max_visuals_scene_capacity")
 
         ai_hook_reference: Path | None = None
         ai_route_available = True
         ai_fallbacks_used = [0]
+        # Bound the automatic stock-search tail. Exact editor-pinned URLs retain
+        # their existing direct-fetch route; only open-ended discovery is capped.
+        stock_search_deadline = (
+            time.monotonic() + 900.0
+            if fmt == "film" and is_simple_mode() else float("inf")
+        )
 
         def _admit_stock_candidate(
             candidate: dict[str, Any],
@@ -2463,6 +2475,10 @@ class StockVisualSource:
             competitive_motion = not as_still and role in {"hook", "payoff"}
 
             for query_variant_index, raw_query in enumerate(queries):
+                if time.monotonic() >= stock_search_deadline:
+                    self._event("stock_search", str(raw_query), "budget_exhausted",
+                                wire_attempted=False, reason="simple_film_900s_total")
+                    return False
                 query = prepare_query(raw_query)
                 if not query:
                     continue
@@ -2473,6 +2489,8 @@ class StockVisualSource:
                     # then the three winners compete on the same bounded local score.
                     candidates: list[dict[str, Any]] = []
                     for finder in finders:
+                        if time.monotonic() >= stock_search_deadline:
+                            return False
                         candidate = finder(query, portrait=portrait)
                         if candidate is not None:
                             candidates.append(candidate)
@@ -2549,6 +2567,8 @@ class StockVisualSource:
 
                 # Body/still beats keep the low-cost sequential policy.
                 for finder in finders:
+                    if time.monotonic() >= stock_search_deadline:
+                        return False
                     candidate = finder(query, portrait=portrait)
                     if candidate is None:
                         continue

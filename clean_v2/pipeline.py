@@ -1147,7 +1147,8 @@ def _synthesize_sectioned_voice_pass(
                         "role": "post_hook_silence",
                     }
                 )
-                if fmt != "short":
+                if fmt == "podcast":
+                    # Podcast V8 retains its dedicated intro; Film skips it entirely.
                     intro_path = chunk_path.parent / "intro-silence.wav"
                     _write_silence_like(chunk_path, intro_path, timing["intro_silence_seconds"])
                     chunk_paths.append(intro_path)
@@ -4532,11 +4533,37 @@ def _run_legacy_cinematic_layer(
                     )
                 sparse_report = podcast_key_text_report
             else:
-                film_key_text_report = apply_film_key_text(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
-                )
+                # Film has its own quiet, continuous spoken captions. Podcast
+                # keeps its separate speaker dialogue cards unchanged.
+                from clean_v2.film_captions import FilmCaptionError, apply_film_captions
+
+                try:
+                    film_captions_report = apply_film_captions(
+                        output_dir=output_dir, final_path=final_path
+                    )
+                except Exception as exc:
+                    reason = str(exc) if isinstance(exc, FilmCaptionError) else (
+                        f"film_captions_unexpected_error:{type(exc).__name__}"
+                    )
+                    film_captions_report = {
+                        "status": "skipped", "mode": "fail_soft", "reason": reason,
+                        "format": "film", "burned_into_final_video": False,
+                        "provider_calls_added": 0,
+                    }
+                atomic_write_json(output_dir / "film-captions.json", film_captions_report)
+                if film_captions_report.get("status") != "pass":
+                    print("::warning title=film-captions-unavailable::"
+                          "Full cinematic Film captions were NOT burned: "
+                          + str(film_captions_report.get("reason")), flush=True)
+                    film_key_text_report = apply_film_key_text(
+                        output_dir=output_dir, final_path=final_path, script=script
+                    )
+                else:
+                    film_key_text_report = {
+                        "status": "skipped_full_film_captions_burned",
+                        "format": "film", "event_count": 0,
+                        "provider_calls_added": 0,
+                    }
                 sparse_report = film_key_text_report
         except PodcastKeyTextError as exc:
             # Decorative local enhancement only: keep the finished video if this
@@ -5673,7 +5700,6 @@ def _run_audio_mastering_stage(
         else [
             "hook",
             "post_hook_silence_on_story_frame",
-            "intro_silence_with_fully_opaque_intro",
             "prayer_sentence_with_fully_opaque_visual",
             "channel_definition",
             "pre_topic_structural_silence",
@@ -8190,6 +8216,35 @@ class CleanV2Pipeline:
                         voice_fallback_used=journal.payload.get("voice_fallback_used"),
                     )
                 raise
+
+            # Do not spend another long final-render pass on a Film which asked
+            # for moving stock but lost nearly all of it to still-image fallbacks.
+            # The saved voice is reusable; no questionable stock is force-approved.
+            if str(brief["format"]) == "film":
+                from clean_v2.simple_mode import is_simple_mode, film_motion_preflight
+                if is_simple_mode():
+                    motion_gate = film_motion_preflight(rights)
+                    atomic_write_json(output_dir / "film-motion-preflight.json", motion_gate)
+                    if motion_gate["status"] != "pass":
+                        _write_resume_checkpoint(
+                            output_dir,
+                            completed_stage="voice",
+                            approved_brief_sha256=approved_brief_digest,
+                            engine_sha=engine_sha,
+                            runner_sha=runner_sha,
+                            max_visuals=max_visuals,
+                            voice_provider=str(journal.payload.get("voice_provider") or ""),
+                            voice_fallback_used=journal.payload.get("voice_fallback_used"),
+                        )
+                        print(
+                            "::error title=Film needs real motion::"
+                            f"{motion_gate['verified_or_owner_selected_motion_scenes']}/"
+                            f"{motion_gate['requested_motion_scenes']} moving stock scenes survived QA; "
+                            f"minimum {motion_gate['minimum_motion_scenes']}. "
+                            "Voice checkpoint retained; supply verified scene links or repair stock before rendering.",
+                            flush=True,
+                        )
+                        raise RuntimeError("FILM_MOTION_PREFLIGHT_NEEDS_VERIFIED_STOCK")
 
             if bool(visual_qa_report.get("final_media_mutated")):
                 _write_resume_checkpoint(
