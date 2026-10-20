@@ -7,6 +7,7 @@ on:
       - clean_v2/board_scene.py
       - clean_v2/production_package.py
       - scripts/test_board_scene.py
+      - scripts/render_board_v25_previews.py
       - docs/production-zip.md
       - .github/workflows/board-editorial-v25.yml
   workflow_dispatch:
@@ -37,3 +38,12 @@ jobs:
         run: python -m unittest scripts.test_board_scene -v
       - name: Guard existing approved ZIP contract
         run: python -m unittest scripts.test_production_package -v
+      - name: Produce representative editorial image frames for human review
+        run: python scripts/render_board_v25_previews.py --output board-v25-samples
+      - name: Upload phone-size and full-width evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-v25-visual-review
+          path: board-v25-samples/*.png
+          if-no-files-found: error
+          retention-days: 7
