@@ -1231,6 +1231,21 @@ def write_longform_caption_sidecars(
     if fmt not in {"film", "podcast"}:
         return {"status": "not_applicable", "format": fmt}
     root = Path(output_dir)
+    if fmt == "film" and (root / "film-open-captions.srt").is_file():
+        try:
+            burned = json.loads((root / "film-key-text.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            burned = {}
+        if isinstance(burned, dict) and burned.get("status") == "pass" and burned.get("burned_into_final_video"):
+            # Match the sidecar to the actual burned film events; do not generate
+            # a second, section-interpolated transcript that disagrees with video.
+            return {
+                "status": "available_optional", "format": fmt,
+                "srt": "film-open-captions.srt", "ass": "film-open-captions.ass",
+                "event_count": burned.get("event_count"), "max_rows": 2,
+                "burned_into_final_video": True, "timing": burned.get("timing"),
+                "provider_calls_added": 0, "new_quality_gate": False,
+            }
     if fmt == "podcast" and (root / "podcast-captions.srt").is_file():
         try:
             burned = json.loads((root / "podcast-captions.json").read_text(encoding="utf-8"))
