@@ -33,13 +33,13 @@ jobs:
       - name: Install local rendering dependencies (no external provider)
         run: python -m pip install 'Pillow==12.3.0' numpy
       - name: Compile board and importer
-        run: python -m py_compile clean_v2/board_scene.py clean_v2/production_package.py scripts/test_board_scene.py
+        run: python -m py_compile clean_v2/board_scene.py clean_v2/production_package.py scripts/test_board_scene.py scripts/render_board_v25_previews.py
       - name: Render and validate legacy and V25 board contracts
         run: python -m unittest scripts.test_board_scene -v
       - name: Guard existing approved ZIP contract
         run: python -m unittest scripts.test_production_package -v
       - name: Produce representative editorial image frames for human review
-        run: python scripts/render_board_v25_previews.py --output board-v25-samples
+        run: python -m scripts.render_board_v25_previews --output board-v25-samples
       - name: Upload phone-size and full-width evidence
         uses: actions/upload-artifact@v4
         with:
