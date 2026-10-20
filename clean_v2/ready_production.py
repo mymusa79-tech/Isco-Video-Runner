@@ -61,8 +61,12 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 # now reaches the existing visual review instead of being ignored.
                 must_show = str(stock.get("must_show") or "").strip()
                 if must_show:
-                    intent = f"{query}. Must show: {must_show}"
-                    must_have = [query, must_show]
+                    # Search keywords retrieve media. The editor's concrete visible
+                    # action is the ONE semantic review contract. Requiring both
+                    # independent free-text strings was unnecessarily brittle and
+                    # doubled the wording checked by the stock reviewer.
+                    intent = must_show
+                    must_have = [must_show]
             board = scene.get("board") if isinstance(scene.get("board"), dict) else None
             board_text = ""
             if board:
