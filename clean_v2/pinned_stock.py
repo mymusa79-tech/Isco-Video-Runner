@@ -14,6 +14,8 @@ from typing import Any, Mapping
 _LOCALE = r"(?:[a-z]{2}(?:-[a-z]{2})?/)?"
 _PEXELS_PATH = re.compile(rf"^/{_LOCALE}(video|photo)/(?:[^/]*-)?(\d{{3,}})/?$", re.I)
 _PIXABAY_PATH = re.compile(rf"^/{_LOCALE}(videos|photos)/(?:[^/]*-)?(\d{{3,}})/?$", re.I)
+_COVERR_PATH = re.compile(rf"^/{_LOCALE}videos/[a-z0-9-]+-([a-z0-9]{{8,}})/?$", re.I)
+_COVERR_HOSTS = {"coverr.co", "www.coverr.co"}
 _PEXELS_HOSTS = {"pexels.com", "www.pexels.com"}
 _PIXABAY_HOSTS = {"pixabay.com", "www.pixabay.com"}
 
@@ -23,7 +25,7 @@ class PinnedStockError(RuntimeError):
 
 
 def parse_stock_url(url: Any) -> tuple[str, str, str]:
-    """(provider, kind, asset_id) for a Pexels/Pixabay video or photo page; raises ValueError otherwise."""
+    """(provider, kind, asset_id) for a Pexels/Pixabay/Coverr video or photo page; raises ValueError otherwise."""
     if not isinstance(url, str) or not url.strip() or len(url) > 300:
         raise ValueError("stock.url must be a page link")
     parsed = urllib.parse.urlparse(url.strip())
@@ -34,7 +36,9 @@ def parse_stock_url(url: Any) -> tuple[str, str, str]:
         return "pexels", match.group(1).lower(), match.group(2)
     if host in _PIXABAY_HOSTS and (match := _PIXABAY_PATH.match(parsed.path)):
         return "pixabay", "video" if match.group(1).lower() == "videos" else "photo", match.group(2)
-    raise ValueError("stock.url must be a Pexels or Pixabay video or photo page")
+    if host in _COVERR_HOSTS and (match := _COVERR_PATH.match(parsed.path)):
+        return "coverr", "video", match.group(1)
+    raise ValueError("stock.url must be a Pexels, Pixabay or Coverr video or photo page")
 
 
 def fetch_candidate(url: str, *, portrait: bool) -> dict[str, Any]:
@@ -70,6 +74,21 @@ def fetch_candidate(url: str, *, portrait: bool) -> dict[str, Any]:
                     "download_url": str(link), "source_url": str(body.get("url") or url),
                     "creator": str(body.get("photographer") or ""),
                     "creator_url": str(body.get("photographer_url") or ""), "duration": 0.0}
+        if provider == "coverr":
+            key = _read_secret("COVERR_API_KEY")
+            if not key:
+                raise PinnedStockError("pinned_no_api_key")
+            body = _get_json(f"https://api.coverr.co/videos/{asset_id}?urls=true",
+                             headers={"Authorization": f"Bearer {key}"})
+            if bool(body.get("is_ai") or body.get("ai_generated")):
+                raise PinnedStockError("pinned_ai_generated")
+            urls = body.get("urls") or {}
+            link = str(urls.get("mp4_download") or urls.get("mp4") or "").strip() if isinstance(urls, Mapping) else ""
+            if not link:
+                raise PinnedStockError("pinned_no_playable_file")
+            return {"provider": "coverr", "asset_id": asset_id, "media_kind": "video", "download_url": link,
+                    "source_url": str(body.get("url") or url), "creator": "", "creator_url": "",
+                    "duration": float(body.get("duration") or 0.0)}
         key = _read_secret("PIXABAY_API_KEY")
         if not key:
             raise PinnedStockError("pinned_no_api_key")

@@ -25,6 +25,7 @@ PEXELS_VIDEO = "https://www.pexels.com/video/a-man-checking-his-phone-3195394/"
 PEXELS_PHOTO = "https://www.pexels.com/ar-sa/photo/empty-bench-1234567/"
 PIXABAY_VIDEO = "https://pixabay.com/videos/office-desk-work-99999/"
 PIXABAY_PHOTO = "https://pixabay.com/photos/door-key-lock-4444444/"
+COVERR_VIDEO = "https://coverr.co/videos/aerial-view-of-a-street-jixathxhhs"
 FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
@@ -43,13 +44,17 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(pinned_stock.parse_stock_url(PIXABAY_VIDEO), ("pixabay", "video", "99999"))
         self.assertEqual(pinned_stock.parse_stock_url(PIXABAY_PHOTO), ("pixabay", "photo", "4444444"))
         self.assertEqual(pinned_stock.parse_stock_url(PIXABAY_VIDEO + "?utm=x"), ("pixabay", "video", "99999"))
+        self.assertEqual(pinned_stock.parse_stock_url(COVERR_VIDEO + "?utm_source=chatgpt.com"), ("coverr", "video", "jixathxhhs"))
+        self.assertEqual(pinned_stock.parse_stock_url("https://coverr.co/es/videos/street-view-AbC12345xy"), ("coverr", "video", "AbC12345xy"))
 
     def test_invalid_links(self):
         for bad in ("", None, 5, "http://www.pexels.com/video/a-3195394/", "https://evil.com/video/a-3195394/",
                     "https://www.pexels.com.evil.com/video/a-3195394/", "https://www.pexels.com/search/phone/",
                     "https://www.pexels.com/video/no-id/", "https://pixabay.com/music/song-12345/",
                     "https://pixabay.com/illustrations/art-12345/", "https://user:p@www.pexels.com/video/a-3195394/",
-                    "https://www.pexels.com:8443/video/a-3195394/", "https://www.pexels.com/video/a-12/"):
+                    "https://www.pexels.com:8443/video/a-3195394/", "https://www.pexels.com/video/a-12/",
+                    "https://coverr.co/videos/street", "https://coverr.co/s/street", "https://coverr.co.evil.com/videos/a-street-jixathxhhs",
+                    "https://coverr.co/videos/a-street-short"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 pinned_stock.parse_stock_url(bad)
 
@@ -118,6 +123,13 @@ class FetchTests(unittest.TestCase):
         self.assertIn("id=4444444", get.call_args.args[0])
         self.assertEqual((cand["media_kind"], cand["download_url"]), ("photo", "https://cdn.pixabay.com/p.jpg"))
 
+    def test_coverr_video_by_id(self):
+        cand, get = self.fetch(COVERR_VIDEO, {"id": "jixathxhhs", "duration": 14, "url": COVERR_VIDEO,
+                                              "urls": {"mp4": "https://cdn.coverr.co/v.mp4"}})
+        self.assertIn("api.coverr.co/videos/jixathxhhs", get.call_args.args[0])
+        self.assertEqual((cand["provider"], cand["media_kind"], cand["duration"], cand["download_url"]),
+                         ("coverr", "video", 14.0, "https://cdn.coverr.co/v.mp4"))
+
     def test_every_failure_has_a_short_reason(self):
         def reason(url, body=None, key="k", exc=None):
             with mock.patch("clean_v2.media._read_secret", return_value=key), \
@@ -129,6 +141,9 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(reason("https://example.com/video/a-1234/"), "pinned_url_invalid")
         self.assertEqual(reason(PEXELS_VIDEO, key=""), "pinned_no_api_key")
         self.assertEqual(reason(PIXABAY_VIDEO, key=""), "pinned_no_api_key")
+        self.assertEqual(reason(COVERR_VIDEO, key=""), "pinned_no_api_key")
+        self.assertEqual(reason(COVERR_VIDEO, {"urls": {}}), "pinned_no_playable_file")
+        self.assertEqual(reason(COVERR_VIDEO, {"is_ai": True, "urls": {"mp4": "https://cdn.coverr.co/v.mp4"}}), "pinned_ai_generated")
         self.assertEqual(reason(PIXABAY_VIDEO, {"hits": []}), "pinned_asset_not_found")
         self.assertEqual(reason(PEXELS_VIDEO, {"video_files": []}), "pinned_no_playable_file")
         self.assertEqual(reason(PEXELS_VIDEO, exc=RuntimeError("HTTP 404")), "pinned_fetch_failed:RuntimeError")
