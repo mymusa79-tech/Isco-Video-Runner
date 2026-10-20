@@ -21,6 +21,12 @@ WIDTH, HEIGHT = 1920, 1080
 COVER_SIZE = (1280, 720)
 CLIP_WIDTH, CLIP_HEIGHT = 1280, 720  # the Podcast render size; no point encoding more
 PINNED_MIN_SECONDS = 1.5   # a pinned clip shorter than this is not worth a scene
+GRADE_PROFILES = {  # one gentle look per format so stock and the editor's images sit together
+    "podcast": "eq=contrast=1.05:saturation=0.80:brightness=-0.02,colorbalance=rs=-0.03:bs=0.05",
+    "film": "eq=contrast=1.04:saturation=0.90,colorbalance=rs=-0.01:bs=0.02",
+    "short": "eq=contrast=1.05:saturation=0.92,colorbalance=rs=-0.01:bs=0.02",
+    "ala_mahl": "eq=contrast=1.02:saturation=0.90,colorbalance=rs=0.04:bs=-0.04",
+}
 PINNED_FADE_SECONDS = 0.8  # dissolve from a short pinned clip into the approved image
 _IMAGE_RE = re.compile(r"^image-(\d+)\.jpg$")
 
@@ -502,7 +508,36 @@ class OwnerArtVisualSource:
                            **stock_note, **board_note})
         if not clips:
             raise RuntimeError("approved_package_has_no_images")
+        look = grade_profile(str(doc.get("template") or ""), str(doc.get("format") or fmt))
+        for clip, row in zip(clips, rights):
+            if row.get("board_rendered"):
+                continue  # explanatory boards keep their own colours
+            row["grade"] = grade_clip(clip, look)
         return clips, rights
+
+
+def grade_profile(template: str, fmt: str) -> str:
+    return "ala_mahl" if template == "ala_mahl" else ("podcast" if template == "dialogue_qa" else
+                                                       ("short" if fmt == "short" else "film"))
+
+
+def grade_clip(clip: Path, profile: str) -> str:
+    """Re-encode one scene clip in place with the format's look. Fail-soft: the clip stays as it was."""
+    clip = Path(clip)
+    graded = clip.with_name(clip.stem + ".graded.mp4")
+    try:
+        from .media import _run, probe_duration
+
+        _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(clip), "-vf",
+              GRADE_PROFILES[profile] + ",format=yuv420p", "-an", "-c:v", "libx264", "-preset", "ultrafast",
+              "-crf", "20", "-pix_fmt", "yuv420p", str(graded)], timeout=600)
+        if abs(probe_duration(graded) - probe_duration(clip)) > 0.2:
+            raise RuntimeError("duration_changed")
+        graded.replace(clip)
+        return profile
+    except Exception as exc:
+        graded.unlink(missing_ok=True)
+        return f"unavailable:{type(exc).__name__}"
 
 
 def apply_owner_derivative_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any]:
