@@ -283,18 +283,22 @@ def simple_visual_qa(
         # An owner-picked clip is the owner's editorial decision. The automatic
         # review may only override it for an objective safety/policy risk (a
         # recognisable face or a true risk flag), never for "not proven matched".
-        owner_pick = row.get("human_choice") == "candidate" and row.get("provider") != FALLBACK_PROVIDER
+        # A clip the editor pinned by link is judged like an owner pick: the review still runs and an
+        # objective risk (face, logo, brand, cultural, artefact) replaces it with the approved image,
+        # but "not proven matched" or an unavailable review does not, because the editor chose it.
+        pinned = bool(row.get("stock_pinned"))
+        owner_pick = (row.get("human_choice") == "candidate" or pinned) and row.get("provider") != FALLBACK_PROVIDER
         objective_risk = (
             any(audit.get(k) is True for k in risk_fields)
             or audit.get("observed_face_status") not in {None, "", "none", "unrecognizable", "unknown", "unavailable"}
         )
         if owner_pick and not accepted and not objective_risk:
-            row["visual_verification"] = "owner_chosen_unverified"
+            row["visual_verification"] = "editor_pinned_unverified" if pinned else "owner_chosen_unverified"
             row["owner_choice_kept"] = reason
             if provenance:
                 row["visual_evidence"] = provenance
             previous_observation = str(audit.get("observed_visual") or previous_observation)
-            reason = f"owner_choice_kept:{reason}"
+            reason = f"{'pinned' if pinned else 'owner'}_choice_kept:{reason}"
             reviews.append({"local_file": local_file, "decision": "owner_chosen_unverified", "reason": reason,
                             "observed_visual": audit.get("observed_visual"), "proof": audit.get("observed_proof_status"),
                             "face": audit.get("observed_face_status"), "aesthetic_scores_advisory": True})
@@ -404,7 +408,12 @@ def stock_outcomes(output_dir: Path) -> dict[str, Any]:
         else:
             fallbacks.append({"scene": str(row.get("beat_id") or ""),
                               "reason": str(row.get("replacement_reason") or row.get("stock_fallback_reason") or "unknown")[:160]})
-    return {"requested": len(rows), "used": used, "fallbacks": fallbacks}
+    pinned = [r for r in rows if r.get("stock_pinned_requested")]
+    pinned_used = sum(1 for r in pinned if r.get("stock_pinned") and r.get("source_actual") in {"stock_motion", "stock_still"}
+                      and not r.get("owner_approved"))
+    return {"requested": len(rows), "used": used, "fallbacks": fallbacks,
+            **({"pinned_requested": len(pinned), "pinned_used": pinned_used,
+                "pinned_continued_with_image": sum(1 for r in pinned if r.get("pinned_continues_with_image"))} if pinned else {})}
 
 
 def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:

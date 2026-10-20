@@ -8439,6 +8439,9 @@ class CleanV2Pipeline:
                             section_id=str(podcast_short_report.get("section_id") or ""),
                             exclude_source_files=(str(cover_report.get("source_file") or ""),),
                         )
+                        from clean_v2 import owner_art as _owner_art
+                        podcast_short_cover_report = _owner_art.apply_owner_derivative_cover(
+                            output_dir / "podcast-short-cover.jpg", podcast_short_cover_report)
                         if isinstance(podcast_promo, Mapping):
                             record_derived_short_signature(narrative_history_path, "podcast",
                                                            str(podcast_promo.get("selection_signature") or ""))
@@ -8450,6 +8453,9 @@ class CleanV2Pipeline:
                             section_id=str(long_short_report.get("section_id") or ""),
                             exclude_source_files=(str(cover_report.get("source_file") or ""),),
                         )
+                        from clean_v2 import owner_art as _owner_art
+                        long_short_cover_report = _owner_art.apply_owner_derivative_cover(
+                            output_dir / "long-short-cover.jpg", long_short_cover_report)
                 except Exception as derivative_sidecar_exc:
                     print(f"Optional derivative sidecar warning: {type(derivative_sidecar_exc).__name__}")
 
