@@ -4533,11 +4533,37 @@ def _run_legacy_cinematic_layer(
                     )
                 sparse_report = podcast_key_text_report
             else:
-                film_key_text_report = apply_film_key_text(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
-                )
+                # Film has its own quiet, continuous spoken captions. Podcast
+                # keeps its separate speaker dialogue cards unchanged.
+                from clean_v2.film_captions import FilmCaptionError, apply_film_captions
+
+                try:
+                    film_captions_report = apply_film_captions(
+                        output_dir=output_dir, final_path=final_path
+                    )
+                except Exception as exc:
+                    reason = str(exc) if isinstance(exc, FilmCaptionError) else (
+                        f"film_captions_unexpected_error:{type(exc).__name__}"
+                    )
+                    film_captions_report = {
+                        "status": "skipped", "mode": "fail_soft", "reason": reason,
+                        "format": "film", "burned_into_final_video": False,
+                        "provider_calls_added": 0,
+                    }
+                atomic_write_json(output_dir / "film-captions.json", film_captions_report)
+                if film_captions_report.get("status") != "pass":
+                    print("::warning title=film-captions-unavailable::"
+                          "Full cinematic Film captions were NOT burned: "
+                          + str(film_captions_report.get("reason")), flush=True)
+                    film_key_text_report = apply_film_key_text(
+                        output_dir=output_dir, final_path=final_path, script=script
+                    )
+                else:
+                    film_key_text_report = {
+                        "status": "skipped_full_film_captions_burned",
+                        "format": "film", "event_count": 0,
+                        "provider_calls_added": 0,
+                    }
                 sparse_report = film_key_text_report
         except PodcastKeyTextError as exc:
             # Decorative local enhancement only: keep the finished video if this
