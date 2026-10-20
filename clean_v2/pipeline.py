@@ -8217,6 +8217,35 @@ class CleanV2Pipeline:
                     )
                 raise
 
+            # Do not spend another long final-render pass on a Film which asked
+            # for moving stock but lost nearly all of it to still-image fallbacks.
+            # The saved voice is reusable; no questionable stock is force-approved.
+            if str(brief["format"]) == "film":
+                from clean_v2.simple_mode import is_simple_mode, film_motion_preflight
+                if is_simple_mode():
+                    motion_gate = film_motion_preflight(rights)
+                    atomic_write_json(output_dir / "film-motion-preflight.json", motion_gate)
+                    if motion_gate["status"] != "pass":
+                        _write_resume_checkpoint(
+                            output_dir,
+                            completed_stage="voice",
+                            approved_brief_sha256=approved_brief_digest,
+                            engine_sha=engine_sha,
+                            runner_sha=runner_sha,
+                            max_visuals=max_visuals,
+                            voice_provider=str(journal.payload.get("voice_provider") or ""),
+                            voice_fallback_used=journal.payload.get("voice_fallback_used"),
+                        )
+                        print(
+                            "::error title=Film needs real motion::"
+                            f"{motion_gate['verified_or_owner_selected_motion_scenes']}/"
+                            f"{motion_gate['requested_motion_scenes']} moving stock scenes survived QA; "
+                            f"minimum {motion_gate['minimum_motion_scenes']}. "
+                            "Voice checkpoint retained; supply verified scene links or repair stock before rendering.",
+                            flush=True,
+                        )
+                        raise RuntimeError("FILM_MOTION_PREFLIGHT_NEEDS_VERIFIED_STOCK")
+
             if bool(visual_qa_report.get("final_media_mutated")):
                 _write_resume_checkpoint(
                     output_dir,
