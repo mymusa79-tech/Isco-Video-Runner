@@ -8360,6 +8360,21 @@
       "selected_at": "2026-10-20T00:46:36Z",
       "created_at": "2026-10-20T00:46:36Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-2dc598ef88",
+      "title": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
+      "normalized_title": "اغلقت الاشعارات فلماذا ما زلت تمسك هاتفك؟",
+      "market_query": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-20T11:01:28Z",
+      "created_at": "2026-10-20T11:01:28Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -17184,9 +17199,526 @@
         "started_at": "2026-10-20T00:48:02Z",
         "finished_at": "2026-10-20T02:14:39Z"
       }
+    },
+    "req-ef041d37c3ae": {
+      "schema_version": 1,
+      "request_id": "req-ef041d37c3ae",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-2dc598ef88",
+      "selected_at": "2026-10-20T11:01:28Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "problem_reveal_solution",
+          "title": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "لماذا تفتح هاتفك للمرة الثالثة وأنت تحاول إنهاء عمل بسيط، مع أنك أغلقت الإشعارات، ولا تنتظر رسالة، وتعرف أن الوقت يضيع منك؟ أمامك فقرة لم تكتمل. الهاتف صامت… ويدك تتحرك. لا تسمع رنينًا، ولا ترى ضوءًا ينبهك. مع ذلك تمتد إليه قبل أن تنتبه إلى أنك توقفت عن الكتابة.\n\nتفتح الشاشة ثم تغلقها بعد لحظات. تحاول العودة إلى السطر، فتحتاج إلى تذكّر أين كنت. قد لا تكون خسرت وقتًا طويلًا في الهاتف نفسه؛ لكنك قطعت فكرة كانت تتكوّن. هذا ما يجعل التوقف الصغير مزعجًا حين يتكرر أثناء مهمة واحدة.\n\nتقول لنفسك إن الحل واضح: أوقف الإشعارات. تفعل ذلك صباحًا، وتشعر أنك أغلقت باب المقاطعات. ثم يأتي المساء وتكتشف أنك فتحت الجهاز بيدك مرات لا تعرف سببها. المشكلة الآن ليست في صوت تستطيع إسكاته، بل في حركة لم تلحظ بدايتها.\n\nتخيل المشهد في مكان آخر: شخص ينتظر دوره عند المحاسبة، وآخر أمام ملف في المكتب، وثالث يحاول إنهاء ترتيب غرفة. لا توجد رسالة عاجلة تجمعهم. يجمعهم فقط أن لحظة الانتظار أو التوقف تجعل الهاتف قريبًا وسهل الفتح. هذه أمثلة للتوضيح، لا وقائع من أشخاص بعينهم.\n\nربما تظن أن هذه معركة ضد الهاتف، أو أنك مطالب بألا تستخدمه إلا للضرورة. لا. نستخدمه للعمل، وللاتصال بمن نحب، ولأشياء تنفعنا حقًا. والسؤال هنا أضيق وأكثر إزعاجًا: هل كنت أنت من اختار فتحه في هذه اللحظة، أم بدأت الحركة قبل الاختيار؟\n\nلن أطلب منك أن تحذف تطبيقاتك، ولا أن تحوّل يومك إلى اختبار انضباط. سنفحص أولًا ما تقوله الدراسات عن مصدر المقاطعة. ثم نميّز التفقد المقصود من الحركة المعتادة. وبعدها نصل إلى تجربة واحدة تستطيع تنفيذها وأنت تعرف حدودها، لا وعدًا سحريًا بالتركيز."
+              },
+              {
+                "id": "s2",
+                "text": "الهاتف هذه المرة لم ينادك؛ أنت الذي بدأت الوصول إليه. هذه ليست محاولة لتبرئة التطبيقات أو تحميلك المسؤولية كلها. إنها نقطة مختلفة في فهم المشكلة: هناك ما يأتي من الخارج ويقطع انتباهك، وهناك ما تبدأه أنت حين تضعف صلتك بالمهمة لحظة واحدة.\n\nفي دراسة ميدانية نُشرت عام 2021، راقب باحثان استخدام الهاتف في سياقات يومية باستخدام تسجيلات من منظور المشاركين. وجد الباحثان أن أغلب التفاعلات المسجلة في عينتهم بدأها المستخدمون، لا الإشعارات. هذه نتيجة تخص المشاركين الذين دُرسوا، لا نسبة ثابتة لكل الناس.\n\nانتبه إلى الفرق بين محفّزين. الإشعار الخارجي يصل إليك وأنت منشغل. أما التفقد الذاتي فتبدأه عندما تنتظر تحميل صفحة، أو تتوقف في منتصف فكرة، أو تمد يدك تلقائيًا نحو مكان الجهاز المعتاد. كلاهما قد يقطع العمل، لكن إغلاق الجرس لا يلغي حركة اليد.\n\nوفي تجربة عشوائية نُشرت عام 2024، اختبر باحثون تعطيل الإشعارات لمدة أسبوع. لم تجد التجربة انخفاضًا ذا دلالة في مرات التفقد أو مدة الاستخدام عند تعطيل الإشعارات وحدها في عينتها. هذا لا يعني أن إسكات الإشعارات بلا فائدة لأحد؛ بل يعني أنه ليس حلًا شاملًا للتفقد.\n\nوقد يربكك أن تجرّب إيقاف التنبيهات ثم لا تلاحظ فرقًا. من السهل حينها أن تحكم على نفسك بالفشل. لكن النتيجة الممكنة أبسط: عالجت مصدر مقاطعة واحدًا، وتركْتَ مصدرًا آخر كما كان. الخطة كانت ناقصة، لا دليلًا على أنك عاجز عن التغيير.\n\nإذن لا تسأل فقط كم إشعارًا وصلك اليوم. اسأل سؤالًا أصعب: كم مرة فتحت الهاتف من دون أن يطلب منك أحد شيئًا؟ لا تحتاج إلى مراقبة نفسك طوال الأسبوع. يكفي أن تلاحظ توقيت الحركة أثناء مهمة واحدة حتى تعرف أي باب ينبغي أن تتعامل معه."
+              },
+              {
+                "id": "s3",
+                "text": "قد تعترض بحق: ليس كل فتح للهاتف هروبًا، وليس كل استخدام متكرر إدمانًا. أحيانًا تبحث عن رقم ضروري، أو ترد على اتصال عائلي، أو تراجع معلومة للعمل. والحقيقة أن هذه الاستخدامات ليست المشكلة التي نتحدث عنها، ولا يجوز جمعها تحت تهمة واحدة.\n\nما نبحث عنه هو لحظة محددة: كنت تعمل على شيء اخترته، ثم انتقلت إلى الشاشة من دون سبب تستطيع تسميته. لو سألك أحد قبل أن تفتحها: ماذا تريد منها الآن؟ ربما احتجت إلى ثوانٍ لتبحث عن جواب. تلك الفجوة هي موضع التجربة.\n\nيمكن وصف الدائرة بثلاث حركات متتابعة، لا باعتبارها قانونًا نفسيًا للجميع. أولًا: فراغ قصير بين خطوتين من العمل، فتتوقف عن مهمتك للحظة دون أن تختار شيئًا آخر. ثانيًا: وصول معتاد إلى موضع الهاتف القريب، قبل أن تسأل نفسك عمّا تريد فتحه. ثالثًا: محتوى جديد يمنحك سببًا للبقاء بعد أن فتحت الشاشة أصلًا.\n\nلاحظ أن الرغبة قد تأتي من الملل، أو الفضول، أو الاستراحة، أو تجنب مهمة صعبة. لا أستطيع معرفة سبب كل مرة تخصك. حتى عندما يتكرر السلوك، قد تختلف أسبابه من يوم لآخر. لذلك لا أقدّم لك تشخيصًا؛ أطلب ملاحظة ما يحدث قبل الفتح.\n\nوهناك اعتراض آخر: أليست الاستراحة حقًا مشروعًا؟ بالتأكيد. الفرق أن تختارها وأن تنتهي منها وأنت تعرف لماذا بدأت، لا أن تنتقل إليها من دون وعي ثم تكتشف أنك ابتعدت عن عملك أكثر مما أردت. الاستراحة قرار؛ والتفقد التلقائي قد يسبق القرار.\n\nإذا لم تفهم تلك اللحظة، ستجرب حلولًا كبيرة لانقطاع صغير يتكرر. قد تمحو التطبيقات ثم تعيدها، أو تضع الهاتف صامتًا ثم تتفقده أكثر. تغيير الأداة ليس خطأ دائمًا؛ لكن من الإنصاف أن تعرف أولًا ما الذي يوقظ الحركة: تنبيه خارجي، أم وصول أصبح سهلًا ومعتادًا؟"
+              },
+              {
+                "id": "s4",
+                "text": "الهاتف القريب لا يحتاج منك قرارًا جديدًا؛ يكفي أن تمتد يدك إليه، فكيف تجعل الفتح فعلًا مقصودًا؟ لا تعاهد نفسك على شهر بلا هاتف. اختر مهمة واحدة مؤجلة، وامنحها عشرين دقيقة. قبل البدء، ضع الهاتف في مكان لا تصل إليه من مقعدك. المطلوب أن يتطلب فتحه قرارًا وحركة إضافية.\n\nقد تقول: ما الفرق بين هاتف صامت أمامي وهاتف على رف بعيد؟ الأول يمكن أن يصبح في يدك بمجرد التفاتة. الثاني يحتاج أن تنهض وتتحرك. تلك المسافة لا تمنعك من استخدامه، لكنها تمنحك لحظة تستطيع فيها أن تسأل نفسك ماذا تريد منه حقًا.\n\nابدأ بصورة واضحة للتجربة: ضع الكتاب أو المهمة أمامك، وأبعد الهاتف قبل أن تبدأ. لا تحوّل الدقائق إلى مسابقة، ولا تفتح الجهاز كل قليل لتتحقق من أنك ملتزم. الوقت هنا مساحة للتجربة لا مقياس لقيمتك أو قوة شخصيتك.\n\nتقدّم دراسة نُشرت عام 2023 قرينة محدودة على أن وقفة قصيرة قد تساعد. اختبر الباحثون تدخلًا داخل تطبيقات مختارة يضع مهلة ويتيح العدول عن فتح التطبيق. انخفضت محاولات الوصول في ذلك السياق. لكن الدراسة لم تختبر وضع الهاتف بعيدًا على رف، فلا تنقل نتيجتها حرفيًا إلى تجربتنا.\n\nالمشترك بين الحالتين هو إدخال لحظة قبل الاستمرار. في التطبيق يظهر خيار التراجع. وفي تجربتك يتطلب الوصول إلى الجهاز أن تقوم من مكانك. التشابه يفسّر منطق الاقتراح، لا يثبت أنه سينجح بالقدر نفسه. قد تحتاج إلى تعديل المكان أو الوقت ليناسب يومك.\n\nوماذا عن الاتصال العاجل؟ لا تجعل التجربة سببًا لفوات أمر مهم. إن كنت تنتظر تواصلًا ضروريًا، فرتّب وسيلة تسمعه أو تصل إليها. وإن كانت مهمتك تتطلب الهاتف نفسه، فلا تتظاهر أن إبعاده ممكن. اختر مهمة أخرى مناسبة بدل تحويل النصيحة إلى عقوبة."
+              },
+              {
+                "id": "s5",
+                "text": "الاختبار الحقيقي لا يبدأ حين تضع الجهاز بعيدًا، بل حين تشعر برغبة العودة إليه. ربما تنهض فعلًا، وربما تسأل نفسك قبل ذلك: هل أحتاج شيئًا محددًا الآن؟ من الممكن أن يكون الجواب نعم. عندئذ استخدمه عن قصد، ثم عد إلى ما كنت تفعله.\n\nوإذا كان الجواب لا، فليس مطلوبًا منك أن تحتفل بانتصار صغير. اجلس وأكمل الخطوة التالية من المهمة. ربما لا تشعر بتركيز خارق. وربما تعود الرغبة بعد دقائق. النجاح هنا ليس غيابها، بل أن تصبح لديك فرصة تمييزها قبل الاستجابة لها.\n\nتذكّر الصفحة التي توقفت عندها في البداية. كانت المشكلة أنك تركتها دون أن تدري متى قررت ذلك. الآن تستطيع ملاحظة لحظة الانقطاع، وإكمال السطر الذي أمامك. لا تحتاج إلى يوم كامل بلا شرود؛ تحتاج إلى عودة واضحة بعد شرود يحدث فعلًا.\n\nربما تفشل تجربتك الأولى. قد تضع الهاتف بعيدًا ثم تذهب إليه مرتين، وقد لا تنهي المهمة في الوقت الذي اخترته. لن أخبرك أن الإرادة وحدها تكفي. ظروف العمل والقلق الحقيقي والرسائل الضرورية قد تجعل الأمر أصعب مما يبدو من الخارج.\n\nلكن لا تستخدم صعوبة البداية عذرًا للبقاء على الحال نفسها. إذا كان التفقد يقطع مهمة تريد إكمالها، فهناك شيء يستحق أن تغيّره، ولو كان صغيرًا. إسكات الإشعارات خطوة مفهومة؛ أما معرفة سبب فتح الهاتف فتحتاج أن تراقب اللحظة التي تسبق اللمس.\n\nبعد هذا الفيديو، اختر مهمة معلقة واحدة. ضع هاتفك بعيدًا عن متناول يدك عشرين دقيقة، مع إبقاء الضروري متاحًا. ثم عد إلى العمل كلما لاحظت الشرود. هذه هي الخطوة الوحيدة المقترحة، بلا نتائج مضمونة ولا امتحان لشخصيتك. الهدف أن تسبق أنت الحركة، لا أن تسبقك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "صوت Charon الراهن في الطويل، فصحى محادثية دقيقة، فضول يختبر فرضية ثم اعتراضًا حقيقيًا وحدودًا للدليل؛ وقفات طبيعية دون خطاب وعظي أو وعود نتائج. لا تغيير للصوت أو الدعاء أو التعريف أو الهوية."
+          },
+          "scenes": [
+            {
+              "id": "scene01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "لماذا تفتح هاتفك للمرة الثالثة وأنت تحاول إنهاء عمل بسيط، مع أنك أغلقت الإشعارات، ولا تنتظر رسالة، وتعرف أن الوقت يضيع منك؟",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "تفتح الشاشة ثم تغلقها بعد لحظات.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "open notebook unfinished desk",
+                "query_alt_en": "papers on empty study table",
+                "must_show": "open notebook with unfinished task, no person"
+              }
+            },
+            {
+              "id": "scene03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تقول لنفسك إن الحل واضح: أوقف الإشعارات.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "smartphone face down work desk",
+                "query_alt_en": "phone lying beside office papers",
+                "must_show": "silent phone next to ongoing paperwork"
+              }
+            },
+            {
+              "id": "scene04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "تخيل المشهد في مكان آخر: شخص ينتظر دوره عند المحاسبة، وآخر أمام ملف في المكتب، وثالث يحاول إنهاء ترتيب غرفة.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "shopper checking phone checkout line",
+                "query_alt_en": "person using smartphone supermarket queue",
+                "must_show": "one shopper looking at phone while waiting at checkout"
+              }
+            },
+            {
+              "id": "scene05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "ربما تظن أن هذه معركة ضد الهاتف، أو أنك مطالب بألا تستخدمه إلا للضرورة.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene06",
+              "section_id": "s1",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "لن أطلب منك أن تحذف تطبيقاتك، ولا أن تحوّل يومك إلى اختبار انضباط.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "library aisle shelves books",
+                "query_alt_en": "empty library bookshelves aisle",
+                "must_show": "bookshelves lining a quiet library aisle no people"
+              }
+            },
+            {
+              "id": "scene07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "الهاتف هذه المرة لم ينادك؛ أنت الذي بدأت الوصول إليه.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "في دراسة ميدانية نُشرت عام 2021، راقب باحثان استخدام الهاتف في سياقات يومية باستخدام تسجيلات من منظور المشاركين.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "انتبه إلى الفرق بين محفّزين.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "مَن بدأ المقاطعة؟",
+                "items": [
+                  {
+                    "label": "إشعار خارجي",
+                    "at_text": "الإشعار الخارجي يصل إليك وأنت منشغل."
+                  },
+                  {
+                    "label": "تفقد ذاتي",
+                    "at_text": "أما التفقد الذاتي فتبدأه عندما تنتظر تحميل صفحة،"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene10",
+              "section_id": "s2",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "وفي تجربة عشوائية نُشرت عام 2024، اختبر باحثون تعطيل الإشعارات لمدة أسبوع.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "phone on desk near computer keyboard",
+                "query_alt_en": "smartphone and computer keyboard desk",
+                "must_show": "silent phone beside keyboard during work"
+              }
+            },
+            {
+              "id": "scene11",
+              "section_id": "s2",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "وقد يربكك أن تجرّب إيقاف التنبيهات ثم لا تلاحظ فرقًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "office desk unfinished paperwork",
+                "query_alt_en": "papers and pen on desk",
+                "must_show": "unfinished task beside stationery"
+              }
+            },
+            {
+              "id": "scene12",
+              "section_id": "s2",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "إذن لا تسأل فقط كم إشعارًا وصلك اليوم.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "phone on seat next to bag",
+                "query_alt_en": "mobile phone on bench bag",
+                "must_show": "phone placed on bench beside bag"
+              }
+            },
+            {
+              "id": "scene13",
+              "section_id": "s3",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "قد تعترض بحق: ليس كل فتح للهاتف هروبًا، وليس كل استخدام متكرر إدمانًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand answering phone call",
+                "query_alt_en": "person receives phone call",
+                "must_show": "hand answering incoming call no visible face"
+              }
+            },
+            {
+              "id": "scene14",
+              "section_id": "s3",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "ما نبحث عنه هو لحظة محددة: كنت تعمل على شيء اخترته، ثم انتقلت إلى الشاشة من دون سبب تستطيع تسميته.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene15",
+              "section_id": "s3",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "يمكن وصف الدائرة بثلاث حركات متتابعة، لا باعتبارها قانونًا نفسيًا للجميع.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "row",
+                "theme": "editorial",
+                "title": "مثال لدائرة التفقد",
+                "items": [
+                  {
+                    "label": "توقف قصير",
+                    "at_text": "أولًا: فراغ قصير بين خطوتين من العمل،"
+                  },
+                  {
+                    "label": "وصول معتاد",
+                    "at_text": "ثانيًا: وصول معتاد إلى موضع الهاتف القريب،"
+                  },
+                  {
+                    "label": "بقاء أطول",
+                    "at_text": "ثالثًا: محتوى جديد يمنحك سببًا للبقاء"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene16",
+              "section_id": "s3",
+              "asset": "assets/scene_16.jpg",
+              "start_text": "لاحظ أن الرغبة قد تأتي من الملل، أو الفضول، أو الاستراحة، أو تجنب مهمة صعبة.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "laundry machine working clothes basket",
+                "query_alt_en": "laundry washing machine basket",
+                "must_show": "laundry basket and machine while task is incomplete"
+              }
+            },
+            {
+              "id": "scene17",
+              "section_id": "s3",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "وهناك اعتراض آخر: أليست الاستراحة حقًا مشروعًا؟",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person resting on park bench",
+                "query_alt_en": "person sitting outdoors relaxing",
+                "must_show": "person taking a chosen break, no clear face"
+              }
+            },
+            {
+              "id": "scene18",
+              "section_id": "s3",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "إذا لم تفهم تلك اللحظة، ستجرب حلولًا كبيرة لانقطاع صغير يتكرر.",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "scene19",
+              "section_id": "s4",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "الهاتف القريب لا يحتاج منك قرارًا جديدًا؛ يكفي أن تمتد يدك إليه، فكيف تجعل الفتح فعلًا مقصودًا؟",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person placing phone on shelf",
+                "query_alt_en": "hand puts phone on high shelf",
+                "must_show": "hand moving phone beyond reach of desk"
+              }
+            },
+            {
+              "id": "scene20",
+              "section_id": "s4",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "قد تقول: ما الفرق بين هاتف صامت أمامي وهاتف على رف بعيد؟",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene21",
+              "section_id": "s4",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "ابدأ بصورة واضحة للتجربة: ضع الكتاب أو المهمة أمامك، وأبعد الهاتف قبل أن تبدأ.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "quiet study table open book",
+                "query_alt_en": "empty library desk book",
+                "must_show": "open book and clear work surface, no phone"
+              }
+            },
+            {
+              "id": "scene22",
+              "section_id": "s4",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "تقدّم دراسة نُشرت عام 2023 قرينة محدودة على أن وقفة قصيرة قد تساعد.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "smartphone loading app close up",
+                "query_alt_en": "phone screen loading animation",
+                "must_show": "unbranded phone showing pause before opening app"
+              }
+            },
+            {
+              "id": "scene23",
+              "section_id": "s4",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "المشترك بين الحالتين هو إدخال لحظة قبل الاستمرار.",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene24",
+              "section_id": "s4",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "وماذا عن الاتصال العاجل؟",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "smartphone charging on hallway shelf",
+                "query_alt_en": "phone on shelf near doorway",
+                "must_show": "reachable phone for essential calls in home"
+              }
+            },
+            {
+              "id": "scene25",
+              "section_id": "s5",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "الاختبار الحقيقي لا يبدأ حين تضع الجهاز بعيدًا، بل حين تشعر برغبة العودة إليه.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person pauses near doorway office",
+                "query_alt_en": "person standing beside desk",
+                "must_show": "person pauses before reaching phone no visible face"
+              }
+            },
+            {
+              "id": "scene26",
+              "section_id": "s5",
+              "asset": "assets/scene_26.jpg",
+              "start_text": "وإذا كان الجواب لا، فليس مطلوبًا منك أن تحتفل بانتصار صغير.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene27",
+              "section_id": "s5",
+              "asset": "assets/scene_27.jpg",
+              "start_text": "تذكّر الصفحة التي توقفت عندها في البداية.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "open book bookmark desk",
+                "query_alt_en": "book on wooden table bookmark",
+                "must_show": "unattended open book and bookmark near mid-page"
+              }
+            },
+            {
+              "id": "scene28",
+              "section_id": "s5",
+              "asset": "assets/scene_28.jpg",
+              "start_text": "ربما تفشل تجربتك الأولى.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "worker resumes task workbench",
+                "query_alt_en": "craft worker working from behind",
+                "must_show": "worker returns to unfinished task with no clear face"
+              }
+            },
+            {
+              "id": "scene29",
+              "section_id": "s5",
+              "asset": "assets/scene_29.jpg",
+              "start_text": "لكن لا تستخدم صعوبة البداية عذرًا للبقاء على الحال نفسها.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene30",
+              "section_id": "s5",
+              "asset": "assets/scene_30.jpg",
+              "start_text": "بعد هذا الفيديو، اختر مهمة معلقة واحدة.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person starting task phone far away",
+                "query_alt_en": "hands opening notebook desk phone distant",
+                "must_show": "person starting paperwork, phone visibly far out of reach"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "الهاتف صامت… ويدك تتحرك."
+          },
+          "publishing": {
+            "title": "لماذا تفتح هاتفك رغم إغلاق الإشعارات؟ | نداء اليقظة",
+            "description": "أغلقت الإشعارات، ومع ذلك ما زلت تفتح الهاتف أثناء مهمة تريد إكمالها. لماذا لا يكفي إسكات التنبيهات؟\n\nنبحث في هذه الحلقة الفرق بين المقاطعة الخارجية والتفقد الذي يبدأه المستخدم، ونراجع ما تقوله ثلاث دراسات وما لا تثبته، ثم نقترح تجربة محدودة: إبعاد الهاتف عن متناول اليد لمدة 20 دقيقة مع إبقاء الاتصالات المهمة متاحة.\n\nالمصادر:\nhttps://www.sciencedirect.com/science/article/pii/S0747563220303848\nhttps://doi.org/10.1080/15213269.2024.2334025\nhttps://doi.org/10.1073/pnas.2213114120\n\n#نداء_اليقظة #التركيز #استخدام_الهاتف",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التركيز",
+              "#استخدام_الهاتف"
+            ],
+            "tags": [
+              "التفقد التلقائي للهاتف",
+              "إغلاق الإشعارات",
+              "التركيز",
+              "نداء اليقظة",
+              "عادات الهاتف"
+            ]
+          },
+          "derivative": {
+            "start_text": "قد تقول: ما الفرق بين هاتف صامت أمامي وهاتف على رف بعيد؟",
+            "end_text": "تلك المسافة لا تمنعك من استخدامه، لكنها تمنحك لحظة تستطيع فيها أن تسأل نفسك ماذا تريد منه حقًا.",
+            "cover": {
+              "asset": "assets/cover_derivative.jpg",
+              "text": "هاتف صامت أمامي"
+            },
+            "publishing": {
+              "title": "لماذا يظل الهاتف الصامت يشغلك؟ | نداء اليقظة",
+              "description": "هل المسافة بينك وبين الهاتف الصامت تغيّر لحظة فتحه؟ مقطع من فيلم نداء اليقظة عن التفقد التلقائي وحدود التجربة.\n#نداء_اليقظة #التركيز #استخدام_الهاتف",
+              "hashtags": [
+                "#نداء_اليقظة",
+                "#التركيز",
+                "#استخدام_الهاتف"
+              ]
+            }
+          }
+        },
+        "zip_sha256": "9bf4dd463679f2a6abdc101e580b1cd9b75d031d893a749ad8769ddc058c019f",
+        "asset_sha256": {
+          "assets/cover_derivative.jpg": "78c7be7f78ddbee6ae73ffb2be069d57e891ef443eca3d7ea08f6e19420d2998",
+          "assets/scene_11.jpg": "a8426e59c0ef450985debef0e1d4bac1ba72210767e1b66816455acbfdade944",
+          "assets/scene_22.jpg": "a324b46dd34f46bd367481df2b48086a48bbd248d252069b6615b128c4808878",
+          "assets/scene_09.jpg": "394e794c6286d0831f460f64c32ee102e3d27d851f777a3e5bcce67b556855b8",
+          "assets/scene_14.jpg": "92fe1ee5870022119a9c438b85137ad6920194d10ff48a4382a9f3e82bd28ace",
+          "assets/cover_main.jpg": "a9015d0d5bfc1046b2044fd288e5c9fcd1b8338f2f41bc788a9167f56dfcf199",
+          "assets/scene_27.jpg": "ea7862b06345ddfcba21cdfd459c354c2b7e86acad62a7f3848772911076918c",
+          "assets/scene_04.jpg": "fafc395945817a7a6b5a3b92baca140fe54a439d8ac08a4edbf5e04e67ec0712",
+          "assets/scene_16.jpg": "5a4b44e344b42b8e9e3b476be2b61ee3bb046c9fed1556b35fd0fd9882580ff5",
+          "assets/scene_28.jpg": "2adac22069721407658e375d695810be46fb7d3792e4ae0a2a6e7901319ed1b4",
+          "assets/scene_15.jpg": "73d368cb83a31d380dcf11fb9939d27fc76583311fd877b283f402de4352b6f8",
+          "assets/scene_29.jpg": "e820e969867e41164432d91d8ab7017a0f2ac0c23a033de46e45a4c345c72099",
+          "assets/scene_25.jpg": "879003b53a84c4b754bb7bb2518c6423f1c40b46ea37d518890573ddeb903ada",
+          "assets/scene_24.jpg": "e0c931389bc0906b54251239b5df0a06fe48f87d79d5dd5dc00c1a501287fd92",
+          "assets/scene_20.jpg": "dc80d05118374e7520ad362f23e569b9c46f2d6fc07468a2887972da46921e96",
+          "assets/scene_03.jpg": "c3508723c48148cf674026c08a022bc314aa11367e6985c5b020410d6c8d5ffa",
+          "assets/scene_19.jpg": "0df90aa56f26d4f7170651e9dbc9c20545de3a497eb1b1cab313f3b291c64068",
+          "assets/scene_13.jpg": "f8bed4ac72b2df38c29b42bc7560ade378ba434fd211cea5026ddfb8a80ae476",
+          "assets/scene_23.jpg": "fd66f81a3b39d8b8a3e0beb237585ab478858bbd46226e6625f8c24e23d4a23c",
+          "assets/scene_08.jpg": "db7f418a59e214bdfb4ba891bf007dd4c54b4d37a5b05fb5c11a3ab5f512dccb",
+          "assets/scene_17.jpg": "933113e18bd6a90892a36b2c01642ba6a0aa88fdb6959ec12dbcc0bc8a2a857d",
+          "assets/scene_26.jpg": "91fd2ebcd03422c5fd629631f593241a5d8b76a55be9a6439f4dcb7e3b69b269",
+          "assets/scene_06.jpg": "5c8b5966cd5b2d09fc8727e7aee5c587cd6bc57fdb37b0339b7e71de372cd502",
+          "assets/cover_alt_01.jpg": "b09fb928b044208f55260cddbaa6c0e5c703655a0d856104a2de0c819c5fdf41",
+          "assets/scene_18.jpg": "ebc96a45b4a9c5fdfcc6c677801621c4828093ad35b4dada49880cac0e07f39b",
+          "assets/scene_01.jpg": "059dd62aa2c1c5ddfebcec4bd9bae39f72f7d29c17782e1199e3f43f93db1397",
+          "assets/scene_30.jpg": "31073d01062a85732aea32ba0f4ddc68d80ad499aac33841c63612dc9073af3b",
+          "assets/scene_07.jpg": "c89506ceeb41015b13447c54553c0611e1f640c55d1de34c63a8e50d5d68ee22",
+          "assets/scene_02.jpg": "6e537d7874c7ac3af35bacd4a488820a407c37ef00123d31b6f26d5f394d5178",
+          "assets/scene_21.jpg": "b132683dec79161360a1e82747a3b9c815d43ffdfdb069226783f4f30c17fc5c",
+          "assets/scene_10.jpg": "23b757a9d90f6ec57eb2d89031925311e61d157b8bfabfc75f33c90a62fede8b",
+          "assets/scene_12.jpg": "9434ca67f9d3c8d7c4d72f6ace1aee6033b2ecc41ad591befc7f401b0fcfaa83",
+          "assets/scene_05.jpg": "9e800699c460e5217f016e326c66ebaccd6ac51c4765436a1685eb1298a3e5b8",
+          "assets/cover_alt_02.jpg": "6757500c9ce34526f8729d784c4121664fb85ed8fd0ecbca02287c1b5d851b1e"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "776ff5ae3b61181d2ff5f26250d7e985161c0e0b1259d7ff882df5579da3f662",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAINWGrXSe7Y-6YlfrSn-i3Vh-dTljo3AAKeHQACHGa5UkZYIQsuid4gPQQ",
+          "sha256": "9bf4dd463679f2a6abdc101e580b1cd9b75d031d893a749ad8769ddc058c019f"
+        }
+      }
     }
   },
-  "current_request_id": "req-86a6da5fca96",
+  "current_request_id": "req-ef041d37c3ae",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -17628,6 +18160,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-20T11:00:25Z",
+  "updated_at": "2026-10-20T11:01:28Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
