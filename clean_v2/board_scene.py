@@ -95,6 +95,15 @@ def _font_path() -> str:
                           "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf"):
             if Path(candidate).is_file():
                 return candidate
+        # Test/preview opt-in only: runner images may lack the exact Noto paths.
+        # Production (no BOARD_ALLOW_FALLBACK_FONT=1) still fails closed without Cairo.
+        try:
+            out = subprocess.run(["fc-match", "-f", "%{file}", "sans-serif"],
+                                 capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+            if Path(out).is_file():
+                return out
+        except (OSError, subprocess.SubprocessError):
+            pass
     raise BoardError("board_font_cairo_missing")
 
 
