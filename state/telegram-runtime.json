@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "long",
-  "kind": "long",
+  "kind": "",
   "topic": "أغلقت الإشعارات… فلماذا ما زلت تمسك هاتفك؟",
-  "stage": "🎬 الطويل · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39412090472",
-  "result": "",
-  "updated_at": 1792499367
+  "result": "success",
+  "updated_at": 1792499473
 }
