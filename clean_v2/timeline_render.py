@@ -49,7 +49,9 @@ def render_identity_composition(
             raise RuntimeError(f"timeline identity bounds invalid: {kind}")
         return start, min(end, voice_seconds)
 
-    intro_start, intro_end = bounds("intro")
+    # Film has no separate logo intro: that exact asset appears only when
+    # its spoken channel definition plays. Podcast V8 still has its intro.
+    intro_start, intro_end = bounds("intro") if fmt == "podcast" else (0.0, 0.0)
     prayer_start, prayer_end = bounds("prayer")
     outro_start, outro_end = bounds("outro")
     final_silence_start, final_silence_end = bounds("final_silence")
@@ -117,11 +119,8 @@ def render_identity_composition(
     else:
         freeze_duration = max(0.0, final_silence_end - final_silence_start)
         filters = (
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=rgba,"
-            f"tpad=stop_mode=clone:stop_duration={intro_duration:.3f},"
-            f"trim=duration={intro_duration:.3f},"
-            f"setpts=PTS-STARTPTS+{intro_start:.3f}/TB[intro];"
+            # [1:v] is retained exclusively for the spoken channel logo card;
+            # unlike Podcast, Film does NOT draw a stand-alone intro.
             f"{_prayer_fill_chain(width, height)}"
             f"setsar=1,fps=30,format=rgba,"
             f"trim=duration={prayer_duration:.3f},"
@@ -131,8 +130,7 @@ def render_identity_composition(
             f"tpad=stop_mode=clone:stop_duration={outro_duration + freeze_duration:.3f},"
             f"trim=duration={outro_duration + freeze_duration:.3f},"
             f"setpts=PTS-STARTPTS+{outro_start:.3f}/TB[outro];"
-            f"[0:v][intro]overlay=0:0:enable='gte(t,{intro_start:.3f})*lt(t,{intro_end:.3f})'[v1];"
-            f"[v1][prayer]overlay=0:0:"
+            f"[0:v][prayer]overlay=0:0:"
             f"enable='gte(t,{prayer_start:.3f})*lt(t,{prayer_end:.3f})'[v2];"
             f"{channel_filter}{before_outro}[outro]overlay=0:0:"
             f"enable='gte(t,{outro_start:.3f})*lt(t,{final_silence_end:.3f})'[vout]"

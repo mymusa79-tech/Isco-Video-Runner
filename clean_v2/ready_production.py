@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -61,8 +62,12 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 # now reaches the existing visual review instead of being ignored.
                 must_show = str(stock.get("must_show") or "").strip()
                 if must_show:
-                    intent = f"{query}. Must show: {must_show}"
-                    must_have = [query, must_show]
+                    # Search keywords retrieve media. The editor's concrete visible
+                    # action is the ONE semantic review contract. Requiring both
+                    # independent free-text strings was unnecessarily brittle and
+                    # doubled the wording checked by the stock reviewer.
+                    intent = must_show
+                    must_have = [must_show]
             board = scene.get("board") if isinstance(scene.get("board"), dict) else None
             board_text = ""
             if board:
@@ -86,12 +91,41 @@ def build_story(doc: Mapping[str, Any]) -> dict:
             "beats": beats}
 
 
+def ensure_film_stock_review_budget(doc: Mapping[str, Any], *, max_reviews: int) -> None:
+    """Avoid an expensive ALL-still Film when stock requests exceed the Vision ceiling.
+
+    Pinned links still require a semantic review; they do not grant free approvals.
+    This is an admission feasibility check, not a promise of usable clips.
+    """
+    if str(doc.get("format") or "") != "film":
+        return
+    requested = sum(
+        1 for scene in doc.get("scenes") or []
+        if isinstance(scene, Mapping) and isinstance(scene.get("stock"), Mapping)
+    )
+    if requested > max_reviews:
+        from .owner_pack import OwnerPackError
+
+        raise OwnerPackError(
+            "فيلم ZIP غير قابل للإنتاج البصري الموعود: "
+            f"{requested} مشهد ستوك يطلب مراجعة مقابل حد {max_reviews} مراجعات فقط. "
+            "أعد تخطيط المشاهد: اختر حركات أساسية أقل، أو جهز مصادر مرئية "
+            "ومسار مراجعة مستقلًا معتمدًا قبل تشغيل الصوت والرندر. "
+            "لا يمكن تجاوز التحقق أو ضمان قبول كل محاولة."
+        )
+
+
 def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: Path) -> dict:
     from .contextual_cta import CTA_CONTRACT_VERSION, CtaBinding, CtaMode, write_cta_report
     from .owner_film import _brand_signature
 
     doc = validate_manifest(pack["production"], set(pack["asset_sha256"]))
     fmt = doc["format"]
+    try:
+        stock_reviews = int(os.environ.get("CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW", "5"))
+    except (TypeError, ValueError):
+        stock_reviews = 5
+    ensure_film_stock_review_budget(doc, max_reviews=max(0, stock_reviews))
     out_dir.mkdir(parents=True, exist_ok=True)
     sections = [{"id": s["id"], "narration": section_text(s)} for s in doc["script"]["sections"]]
     plan = validate_plan({

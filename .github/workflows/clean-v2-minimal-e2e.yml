@@ -112,6 +112,7 @@ jobs:
           test -s "$preview_dir/short-body.png"
           test -s "$preview_dir/short-payoff.png"
           test -s "$preview_dir/film.png"
+          test -s "$preview_dir/film-body.png"
           test -s "$preview_dir/podcast.png"
           test -s "$preview_dir/cta-short.png"
           test -s "$preview_dir/cta-film.png"
@@ -147,6 +148,7 @@ jobs:
             scripts.test_clean_v2_unified_visual_story \
             scripts.test_run55_pipeline_integrity \
             scripts.test_clean_v2_podcast \
+            scripts.test_film_captions \
             scripts.test_clean_v2_retired_voice_absence \
             scripts.test_clean_v2_ai_still \
             scripts.test_clean_v2_timeline_first \

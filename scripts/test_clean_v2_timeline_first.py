@@ -150,7 +150,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             narration.write_bytes(b"master")
             files = {
                 "audio/01-chunks/01.wav": ("hook", 4.0),
-                "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.60),
+                "audio/01-chunks/post-hook-silence.wav": ("post_hook_silence", 0.60),
                 "audio/01-chunks/02.wav": ("prayer", 3.0),
                 "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.20),
                 "audio/01-chunks/03.wav": ("channel_identity", 5.0),
@@ -168,7 +168,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             ]
             section_for = {
                 "audio/01-chunks/01.wav": 0,
-                "audio/01-chunks/intro-silence.wav": 0,
+                "audio/01-chunks/post-hook-silence.wav": 0,
                 "audio/01-chunks/02.wav": 0,
                 "audio/01-chunks/post-prayer-silence.wav": 0,
                 "audio/01-chunks/03.wav": 0,
@@ -209,7 +209,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
             events = {row["kind"]: row for row in report["identity_events"]}
             self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
-            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.6))
+            self.assertNotIn("intro", events)
+            self.assertEqual((events["post_hook_silence"]["start"], events["post_hook_silence"]["end"]), (4.0, 4.6))
             self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.6, 7.6))
             self.assertEqual(
                 (events["post_prayer_silence"]["start"], events["post_prayer_silence"]["end"]),
@@ -305,7 +306,7 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
             narration.write_bytes(b"master")
             files = {
                 "audio/01-chunks/01.wav": ("hook", 4.0),
-                "audio/01-chunks/intro-silence.wav": ("intro_silence", 0.70),
+                "audio/01-chunks/post-hook-silence.wav": ("post_hook_silence", 0.70),
                 "audio/01-chunks/02.wav": ("prayer", 3.0),
                 "audio/01-chunks/post-prayer-silence.wav": ("post_prayer_silence", 0.30),
                 "audio/01-chunks/03.wav": ("channel_identity", 5.0),
@@ -343,7 +344,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
             events = {row["kind"]: row for row in report["identity_events"]}
             self.assertEqual((events["hook"]["start"], events["hook"]["end"]), (0.0, 4.0))
-            self.assertEqual((events["intro"]["start"], events["intro"]["end"]), (4.0, 4.7))
+            self.assertNotIn("intro", events)
+            self.assertEqual((events["post_hook_silence"]["start"], events["post_hook_silence"]["end"]), (4.0, 4.7))
             self.assertEqual((events["prayer"]["start"], events["prayer"]["end"]), (4.7, 7.7))
             self.assertEqual(
                 (events["channel_identity"]["start"], events["channel_identity"]["end"]),
@@ -459,7 +461,8 @@ class TimelineFirstIdentityBoundsTests(unittest.TestCase):
 
     def test_terminal_outro_breathing_window_is_format_specific(self) -> None:
         self.assertEqual(identity_timing_profile("short")["post_prayer_silence_seconds"], 0.25)
-        self.assertEqual(identity_timing_profile("film")["post_prayer_silence_seconds"], 0.45)
+        self.assertEqual(identity_timing_profile("film")["post_prayer_silence_seconds"], 0.25)
+        self.assertEqual(identity_timing_profile("film")["intro_silence_seconds"], 0.0)
         self.assertEqual(identity_timing_profile("podcast")["post_prayer_silence_seconds"], 0.65)
         self.assertEqual(identity_timing_profile("podcast")["intro_silence_seconds"], 6.00)
         self.assertEqual(identity_timing_profile("podcast")["pre_topic_silence_seconds"], 0.00)

@@ -1147,7 +1147,9 @@ def _synthesize_sectioned_voice_pass(
                         "role": "post_hook_silence",
                     }
                 )
-                if fmt != "short":
+                if fmt == "podcast":
+                    # Film branding is already visible while the single
+                    # spoken channel identity is heard. No second intro beat.
                     intro_path = chunk_path.parent / "intro-silence.wav"
                     _write_silence_like(chunk_path, intro_path, timing["intro_silence_seconds"])
                     chunk_paths.append(intro_path)
@@ -4532,11 +4534,35 @@ def _run_legacy_cinematic_layer(
                     )
                 sparse_report = podcast_key_text_report
             else:
-                film_key_text_report = apply_film_key_text(
-                    output_dir=output_dir,
-                    final_path=final_path,
-                    script=script,
-                )
+                # Film gets real open narration captions, visually independent of
+                # the Podcast's A/B cards. Keep the sparse system as a fail-soft
+                # fallback, never change Podcast, Short, sound or fixed identity.
+                from clean_v2.film_captions import apply_film_captions
+
+                try:
+                    film_key_text_report = apply_film_captions(
+                        output_dir=output_dir,
+                        final_path=final_path,
+                    )
+                except Exception as exc:
+                    # Approved ZIP explicitly promises captions.enabled=true.
+                    # Do not deliver another image-only Film with no burned
+                    # narration captions and label it a successful production.
+                    if (Path(output_dir) / "production.json").is_file():
+                        raise RuntimeError(
+                            f"APPROVED_FILM_CAPTIONS_REQUIRED:{type(exc).__name__}:{str(exc)[:120]}"
+                        ) from exc
+                    print(
+                        "::warning title=film-captions-fallback::"
+                        "Film full captions were not burned; sparse key text fallback. "
+                        f"reason={type(exc).__name__}:{str(exc)[:160]}",
+                        flush=True,
+                    )
+                    film_key_text_report = apply_film_key_text(
+                        output_dir=output_dir,
+                        final_path=final_path,
+                        script=script,
+                    )
                 sparse_report = film_key_text_report
         except PodcastKeyTextError as exc:
             # Decorative local enhancement only: keep the finished video if this

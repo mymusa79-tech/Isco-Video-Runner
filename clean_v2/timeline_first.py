@@ -260,7 +260,7 @@ def _identity_events(
             hook is None
             or prayer is None
             or identity is None
-            or intro_silence is None
+            or post_hook_silence is None
             or post_prayer_silence is None
             or pre_topic_silence is None
             or final_silence is None
@@ -275,11 +275,11 @@ def _identity_events(
             f"pre_topic_silence={pre_topic_silence is not None} "
             f"final_silence={final_silence is not None}"
         )
-    if prayer is None or intro_silence is None or post_prayer_silence is None:
+    if prayer is None or post_prayer_silence is None or (fmt == "podcast" and intro_silence is None):
         return []
 
-    intro_start = float(intro_silence["start"])
-    intro_end = float(intro_silence["end"])
+    intro_start = float(intro_silence["start"]) if intro_silence is not None else 0.0
+    intro_end = float(intro_silence["end"]) if intro_silence is not None else 0.0
     if fmt == "podcast":
         # V8 podcast flow: prayer breath ends exactly where B begins answering.
         # The body music window therefore opens on the first answer sample.
@@ -305,7 +305,7 @@ def _identity_events(
                 "end": float(hook["end"]),
             }
         )
-    if fmt == "podcast" and post_hook_silence is not None:
+    if post_hook_silence is not None:
         events.append(
             {
                 "kind": "post_hook_silence",
@@ -314,14 +314,15 @@ def _identity_events(
                 "end": float(post_hook_silence["end"]),
             }
         )
+    if fmt == "podcast":
+        events.append({
+            "kind": "intro",
+            "source": "measured_intro_silence",
+            "start": intro_start,
+            "end": intro_end,
+        })
     events.extend(
         [
-            {
-                "kind": "intro",
-                "source": "measured_intro_silence",
-                "start": intro_start,
-                "end": intro_end,
-            },
             {
                 "kind": "prayer",
                 "source": "measured_voice_chunk",
