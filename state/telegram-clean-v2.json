@@ -18118,9 +18118,9 @@
           "assets/scene_09.jpg": "ca2a760fda9a09a53669b3bed8435e0df72d30f629fca8656a95eeed33606e84"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-20T18:08:05Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-20T18:08:10Z",
       "request_sha256": "cfeeb86543a0703ad379de1336cf3b562c650f1c51e2402599a5db2116e92e70",
       "owner_art": {
         "zip": {
@@ -18600,6 +18600,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-20T18:08:05Z",
+  "updated_at": "2026-10-20T18:08:10Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
