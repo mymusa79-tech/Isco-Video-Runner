@@ -49,8 +49,9 @@ _TIMING_PROFILES = {
         "final_silence_seconds": 2.7,
     },
     "film": {
-        "post_hook_silence_seconds": 1.15,
-        "intro_silence_seconds": 2.20,
+        # Film has no separate branded intro: the spoken definition owns the logo.
+        "post_hook_silence_seconds": 0.35,
+        "intro_silence_seconds": 0.00,
         "post_prayer_silence_seconds": 0.45,
         "pre_topic_silence_seconds": 0.85,
         "final_silence_seconds": 3.50,
