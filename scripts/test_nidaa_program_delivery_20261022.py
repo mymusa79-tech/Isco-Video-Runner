@@ -123,6 +123,20 @@ class ExportedDeliveryEvidenceTests(unittest.TestCase):
             self.assertEqual(result["status"], "partial_delivery")
             self.assertTrue(result["primary_video_accepted"])
 
+    def test_fallback_cover_does_not_masquerade_as_chatgpt_authored_cover(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            expected = self._make_accepted_film(root)
+            (root / "production.json").write_text(
+                json.dumps({"cover": {"asset": None, "text": "عنوان"}}),
+                encoding="utf-8",
+            )
+            report = audit_delivery(root, fmt="film", expected_sha256=expected)
+            self.assertTrue(report["primary_video_accepted"])
+            self.assertEqual(report["primary_cover"]["status"], "pass")
+            self.assertEqual(report["status"], "partial_delivery")
+            self.assertIn("approved_cover_asset_not_in_zip", report["review_reasons"])
+
     def test_film_caption_success_needs_its_subtitle_sidecar(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
