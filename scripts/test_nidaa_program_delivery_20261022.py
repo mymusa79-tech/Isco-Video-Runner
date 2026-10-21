@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image
 
@@ -90,6 +91,27 @@ class ExportedDeliveryEvidenceTests(unittest.TestCase):
             self.assertTrue(result["primary_video_accepted"])
             self.assertEqual(result["derivative"]["status"], "review")
             self.assertIn("approved_derivative_not_delivered", result["review_reasons"])
+
+    def test_derivative_success_requires_reinspection_of_actual_video(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            expected = self._make_accepted_film(root)
+            (root / "production.json").write_text(
+                json.dumps({"derivative": {"start_text": "أولًا.", "end_text": "ثم."}}),
+                encoding="utf-8",
+            )
+            (root / "derivative-status.json").write_text('{"status":"pass"}', encoding="utf-8")
+            (root / "long-short.mp4").write_bytes(b"invalid bytes not video")
+            with mock.patch("clean_v2.media.inspect_final", side_effect=RuntimeError("invalid codec")):
+                bad = audit_delivery(root, fmt="film", expected_sha256=expected)
+            self.assertEqual(bad["derivative"]["status"], "review")
+            self.assertEqual(bad["derivative"]["actual_video_qc"]["status"], "unreadable")
+            with mock.patch("clean_v2.media.inspect_final", return_value={
+                "width": 1080, "height": 1920, "duration_seconds": 25.0, "sha256": "a" * 64
+            }):
+                better = audit_delivery(root, fmt="film", expected_sha256=expected)
+            self.assertEqual(better["derivative"]["status"], "pass")
+            self.assertIn("derivative_cover_missing", better["review_reasons"])
 
     def test_invalid_or_tiny_cover_is_flagged_without_mutating_video(self):
         with tempfile.TemporaryDirectory() as t:
