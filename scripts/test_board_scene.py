@@ -391,11 +391,14 @@ class ScheduledRerenderTests(unittest.TestCase):
 class EditorialBoardV25Tests(unittest.TestCase):
     """Opt-in modern theme and two-column comparison; no legacy theme changes."""
 
-    def test_editorial_palette_is_restrained_without_coloured_blobs(self):
-        theme = board_scene._PALETTE["editorial"]
-        self.assertEqual(theme["blobs"], [])
-        self.assertEqual(len(theme["accents"]), 1)
-        self.assertEqual(theme["bg_top"], theme["bg_bot"])
+    def test_every_theme_uses_the_modern_depth_design(self):
+        for name in board_scene.THEMES:
+            theme = board_scene._PALETTE[name]
+            self.assertGreaterEqual(len(theme["blobs"]), 2, name)
+            self.assertGreaterEqual(len(theme["accents"]), 4, name)
+            for key in ("card_top", "card_bot", "card_border", "shadow", "dot_grid", "glow", "vignette"):
+                self.assertIn(key, theme, f"{name}:{key}")
+            self.assertNotIn("editorial", theme)
         self.assertIn("slate", board_scene.THEMES)
         self.assertIn("paper", board_scene.THEMES)
 

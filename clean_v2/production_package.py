@@ -22,7 +22,7 @@ MAX_ZIP_BYTES = 18 * 1024 * 1024  # below Telegram's standard getFile limit
 MAX_EXPANDED_BYTES = 96 * 1024 * 1024
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_JSON_BYTES = 300 * 1024
-MAX_FILES = 90
+MAX_FILES = 150  # up to 60 scenes + covers + production.json; the real ceiling is MAX_ZIP_BYTES
 MAX_PIXELS = 25_000_000
 _ASSET = re.compile(r"assets/[A-Za-z0-9_-]+\.(?:png|jpg|jpeg|webp)\Z", re.I)
 _ID = re.compile(r"[a-z][a-z0-9_]{0,30}\Z")
@@ -70,7 +70,9 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # never leave a gap and the archive never carries video. `url` (a Pexels/Pixabay page link the editor
 # verified) pins the exact clip or photo; it is only a string and the client still reviews the result.
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
-STOCK_MAX_SCENES = {"short": 7, "film": 30, "podcast": 8}  # any scene may ask for stock; the approved image stays its fallback
+# Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
+SCENE_MAX = {"short": 14, "film": 60, "podcast": 40}
+STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 8}  # any scene may ask for stock; the approved image stays its fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
@@ -204,8 +206,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if doc["captions"] != {"font": "Cairo Bold", "max_lines": 2, "enabled": True}:
         _error("الكابشن يجب أن يكون مفعّلًا بخط Cairo Bold وسطرين كحد أقصى.")
     scenes = doc["scenes"]
-    if not isinstance(scenes, list) or not 1 <= len(scenes) <= 30:
-        _error("الحزمة تحتاج 1–30 مشهدًا يغطي كل الأقسام.")
+    scene_cap = SCENE_MAX.get(fmt, 30)
+    if not isinstance(scenes, list) or not 1 <= len(scenes) <= scene_cap:
+        _error(f"الحزمة تحتاج 1–{scene_cap} مشهدًا يغطي كل الأقسام.")
     ala_mahl = doc["template"] == "ala_mahl"
     # V22 authors 2–4 pictures; keep existing 5–6-picture ZIPs readable.
     if ala_mahl and not 2 <= len(scenes) <= 6:

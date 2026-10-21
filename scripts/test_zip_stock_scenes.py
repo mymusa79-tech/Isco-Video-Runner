@@ -31,7 +31,7 @@ class ContractTests(unittest.TestCase):
         package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
     def test_stock_may_cover_every_scene(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30, "podcast": 8})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 8})
 
     def test_podcast_takes_at_most_eight_stock_scenes(self):
         package.validate_manifest(with_stock(manifest("podcast"), [0]))
