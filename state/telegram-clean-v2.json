@@ -19423,9 +19423,9 @@
           "assets/cover_alt_02.jpg": "35c5761731eace22dcaaf5bd924d25707ce09daf8720542893b2745f10ca4e62"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-21T15:02:17Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-21T15:02:23Z",
       "request_sha256": "9fedba8e8d1b223f966e6c7301998da2471857e5070407d225a8bf924493f6fb",
       "owner_art": {
         "zip": {
@@ -19905,6 +19905,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-21T15:02:19Z",
+  "updated_at": "2026-10-21T15:02:23Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
