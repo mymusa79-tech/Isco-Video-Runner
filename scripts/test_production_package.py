@@ -40,7 +40,6 @@ def manifest(fmt="short", template=None):
            "title": "خطوة واحدة تغيّر يومك", "approval": {"status": "approved", "reviewer": "Claude"},
            "script": {"sections": sections}, "performance": {"direction": "حديث طبيعي مع صديق، بوقفات قصيرة."},
            "scenes": [{"id": f"image_{i+1}", "section_id": s["id"], "asset": f"assets/scene_{1 if fmt == 'podcast' else i + 1:02d}.png",  # podcast: one picture for the whole episode
-                       
                        "start_text": package.spoken_text(package.section_text(s)).split(". ")[0],
                        "motion": "slow_pan" if i % 2 else "slow_zoom", "transition": "dissolve"}
                       for i, s in enumerate(sections)],
