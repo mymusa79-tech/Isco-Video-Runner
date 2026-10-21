@@ -153,16 +153,31 @@ def make_motion_clip(
     return destination
 
 
-# Film pace by chosen type: (shot-length factor, camera-move factor). Not an engine per type,
-# just how long a picture is held and how far it drifts. Every other type is 1.0 / 1.0.
+# The eight owner Film types have distinct, restrained pacing. This remains the
+# SAME image sequencer: the type changes rhythm, not media ownership or narration.
 PACE_BY_TYPE = {
-    "paradox": (1.25, 0.8),
+    "direct_cinematic": (1.0, 1.0),
+    "question_answer": (1.08, 0.82),
     "inner_dialogue": (1.25, 0.8),
+    "problem_reveal_solution": (0.94, 1.04),
     "story_analysis": (1.15, 0.9),
-    "connected_list": (0.8, 1.2),
+    "paradox": (1.25, 0.8),
     "hypothesis_test": (0.95, 1.0),
+    "connected_list": (0.8, 1.2),
 }
-_SHOT_PATTERN = (8.0, 6.0, 10.0, 7.0, 11.0, 9.0)  # a rhythm, not a rule: nothing is capped to it
+_SHOT_PATTERN = (8.0, 6.0, 10.0, 7.0, 11.0, 9.0)
+# Different sentence structures need different hold/reveal patterns. The values
+# are base seconds and never force a cut in an approved ZIP beat.
+SHOT_PATTERNS_BY_TYPE = {
+    "direct_cinematic": _SHOT_PATTERN,
+    "question_answer": (9.0, 5.0, 11.0, 7.0),
+    "inner_dialogue": (12.0, 10.0, 7.0, 11.0),
+    "problem_reveal_solution": (7.0, 10.0, 6.0, 12.0),
+    "story_analysis": (10.0, 8.0, 12.0, 6.0),
+    "paradox": (10.0, 6.0, 10.0, 7.0),
+    "hypothesis_test": (9.0, 9.0, 6.0, 10.0),
+    "connected_list": (6.0, 8.0, 5.0, 7.0),
+}
 DISSOLVE_SECONDS = 0.5
 
 
@@ -170,13 +185,17 @@ def film_pace(pack_type: str | None) -> tuple[float, float]:
     return PACE_BY_TYPE.get(str(pack_type or ""), (1.0, 1.0))
 
 
-def segment_plan(seconds: float, start_index: int, factor: float = 1.0) -> list[float]:
+def segment_plan(
+    seconds: float, start_index: int, factor: float = 1.0,
+    shot_pattern: tuple[float, ...] | None = None,
+) -> list[float]:
     """Varied shot lengths that sum to ``seconds``; a leftover tail is absorbed, never a flash."""
+    pattern = shot_pattern or _SHOT_PATTERN
     remaining = max(2.0, float(seconds))
     lengths: list[float] = []
     step = 0
     while remaining > 0.01:
-        target = _SHOT_PATTERN[(start_index + step) % len(_SHOT_PATTERN)] * factor
+        target = pattern[(start_index + step) % len(pattern)] * factor
         take = remaining if remaining - target < 0.6 * target else target
         lengths.append(take)
         remaining -= take
@@ -187,6 +206,7 @@ def segment_plan(seconds: float, start_index: int, factor: float = 1.0) -> list[
 def make_sequence_clip(
     images: list[Path], destination: Path, *, seconds: float, start_index: int,
     factor: float = 1.0, motion: float = 1.0,
+    shot_pattern: tuple[float, ...] | None = None,
 ) -> tuple[Path, int]:
     """Film beat: several pictures of varied length, each with its own move, joined by a short dissolve.
 
@@ -194,7 +214,7 @@ def make_sequence_clip(
     """
     from .media import _run
 
-    lengths = segment_plan(seconds, start_index, factor)
+    lengths = segment_plan(seconds, start_index, factor, shot_pattern)
     parts: list[Path] = []
     for offset, length in enumerate(lengths):
         index = start_index + offset
@@ -286,7 +306,8 @@ class OwnerArtVisualSource:
             if fmt == "film":
                 factor, motion = film_pace(self._pack_type())
                 clip, used = make_sequence_clip(
-                    images, clip_path, seconds=seconds, start_index=cursor, factor=factor, motion=motion
+                    images, clip_path, seconds=seconds, start_index=cursor, factor=factor,
+                    motion=motion, shot_pattern=SHOT_PATTERNS_BY_TYPE.get(self._pack_type()),
                 )
                 cursor += used
             else:
@@ -517,8 +538,9 @@ class OwnerArtVisualSource:
 
 
 def grade_profile(template: str, fmt: str) -> str:
-    return "ala_mahl" if template == "ala_mahl" else ("podcast" if template == "dialogue_qa" else
-                                                       ("short" if fmt == "short" else "film"))
+    return "ala_mahl" if template == "ala_mahl" else (
+        "podcast" if fmt == "podcast" else ("short" if fmt == "short" else "film")
+    )
 
 
 def grade_clip(clip: Path, profile: str) -> str:
