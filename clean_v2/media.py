@@ -4011,8 +4011,14 @@ def _editorial_boundary_decisions(
     paths: list[Path],
     section_ids: list[str] | None,
     signals: Mapping[str, Mapping[str, str]],
+    *,
+    short_template: str = "",
 ) -> list[dict[str, Any]]:
-    """Choose CUT/DISSOLVE from the authored semantic continuity evidence only."""
+    """Choose CUT/DISSOLVE from semantic evidence and an optional Short visual grammar.
+
+    The visual grammar never changes shot duration, source or owner-written CUT/DISSOLVE.
+    It is intentionally subordinate to concrete beat-level evidence.
+    """
     if len(paths) < 2:
         return []
     decisions: list[dict[str, Any]] = []
@@ -4074,6 +4080,19 @@ def _editorial_boundary_decisions(
             reason = "payoff_landing_same_environment"
         elif right_hold == "payoff_landing":
             reason = "payoff_landing_cut"
+        # Four Short types carry distinct, meaning-led edit grammars. They never
+        # override the editor's explicit package transition or identity boundary.
+        template = str(short_template or "").removeprefix("nidaa_short_")
+        semantic_change = right_hold in {"idea_changes", "hook_progression"}
+        if left_section and left_section == right_section and not semantic_change:
+            if template == "micro_story" and same_environment:
+                decision, reason = "DISSOLVE", "micro_story_continuous_scene"
+            elif template == "inner_dialogue" and same_environment:
+                decision, reason = "DISSOLVE", "inner_dialogue_tension_hold"
+            elif template == "why_reframe" and str(right_signal.get("shot_role") or "") in {"consequence", "payoff"}:
+                decision, reason = "CUT", "why_reframe_visible_contrast"
+            elif template == "quote_reflection" and right_hold == "idea_continues":
+                decision, reason = "DISSOLVE", "quote_reflection_held_meaning"
         if right_signal.get("owner_transition") in {"cut", "dissolve"}:
             decision = str(right_signal["owner_transition"]).upper()
             reason = "approved_package_transition"
@@ -5254,6 +5273,7 @@ def render_video(
             body_paths_for_render,
             body_section_ids,
             editorial_signals,
+            short_template=str(timeline.get("template") or "") if fmt == "short" else "",
         )
         if visual_schedule:
             # Identity owns the gaps. Never play a stock scene invisibly through
@@ -5301,7 +5321,10 @@ def render_video(
                 timed_paths.append(tail_path)
                 timed_durations.append(terminal - cursor)
                 timed_ids.append("__identity__")
-            timed_decisions = _editorial_boundary_decisions(timed_paths, timed_ids, editorial_signals)
+            timed_decisions = _editorial_boundary_decisions(
+                timed_paths, timed_ids, editorial_signals,
+                short_template=str(timeline.get("template") or "") if fmt == "short" else "",
+            )
             for index, decision in enumerate(timed_decisions):
                 if "__identity__" in {timed_ids[index], timed_ids[index + 1]}:
                     decision.update(decision="CUT", reason="measured_identity_boundary")
