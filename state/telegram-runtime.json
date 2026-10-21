@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "متى يصبح تطوير الذات عبئًا عليك؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39622160759",
-  "result": "success",
-  "updated_at": 1792597558
+  "topic": "فاتك يوم واحد… فألغيت الأسبوع كله",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39656575820",
+  "result": "",
+  "updated_at": 1792608750
 }
