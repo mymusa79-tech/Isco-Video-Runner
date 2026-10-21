@@ -42,14 +42,14 @@ _PALETTE = {
     # Every theme shares one modern look: depth (glow, dot grid, vignette), gradient glass cards with a
     # luminous edge, big numerals and an accent bar. Only the palette differs.
     "editorial": {  # ink and gold: the channel's default look
-        "bg_top": (16, 22, 36), "bg_bot": (8, 11, 20), "grain": 1.4, "vignette": 0.40,
-        "dot_grid": (255, 255, 255, 15), "glow": 0.40,
-        "blobs": [((1560, 130), 560, (214, 178, 112), 0.22), ((240, 980), 640, (38, 128, 140), 0.22),
-                  ((980, 1120), 520, (118, 96, 204), 0.12)],
+        "bg_top": (18, 24, 35), "bg_bot": (12, 18, 28), "grain": 1.0, "vignette": 0.22,
+        "dot_grid": (255, 255, 255, 7), "glow": 0.16,
+        "blobs": [((1560, 130), 560, (201, 162, 75), 0.08), ((240, 980), 640, (67, 112, 119), 0.05),
+                  ((980, 1120), 520, (103, 113, 134), 0.035)],
         "ink": (248, 245, 237),
         "card_top": (46, 59, 76, 242), "card_bot": (25, 33, 47, 242), "card_border": (255, 255, 255, 58),
         "shadow": (0, 0, 0, 135), "plate_alpha": 46, "dot_off": (150, 165, 176, 72),
-        "accents": [(222, 186, 118), (98, 204, 196), (240, 152, 116), (172, 164, 244)],
+        "accents": [(201, 162, 75), (124, 159, 152), (178, 153, 125), (137, 157, 180)],
     },
     "slate": {  # midnight violet
         "bg_top": (10, 14, 30), "bg_bot": (22, 26, 60), "grain": 2.0, "vignette": 0.34,
@@ -77,7 +77,7 @@ REVEAL_SPACING = 0.7      # never two items closer than this unless the clip is 
 REVEAL_TAIL = 2.0         # the last item is complete this long before the clip ends
 LEAD_SECONDS = 0.18       # an item starts appearing a hair before its word is said
 POP_SECONDS = 0.55
-SETTLE_SECONDS = 1.7      # glow on the newest item fades out, then it joins the base
+SETTLE_SECONDS = 1.25     # one quiet highlight, then the item joins the settled base
 
 
 class BoardError(RuntimeError):
@@ -632,8 +632,8 @@ def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: boo
         end_r = min(cell["w"] / (2 * max(0.2, abs(math.cos(ang)))), cell["h"] / (2 * max(0.2, abs(math.sin(ang))))) * 0.98
         _line(canvas, (a[0] + reach * math.cos(ang), a[1] + reach * math.sin(ang)),
               (ox - end_r * math.cos(ang), oy - end_r * math.sin(ang)), item.accent, 1.0 if final else _out_cubic((u + 0.1) / 0.5))
-    slide = (1 - card_p) * 40
-    _paste(canvas, item.card, (ox, oy), scale=0.965 + 0.035 * card_p, alpha=min(1.0, card_p * 1.6), offset=(0, slide))
+    slide = (1 - card_p) * 14
+    _paste(canvas, item.card, (ox, oy), scale=0.99 + 0.01 * card_p, alpha=min(1.0, card_p * 1.6), offset=(0, slide))
     if item.plate is not None:
         px, py = item.plate_at
         left, top = ox - cell["w"] / 2 - item.card_pad, oy - cell["h"] / 2 - item.card_pad
@@ -647,7 +647,12 @@ def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: boo
 
 
 # --------------------------------------------------------------------------- timing
-def reveal_times(scene_text: str, items: Sequence[Mapping[str, Any]], seconds: float, *, compress: float = 1.0) -> list[float]:
+def reveal_times(
+    scene_text: str, items: Sequence[Mapping[str, Any]], seconds: float, *,
+    compress: float = 1.0,
+    speech_events: Sequence[Mapping[str, Any]] = (),
+    absolute_scene_start: float = 0.0,
+) -> list[float]:
     """Seconds (from clip start) at which each item appears, in item order.
 
     The fraction is the item's sentence position inside the scene's own words, the same estimate
@@ -661,7 +666,28 @@ def reveal_times(scene_text: str, items: Sequence[Mapping[str, Any]], seconds: f
         needle = " ".join(str(item.get("at_text") or "").split())
         index = text.find(needle) if needle else -1
         fraction = (len(text[:index].split()) / total_words) if index >= 0 else (len(raw) / max(1, len(items)))
-        raw.append(fraction * seconds * compress - LEAD_SECONDS)
+        estimated = fraction * seconds * compress - LEAD_SECONDS
+        # Optional measured phrase windows improve timing when a board anchor
+        # falls VERBATIM within a spoken caption phrase. This is still a
+        # phrase-level estimate, never advertised as word-level forced alignment.
+        # On ambiguity or absence, keep the existing section-relative estimate.
+        candidate = None
+        if needle and speech_events:
+            for event in speech_events:
+                spoken = " ".join(str(event.get("text") or "").split())
+                if not spoken or spoken.count(needle) != 1:
+                    continue
+                left = float(event.get("start") or 0.0)
+                right = float(event.get("end") or 0.0)
+                relative = left + (right - left) * spoken.index(needle) / max(1, len(spoken))
+                relative -= absolute_scene_start
+                if -0.05 <= relative <= seconds + 0.05:
+                    if candidate is None:
+                        candidate = relative - LEAD_SECONDS
+                    else:
+                        candidate = None  # multiple identical phrases: not a safe anchor
+                        break
+        raw.append(candidate if candidate is not None else estimated)
     n = len(raw)
     last_allowed = max(REVEAL_FIRST, seconds - REVEAL_TAIL)
     spacing = REVEAL_SPACING
@@ -687,7 +713,7 @@ def reveal_times(scene_text: str, items: Sequence[Mapping[str, Any]], seconds: f
 def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *, seconds: float,
                       times: Sequence[float], fmt: str = "film") -> Path:
     """Render the board to destination (1920x1080, or 1080x1920 for a Short; 30 fps, h264). Raises BoardError on any problem."""
-    layout, theme_name = str(board["layout"]), str(board.get("theme") or "slate")
+    layout, theme_name = str(board["layout"]), str(board.get("theme") or "editorial")
     specs = list(board["items"])
     allowed = PODCAST_LAYOUTS if fmt == "podcast" else SHORT_LAYOUTS if fmt == "short" else LAYOUTS
     profile = PROFILES[fmt if fmt in {"podcast", "short"} else "film"]
@@ -775,6 +801,38 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
 REPORT_NAME = "board-report.json"
 
 
+def mobile_readability_report(board: Mapping[str, Any], fmt: str, width: int = 360) -> dict[str, Any]:
+    """Advisory only: measure labels as they appear on a 360px-wide phone.
+
+    Film boards with too many columns can technically render but be unreadable.
+    Never silently enlarge/rewrap the editor's content or fail a published scene.
+    """
+    profile = PROFILES[fmt if fmt in PROFILES else "film"]
+    layout = str(board["layout"])
+    items = list(board["items"])
+    cells = _geometry(layout, len(items), bool(board.get("title")) or layout == "hub", profile)
+    result: list[dict[str, Any]] = []
+    for item, cell in zip(items, cells):
+        label = str(item.get("label") or "")
+        w, plate = cell["w"], cell["plate"]
+        if layout == "steps":
+            label_w = int(min(1050, w - (64 + 88 + 34) - (64 + plate + 30 if item.get("asset") else 60)))
+            size, lines = _fit_label(label, label_w, 84, 46)
+        else:
+            max_size = 46 if layout == "hub" else 76 if w >= 560 else 62 if w >= 400 else 52
+            size, lines = _fit_label(label, w - 56, max_size, 32)
+        mobile_px = round(size * width / profile["width"], 1)
+        result.append({
+            "label": label, "font_size_1080p": size, "approx_phone_font_px": mobile_px,
+            "line_count": len(lines), "review_small_type": mobile_px < 12.0,
+        })
+    return {
+        "screen_width_px": width,
+        "status": "review" if any(x["review_small_type"] for x in result) else "pass",
+        "items": result,
+    }
+
+
 def rerender_scheduled(output_dir: Path, schedule: Sequence[Mapping[str, Any]], rows: Sequence[Mapping[str, Any]],
                        fmt: str) -> list[dict[str, Any]]:
     """Re-render every board clip to its exact measured slot, in place. Never raises.
@@ -787,6 +845,15 @@ def rerender_scheduled(output_dir: Path, schedule: Sequence[Mapping[str, Any]], 
 
     by_file = {str(r.get("local_file")): r for r in rows if isinstance(r, Mapping)}
     report: list[dict[str, Any]] = []
+    speech_events: list[dict[str, Any]] = []
+    if fmt in {"film", "short"}:
+        try:
+            from .podcast_captions import build_events
+            speech_events, _mode = build_events(
+                Path(output_dir), fmt=fmt, caption_roles=frozenset({"hook", "topic"})
+            )
+        except (OSError, ValueError, RuntimeError):
+            speech_events = []  # no additional provider calls; same weighted fallback
     for slot in schedule:
         path = Path(slot["path"])
         row = by_file.get(path.name)
@@ -798,11 +865,19 @@ def rerender_scheduled(output_dir: Path, schedule: Sequence[Mapping[str, Any]], 
                                  "end": round(float(slot["end"]), 3)}
         try:
             spec = info["spec"]
-            times = reveal_times(str(info["text"]), spec["items"], seconds)
+            times = reveal_times(
+                str(info["text"]), spec["items"], seconds,
+                speech_events=speech_events,
+                absolute_scene_start=float(slot["start"]),
+            )
             exact = path.with_name(path.stem + ".exact.mp4")
             render_board_clip(spec, Path(str(row["owner_board_root"])), exact, seconds=seconds + 0.2, times=times, fmt=fmt)
             exact.replace(path)
             entry.update(status="exact", reveal_seconds=times)
+            try:
+                entry["phone_readability"] = mobile_readability_report(spec, fmt)
+            except (OSError, ValueError, TypeError, BoardError):
+                entry["phone_readability"] = {"status": "unavailable"}
         except Exception as exc:  # the estimate clip stays: a complete board, never a gap
             entry.update(status="kept_estimate", reason=f"{type(exc).__name__}:{str(exc)[:160]}")
         report.append(entry)

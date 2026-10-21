@@ -198,12 +198,13 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         raise FilmCaptionError(f"film_caption_alignment_failed:{type(exc).__name__}") from exc
     if not events:
         raise FilmCaptionError("film_caption_voice_events_missing")
-    # Board text has its own reading order; keep its visual window free
-    # of film captions so neither layer obscures the other.
+    # Never remove spoken subtitles from the downloadable SRT: viewers relying
+    # on captions need the full narration even while a board occupies the frame.
+    all_spoken_events = list(events)
+    # The burned-in ASS alone avoids overprinting the explanatory board.
     from .board_scene import blocked_windows, drop_events_over_boards
-    events = drop_events_over_boards(events, blocked_windows(root))
-    if not events:
-        raise FilmCaptionError("film_caption_all_events_on_boards")
+    board_windows = blocked_windows(root)
+    events = drop_events_over_boards(all_spoken_events, board_windows)
     voice_seconds = None
     try:
         import json
@@ -211,12 +212,16 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         voice_seconds = float(json.loads((root / "timeline-first.json").read_text(encoding="utf-8")).get("voice_seconds_measured") or 0) or None
     except (OSError, ValueError, TypeError):
         voice_seconds = None
-    quality = validate_caption_events(events, voice_seconds=voice_seconds)
+    quality = validate_caption_events(all_spoken_events, voice_seconds=voice_seconds)
+    visual_quality = (
+        validate_caption_events(events, voice_seconds=voice_seconds)
+        if events else {"cue_count": 0, "all_cues_suppressed_by_board": True}
+    )
     ass_path = root / "film-captions.ass"
     srt_path = root / "film-captions.srt"
-    ass_text, srt_text = build_ass(events), build_srt(events)
+    ass_text, srt_text = build_ass(events), build_srt(all_spoken_events)
     validate_ass_text(ass_text, len(events))
-    validate_srt_text(srt_text, len(events))
+    validate_srt_text(srt_text, len(all_spoken_events))
     ass_path.write_text(ass_text, encoding="utf-8")
     srt_path.write_text(srt_text, encoding="utf-8")
     rendered = root / ".final-film-captions.mp4"
@@ -248,12 +253,16 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "pass", "format": "film",
-        "burned_into_final_video": True, "event_count": len(events),
+        "burned_into_final_video": bool(events), "event_count": len(events),
+        "srt_event_count": len(all_spoken_events),
+        "board_suppressed_visual_cues": len(all_spoken_events) - len(events),
+        "subtitles_keep_spoken_board_windows": True,
         "font": BODY_FONT, "font_actually_used": font,
         "max_rows": MAX_ROWS, "position": "cinematic_bottom_safe_area",
         "style": "navy_card_gold_hairline_single_narrator",
         "timing": mode,
         "quality": quality,
+        "visual_caption_quality": visual_quality,
         "timing_note": "voice chunk windows measured, phrase boundaries pause-snapped or character-weighted; not word-level alignment",
         "clean_windows": "prayer, channel identity, structural silences and outro",
         "sidecars": [srt_path.name, ass_path.name],

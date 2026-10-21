@@ -4011,8 +4011,14 @@ def _editorial_boundary_decisions(
     paths: list[Path],
     section_ids: list[str] | None,
     signals: Mapping[str, Mapping[str, str]],
+    *,
+    short_template: str = "",
 ) -> list[dict[str, Any]]:
-    """Choose CUT/DISSOLVE from the authored semantic continuity evidence only."""
+    """Choose CUT/DISSOLVE from semantic evidence and an optional Short visual grammar.
+
+    The visual grammar never changes shot duration, source or owner-written CUT/DISSOLVE.
+    It is intentionally subordinate to concrete beat-level evidence.
+    """
     if len(paths) < 2:
         return []
     decisions: list[dict[str, Any]] = []
@@ -4074,6 +4080,25 @@ def _editorial_boundary_decisions(
             reason = "payoff_landing_same_environment"
         elif right_hold == "payoff_landing":
             reason = "payoff_landing_cut"
+        # Four Short types carry distinct, meaning-led edit grammars. They never
+        # override the editor's explicit package transition or identity boundary.
+        template = str(short_template or "").removeprefix("nidaa_short_")
+        semantic_change = right_hold in {"idea_changes", "hook_progression"}
+        if left_section and left_section == right_section and not semantic_change:
+            if template == "micro_story":
+                if str(right_signal.get("shot_role") or "") in {"action", "consequence"}:
+                    decision, reason = "CUT", "micro_story_visible_event"
+                elif same_environment and right_hold == "idea_continues":
+                    decision, reason = "DISSOLVE", "micro_story_continuous_scene"
+            elif template == "inner_dialogue" and same_environment:
+                decision, reason = "DISSOLVE", "inner_dialogue_tension_hold"
+            elif template == "why_reframe" and str(right_signal.get("shot_role") or "") in {"consequence", "payoff"}:
+                decision, reason = "CUT", "why_reframe_visible_contrast"
+            elif template == "quote_reflection":
+                if right_hold == "idea_continues":
+                    decision, reason = "DISSOLVE", "quote_reflection_held_meaning"
+                elif right_hold == "payoff_landing":
+                    decision, reason = "CUT", "quote_reflection_release"
         if right_signal.get("owner_transition") in {"cut", "dissolve"}:
             decision = str(right_signal["owner_transition"]).upper()
             reason = "approved_package_transition"
@@ -4546,6 +4571,7 @@ def _reference_match_filter(
     fmt: str = "film",
     strength_override: float | None = None,
     scale_limits: tuple[float, float] | None = None,
+    offset_limit: float | None = None,
 ) -> str:
     """Build one bounded, gently format-scaled RGB transfer per source clip."""
     from .simple_mode import is_simple_mode
@@ -4567,8 +4593,8 @@ def _reference_match_filter(
         target_mean = source_mean + ((ref_mean - source_mean) * strength)
         offset = _clamp_color(
             target_mean - (source_mean * scale),
-            -(COLOR_MATCH_OFFSET_MAX * factor),
-            COLOR_MATCH_OFFSET_MAX * factor,
+            -(COLOR_MATCH_OFFSET_MAX * factor if offset_limit is None else offset_limit),
+            COLOR_MATCH_OFFSET_MAX * factor if offset_limit is None else offset_limit,
         )
         expressions.append(
             f"{channel}='clip(val*{scale:.6f}{offset:+.6f},0,255)'"
@@ -4576,8 +4602,9 @@ def _reference_match_filter(
     return "lutrgb=" + ":".join(expressions)
 
 
-PACKAGE_PALETTE_STRENGTH = 0.92
-PACKAGE_PALETTE_SCALE_LIMITS = (0.88, 1.12)
+PACKAGE_PALETTE_STRENGTH = 0.70
+PACKAGE_PALETTE_SCALE_LIMITS = (0.94, 1.06)
+PACKAGE_PALETTE_OFFSET_LIMIT = 24.0
 
 
 def _package_palette_match_filters(
@@ -4613,14 +4640,15 @@ def _package_palette_match_filters(
     stock_paths = [p for p in unique.values() if p.name in stock_files]
     if not owner_paths or not stock_paths:
         return {}
-    measured: list[_RgbStats] = []
+    measured_by_path: dict[str, _RgbStats] = {}
     for path in owner_paths:
         try:
-            measured.append(_sample_rgb_stats(path))
+            measured_by_path[str(path)] = _sample_rgb_stats(path)
         except Exception:
             continue
-    if not measured:
+    if not measured_by_path:
         return {}
+    measured = list(measured_by_path.values())
     count = float(len(measured))
     reference = _RgbStats(
         mean_r=sum(m.mean_r for m in measured) / count,
@@ -4631,14 +4659,29 @@ def _package_palette_match_filters(
         std_b=sum(m.std_b for m in measured) / count,
     )
     filters: dict[str, str] = {}
+    # Match the stock shot primarily to the closest approved story picture(s).
+    # A single global average may be much brighter/darker than its actual neighbours.
+    ordered = list(unique.values())
+    anchors = [(i, measured_by_path[str(path)]) for i, path in enumerate(ordered)
+               if str(path) in measured_by_path]
     for path in stock_paths:
         try:
             stats = _sample_rgb_stats(path)
         except Exception:
             continue
+        index = next(i for i, item in enumerate(ordered) if str(item) == str(path))
+        nearest = sorted(anchors, key=lambda item: abs(item[0] - index))[:2]
+        local = reference
+        if nearest:
+            weights = [1.0 / (1.0 + abs(pos - index)) for pos, _ in nearest]
+            total = sum(weights)
+            def weighted(field: str) -> float:
+                return sum(w * getattr(values, field) for w, (_, values) in zip(weights, nearest)) / total
+            local = _RgbStats(**{name: 0.75 * weighted(name) + 0.25 * getattr(reference, name)
+                                 for name in ("mean_r", "mean_g", "mean_b", "std_r", "std_g", "std_b")})
         filters[str(path)] = _reference_match_filter(
-            stats, reference, fmt=fmt,
-            strength_override=PACKAGE_PALETTE_STRENGTH, scale_limits=PACKAGE_PALETTE_SCALE_LIMITS,
+            stats, local, fmt=fmt, strength_override=PACKAGE_PALETTE_STRENGTH,
+            scale_limits=PACKAGE_PALETTE_SCALE_LIMITS, offset_limit=PACKAGE_PALETTE_OFFSET_LIMIT,
         )
     return filters
 
@@ -4871,6 +4914,40 @@ def _source_has_natural_motion(source: Path, seconds: float) -> bool:
                    for left, right in zip(frames, frames[1:])) > 1.5
     except (OSError, subprocess.SubprocessError):
         return True
+
+
+def _render_terminal_story_hold(
+    source: Path, destination: Path, *, displayed_seconds: float, seconds: float,
+) -> Path:
+    """Freeze the ACTUAL ending of the last story shot through the pre-outro breath.
+
+    A generic channel slate here creates a visible blue flash just before the outro.
+    Use the last displayed frame, not the first frame of a restarted/looped clip.
+    """
+    source_length = probe_duration(source)
+    position = max(0.0, min(float(displayed_seconds), source_length) - 0.06)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    still = destination.with_suffix(".png")
+    try:
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", f"{position:.3f}", "-i", str(source),
+            "-frames:v", "1", str(still),
+        ], timeout=60)
+        if not still.is_file() or still.stat().st_size <= 0:
+            raise RuntimeError("terminal_story_frame_missing")
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-loop", "1", "-framerate", "30", "-i", str(still),
+            "-t", f"{float(seconds) + 0.12:.3f}", "-an",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+            "-pix_fmt", "yuv420p", str(destination),
+        ], timeout=120)
+        if not destination.is_file() or destination.stat().st_size <= 0:
+            raise RuntimeError("terminal_story_hold_missing")
+        return destination
+    finally:
+        still.unlink(missing_ok=True)
 
 
 def _trim_and_grade_clip(
@@ -5202,6 +5279,7 @@ def render_video(
             body_paths_for_render,
             body_section_ids,
             editorial_signals,
+            short_template=str(timeline.get("template") or "") if fmt == "short" else "",
         )
         if visual_schedule:
             # Identity owns the gaps. Never play a stock scene invisibly through
@@ -5234,10 +5312,25 @@ def render_video(
                 cursor = slot["end"]
             terminal = round(duration * 30) / 30
             if terminal > cursor + 0.001:
-                timed_paths.append(gap_source)
+                # The outro overlays this interval only after its measured start.
+                # Before that moment the last actual story frame must remain visible.
+                tail_path = gap_source
+                if fmt in {"short", "film"} and visual_schedule:
+                    last_story = visual_schedule[-1]
+                    tail_path = _render_terminal_story_hold(
+                        Path(last_story["path"]),
+                        work_dir / "terminal-story-hold.mp4",
+                        displayed_seconds=float(last_story["duration_seconds"]),
+                        seconds=terminal - cursor,
+                    )
+                    grade_filters[str(tail_path)] = grade_filters.get(str(last_story["path"]), "")
+                timed_paths.append(tail_path)
                 timed_durations.append(terminal - cursor)
                 timed_ids.append("__identity__")
-            timed_decisions = _editorial_boundary_decisions(timed_paths, timed_ids, editorial_signals)
+            timed_decisions = _editorial_boundary_decisions(
+                timed_paths, timed_ids, editorial_signals,
+                short_template=str(timeline.get("template") or "") if fmt == "short" else "",
+            )
             for index, decision in enumerate(timed_decisions):
                 if "__identity__" in {timed_ids[index], timed_ids[index + 1]}:
                     decision.update(decision="CUT", reason="measured_identity_boundary")
