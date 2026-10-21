@@ -31,11 +31,24 @@ class ContractTests(unittest.TestCase):
         package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
     def test_stock_may_cover_every_scene(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 7, "film": 30, "podcast": 8})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 0})
 
-    def test_podcast_takes_at_most_eight_stock_scenes(self):
-        package.validate_manifest(with_stock(manifest("podcast"), [0]))
-        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 8)
+    def test_podcast_takes_no_stock_at_all(self):
+        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 0)
+        with self.assertRaises(Exception):
+            package.validate_manifest(with_stock(manifest("podcast"), [0]))
+
+    def test_podcast_with_two_different_pictures_is_rejected(self):
+        doc = manifest("podcast")
+        doc["scenes"][1]["asset"] = "assets/scene_02.png"
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc, {"assets/scene_01.png", "assets/scene_02.png"})
+
+    def test_podcast_may_reuse_one_picture_for_every_section(self):
+        doc = manifest("podcast")
+        for scene in doc["scenes"]:
+            scene["asset"], scene["motion"], scene["transition"] = "assets/scene_01.png", "hold", "cut"
+        package.validate_manifest(doc, {"assets/scene_01.png"})
 
     def test_ala_mahl_takes_at_most_two_ambient_stock_scenes(self):
         base = manifest(template="ala_mahl")

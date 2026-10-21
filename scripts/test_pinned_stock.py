@@ -80,8 +80,9 @@ class ContractTests(unittest.TestCase):
 
     def test_pinned_scenes_count_toward_the_stock_cap(self):
         doc = pinned(manifest("podcast"), [0], [PEXELS_VIDEO])
-        package.validate_manifest(doc)
-        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 8)
+        with self.assertRaises(Exception):  # podcast takes no stock at all
+            package.validate_manifest(doc)
+        package.validate_manifest(pinned(manifest("short"), [0], [PEXELS_VIDEO]))
 
     def test_scene_still_needs_its_approved_image(self):
         doc = pinned(manifest("film"), [0], [PEXELS_VIDEO])

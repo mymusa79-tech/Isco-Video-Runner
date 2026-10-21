@@ -3878,63 +3878,67 @@ def render_derived_short(
         raise RuntimeError("derived short source is missing")
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    vf = (
-        "[0:v]split=2[bg0][fg0];"
-        "[bg0]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,boxblur=26:3,eq=brightness=-0.22:saturation=0.9[bg];"
-        "[fg0]scale=1080:-2[fg];"
-        # Full-width picture high in the frame; the Short caption (y~1260) sits on the dark
-        # blurred area below it, clear of the YouTube UI zone, and the CTA card (y 250-400) above.
-        "[bg][fg]overlay=0:430:format=auto,format=yuv420p[v]"
-    )
-    _run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-ss",
-            f"{start:.3f}",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            str(source),
-            "-filter_complex",
-            vf,
-            "-map",
-            "[v]",
-            "-map",
-            "0:a:0?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "20",
-            "-r",
-            "30",
-            "-pix_fmt",
-            "yuv420p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-c:a",
-            "aac",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-movflags",
-            "+faststart",
-            "-shortest",
-            str(output),
-        ],
-        timeout=600,
-    )
+    from .portrait_reframe import fade_mask, filter_graph, focus_fraction
+
+    vf = filter_graph(focus_fraction(source, start, duration))
+    with tempfile.TemporaryDirectory(prefix="derived-reframe-") as scratch:
+        mask = fade_mask(Path(scratch) / "window-fade.png")
+        _run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{start:.3f}",
+                "-t",
+                f"{duration:.3f}",
+                "-i",
+                str(source),
+                "-loop",
+                "1",
+                "-framerate",
+                "30",
+                "-i",
+                str(mask),
+                "-filter_complex",
+                vf,
+                "-map",
+                "[v]",
+                "-map",
+                "0:a:0?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-r",
+                "30",
+                "-pix_fmt",
+                "yuv420p",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-c:a",
+                "aac",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-t",
+                f"{duration:.3f}",
+                "-movflags",
+                "+faststart",
+                "-shortest",
+                str(output),
+            ],
+            timeout=600,
+        )
     if not output.is_file() or output.stat().st_size <= 0:
         raise RuntimeError("derived short render is missing or empty")
     return output

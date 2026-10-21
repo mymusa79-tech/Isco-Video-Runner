@@ -39,27 +39,34 @@ MAX_LABEL_CHARS = 30
 BOARD_MAX_SCENES = {"film": 14, "podcast": 8, "short": 2}
 
 _PALETTE = {
-    # Optional restrained editorial direction. Legacy slate/paper pixels are untouched.
-    "editorial": {
-        "bg_top": (17, 24, 32), "bg_bot": (17, 24, 32), "grain": 1.0,
-        "blobs": [], "ink": (244, 241, 233),
-        "card_fill": (38, 49, 55, 248), "card_light": 0.0,
-        "card_border": (145, 160, 156, 135), "shadow": (0, 0, 0, 52),
-        "plate_alpha": 34, "dot_off": (135, 152, 151, 65),
-        "accents": [(197, 163, 106)], "editorial": True,
+    # Every theme shares one modern look: depth (glow, dot grid, vignette), gradient glass cards with a
+    # luminous edge, big numerals and an accent bar. Only the palette differs.
+    "editorial": {  # ink and gold: the channel's default look
+        "bg_top": (16, 22, 36), "bg_bot": (8, 11, 20), "grain": 1.4, "vignette": 0.40,
+        "dot_grid": (255, 255, 255, 15), "glow": 0.40,
+        "blobs": [((1560, 130), 560, (214, 178, 112), 0.22), ((240, 980), 640, (38, 128, 140), 0.22),
+                  ((980, 1120), 520, (118, 96, 204), 0.12)],
+        "ink": (248, 245, 237),
+        "card_top": (46, 59, 76, 242), "card_bot": (25, 33, 47, 242), "card_border": (255, 255, 255, 58),
+        "shadow": (0, 0, 0, 135), "plate_alpha": 46, "dot_off": (150, 165, 176, 72),
+        "accents": [(222, 186, 118), (98, 204, 196), (240, 152, 116), (172, 164, 244)],
     },
-    "slate": {
-        "bg_top": (10, 14, 30), "bg_bot": (22, 26, 60), "grain": 2.6,
+    "slate": {  # midnight violet
+        "bg_top": (10, 14, 30), "bg_bot": (22, 26, 60), "grain": 2.0, "vignette": 0.34,
+        "dot_grid": (255, 255, 255, 14), "glow": 0.55,
         "blobs": [((1560, 170), 540, (96, 80, 255), 0.42), ((260, 930), 580, (0, 194, 168), 0.25), ((1120, 1010), 500, (255, 77, 141), 0.18)],
-        "ink": (247, 248, 253), "card_fill": (255, 255, 255, 22), "card_light": 0.10, "card_border": (255, 255, 255, 62),
+        "ink": (247, 248, 253),
+        "card_top": (255, 255, 255, 40), "card_bot": (255, 255, 255, 14), "card_border": (255, 255, 255, 78),
         "shadow": (0, 0, 0, 150), "plate_alpha": 54, "dot_off": (255, 255, 255, 56),
         "accents": [(132, 116, 255), (0, 214, 182), (255, 128, 96), (255, 204, 92)],
     },
-    "paper": {
-        "bg_top": (247, 248, 252), "bg_bot": (230, 234, 247), "grain": 2.0,
+    "paper": {  # soft light
+        "bg_top": (247, 248, 252), "bg_bot": (230, 234, 247), "grain": 1.6, "vignette": 0.07,
+        "dot_grid": (40, 50, 110, 20), "glow": 0.50,
         "blobs": [((1560, 150), 540, (186, 168, 255), 0.60), ((250, 950), 580, (150, 240, 218), 0.55), ((1150, 1050), 520, (255, 198, 176), 0.50)],
-        "ink": (18, 24, 50), "card_fill": (255, 255, 255, 178), "card_light": 0.35, "card_border": (255, 255, 255, 240),
-        "shadow": (44, 54, 120, 74), "plate_alpha": 46, "dot_off": (18, 24, 50, 40),
+        "ink": (18, 24, 50),
+        "card_top": (255, 255, 255, 236), "card_bot": (255, 255, 255, 190), "card_border": (255, 255, 255, 255),
+        "shadow": (44, 54, 120, 80), "plate_alpha": 46, "dot_off": (18, 24, 50, 40),
         "accents": [(88, 72, 244), (0, 160, 136), (244, 98, 54), (214, 146, 0)],
     },
 }
@@ -212,7 +219,7 @@ def _lerp(a, b, p: float):
 
 
 def _background(theme_name: str, width: int = WIDTH, height: int = HEIGHT):
-    """Soft gradient with blurred colour light and a whisper of film grain (deterministic)."""
+    """Gradient with blurred colour light, a faint dot grid, a vignette and film grain (deterministic)."""
     import numpy as np
     from PIL import Image, ImageDraw, ImageFilter
 
@@ -228,10 +235,17 @@ def _background(theme_name: str, width: int = WIDTH, height: int = HEIGHT):
         layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         ImageDraw.Draw(layer).ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=colour + (int(255 * strength),))
         img = Image.alpha_composite(img, layer.filter(ImageFilter.GaussianBlur(radius * 0.55)))
+    arr = np.asarray(img.convert("RGB"), dtype=np.float32)
+    ys, xs = np.mgrid[0:height, 0:width]
+    step = max(36, round(54 * min(sx, sy) * (1.0 if width >= height else 1.2)))
+    dots = ((xs % step) < 3) & ((ys % step) < 3)
+    r, g, b, a = theme["dot_grid"]
+    arr[dots] = arr[dots] * (1 - a / 255) + np.array((r, g, b), dtype=np.float32) * (a / 255)
+    radial = (((xs - width / 2) / (width / 2)) ** 2 + ((ys - height / 2) / (height / 2)) ** 2) / 2
+    arr *= (1 - theme["vignette"] * np.clip(radial, 0, 1))[:, :, None]
     rng = np.random.default_rng(7)
-    grain = rng.normal(0, theme["grain"], (height, width, 1)).astype(np.float32)
-    arr = np.clip(np.asarray(img.convert("RGB"), dtype=np.float32) + grain, 0, 255).astype(np.uint8)
-    return Image.fromarray(arr, "RGB").convert("RGBA")
+    arr += rng.normal(0, theme["grain"], (height, width, 1)).astype(np.float32)
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB").convert("RGBA")
 
 
 def _rounded(size, radius, fill, scale=2):
@@ -242,45 +256,39 @@ def _rounded(size, radius, fill, scale=2):
     return img
 
 
-def _glass_card(w: int, h: int, radius: int, theme, accent):
-    """Preserve glass for legacy themes; draw restrained flat cards for editorial."""
-    from PIL import Image, ImageChops, ImageDraw, ImageFilter
+def _glass_card(w: int, h: int, radius: int, theme, accent, layout: str = "grid"):
+    """Gradient glass card with a luminous edge, a soft shadow and an accent bar.
 
-    if theme.get("editorial"):
-        pad = 80
-        canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
-        shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-        d = ImageDraw.Draw(shadow)
-        d.rounded_rectangle((pad, pad + 6, pad + w, pad + h + 6), radius=24, fill=theme["shadow"])
-        canvas = Image.alpha_composite(canvas, shadow.filter(ImageFilter.GaussianBlur(14)))
-        d = ImageDraw.Draw(canvas)
-        d.rounded_rectangle((pad, pad, pad + w, pad + h), radius=24,
-                            fill=theme["card_fill"], outline=theme["card_border"], width=2)
-        return canvas, pad
+    The bar runs down the start (right) edge of a step row and across the top of every other card.
+    """
+    from PIL import Image, ImageDraw, ImageFilter
 
-    pad = 80
-    s = 2
+    pad, s = 80, 2
     canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
     shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle((pad, pad + 22, pad + w, pad + h + 22), radius, fill=theme["shadow"])
-    canvas = Image.alpha_composite(canvas, shadow.filter(ImageFilter.GaussianBlur(30)))
-    body = Image.new("RGBA", (w * s, h * s), theme["card_fill"])
-    light = Image.linear_gradient("L").rotate(180).resize((w * s, h * s)).point(lambda v: int(v * theme["card_light"]))
-    body = Image.alpha_composite(body, Image.merge("RGBA", (Image.new("L", body.size, 255),) * 3 + (light,)))
+    ImageDraw.Draw(shadow).rounded_rectangle((pad, pad + 20, pad + w, pad + h + 20), radius, fill=theme["shadow"])
+    canvas = Image.alpha_composite(canvas, shadow.filter(ImageFilter.GaussianBlur(28)))
+    ramp = Image.linear_gradient("L").resize((w * s, h * s))  # 0 at the top, 255 at the bottom
+    body = Image.composite(Image.new("RGBA", (w * s, h * s), theme["card_bot"]),
+                           Image.new("RGBA", (w * s, h * s), theme["card_top"]), ramp)
     d = ImageDraw.Draw(body)
     d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius * s, outline=theme["card_border"], width=3)
-    tab_w = min(110, w // 3) * s
-    d.rounded_rectangle(((w * s - tab_w) / 2, 0, (w * s + tab_w) / 2, 9 * s), 5 * s, fill=accent + (255,))
+    # a thin light line along the upper edge reads as glass catching the light
+    d.line((radius * s, 4, w * s - radius * s, 4), fill=(255, 255, 255, 46), width=2)
+    if layout == "steps":
+        d.rounded_rectangle((w * s - 18 * s, h * s * 0.2, w * s - 8 * s, h * s * 0.8), 5 * s, fill=accent + (255,))
+    else:
+        tab_w = min(160, w // 3) * s
+        d.rounded_rectangle(((w * s - tab_w) / 2, 0, (w * s + tab_w) / 2, 8 * s), 4 * s, fill=accent + (255,))
     mask = _rounded((w, h), radius, (255, 255, 255, 255)).getchannel("A")
     clear = Image.new("RGBA", body.size, (0, 0, 0, 0))
     clear.paste(body, (0, 0), mask)
-    body = clear.resize((w, h), Image.LANCZOS)
-    canvas.alpha_composite(body, (pad, pad))
+    canvas.alpha_composite(clear.resize((w, h), Image.LANCZOS), (pad, pad))
     return canvas, pad
 
 
-def _plate(diameter: int, accent, theme, picture=None, number: int | None = None):
-    """Tinted disc that carries the picture (or a big number when there is no picture)."""
+def _plate(diameter: int, accent, theme, picture):
+    """Tinted disc that carries the author's picture."""
     from PIL import Image, ImageDraw, ImageFilter
 
     s = 3
@@ -293,16 +301,12 @@ def _plate(diameter: int, accent, theme, picture=None, number: int | None = None
     disc = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     dd = ImageDraw.Draw(disc)
     dd.ellipse((c - r, c - r, c + r, c + r), fill=accent + (theme["plate_alpha"],))
-    dd.ellipse((c - r, c - r, c + r, c + r), outline=accent + (150,), width=3 * s)
+    dd.ellipse((c - r, c - r, c + r, c + r), outline=accent + (170,), width=3 * s)
     img = Image.alpha_composite(img, disc).resize((size // s, size // s), Image.LANCZOS)
-    if picture is not None:
-        fit = diameter * 0.7
-        k = min(fit / picture.width, fit / picture.height)
-        art = picture.resize((max(2, round(picture.width * k)), max(2, round(picture.height * k))), Image.LANCZOS)
-        img.alpha_composite(art, ((img.width - art.width) // 2, (img.height - art.height) // 2))
-    elif number is not None:
-        ImageDraw.Draw(img).text((img.width / 2, img.height / 2 - 3), str(number), font=_font(int(diameter * 0.5)),
-                                 fill=accent + (255,), anchor="mm")
+    fit = diameter * 0.7
+    k = min(fit / picture.width, fit / picture.height)
+    art = picture.resize((max(2, round(picture.width * k)), max(2, round(picture.height * k))), Image.LANCZOS)
+    img.alpha_composite(art, ((img.width - art.width) // 2, (img.height - art.height) // 2))
     return img
 
 
@@ -358,7 +362,7 @@ def _header(title: str, theme, accent, profile):
     from PIL import Image, ImageDraw
 
     page, right = profile["width"], profile["right_edge"]
-    headline_size = max(profile["title_size"], 82) if theme.get("editorial") and profile["width"] == WIDTH else profile["title_size"]
+    headline_size = max(profile["title_size"], 82) if profile["width"] == WIDTH else profile["title_size"]
     size, lines = _fit_label(title, profile["title_w"], headline_size, 44, 1)
     width = _text_size(lines[0], _font(size))[0]
     layer_w = profile["title_w"] + 150
@@ -454,42 +458,44 @@ class _Item:
         label = str(spec["label"]).strip()
         w, h, plate = cell["w"], cell["h"], cell["plate"]
         picture = _icon(root / spec["asset"]) if spec.get("asset") else None
-        self.plate = _plate(plate, self.accent, theme, picture, None if picture is not None else index + 1)
-        radius = 44 if layout != "steps" else 40
-        self.card, self.card_pad = _glass_card(w, h, radius, theme, self.accent)
+        # A picture sits on a tinted disc; without one the number itself is the visual.
+        self.plate = _plate(plate, self.accent, theme, picture) if picture is not None else None
+        self.card, self.card_pad = _glass_card(w, h, 44 if layout != "steps" else 40, theme, self.accent, layout)
         self._compose_card(label)
         self.glow = None
 
     def _compose_card(self, label: str) -> None:
-        from PIL import Image
-
         w, h, plate = self.cell["w"], self.cell["h"], self.cell["plate"]
         pad = self.card_pad
-        number = f"{self.index + 1:02d}"
         if self.layout == "steps":
-            editorial = bool(self.theme.get("editorial"))
-            right_reserved = 75 if editorial else 190
-            label_w = int(min(1050 if editorial else 880, w - right_reserved - 64 - plate - 30))
-            size, lines = _fit_label(label, label_w, 86 if editorial else 64, 48 if editorial else 38)
+            node = 88
+            node_right = 64  # distance from the card's right edge to the number badge's right edge
+            label_right = node_right + node + 34
+            left_room = (64 + plate + 30) if self.plate is not None else 60
+            label_w = int(min(1050, w - label_right - left_room))
+            size, lines = _fit_label(label, label_w, 84, 46)
             text = _text_layer(lines, size, self.theme["ink"], label_w + 20, align="right")
-            self.card.alpha_composite(text, (pad + w - right_reserved - (label_w + 20), int(pad + h / 2 - text.height / 2)))
-            if not editorial:
-                badge = _badge(self.index + 1, 84, self.accent)
-                self.card.alpha_composite(badge, (int(pad + w - 70 - badge.width / 2), int(pad + h / 2 - badge.height / 2)))
+            self.card.alpha_composite(text, (pad + w - label_right - (label_w + 20), int(pad + h / 2 - text.height / 2)))
+            badge = _badge(self.index + 1, node, self.accent)
+            self.card.alpha_composite(badge, (int(pad + w - node_right - node / 2 - badge.width / 2), int(pad + h / 2 - badge.height / 2)))
             self.plate_at = (pad + 64 + plate / 2, pad + h / 2)  # picture on the left of the row
         else:
-            editorial = bool(self.theme.get("editorial"))
-            font_size = (84 if w >= 600 else 70) if editorial else (48 if self.layout != "hub" else 40)
-            size, lines = _fit_label(label, w - 56, font_size, 42 if editorial else 28)
+            font_size = 76 if w >= 560 else 62 if w >= 400 else 52
+            if self.layout == "hub":
+                font_size = 46
+            size, lines = _fit_label(label, w - 56, font_size, 32)
             text = _text_layer(lines, size, self.theme["ink"], w - 28)
-            bottom_gap = 26 if self.layout != "hub" else 20
+            bottom_gap = 28 if self.layout != "hub" else 20
             self.card.alpha_composite(text, (pad + 14, int(pad + h - bottom_gap - text.height)))
-            if not editorial:
-                ghost = _text_layer([number], int(min(96, h * 0.2)), self.accent + (70,), 200, align="right")
-                self.card.alpha_composite(ghost, (pad + w - 214, pad + 30))
-            top_room = h - bottom_gap - text.height - 40
-            self.plate_at = (pad + w / 2, pad + 40 + top_room / 2)
-        self.plate_at = (self.plate_at[0], self.plate_at[1])
+            top_room = h - bottom_gap - text.height - 36
+            self.plate_at = (pad + w / 2, pad + 36 + top_room / 2)
+            if self.plate is None:
+                numeral = _text_layer([f"{self.index + 1:02d}"], int(max(40, min(150, top_room * 0.62))), self.accent + (255,), w)
+                self.card.alpha_composite(numeral, (pad, int(pad + 36 + top_room / 2 - numeral.height / 2 - 6)))
+                rule = int(pad + 36 + top_room / 2 + numeral.height / 2 - 2)
+                bar = _rounded((64, 6), 3, self.accent + (210,), scale=1)
+                if rule + 6 < pad + h - bottom_gap - text.height - 8:
+                    self.card.alpha_composite(bar, (int(pad + w / 2 - 32), rule))
 
     def origin(self):
         return self.cell["cx"] - self.cell["w"] / 2 - self.card_pad, self.cell["cy"] - self.cell["h"] / 2 - self.card_pad
@@ -574,14 +580,15 @@ def _line(canvas, p1, p2, colour, progress: float, width: int = 5):
 def _glow(item: _Item, alpha: float, canvas):
     from PIL import Image, ImageDraw, ImageFilter
 
-    if alpha <= 0.01 or item.theme.get("editorial"):
+    if alpha <= 0.01:
         return
     if item.glow is None:
         w, h = item.cell["w"] + 220, item.cell["h"] + 220
         img = Image.new("RGBA", (w + 200, h + 200), (0, 0, 0, 0))
         ImageDraw.Draw(img).rounded_rectangle((100 + 70, 100 + 70, w + 130, h + 130), 90, fill=item.accent + (255,))
         img = img.filter(ImageFilter.GaussianBlur(52))
-        img.putalpha(img.getchannel("A").point(lambda v: int(v * 0.55)))
+        k = float(item.theme.get("glow", 0.5))
+        img.putalpha(img.getchannel("A").point(lambda v: int(v * k)))
         item.glow = img
     _paste(canvas, item.glow, (item.cell["cx"], item.cell["cy"]), alpha=alpha)
 
@@ -593,10 +600,9 @@ def _hub_core(title: str, theme, accent):
     size = 420
     img = Image.new("RGBA", (size * s, size * s), (0, 0, 0, 0))
     c = size * s / 2
-    if not theme.get("editorial"):
-        glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(glow).ellipse((c - 150 * s, c - 150 * s, c + 150 * s, c + 150 * s), fill=accent + (150,))
-        img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(40 * s)))
+    glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((c - 150 * s, c - 150 * s, c + 150 * s, c + 150 * s), fill=accent + (150,))
+    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(40 * s)))
     d = ImageDraw.Draw(img)
     r = 138 * s
     d.ellipse((c - r, c - r, c + r, c + r), fill=accent + (255,))
@@ -608,30 +614,16 @@ def _hub_core(title: str, theme, accent):
     return img.resize((size, size), Image.LANCZOS)
 
 
-def _editorial_arrow(canvas, centre, accent, progress: float) -> None:
-    """A quiet right-to-left flow arrow, without a circular animated badge."""
-    from PIL import Image, ImageDraw
-    if progress <= 0.01:
-        return
-    arrow = Image.new("RGBA", (66, 32), (0, 0, 0, 0))
-    d = ImageDraw.Draw(arrow)
-    ink = accent + (int(190 * min(1.0, progress)),)
-    d.line(((57, 16), (10, 16)), fill=ink, width=3)
-    d.line(((20, 6), (10, 16), (20, 26)), fill=ink, width=3, joint="curve")
-    _paste(canvas, arrow, centre)
-
-
 def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: bool) -> None:
     """Draw item at u seconds after its reveal. final=True draws the settled form (no glow)."""
     cell = item.cell
-    editorial = bool(item.theme.get("editorial"))
     ox, oy = item.cell["cx"], item.cell["cy"]
     if final:
         card_p = plate_p = chip_p = 1.0
     else:
-        card_p = _out_cubic(u / (0.32 if editorial else 0.62))
-        plate_p = (u - (0.08 if editorial else 0.14)) / (0.28 if editorial else 0.55)
-        chip_p = (u + 0.12) / (0.28 if editorial else 0.45)
+        card_p = _out_cubic(u / 0.5)
+        plate_p = (u - 0.1) / 0.5
+        chip_p = (u + 0.12) / 0.4
         _glow(item, max(0.0, 1 - u / SETTLE_SECONDS) * min(1.0, u / 0.25), canvas)
     if item.layout == "hub":
         a = cell["hub"]
@@ -640,21 +632,18 @@ def _draw_item(canvas, item: _Item, items: Sequence[_Item], u: float, final: boo
         end_r = min(cell["w"] / (2 * max(0.2, abs(math.cos(ang)))), cell["h"] / (2 * max(0.2, abs(math.sin(ang))))) * 0.98
         _line(canvas, (a[0] + reach * math.cos(ang), a[1] + reach * math.sin(ang)),
               (ox - end_r * math.cos(ang), oy - end_r * math.sin(ang)), item.accent, 1.0 if final else _out_cubic((u + 0.1) / 0.5))
-    _paste(canvas, item.card, (ox, oy), scale=(1.0 if editorial else 0.965 + 0.035 * card_p),
-           alpha=min(1.0, card_p * 1.6), offset=(0, (1 - card_p) * (10 if editorial else 44)))
-    px, py = item.plate_at
-    left, top = ox - cell["w"] / 2 - item.card_pad, oy - cell["h"] / 2 - item.card_pad
-    p = 1.0 if final else (_out_cubic(plate_p) if editorial else _out_back(plate_p))
-    _paste(canvas, item.plate, (left + px, top + py), scale=(1.0 if editorial else 0.5 + 0.5 * p),
-           alpha=1.0 if final else min(1.0, max(0.0, plate_p * 2.5)),
-           offset=(0, 0 if final else (1 - card_p) * (10 if editorial else 44)))
+    slide = (1 - card_p) * 40
+    _paste(canvas, item.card, (ox, oy), scale=0.965 + 0.035 * card_p, alpha=min(1.0, card_p * 1.6), offset=(0, slide))
+    if item.plate is not None:
+        px, py = item.plate_at
+        left, top = ox - cell["w"] / 2 - item.card_pad, oy - cell["h"] / 2 - item.card_pad
+        p = 1.0 if final else _out_back(plate_p)
+        _paste(canvas, item.plate, (left + px, top + py), scale=(1.0 if final else 0.5 + 0.5 * p),
+               alpha=1.0 if final else min(1.0, max(0.0, plate_p * 2.5)), offset=(0, 0 if final else slide))
     if item.layout == "row" and item.index > 0:
         prev = items[item.index - 1].cell
         arrow_at = ((prev["cx"] - prev["w"] / 2 + ox + cell["w"] / 2) / 2, oy)
-        if editorial:
-            _editorial_arrow(canvas, arrow_at, item.accent, 1.0 if final else chip_p)
-        else:
-            _chip(canvas, arrow_at, item.accent, 1.0 if final else chip_p)
+        _chip(canvas, arrow_at, item.accent, 1.0 if final else chip_p)
 
 
 # --------------------------------------------------------------------------- timing
@@ -726,8 +715,7 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
     try:
         base = background.copy()
         for k, centre in enumerate(dots):
-            if not theme.get("editorial"):
-                _dot(base, centre, 7, 0.0, theme, items[k].accent)
+            _dot(base, centre, 7, 0.0, theme, items[k].accent)
         header_done = hub_done = False
         settled = [False] * len(items)
         last_key = None
@@ -742,8 +730,7 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
             for i, item in enumerate(items):
                 if not settled[i] and t >= times[i] + SETTLE_SECONDS:
                     _draw_item(base, item, items, SETTLE_SECONDS, True)
-                    if not theme.get("editorial"):
-                        _dot(base, dots[i], 7, 1.0, theme, item.accent)
+                    _dot(base, dots[i], 7, 1.0, theme, item.accent)
                     settled[i] = True
             active = [i for i in range(len(items)) if not settled[i] and t >= times[i] - 0.12]
             intro = (header is not None and not header_done) or (hub is not None and not hub_done)
@@ -761,8 +748,7 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
             for i in active:
                 u = max(0.0, t - times[i])
                 _draw_item(frame, items[i], items, u, False)
-                if not theme.get("editorial"):
-                    _dot(frame, dots[i], 7, min(1.0, u / 0.3), theme, items[i].accent)
+                _dot(frame, dots[i], 7, min(1.0, u / 0.3), theme, items[i].accent)
             last_bytes = frame.convert("RGB").tobytes()
             last_key = key
             proc.stdin.write(last_bytes)

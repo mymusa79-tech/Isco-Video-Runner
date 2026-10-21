@@ -26,11 +26,22 @@ class FilmCaptionsTests(unittest.TestCase):
         ass = build_ass(events)
         self.assertIn("Style: Film,Cairo", ass)
         self.assertIn("\\fad(100,130)", ass)
+
         self.assertEqual(ass.count("Dialogue: 0,"), 2)
         self.assertNotIn("card,", ass)
         self.assertNotIn("shade,", ass)
         self.assertNotIn("\\p1", ass)
         self.assertIn("تفتح الهاتف", build_srt(events))
+
+    def test_film_caption_is_large_enough_for_mobile(self) -> None:
+        from clean_v2 import film_captions
+        from clean_v2.short_timed_text import _CAPTION_FONT_MIN
+
+        self.assertGreaterEqual(film_captions.FONT_SIZE, 88)
+        self.assertGreaterEqual(_CAPTION_FONT_MIN["film"], 64)
+        ass = build_ass([{"start": 0.0, "end": 2.5, "text": "تفتح الهاتف بلا إشعار."}])
+        self.assertIn(f"Style: Film,Cairo,{film_captions.FONT_SIZE},", ass)
+        self.assertIn("\\fs90", ass)
 
     def test_only_spoken_hook_and_topic_are_subtitled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

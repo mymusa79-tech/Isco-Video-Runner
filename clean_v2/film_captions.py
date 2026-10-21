@@ -18,7 +18,7 @@ from .short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-FONT_SIZE = 66
+FONT_SIZE = 90  # was 66 (about 35 px of a 1080 frame once fitted); mobile viewers asked for larger
 WHITE_ASS = "&H00EEF2F4"  # warm off-white
 GOLD_ASS = "&H004BA2C9"  # restrained identity gold
 OUTLINE_ASS = "&H00261A11"  # dark navy
@@ -126,7 +126,7 @@ def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
         "YCbCr Matrix: TV.709", "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Film,{BODY_FONT},{FONT_SIZE},{WHITE_ASS},{WHITE_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,150,150,{SAFE_BOTTOM_MARGIN},-1",
+        f"Style: Film,{BODY_FONT},{FONT_SIZE},{WHITE_ASS},{WHITE_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,1,2,150,150,{SAFE_BOTTOM_MARGIN},-1",
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]

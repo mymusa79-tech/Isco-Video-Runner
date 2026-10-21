@@ -11,7 +11,7 @@ from clean_v2.short_timed_text import (
 class ShortMobileCaptionFloorTests(unittest.TestCase):
     def test_short_floor_is_readable_and_landscape_unchanged(self) -> None:
         self.assertGreaterEqual(_CAPTION_FONT_MIN["short"], 120)
-        self.assertEqual(_CAPTION_FONT_MIN["film"], 48)
+        self.assertEqual(_CAPTION_FONT_MIN["film"], 64)
         self.assertEqual(_CAPTION_FONT_MIN["podcast"], 40)
 
     def test_long_short_phrase_never_shrinks_below_mobile_floor(self) -> None:
