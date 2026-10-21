@@ -801,6 +801,38 @@ def render_board_clip(board: Mapping[str, Any], root: Path, destination: Path, *
 REPORT_NAME = "board-report.json"
 
 
+def mobile_readability_report(board: Mapping[str, Any], fmt: str, width: int = 360) -> dict[str, Any]:
+    """Advisory only: measure labels as they appear on a 360px-wide phone.
+
+    Film boards with too many columns can technically render but be unreadable.
+    Never silently enlarge/rewrap the editor's content or fail a published scene.
+    """
+    profile = PROFILES[fmt if fmt in PROFILES else "film"]
+    layout = str(board["layout"])
+    items = list(board["items"])
+    cells = _geometry(layout, len(items), bool(board.get("title")) or layout == "hub", profile)
+    result: list[dict[str, Any]] = []
+    for item, cell in zip(items, cells):
+        label = str(item.get("label") or "")
+        w, plate = cell["w"], cell["plate"]
+        if layout == "steps":
+            label_w = int(min(1050, w - (64 + 88 + 34) - (64 + plate + 30 if item.get("asset") else 60)))
+            size, lines = _fit_label(label, label_w, 84, 46)
+        else:
+            max_size = 46 if layout == "hub" else 76 if w >= 560 else 62 if w >= 400 else 52
+            size, lines = _fit_label(label, w - 56, max_size, 32)
+        mobile_px = round(size * width / profile["width"], 1)
+        result.append({
+            "label": label, "font_size_1080p": size, "approx_phone_font_px": mobile_px,
+            "line_count": len(lines), "review_small_type": mobile_px < 12.0,
+        })
+    return {
+        "screen_width_px": width,
+        "status": "review" if any(x["review_small_type"] for x in result) else "pass",
+        "items": result,
+    }
+
+
 def rerender_scheduled(output_dir: Path, schedule: Sequence[Mapping[str, Any]], rows: Sequence[Mapping[str, Any]],
                        fmt: str) -> list[dict[str, Any]]:
     """Re-render every board clip to its exact measured slot, in place. Never raises.
@@ -842,6 +874,10 @@ def rerender_scheduled(output_dir: Path, schedule: Sequence[Mapping[str, Any]], 
             render_board_clip(spec, Path(str(row["owner_board_root"])), exact, seconds=seconds + 0.2, times=times, fmt=fmt)
             exact.replace(path)
             entry.update(status="exact", reveal_seconds=times)
+            try:
+                entry["phone_readability"] = mobile_readability_report(spec, fmt)
+            except (OSError, ValueError, TypeError, BoardError):
+                entry["phone_readability"] = {"status": "unavailable"}
         except Exception as exc:  # the estimate clip stays: a complete board, never a gap
             entry.update(status="kept_estimate", reason=f"{type(exc).__name__}:{str(exc)[:160]}")
         report.append(entry)
