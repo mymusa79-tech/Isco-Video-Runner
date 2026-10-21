@@ -102,11 +102,32 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         evidence = _read(root / "derivative-status.json")
         movie = root / f"{name}.mp4"
         selected = str(evidence.get("status") or "unreported")
-        is_ready = selected == "pass" and _existing(movie)
+        derived_file_present = _existing(movie)
+        derived_qc: dict[str, Any] = {"status": "not_run"}
+        if selected == "pass" and derived_file_present:
+            try:
+                # Re-probe the derived FINAL bytes, not the earlier temporary
+                # extraction or a stale successful JSON report.
+                from .media import inspect_final
+                observed = inspect_final(movie)
+                valid = (
+                    (observed["width"], observed["height"]) == (1080, 1920)
+                    and 7 <= float(observed["duration_seconds"]) <= 60.15
+                )
+                derived_qc = {
+                    "status": "pass" if valid else "review",
+                    "dimensions": [observed["width"], observed["height"]],
+                    "duration_seconds": observed["duration_seconds"],
+                    "sha256": observed["sha256"],
+                }
+            except (OSError, ValueError, RuntimeError, KeyError) as exc:
+                derived_qc = {"status": "unreadable", "reason": type(exc).__name__}
+        is_ready = selected == "pass" and derived_qc.get("status") == "pass"
         derivative = {
             "status": "pass" if is_ready else ("not_requested" if not candidate else "review"),
             "reported_status": selected,
-            "file": movie.name if _existing(movie) else None,
+            "actual_video_qc": derived_qc,
+            "file": movie.name if derived_file_present else None,
             "expected_from_approved_zip": bool(candidate),
         }
         if candidate and not is_ready:
