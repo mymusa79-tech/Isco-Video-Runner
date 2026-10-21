@@ -8435,6 +8435,21 @@
       "selected_at": "2026-10-21T04:14:58Z",
       "created_at": "2026-10-21T04:14:58Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-fcc2312b65",
+      "title": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
+      "normalized_title": "لماذا لا نشعر بالراحة رغم اننا توقفنا عن العمل؟",
+      "market_query": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-21T04:44:53Z",
+      "created_at": "2026-10-21T04:44:53Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -18480,9 +18495,470 @@
         "started_at": "2026-10-21T04:16:17Z",
         "finished_at": "2026-10-21T04:24:15Z"
       }
+    },
+    "req-99859efe57c4": {
+      "schema_version": 1,
+      "request_id": "req-99859efe57c4",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-fcc2312b65",
+      "selected_at": "2026-10-21T04:44:53Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "hypothesis_test",
+          "title": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "هل عدت يومًا إلى بيتك بعد الدوام، ووجدت أنك لا تزال متعبًا، رغم أن العمل انتهى ولم يبقَ أمامك شيء تفعله؟\n\nلنتخيل رجلًا يعمل في ورشة صغيرة. يصل إلى البيت، يضع مفاتيحه عند الباب، ويترك حقيبته قرب الأريكة. تناول العشاء، وسأل أهله عن يومهم، ثم جلس أخيرًا. من الخارج يبدو مساءً عاديًا. لكن كلما حاول متابعة الحديث، تذكر شيئًا حدث في الورشة. يلتفت إلى الساعة؛ مضت ساعة كاملة وهو جالس.\n\nلا نعرف هذا الرجل، ولا ندّعي أن قصته دراسة علمية. لكنه يساعدنا على رؤية مفارقة مألوفة: جسده خرج من الورشة، بينما ظل جزء من انتباهه هناك. رسالة معلقة، طلب تأخر تسليمه، واحتمال أن يبدأ الغد بمشكلة جديدة. لم يعد يعمل، ومع ذلك لم يشعر أنه انتهى.\n\nقد يبدو التفسير سهلًا: الراحة ليست مجرد غياب العمل. لكن عبارة كهذه يمكن أن تتحول سريعًا إلى نصيحة ظالمة. فهل كان يفترض به أن يمنع الأفكار عن رأسه؟ وهل يستطيع الإنسان أن يوقف القلق بمجرد أن يغلق الباب؟ نحن لم نثبت السبب بعد.\n\nلذلك لا نبحث عن طريقة سحرية للاسترخاء. نبحث عن الفرق بين مساء يتوقف فيه العمل فعلًا، ومساء يتوقف فيه العمل الظاهر وحده. وإذا صح أن التفكير المهني يستمر بعد الدوام، فسنحتاج أن نسأل أيضًا: لماذا يستمر، وعند من، وتحت أي ظروف؟\n\nوهناك اختبار آخر للفرضية قبل أن نصدقها. شخص يخرج هاتفه ويضحك مع أصدقائه، فيشعر براحة حقيقية. وشخص آخر يترك الهاتف بعيدًا، ثم يظل يفكر في الغد حتى النوم. إذن الشاشة ليست المتهم الوحيد. فلنذهب إلى المكان الذي بدأ فيه هذا التعب."
+              },
+              {
+                "id": "s2",
+                "text": "ما الذي يبقى في رأس عامل أغلق ورشته وذهب إلى بيته، إذا كانت المهمة التي تركها وراءه لم تكتمل بعد؟\n\nفي ورشته، بقي طلب لم ينهه. كانت أمامه قطعة تحتاج إلى تعديل، وموعد ينتظره صباحًا. وفي طريق العودة يدور السؤال نفسه: هل أخطأت في المقاس؟ هل أخبر الزبون بالتأخير؟ هل يستطيع إنهاء العمل في الوقت المناسب؟ هو لا يصلح القطعة الآن، لكن المشكلة تسافر معه.\n\nيصل إلى الأريكة، ويبدأ مشاهدة شيء يحبه. يضحك قليلًا، ثم تقطع الفكرة متعته. يراجع في ذهنه خطوات الغد، ويعيد الحديث نفسه. لا نستطيع الجزم بأن كل مهمة غير مكتملة تفعل ذلك؛ لكن الباحثين سألوا: هل يظهر هذا النمط على نطاق أوسع من حالة واحدة متخيلة؟\n\nهنا يظهر دليل مهم. جمع باحثون في دراسة تحليلية نُشرت عام ألفين وستة وعشرين نتائج دراسات عن المهام غير المنتهية والأفكار المتعلقة بالعمل خلال وقت الفراغ. وجدوا ارتباطًا إيجابيًا بين الاثنين، وكان أقوى حين قارنوا أشخاصًا بعضهم ببعض، وأضعف عند متابعة التغيرات داخل الشخص نفسه. هذه ليست تجربة تثبت السببية، لكنها تجعل الفرضية جديرة بالاهتمام.\n\nومع ذلك، لنحوّل النظر إلى شخص آخر: موظفة تعود من دوامها فتبدأ رعاية أطفالها، وإعداد طعامهم، وترتيب ما يلزم للغد. إذا قالت في الليل إنها لم ترتح، فلا يصح أن نفسر ذلك كله بأنها لم تنفصل ذهنيًا عن العمل. ربما لم تجد دقيقة واحدة لتختار كيف تمضي وقتها.\n\nوصاحب متجر صغير قد يغلق المحل، لكنه يحمل معه قلق الإيجار والفواتير. ليست هذه الأفكار مجرد إشعارات يمكن كتمها. إنها مطالب حقيقية مرتبطة بالرزق والمسؤولية. لذلك تبدو عبارة «اترك العمل خارج البيت» أقصر من الواقع بكثير، حتى وإن كان فيها جزء من الصواب.\n\nوبذلك يتغير السؤال. بدل أن نعدّ ساعات ما بعد الدوام، ينبغي أن نعرف ما الذي استهلكها: تفكير يلحّ، أو عمل منزلي متواصل، أو نقص في النوم، أو ضغط لا يتوقف. هذه أسباب مختلفة، وقد تتداخل؛ ولا يصلح لها تفسير واحد."
+              },
+              {
+                "id": "s3",
+                "text": "هل يمكن أن يكون لدينا وقت فارغ طويل دون أن نتعافى، بينما تمنحنا دقائق قليلة مختارة شعورًا مختلفًا تمامًا بعد العمل؟\n\nلنعد إلى الرجل عند الأريكة. أمامه ساعات لا يطلب منه فيها صاحب الورشة شيئًا مباشرًا. لكنه لا يعرف لماذا تبدو ثقيلة. بعض الأبحاث تقترح أن نسأل عما نعيشه خلال تلك الساعات، لا كم ساعة مضت فقط. وهنا نحتاج إلى تمييز أربع خبرات، وليست أربع مهمات جديدة.\n\nأولها الانفصال الذهني عن العمل: ألّا يظل العمل شاغلك طوال الوقت. وثانيها الاسترخاء، حين يهدأ التوتر فعلًا. وثالثها الإتقان: أن تختار نشاطًا تتعلم فيه شيئًا صغيرًا، كإصلاح غرض يخصك أو ممارسة هواية. ورابعها حرية الاختيار؛ أن تكون لك كلمة حقيقية في قضاء جزء من المساء. قد تجتمع هذه الخبرات، وقد يغيب بعضها.\n\nليست هذه مجرد أسماء جميلة. تحليل واسع نُشر في عام ألفين واثنين وعشرين، وجمع ثلاثمائة وست عشرة عينة مستقلة تضم نحو تسعة وتسعين ألف مشارك، وجد أن بعض خبرات التعافي ارتبطت بنتائج أفضل، وأن الانفصال الذهني ارتبط خاصة بانخفاض بعض النتائج السلبية مثل الإرهاق. لكن الارتباطات اختلفت، وكانت نتائج بعض الدراسات اليومية أصغر من الدراسات التي تقارن أشخاصًا مختلفين. لا توجد وصفة تضمن النتيجة.\n\nولذلك فالهاتف مثال كاشف. قد تكون محادثة دافئة مع صديق عبره استراحة مناسبة، بينما يتحول تمرير المقاطع بلا رغبة واضحة إلى وقت لا يمنح صاحبه ما يبحث عنه. مراجعة منشورة في سبتمبر من عام ألفين وستة وعشرين شملت أربعًا وخمسين دراسة عن النشاط الرقمي غير المتعلق بالعمل، وخلصت إلى أن نوع الاستخدام وسياقه مهمان. لا يصح أن نضع كل استعمال للشاشة في خانة واحدة.\n\nإذن هل نقول للرجل: مارس هواية وسترتاح؟ لا. فالنتائج العلمية تتحدث عن متوسطات وعلاقات بين متغيرات، لا عن ضمان لشخص عنده عمل صباحي متأخر وبيت يحتاجه. نحن نعرف الآن أن سؤال «كيف قضيت الوقت؟» مفيد، لكننا لا نعرف بعد إن كان يملك أصلًا وقتًا قابلًا للاختيار."
+              },
+              {
+                "id": "s4",
+                "text": "لكن ماذا لو كان سبب التعب أقوى من أي نشاط مسائي، وكان الشخص مطالبًا بأن يواجهه كل يوم من جديد دون فرصة كافية للتعافي؟\n\nأول اعتراض يبدأ من غرفة النوم. قد يقضي الرجل مساءه بلا هاتف ولا عمل، ثم يستيقظ مرهقًا لأنه لم ينم بما يكفي. توصي إرشادات النوم الأمريكية عادةً للبالغين من الثامنة عشرة إلى الستين بسبع ساعات أو أكثر. جودة النوم مهمة أيضًا. والتعب المستمر قد تكون له أسباب صحية متعددة، لذلك لا يجوز تفسيره كله بتوتر العمل دون تقييم مناسب عند الحاجة.\n\nوالاعتراض الثاني يبدأ قبل باب البيت. دوام طويل، مناوبات متغيرة، اتصال مستمر من صاحب العمل، ومطالب تزيد على الوقت المتاح. هنا يصبح طلب «نظّم مساءك» جزءًا صغيرًا من المشكلة. مراجعة علمية شملت مائة وتسعًا وخمسين دراسة بحثت ما يساعد الناس على الانفصال عن العمل وما يعيقهم، ومن ذلك ظروف العمل وحدوده؛ فالمسألة ليست مهارة شخصية منفصلة عن البيئة.\n\nولنأخذ حالة صاحب المتجر أو العامل الذي لا يستطيع رفض وردية إضافية بسهولة. إذا كان يومه يسلب معظم طاقته، فلا يصح أن نضع على كتفيه مسؤولية إصلاح التعب وحده. فالمشكلة أحيانًا تبدأ في حجم المطالب، قبل أن تبدأ في طريقة الراحة.\n\nولا يكفي تغيير نشاط مسائي إذا كان ضغط العمل نفسه يبتلع الوقت المتاح. وعلينا الحذر من كلمة «احتراق». منظمة الصحة العالمية تصفه ظاهرة مرتبطة بالسياق المهني نتيجة ضغط مزمن لم يُدار بنجاح، لا تشخيصًا طبيًا نستنتجه من ليلة متعبة. من المهم تسمية الأشياء بحجمها، لا تحويل وصف شائع إلى حكم قاطع.\n\nحتى التدخلات المنظمة لتحسين الانفصال عن العمل لا تصنع معجزات. تحليل جمع ثلاثين دراسة وأربعةً وثلاثين تدخلًا وجد تحسنًا متوسطًا صغيرًا في الانفصال النفسي، بمتوسط أثر مقداره صفر فاصلة ستة وثلاثون. وهذا حجم أثر صغير إلى متوسط، لا نسبة مئوية. هذا سبب معقول للتجربة، وليس وعدًا بالعلاج. بعض الحدود تتطلب دعمًا في المنزل أو تغييرًا في العمل أو استشارة مختص، ولا تحلها نصيحة عابرة."
+              },
+              {
+                "id": "s5",
+                "text": "بعد كل هذه الاعتراضات، هل بقي شيء عملي يمكن تجربته هذا الأسبوع دون أن نحمل أنفسنا مهمة جديدة اسمها الراحة المثالية؟\n\nلنعد إلى المفاتيح الموضوعة قرب الباب. لا نعرف إن كان ذلك الرجل سيستيقظ غدًا أكثر نشاطًا، ولن نخترع له نهاية سعيدة. لكن يمكن أن نقترح اختبار ملاحظة صغيرًا لثلاثة أمسيات، لا بوصفه علاجًا. إن أمكن، اختر ربع ساعة متاحة فعلًا، وافعل فيها شيئًا تحبه: حديثًا مع قريب، أو مشيًا خفيفًا، أو قراءة، أو مجرد جلوس هادئ. ولا تجعل إبعاد الهاتف شرطًا للنجاح.\n\nبعد هذه الفترة، لاحظ ثلاثة أمور فقط: هل ظل العمل يقتحم ذهنك؟ وهل اخترت النشاط بنفسك أم فرضته عليك الظروف؟ وهل شعرت بعدها بشيء من الهدوء أو بقي الحال كما هو؟ ضع نومك وعبء اليوم في الحسبان. لا نحتاج إلى جدول درجات ولا تطبيق جديد يقيس راحتك.\n\nبعد ثلاثة أيام، ربما تكتشف أن وقتًا قصيرًا مع شخص تحبه يخفف عنك أكثر من ساعة تصفح. وربما تكتشف أنك لا تملك ربع ساعة حرة أصلًا؛ وهذه نتيجة مهمة عن حجم مطالب يومك، لا إخفاق في تطبيق النصيحة. وقد تكتشف أن عليك البدء من النوم أو ظروف العمل أو طلب مساعدة بدل مطاردة أسلوب استرخاء آخر.\n\nهذه التجربة لا تثبت علميًا لماذا تتعب، ولا تعِدك بالتحسن. لكنها تمنحك سؤالًا أدق من لوم نفسك: ما الذي يستمر في استنزافي بعد انتهاء العمل، وما الذي أملك قدرة واقعية على تغييره؟ عند الباب ستبقى المفاتيح في مكانها. قد يكون العمل انتهى فعلًا، وقد يكون بعض أثره ما زال يحتاج أن نفهمه."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "بفصحى محادثية طبيعية بلا حزن مصطنع. يمشي السرد وراء مفارقة مفتاح البيت وذهن الورشة، ثم ينتقل بين الفرضية والاعتراض بوضوح. لا تقرأ الأرقام كتقرير إخباري؛ امنح النتائج وقفة قصيرة واترك الجمل الإنسانية تتنفس. لا تطل لإكمال مدة."
+          },
+          "scenes": [
+            {
+              "id": "sc01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "هل عدت يومًا إلى بيتك بعد الدوام، ووجدت أنك",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "sc02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "لنتخيل رجلًا يعمل في ورشة صغيرة. يصل إلى البيت،",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "لا نعرف هذا الرجل، ولا ندّعي أن قصته دراسة",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "قد يبدو التفسير سهلًا: الراحة ليست مجرد غياب العمل.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/person-closing-a-laptop-6771488/",
+                "query_en": "person closing laptop on work desk",
+                "query_alt_en": "hand closing laptop home office",
+                "must_show": "laptop closing on real desk"
+              }
+            },
+            {
+              "id": "sc05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "لذلك لا نبحث عن طريقة سحرية للاسترخاء. نبحث عن",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc06",
+              "section_id": "s1",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "وهناك اختبار آخر للفرضية قبل أن نصدقها. شخص يخرج",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "ما الذي يبقى في رأس عامل أغلق ورشته وذهب",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "sc08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "في ورشته، بقي طلب لم ينهه. كانت أمامه قطعة",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "يصل إلى الأريكة، ويبدأ مشاهدة شيء يحبه. يضحك قليلًا،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/person-scrolling-using-her-mobile-phone-5876327/",
+                "query_en": "hands scrolling phone indoors",
+                "query_alt_en": "hand using smartphone seated at home",
+                "must_show": "hands scrolling on smartphone without visible face"
+              }
+            },
+            {
+              "id": "sc10",
+              "section_id": "s2",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "هنا يظهر دليل مهم. جمع باحثون في دراسة تحليلية",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc11",
+              "section_id": "s2",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "ومع ذلك، لنحوّل النظر إلى شخص آخر: موظفة تعود",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/a-female-person-picking-up-paper-bags-on-a-floor-9218143/",
+                "query_en": "woman carrying shopping bags into home",
+                "query_alt_en": "paper shopping bags in home doorway",
+                "must_show": "groceries arriving at home doorway"
+              }
+            },
+            {
+              "id": "sc12",
+              "section_id": "s2",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "وصاحب متجر صغير قد يغلق المحل، لكنه يحمل معه",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc13",
+              "section_id": "s2",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "وبذلك يتغير السؤال. بدل أن نعدّ ساعات ما بعد",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc14",
+              "section_id": "s3",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "هل يمكن أن يكون لدينا وقت فارغ طويل دون",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "sc15",
+              "section_id": "s3",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "لنعد إلى الرجل عند الأريكة. أمامه ساعات لا يطلب",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc16",
+              "section_id": "s3",
+              "asset": "assets/scene_16.jpg",
+              "start_text": "أولها الانفصال الذهني عن العمل: ألّا يظل العمل شاغلك",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "grid",
+                "theme": "editorial",
+                "title": "كيف يحدث التعافي؟",
+                "items": [
+                  {
+                    "label": "الانفصال الذهني",
+                    "at_text": "أولها الانفصال الذهني عن العمل"
+                  },
+                  {
+                    "label": "الاسترخاء",
+                    "at_text": "وثانيها الاسترخاء"
+                  },
+                  {
+                    "label": "الإتقان",
+                    "at_text": "وثالثها الإتقان"
+                  },
+                  {
+                    "label": "حرية الاختيار",
+                    "at_text": "ورابعها حرية الاختيار"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "sc17",
+              "section_id": "s3",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "ليست هذه مجرد أسماء جميلة. تحليل واسع نُشر في",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc18",
+              "section_id": "s3",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "ولذلك فالهاتف مثال كاشف. قد تكون محادثة دافئة مع",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/man-typing-on-a-cellphone-4052876/",
+                "query_en": "man typing smartphone on couch",
+                "query_alt_en": "person handling phone sitting on sofa",
+                "must_show": "close hands typing smartphone on sofa"
+              }
+            },
+            {
+              "id": "sc19",
+              "section_id": "s3",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "إذن هل نقول للرجل: مارس هواية وسترتاح؟ لا. فالنتائج",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc20",
+              "section_id": "s4",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "لكن ماذا لو كان سبب التعب أقوى من أي",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "sc21",
+              "section_id": "s4",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "أول اعتراض يبدأ من غرفة النوم. قد يقضي الرجل",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc22",
+              "section_id": "s4",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "والاعتراض الثاني يبدأ قبل باب البيت. دوام طويل، مناوبات",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc23",
+              "section_id": "s4",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "ولنأخذ حالة صاحب المتجر أو العامل الذي لا يستطيع",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/men-loading-boxes-of-materials-in-a-delivery-van-4295732/",
+                "query_en": "workers carrying boxes to delivery van",
+                "query_alt_en": "people moving boxes near parked van",
+                "must_show": "physical handling of delivery boxes"
+              }
+            },
+            {
+              "id": "sc24",
+              "section_id": "s4",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "ولا يكفي تغيير نشاط مسائي إذا كان ضغط العمل",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc25",
+              "section_id": "s4",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "حتى التدخلات المنظمة لتحسين الانفصال عن العمل لا تصنع",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc26",
+              "section_id": "s5",
+              "asset": "assets/scene_26.jpg",
+              "start_text": "بعد كل هذه الاعتراضات، هل بقي شيء عملي يمكن",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "sc27",
+              "section_id": "s5",
+              "asset": "assets/scene_27.jpg",
+              "start_text": "لنعد إلى المفاتيح الموضوعة قرب الباب. لا نعرف إن",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/person-walking-on-suburban-sidewalk-37368966/",
+                "query_en": "person walking suburban sidewalk",
+                "query_alt_en": "back view person walking residential street",
+                "must_show": "one person walking outside by houses"
+              }
+            },
+            {
+              "id": "sc28",
+              "section_id": "s5",
+              "asset": "assets/scene_28.jpg",
+              "start_text": "بعد هذه الفترة، لاحظ ثلاثة أمور فقط: هل ظل",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "url": "https://www.pexels.com/video/a-person-writing-in-the-notebook-9305503/",
+                "query_en": "hand writing in notebook at desk",
+                "query_alt_en": "person writing notes on paper tabletop",
+                "must_show": "hand writing in notebook"
+              }
+            },
+            {
+              "id": "sc29",
+              "section_id": "s5",
+              "asset": "assets/scene_29.jpg",
+              "start_text": "بعد ثلاثة أيام، ربما تكتشف أن وقتًا قصيرًا مع",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc30",
+              "section_id": "s5",
+              "asset": "assets/scene_30.jpg",
+              "start_text": "هذه التجربة لا تثبت علميًا لماذا تتعب، ولا تعِدك",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "انتهى العمل وبقي التعب"
+          },
+          "publishing": {
+            "title": "لماذا لا نشعر بالراحة بعد العمل؟ تفسير استمرار الإرهاق",
+            "description": "لماذا يستمر التعب رغم انتهاء الدوام؟ نختبر ما تقوله الأبحاث عن الانفصال الذهني والتعافي من العمل، ونناقش النوم ومسؤوليات المنزل وظروف العمل قبل اقتراح تجربة ملاحظة محدودة.\n\nالمراجع: Headrick et al. (2022/2023) DOI: 10.1007/s10869-022-09821-3؛ Wendsche et al. (2026) DOI: 10.1080/10615806.2026.2616302؛ Agolli & Holtz (2023) DOI: 10.1037/ocp0000353؛ Guo et al. (2026) DOI: 10.1111/ijmr.70038؛ Karabinski et al. (2021) DOI: 10.1037/ocp0000280؛ CDC (https://www.cdc.gov/sleep/about/index.html)؛ WHO (https://www.who.int/standards/classifications/frequently-asked-questions/burn-out-an-occupational-phenomenon).\n\nالمحتوى تثقيفي وليس تشخيصًا طبيًا.",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الإرهاق",
+              "#الراحة",
+              "#العمل_والحياة"
+            ],
+            "tags": [
+              "التعافي بعد العمل",
+              "الإرهاق",
+              "الراحة النفسية",
+              "الانفصال عن العمل"
+            ]
+          },
+          "derivative": {
+            "start_text": "ولنأخذ حالة صاحب المتجر أو العامل الذي لا يستطيع رفض وردية إضافية بسهولة.",
+            "end_text": "فالمشكلة أحيانًا تبدأ في حجم المطالب، قبل أن تبدأ في طريقة الراحة.",
+            "cover": {
+              "asset": "assets/cover_derived.jpg",
+              "text": "لماذا لا يكفي أن ترتاح؟"
+            },
+            "publishing": {
+              "title": "لماذا لا يكفي أن ترتاح بعد العمل؟ | نداء اليقظة",
+              "description": "من فيلم نداء اليقظة عن الإرهاق والتعافي: أحيانًا تبدأ المشكلة بحجم مطالب العمل، قبل أن تبدأ بكيفية قضاء المساء. مشاهدة الحلقة الكاملة من القناة عند نشرها.\n\nالمحتوى تثقيفي.",
+              "hashtags": [
+                "#نداء_اليقظة",
+                "#الإرهاق",
+                "#العمل_والحياة"
+              ],
+              "tags": [
+                "الإرهاق بعد العمل",
+                "الراحة",
+                "التعافي"
+              ]
+            }
+          }
+        },
+        "zip_sha256": "54ea9d2d591c0d77b3a194db80b032f02670c5a647d1d69f5d88ecf9b1bab4ce",
+        "asset_sha256": {
+          "assets/cover_derived.jpg": "f2094a983ce3d03481edbe9766f2a1371ef1dee3beca15f1c5f4f69e53156cfd",
+          "assets/cover_main.jpg": "706a7a71a8a83cf074c19c520ff0e68109ca7a49cd358ffc498a9d2285362e1d",
+          "assets/scene_01.jpg": "a16e086804d513cf31b162b34f215ad452fba1a3045d2341ddcf1d44bd5faf76",
+          "assets/scene_02.jpg": "66641acb0ca105a27e168013aa6e2430d393484664161c6cbe187fc012113dec",
+          "assets/scene_03.jpg": "abb8ee9e4c9fa2f046c5d9bbeea594bc004ff11338b431cdc6ec4734d09d73c7",
+          "assets/scene_04.jpg": "157a1ad9085e0617bd913f687a4241fd7c796c667771496473a0e1bf2c6113cd",
+          "assets/scene_05.jpg": "deec0460897b2983c333aebdf0e269eaffa76804d207f1293521a8610c03ee96",
+          "assets/scene_06.jpg": "58d545054d0f77f09079bef9568d66fd6a799e389eca2249d0e8482190d22b09",
+          "assets/scene_07.jpg": "21f8e6ed5e7f4d3e3fdd4b9d0681d582e827abfbdf1bd93c83a26db6b19de19a",
+          "assets/scene_08.jpg": "dd3debdd0c31e7e220ba84545b0478778e4fdffbdc7d9952150b38a6ca39a398",
+          "assets/scene_09.jpg": "5d3699da295e8da6f6e5a5982d40427996c41dda1499b030d4bfe04f9405635b",
+          "assets/scene_10.jpg": "83353c0f753182f00dc180e124a729e5ab14d758306be6c54e883a46c7aa4942",
+          "assets/scene_11.jpg": "df4944af260789f07f30d10f50fe6b549464020015b206973cf4a2ffc5cedc70",
+          "assets/scene_12.jpg": "dc4b05b547174117928bcfbee76a1aa39857f69bd6099d353856453d9a5382d9",
+          "assets/scene_13.jpg": "333c28d308e1569576a46d945fb9e0a62dcca7eb4ab0ec1fd1ea2dd6ea7668a3",
+          "assets/scene_14.jpg": "7f53871b72daab1b3ec0acf4538a2e173a0fd624b65adb86287e06d279ac6a28",
+          "assets/scene_15.jpg": "5bd15826061bb609abf50f9dd10e4e1e50b0bc6cdf59d6c59d97f7a0d70ac7d9",
+          "assets/scene_16.jpg": "846dcda2267c29b0b335881501bd3c321f87de6248a9e7e02f3075ffd1b9499c",
+          "assets/scene_17.jpg": "6001cb8e52ad064047eba2b314c0f83a4ded780885e9f052a26efb03a6696dc6",
+          "assets/scene_18.jpg": "8d05b065da207800fdbe2a24e56c38c6bff42837603da4e7f6616937a8b0a0b1",
+          "assets/scene_19.jpg": "5b14316ea7317e42e1131c699016cd0016a8d8dd2e0980194549756484ff128f",
+          "assets/scene_20.jpg": "7c219d6eb8e39e365c73f2c9ccf81a950bcf1817b335a441a8d2ab067f78fe8e",
+          "assets/scene_21.jpg": "b3d80e81118c26e3035177f0e9069a04e86a2cc32f469a82887d5e1ad1bc8af6",
+          "assets/scene_22.jpg": "500a0a9c89a3f93bc6fb784bb8ce3690fc67620a747b9ef11230fb4abcacd52b",
+          "assets/scene_23.jpg": "e6515e8aa3e5ac011ae7571d0c9c304a4084255643fa1c75686582242a7d828b",
+          "assets/scene_24.jpg": "57ad04708f5e2efe86a8e2b700f63eba7dd1b2adcb22ef488443babf386fb248",
+          "assets/scene_25.jpg": "8e3a2a4c0f80a254b74a78b54aff187d6388b4b81ab748c580c5c446e799de31",
+          "assets/scene_26.jpg": "61c1c27130a95b8a6f783878e58fae5ceab4079f5fe1931aed0e18f9c945fd98",
+          "assets/scene_27.jpg": "56b4d3b1791b94fc70f857ca581b660b16437950215c4f861e60b681aee1f4ad",
+          "assets/scene_28.jpg": "3e770a8eb5cce920d346b09e35f7565f017df2b6a4b5062c82269a747084e74a",
+          "assets/scene_29.jpg": "af0188ac5745d54d705851f013dbd6c4fa97593917769e3d9c476bc9b7cfb820",
+          "assets/scene_30.jpg": "f78405f60c6bd0fc7532323d26e95d006a075109252f9a6c449c9d4b3133503e"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "661b1bc46921d027b7bc0b9cc16f5db3c013cea8c6e50ca73ddbdbf7607f06b5",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAINpWrYQyiy7dUXpEseoytVmh5Et4ffAALsIgACHGbBUt1frdyDFZctPQQ",
+          "sha256": "54ea9d2d591c0d77b3a194db80b032f02670c5a647d1d69f5d88ecf9b1bab4ce"
+        }
+      }
     }
   },
-  "current_request_id": "req-cb50a1d71a7c",
+  "current_request_id": "req-99859efe57c4",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -18951,6 +19427,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-21T04:43:34Z",
+  "updated_at": "2026-10-21T04:44:54Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
