@@ -137,7 +137,7 @@ class BarTests(unittest.TestCase):
     ]
 
     def test_longform_gets_one_fixed_card_per_run_and_a_larger_font(self) -> None:
-        ass = pc.build_ass(self.EVENTS)
+        ass = pc.build_card_ass(self.EVENTS)
         bars = [line for line in ass.splitlines() if ",Caption,card," in line]
         self.assertEqual(len(bars), 2)  # 1.0-5.0 merged, 9.0-11.0 separate
         self.assertIn("0:00:01.00,0:00:05.00", bars[0])
@@ -154,7 +154,7 @@ class BarTests(unittest.TestCase):
             {"start": 10.0, "end": 16.0, "speaker": "B",
              "text": "ربما تتحمل الخسارة المالية، لكنك تخشى السؤال: ماذا حدث لمشروعك؟ وما الذي سيتغير بعد ذلك؟"},
         ]
-        ass = pc.build_ass(events)
+        ass = pc.build_card_ass(events)
         bars = [line for line in ass.splitlines() if ",Caption,card," in line]
         self.assertEqual(len(bars), 2)
         for bar in bars:
@@ -177,6 +177,31 @@ class BarTests(unittest.TestCase):
         for line in ass.splitlines():
             if line.startswith("Dialogue: 3,"):  # text centred on the card centre whatever the row count
                 self.assertIn(r"\an5\move(960," + str(pc.BAR_CENTER_Y + 10) + ",960," + str(pc.BAR_CENTER_Y) + ",0,200)", line)
+
+    def test_podcast_wears_the_unboxed_outlined_design_with_speaker_colours(self) -> None:
+        from clean_v2 import film_captions
+
+        ass = pc.build_ass(self.EVENTS)
+        self.assertNotIn(r"\p1", ass)  # no card, no drawing layers
+        self.assertIn(f"Style: Film,Cairo,{film_captions.FONT_SIZE},", ass)
+        self.assertIn(r"\c&H4BA2C9&", ass)  # speaker A keeps gold
+        self.assertIn(r"\c&HEFF3F5&", ass)  # speaker B keeps warm white
+        self.assertEqual(len([line for line in ass.splitlines() if line.startswith("Dialogue:")]), 3)
+
+    def test_card_without_speakers_has_no_accent_bar_and_scales_with_font(self) -> None:
+        small = pc.build_card_ass(self.EVENTS, font_size=pc.FONT_SIZE, speaker_colours=False)
+        large = pc.build_card_ass(self.EVENTS, font_size=84, speaker_colours=False)
+        self.assertNotIn(",Caption,accent,", large)
+        self.assertNotIn(r"\c&H4BA2C9&", large)  # single narrator: no speaker colour
+
+        def card_height(ass: str) -> int:
+            import re
+
+            bar = next(line for line in ass.splitlines() if ",Caption,card," in line)
+            ys = [int(v) for v in re.findall(r"\d+", bar.split(r"\p1}")[1].split(r"{\p0}")[0])][1::2]
+            return max(ys) - min(ys)
+
+        self.assertGreater(card_height(large), card_height(small))
 
     def test_short_caption_is_large_and_clear_of_youtube_ui(self) -> None:
         ass = pc.build_ass(self.EVENTS, fmt="short")

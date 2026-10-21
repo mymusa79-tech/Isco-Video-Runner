@@ -1,4 +1,6 @@
-"""Film-only spoken captions: quiet cinematic lower-third, never Podcast dialogue cards.
+"""Film spoken captions, voice-timed, drawn on the navy card with a gold hairline.
+
+The unboxed outlined design that Film used to wear now belongs to the Podcast (see build_plain_ass).
 
 Only measured hook/topic audio units participate; fixed prayer, definition,
 identity and outro windows stay clear. This does not add inference providers.
@@ -18,7 +20,8 @@ from .short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-FONT_SIZE = 90  # was 66 (about 35 px of a 1080 frame once fitted); mobile viewers asked for larger
+FONT_SIZE = 90  # unboxed design (now worn by the Podcast); was 66, mobile viewers asked for larger
+CARD_FONT_SIZE = 84  # card design (now worn by Film): card geometry scales with this size
 WHITE_ASS = "&H00EEF2F4"  # warm off-white
 GOLD_ASS = "&H004BA2C9"  # restrained identity gold
 OUTLINE_ASS = "&H00261A11"  # dark navy
@@ -98,13 +101,14 @@ def validate_srt_text(text: str, expected_cues: int) -> None:
 
 
 def validate_ass_text(text: str, expected_cues: int) -> None:
-    """The ASS sidecar must carry one Dialogue per cue with the Film style and ordered times."""
+    """The ASS sidecar must carry one text row per cue on the card design and ordered times."""
     import re
 
-    rows = [line for line in text.splitlines() if line.startswith("Dialogue:")]
+    # Card design: each cue is one text row (layer 3, name "line"); shade/card/rim rows are drawing layers.
+    rows = [line for line in text.splitlines() if line.startswith("Dialogue: 3,")]
     if len(rows) != expected_cues:
         raise FilmCaptionError("film_caption_ass_cue_count_mismatch")
-    stamp = re.compile(r"^Dialogue: 0,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Film,")
+    stamp = re.compile(r"^Dialogue: 3,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Caption,line,")
     last_end = -1.0
     for row in rows:
         match = stamp.match(row)
@@ -119,7 +123,16 @@ def validate_ass_text(text: str, expected_cues: int) -> None:
 
 
 def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
-    """Short voice-timed phrases, no rectangular Podcast backing card."""
+    """Film captions: the navy card with a gold hairline, warm white single-narrator text."""
+    from .podcast_captions import build_card_ass
+
+    return build_card_ass(events, font_size=CARD_FONT_SIZE, speaker_colours=False)
+
+
+def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: bool = False) -> str:
+    """Short voice-timed phrases, unboxed with a dark outline (the Podcast design).
+
+    With speaker_colours the text keeps the dialogue colours: A gold, B warm white."""
     lines = [
         "[Script Info]", "ScriptType: v4.00+", "WrapStyle: 2",
         "ScaledBorderAndShadow: yes", "PlayResX: 1920", "PlayResY: 1080",
@@ -139,7 +152,7 @@ def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
             raise FilmCaptionError("film_caption_invalid_rows")
         # Emphasise a single already-spoken word only occasionally. No sweeps,
         # letter-by-letter animation, cards or artificially invented copy.
-        focus = _accent_word_index(str(event["text"])) if index % 7 == 0 else -1
+        focus = _accent_word_index(str(event["text"])) if index % 7 == 0 and not speaker_colours else -1
         word_index = 0
         rendered_rows = []
         for row in rows:
@@ -152,9 +165,14 @@ def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
                 word_index += 1
             rendered_rows.append(" ".join(pieces))
         rendered = r"\N".join(rendered_rows)
+        colour = ""
+        if speaker_colours:
+            from .podcast_captions import SPEAKER_ASS
+
+            colour = SPEAKER_ASS.get(str(event.get("speaker") or ""), "")
         lines.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Film,,0,0,0,,"
-            + r"{\fs" + str(font_size) + r"\fad(100,130)\blur0.5}"
+            + r"{\fs" + str(font_size) + r"\fad(100,130)\blur0.5" + colour + "}"
             + rendered
         )
     return "\n".join(lines) + "\n"
@@ -233,7 +251,7 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         "burned_into_final_video": True, "event_count": len(events),
         "font": BODY_FONT, "font_actually_used": font,
         "max_rows": MAX_ROWS, "position": "cinematic_bottom_safe_area",
-        "style": "unboxed_offwhite_with_sparse_gold_word_no_podcast_card",
+        "style": "navy_card_gold_hairline_single_narrator",
         "timing": mode,
         "quality": quality,
         "timing_note": "voice chunk windows measured, phrase boundaries pause-snapped or character-weighted; not word-level alignment",

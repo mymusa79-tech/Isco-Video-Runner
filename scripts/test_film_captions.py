@@ -18,30 +18,37 @@ from clean_v2.timeline_render import render_identity_composition
 
 
 class FilmCaptionsTests(unittest.TestCase):
-    def test_film_caption_look_is_not_podcast_card(self) -> None:
+    def test_film_caption_wears_the_card_design_and_podcast_the_outlined_one(self) -> None:
+        from clean_v2 import film_captions, podcast_captions
+
         events = [
             {"start": 0.0, "end": 2.5, "text": "تفتح الهاتف بلا إشعار."},
             {"start": 2.5, "end": 5.0, "text": "لكن ما الذي تبحث عنه فعلًا؟"},
         ]
-        ass = build_ass(events)
-        self.assertIn("Style: Film,Cairo", ass)
-        self.assertIn("\\fad(100,130)", ass)
-
-        self.assertEqual(ass.count("Dialogue: 0,"), 2)
-        self.assertNotIn("card,", ass)
-        self.assertNotIn("shade,", ass)
-        self.assertNotIn("\\p1", ass)
+        film = build_ass(events)
+        self.assertIn(",Caption,card,", film)
+        self.assertIn(",Caption,rim,", film)
+        self.assertNotIn(",Caption,accent,", film)  # one narrator: no speaker accent
+        self.assertEqual(len([r for r in film.splitlines() if r.startswith("Dialogue: 3,")]), 2)
         self.assertIn("تفتح الهاتف", build_srt(events))
+        podcast = podcast_captions.build_ass(events)
+        self.assertNotIn(r"\p1", podcast)
+        self.assertIn("Style: Film,Cairo", podcast)
+        self.assertIn("\\fad(100,130)", podcast)
 
-    def test_film_caption_is_large_enough_for_mobile(self) -> None:
-        from clean_v2 import film_captions
+    def test_film_card_caption_is_large_enough_for_mobile(self) -> None:
+        from clean_v2 import film_captions, podcast_captions
         from clean_v2.short_timed_text import _CAPTION_FONT_MIN
 
+        self.assertGreaterEqual(film_captions.CARD_FONT_SIZE, 84)
+        self.assertGreater(film_captions.CARD_FONT_SIZE, podcast_captions.FONT_SIZE)
+        film = build_ass([{"start": 0.0, "end": 2.5, "text": "تفتح الهاتف بلا إشعار."}])
+        self.assertIn(f"Style: Caption,Cairo,{film_captions.CARD_FONT_SIZE},", film)
+        self.assertIn(f"\\fs{film_captions.CARD_FONT_SIZE}", film)
+        # the unboxed design the podcast now wears keeps its mobile size
         self.assertGreaterEqual(film_captions.FONT_SIZE, 88)
-        self.assertGreaterEqual(_CAPTION_FONT_MIN["film"], 64)
-        ass = build_ass([{"start": 0.0, "end": 2.5, "text": "تفتح الهاتف بلا إشعار."}])
-        self.assertIn(f"Style: Film,Cairo,{film_captions.FONT_SIZE},", ass)
-        self.assertIn("\\fs90", ass)
+        plain = film_captions.build_plain_ass([{"start": 0.0, "end": 2.5, "text": "تفتح الهاتف بلا إشعار."}])
+        self.assertIn(f"Style: Film,Cairo,{film_captions.FONT_SIZE},", plain)
 
     def test_only_spoken_hook_and_topic_are_subtitled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -173,7 +180,7 @@ class FilmCaptionQualityTests(unittest.TestCase):
         with self.assertRaises(FilmCaptionError):
             validate_ass_text(ass, 3)
         with self.assertRaises(FilmCaptionError):
-            validate_ass_text(ass.replace(",Film,", ",Default,"), 2)
+            validate_ass_text(ass.replace(",Caption,line,", ",Default,line,"), 2)
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg required")
     def test_real_timing_burns_into_a_real_video_end_to_end(self) -> None:
