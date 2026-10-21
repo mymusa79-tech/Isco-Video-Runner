@@ -99,6 +99,51 @@ class ApprovedAlternateStockTests(unittest.TestCase):
         ])
 
 
+class ShortTemplateVisualGrammarTests(unittest.TestCase):
+    def _decision(self, template, *, role="consequence", hold="idea_continues", owner_transition=""):
+        paths = [Path("opening.mp4"), Path("next.mp4")]
+        signals = {
+            "opening.mp4": {
+                "section_id": "s2", "environment_family": "small_room",
+                "hold_reason": "idea_continues",
+            },
+            "next.mp4": {
+                "section_id": "s2", "environment_family": "small_room",
+                "hold_reason": hold, "shot_role": role,
+                "owner_transition": owner_transition,
+            },
+        }
+        return media._editorial_boundary_decisions(
+            paths, ["s2", "s2"], signals, short_template=template,
+        )[0]
+
+    def test_each_short_type_has_observable_distinct_rule(self):
+        self.assertEqual(self._decision("nidaa_short_micro_story")["reason"],
+                         "micro_story_visible_event")
+        self.assertEqual(self._decision("nidaa_short_inner_dialogue")["reason"],
+                         "inner_dialogue_tension_hold")
+        self.assertEqual(self._decision("nidaa_short_why_reframe")["reason"],
+                         "why_reframe_visible_contrast")
+        self.assertEqual(self._decision("nidaa_short_quote_reflection")["reason"],
+                         "quote_reflection_held_meaning")
+        self.assertEqual(self._decision("micro_story")["decision"], "CUT")
+        self.assertEqual(self._decision("inner_dialogue")["decision"], "DISSOLVE")
+        self.assertEqual(self._decision("quote_reflection", hold="payoff_landing")["reason"],
+                         "quote_reflection_release")
+
+    def test_approved_editor_cut_is_higher_priority_than_template(self):
+        decision = self._decision("inner_dialogue", owner_transition="cut")
+        self.assertEqual(decision["decision"], "CUT")
+        self.assertEqual(decision["reason"], "approved_package_transition")
+        decision = self._decision("why_reframe", owner_transition="dissolve")
+        self.assertEqual(decision["decision"], "DISSOLVE")
+        self.assertEqual(decision["reason"], "approved_package_transition")
+
+    def test_unrelated_timeline_formats_do_not_pick_short_template(self):
+        decision = self._decision("")
+        self.assertNotIn("why_reframe", decision["reason"])
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires ffmpeg")
 class ActualLastFrameHoldTests(unittest.TestCase):
     def test_terminal_hold_uses_last_displayed_frame_not_first_frame(self):
