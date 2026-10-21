@@ -38,6 +38,8 @@ jobs:
         run: python -m unittest scripts.test_board_scene -v
       - name: Guard existing approved ZIP contract
         run: python -m unittest scripts.test_production_package -v
+      - name: Verify subtle board timing, accessible Film SRT, Short and Film cohesion
+        run: python -m unittest scripts.test_quiet_board_accessibility_20261022 scripts.test_video_cohesion_20261022 -v
       - name: Produce representative editorial image frames for human review
         run: python -m scripts.render_board_v25_previews --output board-v25-samples
       - name: Upload phone-size and full-width evidence
