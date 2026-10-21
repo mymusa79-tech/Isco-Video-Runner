@@ -8420,6 +8420,21 @@
       "selected_at": "2026-10-21T04:13:58Z",
       "created_at": "2026-10-21T04:13:58Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-3265457957",
+      "title": "الرسالة التي وصلت متأخرة",
+      "normalized_title": "الرسالة التي وصلت متاخرة",
+      "market_query": "الرسالة التي وصلت متأخرة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-21T04:14:58Z",
+      "created_at": "2026-10-21T04:14:58Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -18304,9 +18319,153 @@
           "sha256": "3ed056dffc765d457e7c66d69434f9bb946a910aa48bc87760495fcb7b618c19"
         }
       }
+    },
+    "req-cb50a1d71a7c": {
+      "schema_version": 1,
+      "request_id": "req-cb50a1d71a7c",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الرسالة التي وصلت متأخرة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-3265457957",
+      "selected_at": "2026-10-21T04:14:58Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الرسالة التي وصلت متأخرة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "الرسالة التي وصلت متأخرة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "شدّ مروان درج المحل العالق، فسقط من خلفه ظرف قديم. توقّف عندما رأى اسمه مكتوبًا بخطّ فارس... صديقه الذي لم يتحدث إليه منذ سبع سنوات."
+              },
+              {
+                "id": "s2",
+                "text": "كانا يعملان معًا في محل العائلة، ويمران بالمخبز كل مساء بعد إغلاقه. حتى جاء يوم اتهم فيه فارس مروان بالتقصير أمام الزبائن. تشاجرا، وافترقا غاضبين. تذكّر مروان المرات التي رأى فيها فارس من بعيد، فغيّر طريقه كي لا يلتقيا. فتح مروان الظرف، وقرأ: «اكتشفت أن الخطأ كان مني. جئت صباحًا لأعتذر، فلم أجدك. تركت الرسالة في درجك»."
+              },
+              {
+                "id": "s3",
+                "text": "في ذلك المساء، طرق مروان باب فارس، ومدّ إليه الرسالة. نظر فارس إليها طويلًا، ثم قال: «ظننت أنك قرأتها... ولم تردّ عليّ». أجابه مروان: «لم تصلني إلا اليوم». ساد صمت ثقيل. ثم أخذ فارس مفاتيحه وقال: «كنت ذاهبًا إلى المخبز... تمشي معي؟» وفي طريق العودة، ناوله رغيفًا دافئًا، كما كان يفعل قبل سبع سنوات."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد قصصي عربي فصيح ومحادثي، بوقار طبيعي دون بكائيات أو تمثيل مفتعل. لا تعجّل لحظة قراءة الاعتذار، واترك وقفة قصيرة بعد «لم تصلني إلا اليوم»، ثم قل جملة الرغيف الأخيرة ببساطة ودون وعظ. المدة يحددها الأداء الطبيعي، ولا تُسرَّع الكلمات لبلوغ رقم شكلي. الهوية والصوت المعتمدان كما هما."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "شدّ مروان درج المحل العالق، فسقط من خلفه ظرف قديم.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "كانا يعملان معًا في محل العائلة، ويمران بالمخبز كل مساء بعد إغلاقه.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "فتح مروان الظرف، وقرأ:",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s3",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "في ذلك المساء، طرق مروان باب فارس، ومدّ إليه الرسالة.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s3",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "وفي طريق العودة، ناوله رغيفًا دافئًا، كما كان يفعل قبل سبع سنوات.",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "الرسالة التي وصلت متأخرة"
+          },
+          "publishing": {
+            "title": "رسالة اعتذار وصلت بعد سبع سنوات | قصة صداقة قصيرة ☕ على مهل",
+            "description": "رسالة اعتذار اختفت خلف درج قديم سبع سنوات. وحين وجدها مروان، اكتشف أن صديقه حاول إصلاح خلافهما منذ زمن.\n\nقصة إنسانية قصيرة من «على مهل ☕» عن صديقين، واعتذار لم يصل، ورغيف أعاد عادة قديمة بعد سنوات من القطيعة.\n\n#على_مهل #قصة_قصيرة #الصداقة #Shorts",
+            "hashtags": [
+              "#على_مهل",
+              "#قصة_قصيرة",
+              "#الصداقة",
+              "#Shorts"
+            ],
+            "tags": [
+              "على مهل",
+              "قصص قصيرة",
+              "قصة صداقة",
+              "اعتذار متأخر",
+              "رسالة قديمة",
+              "قصة إنسانية"
+            ]
+          }
+        },
+        "zip_sha256": "3ed056dffc765d457e7c66d69434f9bb946a910aa48bc87760495fcb7b618c19",
+        "asset_sha256": {
+          "assets/cover_alt_1.jpg": "da784d17894ea0607634e475aee255f74836f2f9d1f697353f9ee97c6673ebcc",
+          "assets/cover_alt_2.jpg": "b57f44c0769294b5c57df0257a2e1c11746a3fb1dcb65c8c58eba146b90b97c9",
+          "assets/cover_main.jpg": "8b6f55b2096c190f82fb2c94ac1b0e045417fab58c112f3f1f79ab3b2bab0110",
+          "assets/scene_01.jpg": "e9d3ea630f6dcaac3da4b764d3f4c9ef3b0fa6367d36bd43b3abfc5c45390d83",
+          "assets/scene_02.jpg": "acbc90131a5349efcaf61ecc16183701b69b5f604c1d2e41db74adb69ed817d8",
+          "assets/scene_03.jpg": "7161d674dde5f3af3d751f1122b1fbfacd02b66870755cb12738ebf91eae4ab1",
+          "assets/scene_04.jpg": "b7fbddc38bc94325ec02b5008d0afe40001631145c57df348375491177375620",
+          "assets/scene_05.jpg": "1b5dd1fedbaa041a854bae4e88de38542478ee5cce1732eb93a9b3ab6fc358bf"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "236a9e6aa6571de30c557fa9538f22cecd85c00f7f4293cdddca05dad34e4937",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAINlGrYPCvjId6vCMgP5N4mU94Vg841AALpIgACHGbBUgABoJLmvmKT1T0E",
+          "sha256": "3ed056dffc765d457e7c66d69434f9bb946a910aa48bc87760495fcb7b618c19"
+        }
+      }
     }
   },
-  "current_request_id": "req-0e93c64b1270",
+  "current_request_id": "req-cb50a1d71a7c",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -18775,6 +18934,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-21T04:13:59Z",
+  "updated_at": "2026-10-21T04:14:58Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
