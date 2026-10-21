@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "لماذا لا نشعر بالراحة رغم أننا توقفنا عن العمل؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39545790812",
-  "result": "success",
-  "updated_at": 1792562638
+  "topic": "متى يصبح تطوير الذات عبئًا عليك؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39622160759",
+  "result": "",
+  "updated_at": 1792594964
 }
