@@ -4085,14 +4085,20 @@ def _editorial_boundary_decisions(
         template = str(short_template or "").removeprefix("nidaa_short_")
         semantic_change = right_hold in {"idea_changes", "hook_progression"}
         if left_section and left_section == right_section and not semantic_change:
-            if template == "micro_story" and same_environment:
-                decision, reason = "DISSOLVE", "micro_story_continuous_scene"
+            if template == "micro_story":
+                if str(right_signal.get("shot_role") or "") in {"action", "consequence"}:
+                    decision, reason = "CUT", "micro_story_visible_event"
+                elif same_environment and right_hold == "idea_continues":
+                    decision, reason = "DISSOLVE", "micro_story_continuous_scene"
             elif template == "inner_dialogue" and same_environment:
                 decision, reason = "DISSOLVE", "inner_dialogue_tension_hold"
             elif template == "why_reframe" and str(right_signal.get("shot_role") or "") in {"consequence", "payoff"}:
                 decision, reason = "CUT", "why_reframe_visible_contrast"
-            elif template == "quote_reflection" and right_hold == "idea_continues":
-                decision, reason = "DISSOLVE", "quote_reflection_held_meaning"
+            elif template == "quote_reflection":
+                if right_hold == "idea_continues":
+                    decision, reason = "DISSOLVE", "quote_reflection_held_meaning"
+                elif right_hold == "payoff_landing":
+                    decision, reason = "CUT", "quote_reflection_release"
         if right_signal.get("owner_transition") in {"cut", "dissolve"}:
             decision = str(right_signal["owner_transition"]).upper()
             reason = "approved_package_transition"
