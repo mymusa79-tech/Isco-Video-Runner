@@ -28,8 +28,8 @@ def film_with_scenes(count: int, fmt: str = "film"):
 
 class FlexibleCapTests(unittest.TestCase):
     def test_caps_are_safety_limits_not_a_fixed_count(self):
-        self.assertEqual(package.SCENE_MAX, {"short": 14, "film": 60, "podcast": 40})
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 8})
+        self.assertEqual(package.SCENE_MAX, {"short": 14, "film": 60, "podcast": 5})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 0})
         self.assertGreaterEqual(package.MAX_FILES, 60 + 4 + 1)
 
     def test_film_accepts_more_than_thirty_scenes_and_any_of_them_may_be_stock(self):

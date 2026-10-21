@@ -39,7 +39,8 @@ def manifest(fmt="short", template=None):
            "template": template or {"short": "micro_story", "film": "direct_cinematic", "podcast": "dialogue_qa"}[fmt],
            "title": "خطوة واحدة تغيّر يومك", "approval": {"status": "approved", "reviewer": "Claude"},
            "script": {"sections": sections}, "performance": {"direction": "حديث طبيعي مع صديق، بوقفات قصيرة."},
-           "scenes": [{"id": f"image_{i+1}", "section_id": s["id"], "asset": f"assets/scene_{i+1:02d}.png",
+           "scenes": [{"id": f"image_{i+1}", "section_id": s["id"], "asset": f"assets/scene_{1 if fmt == 'podcast' else i + 1:02d}.png",  # podcast: one picture for the whole episode
+                       
                        "start_text": package.spoken_text(package.section_text(s)).split(". ")[0],
                        "motion": "slow_pan" if i % 2 else "slow_zoom", "transition": "dissolve"}
                       for i, s in enumerate(sections)],
@@ -56,9 +57,11 @@ def archive_bytes(doc=None, *, missing=None, extra=None, size=(180, 320)):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
         archive.writestr("production.json", json.dumps(doc, ensure_ascii=False))
+        written = set()
         for i, scene in enumerate(doc["scenes"]):
-            if scene["asset"] == missing:
+            if scene["asset"] == missing or scene["asset"] in written:
                 continue
+            written.add(scene["asset"])
             picture = Image.new("RGB", size, (20 + i * 25, 30, 50))
             picture.paste((180, 120, 60), (20+i*10, 45, 80+i*10, 200))
             raw = io.BytesIO()
