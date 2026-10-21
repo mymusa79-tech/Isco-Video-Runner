@@ -362,29 +362,42 @@ class OwnerArtVisualSource:
             "sections": [{"id": beat["section_id"], "visual_query_en": query, "visual_query_alt_en": alternate}],
             "visual_story": {"beats": [single]},
         }
-        workdir = Path(output_dir) / f"stock-{beat['id']}"
-        try:
-            found_clips, found_rights = self._inner.acquire(sub_plan, workdir, fmt, 1, None)
-        except Exception as exc:  # the approved image covers any stock failure
-            return None, f"stock_error:{type(exc).__name__}"
-        if len(found_clips) != 1 or len(found_rights) != 1:
-            return None, "stock_no_single_clip"
-        row = dict(found_rights[0])
-        if str(row.get("source_actual") or "") not in {"stock_motion", "stock_still"}:
-            return None, "no_admitted_stock_candidate"
-        # The editor wrote three descriptions of the same wanted picture: the main query, the broader
-        # alternate and `must_show`. Provider titles rarely repeat one phrase word for word, so a clip
-        # that fits any of the three is the clip the editor asked for. The same strict fit check runs
-        # on each; nothing is loosened inside it.
-        wanted = [query, alternate, str(stock.get("must_show") or "")]
-        if not any(text.strip() and _stock_review_semantic_fit(text, row) for text in wanted):
-            return None, "stock_metadata_not_matching_query"
-        # Every per-beat search names its clip visual-01.mp4: give it a unique name next to the
-        # other clips so rights rows and the renderer can never confuse two beats.
-        final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
-        Path(found_clips[0]).replace(final)
-        row["local_file"] = final.name
-        return (final, row), ""
+        # A narrower query can fail although the approved alternative would find the
+        # requested action. Retry ONCE with the editor-supplied alternate only; never
+        # invent a new search or admit a clip on weak visual metadata.
+        queries = [query]
+        if alternate.strip() and alternate.strip().casefold() != query.strip().casefold():
+            queries.append(alternate.strip())
+        reason = "stock_no_single_clip"
+        for attempt, active_query in enumerate(queries):
+            single["stock_query_en"] = active_query
+            single["stock_query_alt_en"] = ""
+            sub_plan["sections"][0]["visual_query_en"] = active_query
+            sub_plan["sections"][0]["visual_query_alt_en"] = ""
+            workdir = Path(output_dir) / f"stock-{beat['id']}-q{attempt + 1}"
+            try:
+                found_clips, found_rights = self._inner.acquire(sub_plan, workdir, fmt, 1, None)
+            except Exception as exc:  # approved artwork is always the safe fallback
+                reason = f"stock_error:{type(exc).__name__}"
+                continue
+            if len(found_clips) != 1 or len(found_rights) != 1:
+                reason = "stock_no_single_clip"
+                continue
+            row = dict(found_rights[0])
+            if str(row.get("source_actual") or "") not in {"stock_motion", "stock_still"}:
+                reason = "no_admitted_stock_candidate"
+                continue
+            # Query, alternate and must_show are reviewed with the same strict test.
+            wanted = [query, alternate, str(stock.get("must_show") or "")]
+            if not any(text.strip() and _stock_review_semantic_fit(text, row) for text in wanted):
+                reason = "stock_metadata_not_matching_query"
+                continue
+            final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
+            Path(found_clips[0]).replace(final)
+            row["local_file"] = final.name
+            row["stock_query_variant_used"] = "primary" if attempt == 0 else "approved_alternate"
+            return (final, row), ""
+        return None, reason
 
     def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
                     seconds: float, index: int):
