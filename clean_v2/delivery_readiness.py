@@ -88,6 +88,12 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         notes.append("primary_cover_" + cover["status"])
 
     original = _read(root / "production.json")
+    # A generated fallback cover can meet pixel specs without meeting the
+    # ChatGPT-first editorial requirement of a specifically designed image.
+    # Warn instead of refusing older approved ZIPs whose cover.asset was null.
+    authored_cover = original.get("cover")
+    if isinstance(authored_cover, dict) and not authored_cover.get("asset"):
+        notes.append("approved_cover_asset_not_in_zip")
     captions = _read(root / ("film-captions.json" if fmt == "film" else "podcast-captions.json"))
     if fmt in {"film", "podcast"}:
         sidecar = root / f"{fmt}-captions.srt"
@@ -99,6 +105,10 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
     if fmt in {"film", "podcast"}:
         name = "long-short" if fmt == "film" else "podcast-short"
         candidate = original.get("derivative")
+        if isinstance(candidate, dict):
+            derivative_cover_plan = candidate.get("cover")
+            if not isinstance(derivative_cover_plan, dict) or not derivative_cover_plan.get("asset"):
+                notes.append("approved_derivative_cover_asset_not_in_zip")
         evidence = _read(root / "derivative-status.json")
         movie = root / f"{name}.mp4"
         selected = str(evidence.get("status") or "unreported")
