@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "فاتك يوم واحد… فألغيت الأسبوع كله",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39656575820",
-  "result": "",
-  "updated_at": 1792609211
+  "result": "success",
+  "updated_at": 1792609275
 }
