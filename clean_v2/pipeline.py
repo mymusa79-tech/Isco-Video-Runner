@@ -8514,6 +8514,29 @@ class CleanV2Pipeline:
                 except Exception as derivative_sidecar_exc:
                     print(f"Optional derivative sidecar warning: {type(derivative_sidecar_exc).__name__}")
 
+            # Audit exact exported master and local deliverables AFTER captions,
+            # cover and derivative attempts. The certified Final Master QC is
+            # already complete; sidecar issues are visible without rolling back
+            # the accepted primary video or triggering a new provider call.
+            try:
+                from clean_v2.delivery_readiness import audit_delivery
+                delivery_readiness = audit_delivery(
+                    output_dir, fmt=str(brief["format"]),
+                    expected_sha256=str(final_report["sha256"]),
+                )
+                if delivery_readiness.get("status") != "complete":
+                    print(
+                        "::warning title=delivery-readiness::"
+                        + ",".join(delivery_readiness.get("review_reasons") or []),
+                        flush=True,
+                    )
+            except Exception as delivery_audit_exc:
+                print(
+                    f"::warning title=delivery-readiness-unavailable::"
+                    f"{type(delivery_audit_exc).__name__}:{str(delivery_audit_exc)[:160]}",
+                    flush=True,
+                )
+
             # Narrative/template history represents delivered videos, not failed
             # attempts that happened to reach Planning.
             if str(brief["format"]) in {"film", "short"}:

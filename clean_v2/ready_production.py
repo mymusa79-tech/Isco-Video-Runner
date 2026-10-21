@@ -76,9 +76,18 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "semantic_must_have": must_have, "semantic_should_avoid": [], "display_text_ar": "",
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
-                "owner_asset": scene["asset"], "owner_motion": scene["motion"], "owner_transition": scene["transition"],
+                # Outside-ChatGPT Podcast planning owns one approved static artwork.
+                # Legacy ZIPs may contain old pan/zoom/dissolve hints; keep those
+                # archives importable but NEVER animate or crossfade the one image.
+                # Short/Film decisions remain exactly as the editor approved.
+                "owner_asset": scene["asset"],
+                "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
+                "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
                 **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
-                **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}} if board else {}),
+                # Dialogue Podcast stays on its one approved background even if
+                # an older ZIP contains explainer-board metadata.
+                **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}}
+                   if board and doc["format"] != "podcast" else {}),
             })
     beats[-1]["role"] = "payoff"
     return {"schema_version": 2, "visual_world": CHANNEL_VISUAL_IDENTITY,
