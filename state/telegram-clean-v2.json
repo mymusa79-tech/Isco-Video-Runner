@@ -20116,8 +20116,35 @@
         "likes": 3,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-21T18:51:38Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 66,
+      "hidden_subscribers": false,
+      "total_views": 42609,
+      "video_count": 156,
+      "last_long": null,
+      "last_podcast": {
+        "video_id": "Ek2GDQearzA",
+        "title": "متى يكون الانسحاب قرارًا شجاعًا؟ | خارج النص",
+        "published_at": "2026-10-18T16:00:08Z",
+        "duration_seconds": 427,
+        "views": 4,
+        "likes": 1,
+        "comments": 0
+      },
+      "last_short": {
+        "video_id": "9D_o_khNafY",
+        "title": "كيف تقول «لا» في العمل دون إحراج؟ | مشكلة كلمة «حاضر»",
+        "published_at": "2026-10-20T21:21:55Z",
+        "duration_seconds": 63,
+        "views": 2,
+        "likes": 0,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-21T18:51:08Z",
+  "updated_at": "2026-10-21T18:51:39Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
