@@ -68,10 +68,12 @@ class FullSpokenFilmSRTTests(unittest.TestCase):
             def fake_ffmpeg(args, **kwargs):
                 Path(args[-1]).write_bytes(b"rendered")
                 return SimpleNamespace(stderr="Cairo", returncode=0)
-            with mock.patch.object(film_captions, "build_events", return_value=(events, "measured")), \\
-                 mock.patch.object(board_scene, "blocked_windows", return_value=[(2.1, 3.9)]), \\
-                 mock.patch.object(film_captions.subprocess, "run", side_effect=fake_ffmpeg), \\
-                 mock.patch.object(film_captions, "resolved_font", return_value={"requested": "Cairo", "resolved": "Cairo"}):
+            with (
+                mock.patch.object(film_captions, "build_events", return_value=(events, "measured")),
+                mock.patch.object(board_scene, "blocked_windows", return_value=[(2.1, 3.9)]),
+                mock.patch.object(film_captions.subprocess, "run", side_effect=fake_ffmpeg),
+                mock.patch.object(film_captions, "resolved_font", return_value={"requested": "Cairo", "resolved": "Cairo"}),
+            ):
                 report = film_captions.apply_film_captions(output_dir=root, final_path=final)
             srt = (root / "film-captions.srt").read_text(encoding="utf-8")
             ass = (root / "film-captions.ass").read_text(encoding="utf-8")
