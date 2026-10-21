@@ -29,6 +29,21 @@ class ProgramIdentityContractTests(unittest.TestCase):
         self.assertTrue(all(b["owner_transition"] == "cut" for b in beats))
         self.assertEqual(doc, original)
 
+    def test_podcast_never_switches_to_board_even_with_legacy_metadata(self):
+        doc = manifest("podcast")
+        doc["scenes"][1]["board"] = {
+            "layout": "compare", "title": "توضيح قديم",
+            "items": [
+                {"label": "الحالة الأولى", "at_text": "لماذا تبدو الخطوة 2"},
+                {"label": "الحالة الثانية", "at_text": "في البداية بدت الخطوة"},
+            ],
+        }
+        original = copy.deepcopy(doc)
+        beats = build_story(doc)["beats"]
+        self.assertTrue(all("owner_board" not in beat for beat in beats))
+        self.assertTrue(all(beat["owner_motion"] == "hold" for beat in beats))
+        self.assertEqual(doc, original)
+
     def test_films_and_regular_shorts_preserve_editor_approved_movements(self):
         for fmt in ("film", "short"):
             with self.subTest(fmt=fmt):
