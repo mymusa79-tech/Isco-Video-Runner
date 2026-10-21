@@ -54,6 +54,29 @@ class QuietBoardTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
 
+class PhoneReadabilityTests(unittest.TestCase):
+    def test_small_landscape_labels_are_flagged_but_not_discarded(self):
+        spec = {"layout": "compare", "items": [
+            {"label": "الافتراض", "at_text": "أولًا"},
+            {"label": "الواقع", "at_text": "ثانيًا"},
+        ]}
+        with mock.patch.object(board_scene, "_fit_label", return_value=(45, ["الافتراض"])):
+            report = board_scene.mobile_readability_report(spec, "film", width=360)
+        self.assertEqual(report["status"], "review")
+        self.assertEqual(len(report["items"]), 2)
+        self.assertTrue(all(row["review_small_type"] for row in report["items"]))
+
+    def test_legible_portrait_labels_stay_unflagged(self):
+        spec = {"layout": "steps", "items": [
+            {"label": "أولًا", "at_text": "أولًا"},
+            {"label": "ثم", "at_text": "ثم"},
+        ]}
+        with mock.patch.object(board_scene, "_fit_label", return_value=(68, ["أولًا"])):
+            report = board_scene.mobile_readability_report(spec, "short", width=360)
+        self.assertEqual(report["status"], "pass")
+        self.assertFalse(any(row["review_small_type"] for row in report["items"]))
+
+
 class FullSpokenFilmSRTTests(unittest.TestCase):
     def test_board_suppresses_burned_overlay_not_accessibility_subtitles(self):
         events = [
