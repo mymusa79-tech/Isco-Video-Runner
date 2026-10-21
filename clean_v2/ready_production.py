@@ -84,7 +84,10 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
                 "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
                 **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
-                **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}} if board else {}),
+                # Dialogue Podcast stays on its one approved background even if
+                # an older ZIP contains explainer-board metadata.
+                **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}}
+                   if board and doc["format"] != "podcast" else {}),
             })
     beats[-1]["role"] = "payoff"
     return {"schema_version": 2, "visual_world": CHANNEL_VISUAL_IDENTITY,
