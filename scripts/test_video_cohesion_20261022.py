@@ -12,6 +12,26 @@ from clean_v2 import media, owner_art
 from clean_v2.owner_pack import LONG_TYPES
 
 
+class ChatGPTAuthoredTypeAuthorityTests(unittest.TestCase):
+    def test_all_12_chatgpt_chosen_templates_survive_zip_to_plan(self):
+        import json
+        from clean_v2 import owner_pack
+        from scripts.test_production_package import imported_pack, manifest
+        for fmt, types in (("short", owner_pack.SHORT_TYPES), ("film", owner_pack.LONG_TYPES)):
+            for selected in types:
+                with self.subTest(fmt=fmt, selected=selected):
+                    with tempfile.TemporaryDirectory() as root:
+                        package = imported_pack(manifest(fmt, template=selected))
+                        output = Path(root)
+                        owner_pack.build_artifacts(package, {"format": fmt}, output)
+                        doc = json.loads((output / "production.json").read_text(encoding="utf-8"))
+                        plan = json.loads((output / "plan.json").read_text(encoding="utf-8"))
+                        self.assertEqual(doc["template"], selected)
+                        chosen_in_plan = plan["short_template"] if fmt == "short" else plan["narrative_format"]
+                        self.assertEqual(chosen_in_plan, selected)
+                        self.assertEqual(doc["script"], package["production"]["script"])
+
+
 class FilmTypeRhythmTests(unittest.TestCase):
     def test_every_owner_film_type_has_a_deliberate_pattern(self):
         self.assertEqual(set(LONG_TYPES), set(owner_art.SHOT_PATTERNS_BY_TYPE))
