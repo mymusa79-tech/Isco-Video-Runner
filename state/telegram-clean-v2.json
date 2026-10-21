@@ -8465,6 +8465,21 @@
       "selected_at": "2026-10-21T15:01:27Z",
       "created_at": "2026-10-21T15:01:27Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-fa9850e75c",
+      "title": "فاتك يوم واحد… فألغيت الأسبوع كله",
+      "normalized_title": "فاتك يوم واحد فالغيت الاسبوع كله",
+      "market_query": "فاتك يوم واحد… فألغيت الأسبوع كله",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-21T18:51:08Z",
+      "created_at": "2026-10-21T18:51:08Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -19450,9 +19465,191 @@
         "started_at": "2026-10-21T15:02:39Z",
         "finished_at": "2026-10-21T15:46:00Z"
       }
+    },
+    "req-4f98f5dd830d": {
+      "schema_version": 1,
+      "request_id": "req-4f98f5dd830d",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "فاتك يوم واحد… فألغيت الأسبوع كله",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-fa9850e75c",
+      "selected_at": "2026-10-21T18:51:08Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "فاتك يوم واحد… فألغيت الأسبوع كله",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "فاتك يوم واحد… فألغيت الأسبوع كله",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "فاتك مشي الثلاثاء… فشطبت بقية الأسبوع من جدولك."
+              },
+              {
+                "id": "s2",
+                "text": "عدت من العمل مرهقًا. رأيت حذاء المشي عند الباب وقلت: «اليوم مستحيل».\n\nوهذا يحدث.\n\nلكن صباح الأربعاء، نظرت إلى الفراغ في جدولك وقلت: «خربت الخطة». فتركت المشي مرة أخرى.\n\nالخميس أيضًا.\n\nوحين جاء الجمعة، كنت تنتظر الاثنين لتبدأ بداية نظيفة.\n\nانتبه للفارق: الثلاثاء فات لأنك كنت متعبًا. أما الأيام التي بعده، فقد تركتها لأنك عاملت يومًا واحدًا كأنه حكم على الأسبوع كله."
+              },
+              {
+                "id": "s3",
+                "text": "عندما تفوتك مرة أخرى، لا تمحُ جدولك، ولا تضع عقوبة تعويض.\n\nفي أول موعد تستطيع، ارتدِ الحذاء وامشِ عشر دقائق.\n\nالثلاثاء سيبقى فارغًا في الجدول؛ لا داعي أن تُفرغ معه بقية الأسبوع."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "ابدأ قريبًا ومباشرًا بمفارقة الثلاثاء، ثم أخفِ الحدة في حكاية العودة من العمل مع وقفة قصيرة بعد «وهذا يحدث» و«الخميس أيضًا». شدّد بوضوح على «انتبه للفارق» دون صراخ أو تسريع؛ اختم بدفء عملي وتوقف كامل بعد آخر كلمة. لا موسيقى ولا تعديل للصوت المعتمد أو هوية القناة."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "فاتك مشي الثلاثاء…",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "weekly habit tracker missed checkbox closeup",
+                "query_alt_en": "paper planner check boxes close up",
+                "must_show": "One unchecked day among completed days on a paper habit planner"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "عدت من العمل مرهقًا.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "tired worker entering doorway after work",
+                "query_alt_en": "person returning home carrying bag rear view",
+                "must_show": "An adult returning from work through a doorway from behind in natural light"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "رأيت حذاء المشي عند الباب",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "running shoes by front door closeup",
+                "query_alt_en": "sneakers resting beside home entrance",
+                "must_show": "A pair of walking shoes resting beside a doorway without visible people"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "لكن صباح الأربعاء، نظرت إلى الفراغ في جدولك",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "paper habit tracker one empty box",
+                "query_alt_en": "person reviewing notebook progress checkmarks",
+                "must_show": "A weekly check box schedule with one day left unmarked"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "الخميس أيضًا.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "daylight shadows moving across quiet sidewalk",
+                "query_alt_en": "sunlight shifting on concrete wall timelapse",
+                "must_show": "Visible movement of daylight shadows across an ordinary surface"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "انتبه للفارق:",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "عندما تفوتك مرة أخرى،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "person starting walk in sneakers outdoors",
+                "query_alt_en": "rear view person beginning casual walk",
+                "must_show": "One adult beginning a short walk outside with no recognizable face"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "فشطبت بقية الأسبوع"
+          },
+          "publishing": {
+            "title": "فاتك يوم من المشي؟ هكذا يضيع الأسبوع كله | نداء اليقظة",
+            "description": "فاتك يوم واحد من المشي فشعرت أن الخطة كلها انتهت؟ المشكلة قد تبدأ حين يتحول اليوم الفائت إلى حكم على الأيام التالية. في هذا الشورت نرى كيف يحدث ذلك، وما الفعل البسيط الذي يمنع التوقف من الامتداد.\n\n#نداء_اليقظة #العادات #التسويف #الانضباط",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#العادات",
+              "#التسويف",
+              "#الانضباط"
+            ]
+          }
+        },
+        "zip_sha256": "447107373a30ca3a566edbaa2f8226d79952cc92788e1fe73c2cc44ac9f5e740",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "87685b08e768dd2de25ca21c0e8f1f94d56ab76738bfe89915e521358e022786",
+          "assets/scene_04.jpg": "0f2ea77c6ebb39f5aa170c99aa155b173f402d280a81b9a0242576868446a93b",
+          "assets/scene_03.jpg": "9a40b95062ccfcae755cef07f4da6868ea32ce4e3730f8eaee08d940d986d003",
+          "assets/scene_06.jpg": "8c7a7aba78a043fe5045c0087f54af73a44e81da3bf0a88b2f662f2b97d9ffbf",
+          "assets/scene_01.jpg": "c394f55447696648c6ffd59dbc291521e611aeadae9c57d43aedba55a78097ad",
+          "assets/scene_07.jpg": "e3fc7b5cac8214e22ea82d319e583fff30b78cfbc8bbb53800fb3dd433a9a328",
+          "assets/scene_02.jpg": "a8f9ea0093ff14133099a90d12f1ec6140d8bbf450b0a7ca23dff1dc3f41e369",
+          "assets/scene_05.jpg": "e2d05934bae70e09bde054427d29be8a75404ce658403b7351f6725b08f84617"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "bd2840f7777a3f959c8bce07fa219e9834256dcd228ca6732febce2a6231c023",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIN02rZCYHz0652IzkPQHPoGhmEKep-AALkHQACa-fIUg-q5oV7dPfaPQQ",
+          "sha256": "447107373a30ca3a566edbaa2f8226d79952cc92788e1fe73c2cc44ac9f5e740"
+        }
+      }
     }
   },
-  "current_request_id": "req-09842ed20f26",
+  "current_request_id": "req-4f98f5dd830d",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -19921,6 +20118,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-21T16:13:59Z",
+  "updated_at": "2026-10-21T18:51:08Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
