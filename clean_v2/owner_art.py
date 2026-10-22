@@ -52,6 +52,15 @@ def cover_image(directory: Path) -> Path | None:
 def normalize_image(source: Path, destination: Path, size: tuple[int, int] = (WIDTH, HEIGHT)) -> Path:
     """Centre-crop to the exact aspect, resize, save as a high-quality JPEG."""
     from PIL import Image, ImageOps
+    import shutil
+
+    # Preserve the editor's exact JPEG pixels and metadata when no resize is needed.
+    with Image.open(source) as opened:
+        if (source.suffix.lower() in {".jpg", ".jpeg"} and opened.size == size
+                and opened.getexif().get(274, 1) == 1):
+            if source.resolve() != destination.resolve():
+                shutil.copyfile(source, destination)
+            return destination
 
     with Image.open(source) as opened:
         image = ImageOps.exif_transpose(opened).convert("RGB")
@@ -497,6 +506,24 @@ class OwnerArtVisualSource:
         validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
         beats = plan["visual_story"]["beats"]
         clips, rights = [], []
+        # Estimate each podcast shot from the actual text span. Using the full
+        # section length for EVERY shot made multi-shot podcasts excessively costly.
+        podcast_seconds: dict[str, float] = {}
+        if fmt == "podcast":
+            from .production_package import section_text, spoken_text
+            for section in doc["script"]["sections"]:
+                sid = section["id"]
+                group = [b for b in beats if b["section_id"] == sid]
+                if not group:
+                    continue
+                narration = spoken_text(section_text(section))
+                starts = [narration.index(str(b["writer_anchor_ar"])) for b in group]
+                ends = starts[1:] + [len(narration)]
+                weights = [max(1, len(narration[a:b].split())) for a, b in zip(starts, ends)]
+                total = sum(weights)
+                duration = float((estimates or {}).get(sid) or 60)
+                for beat, weight in zip(group, weights):
+                    podcast_seconds[beat["id"]] = max(8.0, duration * weight / total * 1.12 + 2)
         output_dir.mkdir(parents=True, exist_ok=True)
         for index, beat in enumerate(beats):
             asset = self._directory / beat["owner_asset"]
@@ -507,7 +534,7 @@ class OwnerArtVisualSource:
             if doc["template"] == "ala_mahl":
                 sections = {b["section_id"] for b in beats if b["owner_asset"] == beat["owner_asset"]}
             stock_note: dict[str, Any] = {}
-            seconds = sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1
+            seconds = podcast_seconds.get(beat["id"], sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1)
             if beat.get("owner_stock"):
                 pinned = bool(beat["owner_stock"].get("url"))
                 if pinned:
@@ -617,7 +644,7 @@ def apply_owner_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any
             except Exception as exc:  # fail-soft: keep the generated cover
                 report = {**report, "owner_scene_cover": f"unavailable:{type(exc).__name__}:{str(exc)[:120]}"}
         if source is not None:
-            normalize_image(source, Path(cover_path), (720, 1280) if doc["format"] == "short" else COVER_SIZE)
+            normalize_image(source, Path(cover_path), (1080, 1920) if doc["format"] == "short" else COVER_SIZE)
             return {**report, "status": "pass", "source": "owner_cover_image", "provider_calls_added": 0}
     source = cover_image(directory) if directory else None
     if source is None:
