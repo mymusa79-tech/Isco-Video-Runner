@@ -20385,8 +20385,8 @@
           "assets/podcast_scene.jpg": "30e350587963d4eae39d77e0330148f239dc5a13d79a39d8982242951c8178f8"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-22T10:11:51Z",
       "dispatched_at": null,
       "request_sha256": "be486edf3240f9aca5499b945e5770143ae34546f1d8a7a5f39cffd35a89a7f5",
       "owner_art": {
@@ -20394,7 +20394,8 @@
           "file_id": "BQACAgQAAxkBAAIOC2rZ4SNw-ISJU_zd-Exq5NDXCoYrAAKuHQACa-fQUpmvdVDRtKa4PQQ",
           "sha256": "c9e468bb903a2f99a0c60dae237583156c7ec3cd9f9540d22325d8f4439308a6"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-fc1d5e6e6768",
@@ -20893,6 +20894,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-22T10:11:10Z",
+  "updated_at": "2026-10-22T10:11:51Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
