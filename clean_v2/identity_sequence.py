@@ -283,6 +283,25 @@ def _first_sentence(text: str) -> str:
     return compact[: match.end()].strip() if match else compact
 
 
+def _podcast_opening_hook(text: str) -> str:
+    """Keep the complete first A turn (including internal full stops) before branding.
+
+    Legacy unlabeled openings retain the first-sentence boundary. This makes
+    the podcast identity independent of punctuation inside the listener's story.
+    """
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact.startswith("A:"):
+        return _first_sentence(compact)
+    boundaries = [
+        marker.start() for marker in (
+            re.search(r"(?<!\\S)B:\\s+", compact),
+            re.search(re.escape(PRAYER_SENTENCE), compact),
+            re.search(re.escape(PODCAST_PRAYER_MARKER), compact),
+        ) if marker is not None and marker.start() > 2
+    ]
+    return compact[:min(boundaries)].strip() if boundaries else compact
+
+
 def channel_definition(fmt: str, opener: str = "") -> str:
     if fmt == "short":
         # Owner decision (Oct 2026): Shorts carry only the prayer and the outro. There is no
@@ -308,7 +327,7 @@ def _podcast_marker_prayer_in_place(sections: list[dict[str, Any]]) -> bool:
     if total == 1:
         first = " ".join(str(sections[0].get("narration") or "").split()).strip()
         position = first.find(PODCAST_PRAYER_MARKER)
-        hook = _first_sentence(first)
+        hook = _podcast_opening_hook(first)
         if position >= len(hook) > 0:
             between = first[len(hook):position].strip()
             match = _PODCAST_BRIDGE_TURN_RE.match(between)
@@ -370,9 +389,9 @@ def inject_spoken_identity(
         section["narration"] = narration
 
     first = str(sections[0].get("narration") or "").strip()
-    hook = _first_sentence(first)
+    hook = _podcast_opening_hook(first) if fmt == "podcast" else _first_sentence(first)
     if not hook:
-        raise RuntimeError("identity sequence requires a non-empty first-sentence hook")
+        raise RuntimeError("identity sequence requires a non-empty opening hook")
     if bridge_in_place:
         # The Writer's bridge already leads into the marker; swap it for the host-owned
         # prayer exactly once (the strip loop above removed any earlier prayer text).
@@ -436,7 +455,7 @@ def assert_spoken_identity(
         raise RuntimeError("identity sequence requires exactly one channel-definition sentence")
 
     first = str(sections[0].get("narration") or "")
-    hook = _first_sentence(first)
+    hook = _podcast_opening_hook(first) if fmt == "podcast" else _first_sentence(first)
     prayer_pos = first.find(PRAYER_SENTENCE)
     if not hook or prayer_pos < len(hook):
         raise RuntimeError("identity sequence order must begin hook -> prayer")
