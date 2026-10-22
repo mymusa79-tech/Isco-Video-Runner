@@ -1,25 +1,55 @@
-# Approved ZIP visual editing: podcast vs narrated video
+# Approved ZIP editor contract: three stock links per scene, images as fallback
 
-This document is an **editorial reference** for the external ChatGPT author and Claude reviewer. It does not change script/voice generation, publishing, or the already approved identity media.
+## New packages: **every authored scene** gets three distinct stock page URLs
 
-## «خارج النص» / podcast: natural photo coverage, not the long-film montage
+For every new Short, Film, Podcast, and «على مهل» production ZIP, set the optional-to-legacy but **mandatory-for-new-authoring** document field:
 
-- The A/B conversation carries the meaning. Start with **the entire first A question/turn**, including all its sentences; only then the existing 6-second V8 intro, approved prayer, and B's answer. A full stop inside the first A turn is **not** an opening cut.
-- Aim for **4–7 distinct photographic stills per major script section** only when the ideas justify that coverage. These are a target, not a forced number, and should represent real actions/places/objects mentioned in that section. Prefer natural observational photos with authentic lighting/colours and no conspicuous AI look; avoid repeated symbolic props, posters, faces, logos, text overlays, generic desks/sunrises, artificial glow, or monochrome filters.
-- Mostly use `motion: "hold"` with `transition: "cut"` or occasional restrained `dissolve`. Deliberate limited `slow_pan` and `slow_zoom` are supported but must be rare, not an automatic effect. No rapid montage, explanatory boards, aggressive punch-ins or long-film effects.
-- Still image stays unchanged until a **meaningful new idea**; use the exact `scene.start_text` anchor. Stock inserts are optional and uncommon, never obligatory. The approved still is always the fallback.
-- The old one-image podcast package is backward-compatible and continues to play static, but it should **not** be reused for a new episode requiring varied coverage.
-- Keep every episode cover and derived-short cover as an actual approved asset in the ZIP. Never ask the renderer to invent another one. An image at the exact target JPEG dimensions is preserved without recompression.
+```json
+"stock_policy": "three_urls_per_scene"
+```
 
-## «نداء اليقظة» regular Short / Film: bounded alternative stock links
+Each entry in `scenes` must contain both its exact approved **fallback image** at `asset` and **three distinct, editorially verified Pexels/Pixabay/Coverr page links** in priority order:
 
-- On a scene where real stock adds meaning, the editorial package can include `"stock": {"urls": ["https://...best", "https://...backup", "https://...third"], "must_show": "..." }`. Use **actual checked Pexels/Pixabay/Coverr clip or photo page URLs**, not search result links or guessed identifiers. 1–3 unique links are valid and retain the supplied priority order.
-- The older single pinned `"stock": {"url": "https://..."}` remains valid. A scene may not have both `url` and `urls`; do not repeat the same clip, even between scenes.
-- The client tries pinned candidates sequentially if fetching, decoding, safety/preflight, or duration checks fail. An accepted candidate ends the retries; if all fail, use the ChatGPT-approved scene still and explain the fallback in the report. More links do **not** guarantee the pixel-semantic match or a successful download. The downstream picture review still applies.
-- Do not insert a stock clip just because the link works; the editor must check that what it depicts supports the spoken sentence. The visual meaning and calm pacing are more important than the number of downloads.
+```json
+{
+  "id": "scene_01",
+  "section_id": "s1",
+  "start_text": "نص عربي مطابق لبداية اللحظة المنطوقة",
+  "asset": "assets/scene_01.jpg",
+  "motion": "hold",
+  "transition": "cut",
+  "stock": {
+    "urls": [
+      "https://www.pexels.com/video/REPLACE_WITH_REAL_FIRST_CLIP-1234567/",
+      "https://www.pexels.com/video/REPLACE_WITH_REAL_SECOND_CLIP-2345678/",
+      "https://pixabay.com/videos/REPLACE_WITH_REAL_THIRD_CLIP-3456789/"
+    ],
+    "must_show": "The same visible action described by this exact scene"
+  }
+}
+```
 
-## Production guardrails
+**The URLs above are illustrative placeholders, NOT verified, usable stock links.** Do not ship them. Search the stock websites and inspect the actual three pages, rights, visible meaning, orientation and whether they are real downloadable stock. Never invent an asset ID or count a search query as a URL. The three candidates express the **same scene intent**, rather than three clips to play sequentially. Each authored scene has its own three links; links cannot duplicate across different scenes.
 
-- The imported ZIP is `production.json` plus `assets/`. A new multi-image podcast may use up to 40 scene anchors; import limit is still **18 MiB compressed**, so export photographic JPEGs at a sensible quality. Three linked URL candidates do not download any video into the ZIP.
-- Respect approved scripts, voices, prayer, intro/outro, image ownership, rights and manual-only YouTube publishing. No new provider, paid workflow or automatic merge.
-- Before approval, listen to the A question **continuously from first to last word**, inspect visual rhythm from the actual rendered video, and confirm the exported cover's file identity.
+The renderer attempts link 1 → 2 → 3. Once a candidate downloads, passes media preflight/technical checks and is admitted, it uses that candidate. **Only if all three attempts fail, use that scene's ChatGPT-approved asset image.** For short accepted clips that cannot fill the whole speaking slot, the existing continuation-by-approved-image behavior applies rather than looping the video; this is not an alternative candidate failure. Technical validation of link syntax is not live verification, nor proof that a chosen visual truly matches the words. Human editorial review remains mandatory.
+
+New-authoring `stock_policy` makes the importer **reject** incomplete coverage: any scene missing `stock.urls`, or providing fewer/more than three, or repeating a clip, is invalid. Under this policy every scene may have stock; the old podcast 16-scene/«على مهل» 2-scene stock caps apply only to historical manifests.
+
+## «خارج النص» / podcast: natural photos first; not the long-film montage
+
+- The A/B conversation carries the meaning. Start with the **entire first A question/turn**, including its internal sentences; only then the existing 6-second V8 intro, approved prayer, and B's answer.
+- Aim for **4–7 distinct photographic stills per major section** only where the ideas call for them. These are natural, observational scenes (actual everyday objects/places/actions) and a **target**, not a rigid montage quota. Stock candidates should preferentially be Pexels/Pixabay **photograph pages** or very calm footage, not dynamic film cutaways. If all three fail, the approved fallback photo retains this quiet look.
+- Use mostly `motion: "hold"` and `transition: "cut"`, with only occasional restrained dissolve or gentle camera motion. No film-like zoom punches, boards, fast montage, heavy navy/gold filters or forced edits at each speaker alternation. Change stills only when the spoken idea advances.
+- The old one-image podcast ZIP remains importable for backward compatibility but **cannot improve visual variety without a new photo plan**.
+
+## «نداء اليقظة» ordinary Short and Film, and «على مهل»
+
+- Ordinary Short/Film: use the same three-real-URL contract per authored scene, with grounded footage matching the spoken text. A distinct fallback image is always included in `assets/`. No repeated generic footage, no reverse, no clips with recognisable faces/logos.
+- «على مهل»: three links per authored story scene **without changing characters, clothing or causal story continuity**. Prefer unobtrusive setting/detail stock, and coherent owner-generated fallback photographs; a technically reachable but mismatched clip is **not** editorial approval. The importer retains its safety rule around scenes that continue their image across later sections.
+- The old one-URL `stock.url` and `query_en` search route continue to import **only for older ZIPs without** `stock_policy`. Those older ZIPs do not meet the new channel-authoring standard.
+
+## Ownership / verification
+
+- ZIP contains `production.json` and `assets/`; the approved image is a real readable included file, never a promised image. A ChatGPT-created cover is an independent image asset.
+- Claude reviews the **actual working URLs and exact script anchors** before APPROVED, then user alone manually imports and publishes. No paid providers or auto-merge.
+- Structural validation guarantees **three declared, uniquely identified Pexels/Pixabay/Coverr page URLs per scene**, not that a third-party provider serves them at production time. The report records which link was admitted or why all failed. No unsupported guarantee of viewer retention.
