@@ -71,9 +71,9 @@ class SequenceAssemblyTests(unittest.TestCase):
                     "owner_motion": "hold"}
             def fake_run(args, timeout=None):
                 (root / "visual-stock-scene1.mp4").write_bytes(b"joined")
-            with mock.patch.object(source, "_try_pinned_one", side_effect=rows) as attempts, \\
-                 mock.patch("clean_v2.media.probe_duration", side_effect=[2.0, 2.0]), \\
-                 mock.patch.object(owner_art, "make_motion_clip") as tail, \\
+            with mock.patch.object(source, "_try_pinned_one", side_effect=rows) as attempts, \
+                 mock.patch("clean_v2.media.probe_duration", side_effect=[2.0, 2.0]), \
+                 mock.patch.object(owner_art, "make_motion_clip") as tail, \
                  mock.patch("clean_v2.media._run", side_effect=fake_run):
                 admitted, reason = source._try_pinned(beat, root / "owner.jpg", root, "film", 5.0, 0)
             self.assertEqual(reason, "")
