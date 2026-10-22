@@ -8540,6 +8540,21 @@
       "selected_at": "2026-10-22T20:32:21Z",
       "created_at": "2026-10-22T20:32:21Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-f2c6f2ec38",
+      "title": "أنجزت كل شيء… إلا الشيء المهم!",
+      "normalized_title": "انجزت كل شيء الا الشيء المهم",
+      "market_query": "أنجزت كل شيء… إلا الشيء المهم!",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-22T22:07:58Z",
+      "created_at": "2026-10-22T22:07:58Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -20577,9 +20592,240 @@
         "started_at": "2026-10-22T20:38:08Z",
         "finished_at": "2026-10-22T20:44:21Z"
       }
+    },
+    "req-963e92b4b606": {
+      "schema_version": 1,
+      "request_id": "req-963e92b4b606",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "أنجزت كل شيء… إلا الشيء المهم!",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-f2c6f2ec38",
+      "selected_at": "2026-10-22T22:07:58Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "أنجزت كل شيء… إلا الشيء المهم!",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "أنجزت كل شيء… إلا الشيء المهم!",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "stock_policy": "three_urls_per_scene",
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قبل تسليم التقرير بساعة، كانت الملفات مرتبة… والصفحة الأولى بيضاء."
+              },
+              {
+                "id": "s2",
+                "text": "منذ الصباح أعاد تسمية المجلدات، ونظّف المكتب، وأجاب عن رسائل يمكن أن تنتظر. وكلما فتح التقرير، واجه أرقامًا ناقصة وفقرة لا يعرف كيف يكتبها. أغلقه وعاد إلى مهمة سهلة، تنتهي في دقائق وتمنحه شعورًا بأنه ينجز. لكن حين نظر إلى الساعة، لم يجد في التقرير سوى عنوانه. والأسوأ أنه لم يحدد حتى المعلومات التي يحتاج إليها."
+              },
+              {
+                "id": "s3",
+                "text": "هذه المرة أغلق البريد، وكتب تحت العنوان ثلاث نقاط: ما يعرفه، وما ينقصه، وأول سؤال يحتاج إلى جواب. لم يكتمل التقرير قبل الموعد، لكنه صار يعرف ماذا يفعل بعد ذلك. إن كنت تؤجل عملًا مهمًا، افتح الملف نفسه وحدد الجزء الذي تخشى مواجهته. ثم ابدأ به، ولو بصورة ناقصة."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى طبيعية بحيوية إنسانية. الهوك سريع مع دهشة خفيفة عند «بيضاء». سرد أعمال الصباح بتتابع أسرع، ثم تباطؤ محسوس عند «أرقامًا ناقصة» ووقفة قصيرة بعد «سوى عنوانه». القرار بنبرة عملية متزنة، بلا خطاب وعظي أو وعد بحل سحري. احفظ آخر كلمة كاملة، والأوترو بعد انتهائها."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "قبل تسليم التقرير بساعة،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/photo/laptop-displaying-a-blank-screen-6372908/",
+                  "https://www.pexels.com/photo/laptop-with-blank-screen-on-a-wooden-table-8472390/",
+                  "https://www.pexels.com/photo/a-laptop-with-blank-screen-6372886/"
+                ],
+                "query_en": "blank document on laptop desk",
+                "query_alt_en": "empty laptop report page",
+                "must_show": "A blank laptop document at a tidy daylight desk"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "منذ الصباح أعاد تسمية المجلدات،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/organized-person-putting-her-paperworks-in-a-folder-orderly-8135783/",
+                  "https://www.pexels.com/video/people-organizing-paperwork-7710497/",
+                  "https://www.pexels.com/video/a-person-checking-the-documents-8529094/"
+                ],
+                "query_en": "hands arranging folders paperwork",
+                "query_alt_en": "sorting files on work desk",
+                "must_show": "Hands sorting ordinary work papers and folders"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "وكلما فتح التقرير،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-working-with-documents-8298013/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-and-working-on-paperwork-8298071/",
+                  "https://www.pexels.com/video/a-man-typing-on-the-laptop-7546421/"
+                ],
+                "query_en": "person reviewing incomplete office documents",
+                "query_alt_en": "worker checking report data laptop",
+                "must_show": "Reviewing documents or figures beside a work laptop"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "أغلقه وعاد إلى مهمة سهلة،",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-an-email-6183189/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-8165661/",
+                  "https://www.pexels.com/video/a-person-typing-on-the-laptop-6573992/"
+                ],
+                "query_en": "person writing email on laptop",
+                "query_alt_en": "hands typing messages laptop",
+                "must_show": "Hands typing emails on a laptop during daytime"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "لكن حين نظر إلى الساعة،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-ticking-clock-7033786/",
+                  "https://www.pexels.com/photo/alarm-clock-on-desk-16501543/",
+                  "https://www.pexels.com/photo/documents-pens-and-laptop-on-a-desk-8970653/"
+                ],
+                "query_en": "ticking analog clock on desk",
+                "query_alt_en": "office clock deadline passing",
+                "must_show": "A real ticking clock or clock beside workplace documents"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s3",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "هذه المرة أغلق البريد،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-notebook-8731583/",
+                  "https://www.pexels.com/video/hands-taking-notes-in-office-desk-setup-34987242/",
+                  "https://www.pexels.com/video/close-up-of-a-person-writing-on-a-notepad-9391663/"
+                ],
+                "query_en": "hands writing brief notes on desk",
+                "query_alt_en": "office note taking on paper",
+                "must_show": "Three brief planning notes being written by hand"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "لم يكتمل التقرير قبل الموعد،",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-typing-on-a-laptop-7551959/",
+                  "https://www.pexels.com/video/person-typing-on-a-laptop-7967231/",
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-typing-on-the-laptop-6406171/"
+                ],
+                "query_en": "hands typing work report laptop",
+                "query_alt_en": "person beginning to type laptop",
+                "must_show": "Hands actively typing a draft in a laptop document"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "مشغول… بلا إنجاز"
+          },
+          "publishing": {
+            "title": "التسويف الخفي: لماذا تنجز كل شيء إلا الأهم؟",
+            "description": "قد ينتهي يومك مزدحمًا بالأعمال بينما تظل المهمة الأهم بلا بداية. في هذا الشورت نرى كيف نهرب أحيانًا من مهمة صعبة إلى أعمال سهلة تعطينا شعورًا سريعًا بالإنجاز، وكيف نعود إلى العمل نفسه بخطوة محددة.\n\nمثال تمثيلي للتوضيح، لا واقعة حقيقية موثقة.\n\n#التسويف #التركيز #إدارة_الوقت #نداء_اليقظة",
+            "hashtags": [
+              "#التسويف",
+              "#التركيز",
+              "#إدارة_الوقت",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "التسويف",
+              "الإنتاجية",
+              "التركيز",
+              "إدارة الوقت",
+              "تأجيل المهام",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "71d0cb5d67b614265c4d58d364efa2566bb151a52da6341e780f51f7322f093a",
+        "asset_sha256": {
+          "assets/cover.jpg": "0a86d850ec042f1d0d21b0a7b7553a15436cf32adc48f71f357a59bc7c8ce38a",
+          "assets/scene_01.jpg": "233a248ac0990208b7b9a7bcb3a7013df7a8c2b3ecf44ecb1b590350f594464b",
+          "assets/scene_02.jpg": "113b5a141ed568c71e08dde7b938e86135dbb6277eff70fab7e39bbbf7ad99d2",
+          "assets/scene_03.jpg": "fac01733ceb7219331db557c960fff00111ab653136e79cd0eae6edf89bc3be7",
+          "assets/scene_04.jpg": "a047c86bdea1c713edca2ce355ae72543ba6e228c309b393b76e7e758265e028",
+          "assets/scene_05.jpg": "d696d36610cb5a37403fea424a78b2f9f82cc74063fff566208f00f75ed3a6b5",
+          "assets/scene_06.jpg": "e2c6de71a46b9f00c429971c91c371ea149b60a12704db39886173e75882098d",
+          "assets/scene_07.jpg": "37e80641e1b4b2eb331b83d36b40d3234d9186fe928092448eda9ab8ae55ffa0"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "c0fea1f4cbe07ae14782e87ca9f414c39dacf16ca7884f46064e8cc348fa7782",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIOMWraiSW0FxVRaej0n-I1pEmRRjwXAAKVHgACa-fQUnrKGO7DvqgsPQQ",
+          "sha256": "71d0cb5d67b614265c4d58d364efa2566bb151a52da6341e780f51f7322f093a"
+        }
+      }
     }
   },
-  "current_request_id": "req-12bbe7018c8f",
+  "current_request_id": "req-963e92b4b606",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -21075,6 +21321,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-22T22:07:14Z",
+  "updated_at": "2026-10-22T22:07:58Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
