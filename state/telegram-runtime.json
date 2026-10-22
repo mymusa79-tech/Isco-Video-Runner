@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "تسويف النوم | لماذا نسهر رغم التعب؟",
-  "stage": "🎙️ خارج النص · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39761276172",
-  "result": "",
-  "updated_at": 1792666707
+  "result": "success",
+  "updated_at": 1792666799
 }
