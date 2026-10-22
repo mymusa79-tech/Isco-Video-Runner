@@ -44,6 +44,16 @@ class ProgramIdentityContractTests(unittest.TestCase):
         self.assertTrue(all(beat["owner_motion"] == "hold" for beat in beats))
         self.assertEqual(doc, original)
 
+    def test_multishot_podcast_preserves_approved_motion_transitions_and_stock(self):
+        doc = manifest("podcast")
+        doc["scenes"][1]["asset"] = "assets/scene_02.png"
+        doc["scenes"][1]["stock"] = {"query_en": "person closing bedroom curtains"}
+        beats = build_story(doc)["beats"]
+        second = next(b for b in beats if b["id"] == doc["scenes"][1]["id"])
+        self.assertEqual(second["owner_motion"], doc["scenes"][1]["motion"])
+        self.assertEqual(second["owner_transition"], doc["scenes"][1]["transition"])
+        self.assertEqual(second["owner_stock"]["query_en"], "person closing bedroom curtains")
+
     def test_films_and_regular_shorts_preserve_editor_approved_movements(self):
         for fmt in ("film", "short"):
             with self.subTest(fmt=fmt):
