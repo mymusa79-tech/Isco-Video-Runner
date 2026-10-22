@@ -262,6 +262,33 @@ class MultiLinkSelectionWithoutFFmpegTests(unittest.TestCase):
         self.assertEqual(attempt.call_count, 3)
         self.assertEqual(reason, "pinned_alternatives_exhausted:blocked,blocked,blocked")
 
+    def test_three_urls_retry_undersized_video_without_using_fallback_photo(self):
+        # This check runs even on CI hosts without ffmpeg.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = owner_art.OwnerArtVisualSource(types.SimpleNamespace(), root)
+            beat = {"id": "scene_02",
+                    "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]},
+                    "owner_motion": "hold", "viewer_intent": "x"}
+            cand = {"provider": "pexels", "asset_id": "3195394", "media_kind": "video",
+                    "download_url": "https://videos.pexels.com/x", "source_url": PEXELS_VIDEO,
+                    "creator": "", "creator_url": "", "duration": 3.0}
+            def download(_url, destination):
+                Path(destination).write_bytes(b"synthetic fake video")
+
+            with mock.patch.object(pinned_stock, "fetch_candidate", return_value=cand), \
+                 mock.patch("clean_v2.media._download_media", side_effect=download), \
+                 mock.patch("clean_v2.media.probe_duration", return_value=3.0), \
+                 mock.patch.object(owner_art, "make_motion_clip") as make_image:
+                admitted, reason = source._try_pinned_one(
+                    beat, root / "approved.jpg", root / "visuals",
+                    "short", 10.0, 0, PEXELS_VIDEO,
+                )
+            self.assertIsNone(admitted)
+            self.assertEqual(reason, "pinned_clip_too_short_for_scene")
+            make_image.assert_not_called()
+            self.assertFalse((root / "visuals/visual-stock-scene_02.mp4").exists())
+
     def test_legacy_single_url_keeps_its_failure_reason(self):
         beat = {"id": "scene_01", "owner_stock": {"url": PEXELS_VIDEO}}
         source = self.source()
