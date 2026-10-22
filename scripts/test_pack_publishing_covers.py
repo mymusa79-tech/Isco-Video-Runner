@@ -132,6 +132,14 @@ class OwnerCoverTests(unittest.TestCase):
         with Image.open(self.out) as image:
             self.assertEqual(image.size, (1080, 1920))
 
+    def test_editor_jpeg_at_target_size_is_byte_for_byte_preserved(self):
+        asset = self.art / "assets" / "d.jpg"
+        Image.new("RGB", (1080, 1920), (35, 40, 55)).save(asset, "JPEG", quality=89)
+        self.write({"cover": {"asset": "assets/d.jpg", "text": "أريد الليل لنفسي"}})
+        report = self.apply()
+        self.assertEqual(report["source"], "owner_derivative_cover_image")
+        self.assertEqual(self.out.read_bytes(), asset.read_bytes())
+
     def test_without_a_derivative_cover_nothing_changes(self):
         self.write({"start_text": "a.", "end_text": "b."})
         self.assertEqual(self.apply(), {"status": "pass"})
