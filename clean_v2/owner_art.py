@@ -438,9 +438,11 @@ class OwnerArtVisualSource:
                 continue
             available = probe_duration(clip)
             used = min(remaining, available)
-            if used < PINNED_MIN_SECONDS:
+            # PINNED_MIN_SECONDS checks the *source*, not the final trimmed
+            # fraction. A verified 2-second clip may fill the last 0.6 seconds.
+            if used <= 0.08:
                 clip.unlink(missing_ok=True)
-                rejections.append({"rank": rank, "reason": "sequence_clip_too_short"})
+                rejections.append({"rank": rank, "reason": "sequence_no_remaining_slot"})
                 continue
             part = Path(output_dir) / f"sequence-{beat['id']}-{rank}.mp4"
             clip.replace(part)
