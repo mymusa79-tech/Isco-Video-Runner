@@ -93,6 +93,19 @@ def imported_pack(doc=None):
 
 
 class ImportTests(unittest.TestCase):
+    def test_podcast_multiple_approved_images_and_optional_stock(self):
+        doc = manifest("podcast")
+        doc["scenes"][1]["asset"] = "assets/scene_02.png"
+        doc["scenes"][1]["stock"] = {"query_en": "person closing bedroom curtains"}
+        cover = io.BytesIO()
+        Image.new("RGB", (1280, 720), "gray").save(cover, "PNG")
+        doc["cover"] = {"asset": "assets/podcast_cover.png", "text": "الليل لنفسي"}
+        checked = package.inspect_archive(archive_bytes(
+            doc, extra={"assets/podcast_cover.png": cover.getvalue()}))
+        self.assertEqual(checked["manifest"]["scenes"][1]["stock"]["query_en"],
+                         "person closing bedroom curtains")
+        self.assertEqual(len({s["asset"] for s in checked["manifest"]["scenes"]}), 2)
+
     def test_valid_zip_requires_one_explicit_confirmation_and_no_scene_picker(self):
         data = archive_bytes()
         update = {"message": {"document": {"file_id": "approved", "file_name": "ready.zip", "file_size": len(data)}}}
