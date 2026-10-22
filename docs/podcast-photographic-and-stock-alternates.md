@@ -2,7 +2,7 @@
 
 ## New packages: **every authored scene** gets three distinct stock page URLs
 
-For every new Short, Film, Podcast, and «على مهل» production ZIP, set the optional-to-legacy but **mandatory-for-new-authoring** document field:
+For each newly authored «نداء اليقظة» Short or Film ZIP (and any «على مهل» story explicitly using the same stock route), set the optional-to-legacy but **mandatory-for-new-Nidaa-authoring** document field. Podcast may instead use its independent natural-photo-first plan without activating this stock policy:
 
 ```json
 "stock_policy": "three_urls_per_scene"
@@ -31,14 +31,14 @@ Each entry in `scenes` must contain both its exact approved **fallback image** a
 
 **The URLs above are illustrative placeholders, NOT verified, usable stock links.** Do not ship them. Search the stock websites and inspect the actual three pages, rights, visible meaning, orientation and whether they are real downloadable stock. Never invent an asset ID or count a search query as a URL. The three candidates express the **same scene intent**, rather than three clips to play sequentially. Each authored scene has its own three links; links cannot duplicate across different scenes.
 
-The renderer attempts link 1 → 2 → 3. Once a candidate downloads, passes media preflight/technical checks and is admitted, it uses that candidate. **Only if all three attempts fail, use that scene's ChatGPT-approved asset image.** For short accepted clips that cannot fill the whole speaking slot, the existing continuation-by-approved-image behavior applies rather than looping the video; this is not an alternative candidate failure. Technical validation of link syntax is not live verification, nor proof that a chosen visual truly matches the words. Human editorial review remains mandatory.
+The renderer attempts link 1 → 2 → 3. Once a candidate downloads, passes media preflight/technical checks and is admitted, it uses that candidate. For video candidates that cannot cover the estimated scene duration in a three-link pack, the next URL is tried. **Only after all three are unavailable or unsuitable does the scene use its approved fallback image.** Historical single-link ZIPs keep their legacy short-clip-then-image continuation. The new policy also prevents a synthetic image-only beat being inserted after the opening hook. Technical validation of link syntax is not live verification, nor proof that a chosen visual truly matches the words. Human editorial review remains mandatory. Technical validation of link syntax is not live verification, nor proof that a chosen visual truly matches the words. Human editorial review remains mandatory.
 
 New-authoring `stock_policy` makes the importer **reject** incomplete coverage: any scene missing `stock.urls`, or providing fewer/more than three, or repeating a clip, is invalid. Under this policy every scene may have stock; the old podcast 16-scene/«على مهل» 2-scene stock caps apply only to historical manifests.
 
 ## «خارج النص» / podcast: natural photos first; not the long-film montage
 
 - The A/B conversation carries the meaning. Start with the **entire first A question/turn**, including its internal sentences; only then the existing 6-second V8 intro, approved prayer, and B's answer.
-- Aim for **4–7 distinct photographic stills per major section** only where the ideas call for them. These are natural, observational scenes (actual everyday objects/places/actions) and a **target**, not a rigid montage quota. Stock candidates should preferentially be Pexels/Pixabay **photograph pages** or very calm footage, not dynamic film cutaways. If all three fail, the approved fallback photo retains this quiet look.
+- Aim for **4–7 distinct photographic stills per major section** only where the ideas call for them. These are natural, observational scenes (actual everyday objects/places/actions) and a **target**, not a rigid montage quota. Optional podcast stock candidates, if a scene specifically needs them, should preferentially be Pexels/Pixabay **photograph pages** or very calm footage, not dynamic film cutaways. Without a stock request, use the approved photograph normally; if requested stock fails, use the fallback photograph. Three links are **not required** for naturally photographed podcast coverage.
 - Use mostly `motion: "hold"` and `transition: "cut"`, with only occasional restrained dissolve or gentle camera motion. No film-like zoom punches, boards, fast montage, heavy navy/gold filters or forced edits at each speaker alternation. Change stills only when the spoken idea advances.
 - The old one-image podcast ZIP remains importable for backward compatibility but **cannot improve visual variety without a new photo plan**.
 
