@@ -101,6 +101,13 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
             notes.append("spoken_srt_missing_after_success")
         elif captions.get("status") != "pass":
             notes.append("spoken_captions_not_confirmed")
+    vibe = original.get("template") == "ala_mahl" and original.get("ala_mahl_mode") == "vibe"
+    vibe_stock = _read(root / "vibe-stock.json") if vibe else {}
+    vibe_music = _read(root / "topic-audio-polish.json") if vibe else {}
+    if vibe and vibe_stock.get("status") != "pass":
+        notes.append("vibe_real_video_coverage_incomplete")
+    if vibe and vibe_music.get("status") != "pass":
+        notes.append("vibe_music_not_mixed_into_final")
     derivative = {"status": "not_applicable"}
     if fmt in {"film", "podcast"}:
         name = "long-short" if fmt == "film" else "podcast-short"
@@ -160,6 +167,12 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         "primary_cover": cover,
         "full_spoken_caption_status": captions.get("status") if fmt in {"film", "podcast"} else "format_owned",
         "derivative": derivative,
+        "vibe": ({
+            "mode": "vibe",
+            "real_stock": vibe_stock,
+            "music_status": vibe_music.get("status") or "unknown",
+            "music_track": (vibe_music.get("components") or {}).get("music", {}).get("track_id"),
+        } if vibe else {"mode": "not_applicable"}),
         "review_reasons": notes,
         "notes": "Deterministic file audit; not human visual/audio judgement or a YouTube retention forecast.",
         "provider_calls_added": 0, "primary_master_mutated": False,
