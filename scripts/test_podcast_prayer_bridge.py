@@ -26,6 +26,19 @@ def _run(narration, extra=None):
 
 
 class BridgeInjectionTests(unittest.TestCase):
+    def test_multisentence_a_question_is_complete_before_prayer(self):
+        listener = "A: الساعة الواحدة وأربعون دقيقة. أغلقت الهاتف ثلاث مرات. لماذا أرفض النوم؟"
+        out = _run(f"{listener} B: سأوضح السبب. {PODCAST_PRAYER_MARKER} {ANSWER}")[0]["narration"]
+        self.assertTrue(out.startswith(listener))
+        self.assertLess(out.index("لماذا أرفض النوم؟"), out.index(PRAYER_SENTENCE))
+        self.assertEqual(out.count(PRAYER_SENTENCE), 1)
+
+    def test_multisentence_a_question_without_marker_is_kept_whole(self):
+        listener = "A: الساعة الواحدة. أغلقت الهاتف ثم عدت. لماذا لا أنام؟"
+        out = _run(f"{listener} {ANSWER}")[0]["narration"]
+        self.assertTrue(out.startswith(listener))
+        self.assertLess(out.index("لماذا لا أنام؟"), out.index(PRAYER_SENTENCE))
+
     def test_valid_marker_keeps_writer_bridge_and_swaps_prayer(self):
         out = _run(f"{HOOK} B: سأشرح لك السبب بهدوء. {PODCAST_PRAYER_MARKER} {ANSWER}")[0]["narration"]
         self.assertEqual(out.count(PRAYER_SENTENCE), 1)
