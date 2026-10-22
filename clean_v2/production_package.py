@@ -72,7 +72,8 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
 # Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
 SCENE_MAX = {"short": 14, "film": 60, "podcast": 40}  # podcast can now change visuals at dialogue anchors
-STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 16}  # verified stock is optional; approved art remains fallback
+STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 16}  # legacy ZIP cap; new three-link packs cover every scene
+THREE_LINK_STOCK_POLICY = "three_urls_per_scene"  # explicit contract for newly authored packages
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
@@ -151,10 +152,13 @@ def spoken_text(text: str) -> str:
 
 def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str, Any]:
     doc = _object(value, {"schema_version", "format", "template", "title", "approval", "script", "performance",
-                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "roles"}, field="production.json")
+                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "roles", "stock_policy"}, field="production.json")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
         _error("schema_version يجب أن يساوي 1.")
     fmt = doc["format"]
+    if "stock_policy" in doc and doc["stock_policy"] != THREE_LINK_STOCK_POLICY:
+        _error("stock_policy: استخدم three_urls_per_scene أو احذف الحقل للحزم القديمة.")
+    three_per_scene = doc.get("stock_policy") == THREE_LINK_STOCK_POLICY
     allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa",)}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
@@ -227,6 +231,15 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     covered = set()
     for scene in scenes:
         _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, {"stock", "board"}, field="scene")
+        if three_per_scene:
+            stock_spec = scene.get("stock")
+            if not (isinstance(stock_spec, dict)
+                    and isinstance(stock_spec.get("urls"), list)
+                    and len(stock_spec["urls"]) == 3
+                    and "url" not in stock_spec):
+                _error(f"المشهد {scene['id']}: يلزم ثلاثة روابط stock.urls؛ الصورة asset احتياطية.")
+            if "board" in scene:
+                _error("حزمة الروابط الثلاثة: لا تستخدم لوحة بدل مشهد الستوك.")
         if "stock" in scene:
             _stock(scene["stock"], fmt, doc["template"])
         if "board" in scene:
@@ -287,7 +300,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     pinned_ids = [parse_stock_url(url)[:3:2] for url in pinned_urls]
     if len(pinned_ids) != len(set(pinned_ids)):
         _error("stock.url مكرر: لكل مشهد مقطع أو صورة مختلفة.")
-    stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
+    stock_cap = len(scenes) if three_per_scene else (ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0))
     if stock_count > stock_cap:
         _error(f"لقطات الستوك: {stock_cap} كحد أقصى لهذا النوع.")
     if ala_mahl and stock_count:
