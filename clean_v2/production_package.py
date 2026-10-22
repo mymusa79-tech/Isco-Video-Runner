@@ -71,7 +71,7 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # verified) pins the exact clip or photo; it is only a string and the client still reviews the result.
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
 # Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
-SCENE_MAX = {"short": 14, "film": 60, "podcast": 32}  # podcast can now change visuals at dialogue anchors
+SCENE_MAX = {"short": 14, "film": 60, "podcast": 40}  # podcast can now change visuals at dialogue anchors
 STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 16}  # verified stock is optional; approved art remains fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
@@ -79,15 +79,23 @@ _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 def _stock(value: Any, fmt: str, template: str) -> dict:
     if fmt not in STOCK_MAX_SCENES:
         _error("لقطات الستوك لنداء شورت والفيلم وعلى مهل والبودكاست فقط.")
-    pinned = isinstance(value, dict) and "url" in value
-    stock = _object(value, set() if pinned else {"query_en"}, {"query_en", "query_alt_en", "must_show", "url"}, field="scene.stock")
+    pinned = isinstance(value, dict) and ("url" in value or "urls" in value)
+    stock = _object(value, set() if pinned else {"query_en"},
+                    {"query_en", "query_alt_en", "must_show", "url", "urls"}, field="scene.stock")
+    if "url" in stock and "urls" in stock:
+        _error("اختر stock.url أو stock.urls وليس الاثنين.")
     if pinned:
         from .pinned_stock import parse_stock_url
 
+        urls = stock.get("urls") if "urls" in stock else [stock["url"]]
+        if not isinstance(urls, list) or not 1 <= len(urls) <= 3:
+            _error("stock.urls يجب أن تحتوي 1–3 روابط مرتبة حسب الأفضلية.")
         try:
-            parse_stock_url(stock["url"])
+            ids = [parse_stock_url(url)[:3:2] for url in urls]
         except ValueError:
-            _error("stock.url: رابط صفحة فيديو أو صورة من Pexels أو Pixabay فقط (https).")
+            _error("stock.urls: روابط صفحات HTTPS من Pexels أو Pixabay أو Coverr فقط.")
+        if len(ids) != len(set(ids)):
+            _error("stock.urls: لا تكرر المقطع في روابط المشهد نفسه.")
     for key in ("query_en", "query_alt_en"):
         if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
                              or not 2 <= len(stock[key].split()) <= 9):
@@ -271,7 +279,12 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
                     _error(f"رتّب عناصر اللوحة {scene['id']} بحسب ورودها في الكلام.")
                 last = position
     stock_count = sum(1 for scene in scenes if "stock" in scene)
-    pinned_ids = [parse_stock_url(scene["stock"]["url"])[:3:2] for scene in scenes if "url" in scene.get("stock", {})]
+    pinned_urls = [
+        url for scene in scenes
+        for url in ([scene["stock"]["url"]] if "url" in scene.get("stock", {})
+                    else scene.get("stock", {}).get("urls", []))
+    ]
+    pinned_ids = [parse_stock_url(url)[:3:2] for url in pinned_urls]
     if len(pinned_ids) != len(set(pinned_ids)):
         _error("stock.url مكرر: لكل مشهد مقطع أو صورة مختلفة.")
     stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
