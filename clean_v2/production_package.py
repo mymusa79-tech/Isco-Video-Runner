@@ -316,6 +316,8 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             last_of_section = index + 1 == len(scenes) or scenes[index + 1]["section_id"] != scene["section_id"]
             if last_of_section and f"s{number + 1}" in texts and f"s{number + 1}" not in {x["section_id"] for x in scenes}:
                 _error("لقطة الستوك في على مهل لا تكون آخر مشهد قبل قسم يكمل الصورة نفسها.")
+    if vibe and covered != set(texts):
+        _error("إحساس يحتاج مشهد فيديو يبدأ مع كل قسم من الأقسام الثلاثة.")
     if ala_mahl and scenes[0]["section_id"] != "s1":
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):
