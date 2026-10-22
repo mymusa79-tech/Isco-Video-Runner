@@ -408,10 +408,125 @@ class OwnerArtVisualSource:
             return (final, row), ""
         return None, reason
 
+    def _try_pinned_sequence(self, beat: Mapping[str, Any], asset: Path, output_dir: Path,
+                             fmt: str, seconds: float, index: int):
+        """Join the editor's three VIDEO links in order, then approved art for any gap.
+
+        The opt-in mode never reinterprets legacy prioritized alternatives. Failed
+        candidates are skipped rather than replacing the whole scene with still art.
+        The output has no audio: the existing voice-owned timeline remains authoritative.
+        """
+        from .media import _run, probe_duration
+
+        urls = beat["owner_stock"]["urls"]
+        remaining = max(0.0, float(seconds))
+        pieces: list[tuple[Path, float, dict[str, Any]]] = []
+        rejections: list[dict[str, Any]] = []
+        for rank, url in enumerate(urls, 1):
+            if remaining <= 0.08:
+                break
+            admitted, reason = self._try_pinned_one(
+                beat, asset, output_dir, fmt, remaining, index, str(url)
+            )
+            if admitted is None:
+                rejections.append({"rank": rank, "reason": str(reason)[:120]})
+                continue
+            clip, row = admitted
+            if row.get("media_kind") != "video":
+                clip.unlink(missing_ok=True)
+                rejections.append({"rank": rank, "reason": "sequence_requires_video"})
+                continue
+            available = probe_duration(clip)
+            used = min(remaining, available)
+            if used < PINNED_MIN_SECONDS:
+                clip.unlink(missing_ok=True)
+                rejections.append({"rank": rank, "reason": "sequence_clip_too_short"})
+                continue
+            part = Path(output_dir) / f"sequence-{beat['id']}-{rank}.mp4"
+            clip.replace(part)
+            pieces.append((part, used, row))
+            remaining = max(0.0, remaining - used)
+
+        if not pieces:
+            return None, "pinned_sequence_exhausted:" + ",".join(
+                item["reason"] for item in rejections
+            )
+
+        has_art_tail = remaining > 0.08
+        if has_art_tail:
+            tail = Path(output_dir) / f"sequence-{beat['id']}-owner.mp4"
+            try:
+                make_motion_clip(
+                    asset, tail, seconds=remaining + 0.5, direction=index,
+                    portrait=fmt == "short",
+                    motion_kind=beat["owner_motion"], respect_hold=True,
+                )
+                pieces.append((tail, remaining, {"source_actual": PROVIDER}))
+            except Exception as exc:
+                for part, _, _ in pieces:
+                    part.unlink(missing_ok=True)
+                return None, f"pinned_sequence_tail_failed:{type(exc).__name__}"
+
+        final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
+        width, height = (720, 1280) if fmt == "short" else (CLIP_WIDTH, CLIP_HEIGHT)
+        # Normalize frame sizes, clocks and pixel formats before lossless-timing
+        # concat. No reverse, loop, repeat, audio edits or time stretching.
+        inputs: list[str] = []
+        filters: list[str] = []
+        for j, (part, duration, _) in enumerate(pieces):
+            inputs.extend(["-i", str(part)])
+            filters.append(
+                f"[{j}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},fps=30,setsar=1,format=yuv420p,"
+                f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[v{j}]"
+            )
+        graph = ";".join(filters) + ";" + "".join(
+            f"[v{j}]" for j in range(len(pieces))
+        ) + f"concat=n={len(pieces)}:v=1:a=0[out]"
+        try:
+            _run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *inputs,
+                 "-filter_complex", graph, "-map", "[out]", "-an",
+                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
+                 "-pix_fmt", "yuv420p", str(final)],
+                timeout=600,
+            )
+        except Exception as exc:
+            final.unlink(missing_ok=True)
+            return None, f"pinned_sequence_join_failed:{type(exc).__name__}"
+        finally:
+            for part, _, _ in pieces:
+                part.unlink(missing_ok=True)
+
+        videos = [(duration, row) for _, duration, row in pieces
+                  if row.get("source_actual") == "stock_motion"]
+        row = dict(videos[0][1])
+        row.update(
+            local_file=final.name,
+            pinned_sequence=True,
+            pinned_sequence_requested=len(urls),
+            pinned_sequence_used=len(videos),
+            pinned_sequence_sources=[
+                {"source_url": segment["source_url"],
+                 "provider": segment["provider"],
+                 "asset_id": segment["asset_id"],
+                 "seconds": round(duration, 2)}
+                for duration, segment in videos
+            ],
+            pinned_sequence_rejections=rejections,
+            pinned_source_seconds=round(sum(duration for duration, _ in videos), 2),
+            pinned_continues_with_image=has_art_tail,
+            # Composite source requires editorial review of EVERY inserted shot.
+            sequence_visual_review_required=True,
+        )
+        return (final, row), ""
+
     def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
                     seconds: float, index: int):
         """Try up to three editor-approved stock links in priority order, then the approved image."""
         stock = beat["owner_stock"]
+        if stock.get("mode") == "sequence":
+            return self._try_pinned_sequence(beat, asset, output_dir, fmt, seconds, index)
         urls = stock.get("urls") or [stock.get("url")]
         reasons = []
         for rank, url in enumerate(urls, start=1):
@@ -473,9 +588,11 @@ class OwnerArtVisualSource:
                 # fallback photo while a stock URL was successfully selected.
                 # Retry the next link instead. Single-URL legacy packs retain
                 # the original video-then-owner-image continuation behavior.
-                if len(beat.get("owner_stock", {}).get("urls", [])) == 3 and length + 0.08 < seconds:
+                if (len(beat.get("owner_stock", {}).get("urls", [])) == 3
+                        and beat.get("owner_stock", {}).get("mode") != "sequence"
+                        and length + 0.08 < seconds):
                     return None, "pinned_clip_too_short_for_scene"
-                if length + 0.08 >= seconds:
+                if length + 0.08 >= seconds or beat.get("owner_stock", {}).get("mode") == "sequence":
                     clip.replace(final)
                 else:
                     fade = PINNED_FADE_SECONDS
