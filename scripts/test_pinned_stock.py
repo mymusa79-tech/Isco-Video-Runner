@@ -90,6 +90,17 @@ class ContractTests(unittest.TestCase):
                     self.assertEqual(beat["owner_stock"]["urls"], scene["stock"]["urls"])
                     self.assertEqual(beat["owner_asset"], scene["asset"])
 
+    def test_three_link_scene_stays_single_source_after_short_hook(self):
+        doc = self.new_three_link_pack("short")
+        beats = ready_production.build_story(doc)["beats"]
+        self.assertEqual(len(beats), len(doc["scenes"]))
+        self.assertFalse(any("__topic" in beat["id"] for beat in beats))
+        self.assertTrue(all(beat.get("owner_stock", {}).get("urls") and beat["owner_asset"]
+                            for beat in beats))
+        # Older packs keep the existing hook/body split unchanged.
+        old = ready_production.build_story(manifest("short"))["beats"]
+        self.assertTrue(any("__topic" in beat["id"] for beat in old))
+
     def test_three_link_policy_refuses_missing_or_incomplete_scene_links(self):
         base = self.new_three_link_pack("film")
         variants = []
