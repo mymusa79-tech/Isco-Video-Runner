@@ -532,6 +532,25 @@ def _build_publish_package(
             except OSError:
                 pass
 
+    # Optional Vibe evidence must reach the human publisher with the video.
+    # Never silently mark a partially stocked/unmixed Vibe as ready to post.
+    vibe_requested = _read_json(root / "production.json").get("ala_mahl_mode") == "vibe"
+    vibe_delivered = _read_json(root / "delivery-readiness.json") if vibe_requested else {}
+    vibe_stock = _read_json(root / "vibe-stock.json") if vibe_requested else {}
+    vibe_music = _read_json(root / "topic-audio-polish.json") if vibe_requested else {}
+    vibe_status = (
+        "ready_for_human_review" if (
+            vibe_delivered.get("status") == "complete"
+            and vibe_stock.get("status") == "pass"
+            and vibe_music.get("status") == "pass"
+        ) else "requires_editorial_review"
+    ) if vibe_requested else "not_applicable"
+    if vibe_requested:
+        for filename in ("vibe-stock.json", "topic-audio-polish.json", "delivery-readiness.json"):
+            source_report = root / filename
+            if source_report.is_file():
+                shutil.copy2(source_report, stage / filename)
+
     readme_lines = [
         "حزمة نشر نداء اليقظة",
         "",
@@ -557,6 +576,14 @@ def _build_publish_package(
                 "إذا كان suggested_related_video_id موجودًا في الملف، أدخله يدويًا كـ Related Video في YouTube Studio.",
             ]
         )
+    if vibe_requested:
+        readme_lines.extend([
+            "",
+            "على مهل — إحساس: مراجعة بشرية إلزامية قبل النشر.",
+            "الحالة: " + vibe_status,
+            "راجع vibe-stock.json وtopic-audio-polish.json وdelivery-readiness.json.",
+            "نجاح الرندر لا يضمن وجود كل فيديوهات الستوك أو اكتمال الموسيقى.",
+        ])
     readme_lines.extend(["", "النشر إلى YouTube يبقى يدويًا."])
     (stage / "README.txt").write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
 
@@ -573,6 +600,9 @@ def _build_publish_package(
         "files": sorted(path.name for path in stage.iterdir() if path.is_file()),
         "provider_calls_added": 0,
         "publication_mode": "manual",
+        **({"vibe_status": vibe_status, "vibe_stock_status": vibe_stock.get("status"),
+            "vibe_music_status": vibe_music.get("status"),
+            "vibe_delivery_status": vibe_delivered.get("status")} if vibe_requested else {}),
     }
     simple = _read_json(root / "simple-mode-report.json")
     if simple:
@@ -693,6 +723,10 @@ def publish_one(
         package_text += "\n" + warning_text({"reason": package_manifest["derived_short_reason"]})
     if package_manifest.get("derived_short_included") is True:
         package_text += " + الشورت المشتق + كفره + بيانات نشره"
+    if package_manifest.get("vibe_status") == "requires_editorial_review":
+        package_text += "\n⚠️ إحساس: يوجد نقص محتمل في الستوك أو الموسيقى؛ راجع تقارير الحزمة قبل النشر."
+    elif package_manifest.get("vibe_status") == "ready_for_human_review":
+        package_text += "\n🎬 إحساس: تقارير الستوك والموسيقى مكتملة تقنيًا؛ شاهد المقطع بنفسك قبل النشر."
     if not send_message(
         package_text,
         button_text="📦 تحميل حزمة النشر كاملة",
