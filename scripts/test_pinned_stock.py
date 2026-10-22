@@ -80,9 +80,30 @@ class ContractTests(unittest.TestCase):
 
     def test_pinned_scenes_count_toward_the_stock_cap(self):
         doc = pinned(manifest("podcast"), [0], [PEXELS_VIDEO])
-        with self.assertRaises(Exception):  # podcast takes no stock at all
-            package.validate_manifest(doc)
+        package.validate_manifest(doc)
         package.validate_manifest(pinned(manifest("short"), [0], [PEXELS_VIDEO]))
+
+    def test_three_distinct_pinned_links_and_rejections(self):
+        doc = manifest("short")
+        scene = doc["scenes"][1]
+        scene["stock"] = {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}
+        package.validate_manifest(doc)
+        for invalid in ([PEXELS_VIDEO, PEXELS_VIDEO + "?dup=1"],
+                        [PEXELS_VIDEO, "https://bad.example/video/1"],
+                        [PEXELS_VIDEO] * 4, []):
+            scene["stock"] = {"urls": invalid}
+            with self.subTest(invalid=invalid), self.assertRaises(Exception):
+                package.validate_manifest(doc)
+        scene["stock"] = {"url": PEXELS_VIDEO, "urls": [PIXABAY_VIDEO]}
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc)
+
+    def test_reuse_of_alternate_between_scenes_is_rejected(self):
+        doc = manifest("film")
+        doc["scenes"][0]["stock"] = {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO]}
+        doc["scenes"][1]["stock"] = {"url": PIXABAY_VIDEO}
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc)
 
     def test_scene_still_needs_its_approved_image(self):
         doc = pinned(manifest("film"), [0], [PEXELS_VIDEO])
@@ -187,6 +208,28 @@ class PreparationTests(unittest.TestCase):
         fetch = mock.patch.object(pinned_stock, "fetch_candidate", return_value=cand, side_effect=error)
         with fetch, mock.patch("clean_v2.media._download_media", side_effect=download):
             return self.source(preflight=preflight)._try_pinned(beat, self.asset, self.out, fmt, seconds, 0)
+
+    def test_three_url_fallback_selects_third_if_first_two_fail(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        final = self.out / "stock.mp4"
+        attempt = [(None, "pinned_asset_not_found"), (None, "pinned_clip_too_short"),
+                   ((final, {"provider": "coverr", "stock_pinned": True}), "")]
+        with mock.patch.object(source, "_try_pinned_one", side_effect=attempt) as worker:
+            admitted, reason = source._try_pinned(beat, self.asset, self.out, "short", 5.0, 0)
+        self.assertEqual(reason, "")
+        self.assertEqual(worker.call_count, 3)
+        self.assertEqual(admitted[1]["pinned_choice_rank"], 3)
+        self.assertEqual(len(admitted[1]["pinned_prior_rejections"]), 2)
+
+    def test_three_url_failure_returns_fallback_reason(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "pinned_no_playable_file")) as worker:
+            admitted, reason = source._try_pinned(beat, self.asset, self.out, "short", 5.0, 0)
+        self.assertIsNone(admitted)
+        self.assertEqual(worker.call_count, 3)
+        self.assertTrue(reason.startswith("pinned_alternatives_exhausted:"))
 
     def test_short_clip_plays_then_the_approved_image_finishes_the_scene(self):
         admitted, reason = self.run_pinned(length=3.0, seconds=10.0)
