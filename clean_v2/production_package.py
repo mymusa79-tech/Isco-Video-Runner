@@ -65,14 +65,14 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
     return value
 
 
-# Optional real-stock scene (Nidaa Short and Film only). The scene's required `asset` stays the
+# Optional real-stock scene (Short, Film and Podcast). The scene's required `asset` stays the
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
 # never leave a gap and the archive never carries video. `url` (a Pexels/Pixabay page link the editor
 # verified) pins the exact clip or photo; it is only a string and the client still reviews the result.
 ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
 # Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
-SCENE_MAX = {"short": 14, "film": 60, "podcast": 5}  # podcast: one picture, one scene entry per section (2-5 sections)
-STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 0}  # any scene may ask for stock; the approved image stays its fallback
+SCENE_MAX = {"short": 14, "film": 60, "podcast": 32}  # podcast can now change visuals at dialogue anchors
+STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 16}  # verified stock is optional; approved art remains fallback
 _STOCK_QUERY = re.compile(r"[A-Za-z][A-Za-z '\-]{2,78}[A-Za-z]")
 
 
@@ -245,8 +245,6 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         covered.add(sid)
         if scene["motion"] not in ("slow_pan", "slow_zoom", "hold") or scene["transition"] not in ("cut", "dissolve"):
             _error("المونتاج يدعم slow_pan / slow_zoom / hold وانتقال cut / dissolve فقط.")
-    if fmt == "podcast" and len({scene["asset"] for scene in scenes}) != 1:
-        _error("البودكاست صورة واحدة فقط لكل الحلقة: كل المشاهد تشير إلى الملف نفسه.")
     board_scenes = [scene for scene in scenes if "board" in scene]
     if board_scenes:
         from .board_scene import BOARD_MAX_SCENES
