@@ -515,6 +515,10 @@ class OwnerArtVisualSource:
             ],
             pinned_sequence_rejections=rejections,
             pinned_source_seconds=round(sum(duration for duration, _ in videos), 2),
+            pinned_sequence_slot_seconds=round(float(seconds), 2),
+            pinned_sequence_motion_share=round(
+                sum(duration for duration, _ in videos) / max(0.001, float(seconds)), 3
+            ),
             pinned_continues_with_image=has_art_tail,
             # Composite source requires editorial review of EVERY inserted shot.
             sequence_visual_review_required=True,
