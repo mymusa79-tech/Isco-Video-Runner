@@ -27,7 +27,11 @@ def build_story(doc: Mapping[str, Any]) -> dict:
     for section in doc["script"]["sections"]:
         sid = section["id"]
         text = spoken_text(section_text(section))
-        hook = _first_sentence(text) if sid == "s1" else ""
+        # A podcast starts with one complete listener turn, not the first dot.
+        turns = section.get("turns") or []
+        hook = (str(turns[0]["text"]).strip() if doc["format"] == "podcast" and sid == "s1"
+                and turns and turns[0].get("speaker") == "A"
+                else (_first_sentence(text) if sid == "s1" else ""))
         scenes = [s for s in doc["scenes"] if s["section_id"] == sid]
         if not scenes and doc["template"] == "ala_mahl" and beats:
             # Section boundaries are audio bookkeeping, not picture changes.
@@ -85,7 +89,8 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "owner_asset": scene["asset"],
                 "owner_motion": "hold" if podcast_legacy_still else scene["motion"],
                 "owner_transition": "cut" if podcast_legacy_still else scene["transition"],
-                **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
+                **({"owner_stock": {k: (copy.deepcopy(v) if k == "urls" else str(v).strip())
+                                   for k, v in stock.items()}} if stock else {}),
                 # Dialogue Podcast stays on its one approved background even if
                 # an older ZIP contains explainer-board metadata.
                 **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}}
