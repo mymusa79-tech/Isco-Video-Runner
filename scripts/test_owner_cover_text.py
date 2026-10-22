@@ -46,11 +46,11 @@ class OwnerCoverTextTests(unittest.TestCase):
         self.assertNotEqual(before, after)
         self.assertEqual(size, (1080, 1920))
 
-    def test_explicit_cover_asset_is_untouched_in_behaviour(self) -> None:
+    def test_explicit_cover_asset_keeps_full_resolution(self) -> None:
         out, _before, _after, size = self._run(_doc("assets/cover_base.png", "ignored"))
         self.assertEqual(out["source"], "owner_cover_image")
         self.assertNotIn("selection", out)
-        self.assertEqual(size, (720, 1280))
+        self.assertEqual(size, (1080, 1920))
 
     def test_no_text_keeps_the_generated_cover(self) -> None:
         out, before, after, _ = self._run(_doc(None, ""))
