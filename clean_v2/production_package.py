@@ -214,9 +214,11 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             _error("توجيهات A/B للبودكاست فقط.")
     editing = _object(doc["editing"], {"music"}, {"mood", "track_id"} if vibe else frozenset(), field="editing")
     if vibe:
-        if editing.get("music") != "vibe_instrumental" or editing.get("mood") not in VIBE_TRACKS:
+        mood, track_id = editing.get("mood"), editing.get("track_id")
+        if (editing.get("music") != "vibe_instrumental"
+                or not isinstance(mood, str) or mood not in VIBE_TRACKS):
             _error("إحساس يحتاج موسيقى آلية ومزاجًا معتمدًا.")
-        if editing.get("track_id") not in VIBE_TRACKS[editing["mood"]]:
+        if not isinstance(track_id, str) or track_id not in VIBE_TRACKS[mood]:
             _error("مقطع إحساس يحتاج track_id مرخصًا ومناسبًا للمزاج من المكتبة المعتمدة.")
     elif editing["music"] != "none":
         _error('بقية القوالب تحتاج editing.music="none" دون تغيير.')
