@@ -78,6 +78,9 @@ class ContractTests(unittest.TestCase):
             doc = self.new_three_link_pack(fmt, template)
             with self.subTest(fmt=fmt, template=template):
                 checked = package.validate_manifest(doc)
+                # Validate a real packaged ZIP, not only the in-memory manifest.
+                imported = package.inspect_archive(archive_bytes(doc))
+                self.assertEqual(imported["manifest"]["stock_policy"], package.THREE_LINK_STOCK_POLICY)
                 self.assertEqual(len(checked["scenes"]), len(doc["scenes"]))
                 self.assertTrue(all(len(s["stock"]["urls"]) == 3 and s["asset"]
                                     for s in checked["scenes"]))
