@@ -511,6 +511,59 @@ def film_motion_preflight(rights: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _story_pacing_audit(output_dir: Path, fmt: str) -> dict[str, Any]:
+    """Advisory-only: no repeat-image illusion or forced edits to approved narration.
+
+    Existing ZIPs remain renderable. New Ala Mahl must be reviewed if a 20-second
+    still has no story turn, and a long Podcast with one photograph is disclosed.
+    """
+    import json
+
+    output_dir = Path(output_dir)
+    try:
+        doc = json.loads((output_dir / "production.json").read_text(encoding="utf-8"))
+        rights = json.loads((output_dir / "rights-manifest.json").read_text(encoding="utf-8"))
+        timeline = json.loads((output_dir / "timeline-first.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(doc, dict) or not isinstance(rights, dict) or not isinstance(timeline, dict):
+        return {}
+    is_ala = doc.get("template") == "ala_mahl"
+    if fmt != "podcast" and not is_ala:
+        return {}
+    duration = float(timeline.get("voice_seconds_measured") or 0)
+    scene_rows = [row for row in rights.get("assets", []) if isinstance(row, dict)
+                  and not row.get("pacing_auxiliary")]
+    scenes = [item for item in doc.get("scenes", []) if isinstance(item, dict)]
+    unique_images = len({row.get("asset") for row in scenes if row.get("asset")})
+    warnings = []
+    if fmt == "podcast" and duration >= 120 and unique_images < 2:
+        warnings.append("podcast_single_photo_for_long_dialogue")
+    if is_ala and duration > 55:
+        warnings.append("ala_mahl_longer_than_55_seconds")
+    long_stills = []
+    try:
+        from .visual_qa import _review_display_durations
+        slot_lengths = _review_display_durations(output_dir, scene_rows, fmt)
+    except (OSError, ValueError, KeyError, TypeError):
+        slot_lengths = {}
+    if is_ala:
+        for row in scene_rows:
+            if row.get("source_actual") not in {PROVIDER, "owner_art", "generated_local", "stock_still"}:
+                continue
+            secs = float(slot_lengths.get(str(row.get("local_file") or "")) or 0)
+            if secs > 20:
+                long_stills.append({"scene": str(row.get("beat_id") or ""),
+                                    "seconds": round(secs, 2)})
+        if long_stills:
+            warnings.append("ala_mahl_still_over_20_seconds")
+        if unique_images < 3 and duration > 40:
+            warnings.append("ala_mahl_not_enough_distinct_story_moments")
+    return {"format": fmt, "template": doc.get("template"), "voice_seconds": round(duration, 2),
+            "distinct_approved_images": unique_images, "long_stills": long_stills,
+            "warnings": warnings, "status": "review_required" if warnings else "no_flag"}
+
+
 def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
     """Honest end-of-run report built only from recorded data."""
     output_dir = Path(output_dir)
@@ -577,6 +630,12 @@ def write_simple_report(output_dir: Path, *, fmt: str) -> dict[str, Any]:
             )
         ),
     }
+    pacing = _story_pacing_audit(output_dir, fmt)
+    if pacing:
+        report["story_pacing"] = pacing
+        if pacing["warnings"]:
+            report["editorial_status"] = "visual_pacing_review_required"
+            report["statement"] += " Visual pacing requires owner review: " + ", ".join(pacing["warnings"]) + "."
     atomic_write_json(output_dir / REPORT_FILE, report)
     print(f"::notice title=simple-mode-report::{report['statement']}")
     return report
