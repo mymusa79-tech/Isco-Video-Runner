@@ -69,7 +69,16 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 # approved image used whenever the client cannot admit a matching clip, so a stock scene can
 # never leave a gap and the archive never carries video. `url` (a Pexels/Pixabay page link the editor
 # verified) pins the exact clip or photo; it is only a string and the client still reviews the result.
-ALA_MAHL_STOCK_MAX = 2  # ambient/object inserts only; characters stay approved images
+ALA_MAHL_STOCK_MAX = 2  # Story mode stays unchanged.
+VIBE_STOCK_MIN = 4
+VIBE_STOCK_MAX = 7
+# The renderer reads only verified CC0 files from the existing FreePD manifest.
+# Author chooses the exact track: never infer a sad/victorious cue from the text.
+VIBE_TRACKS = {
+    "hopeful": frozenset({"peace-in-sunlight", "wonder-flow", "other-side-now", "acoustic-shifter"}),
+    "melancholy": frozenset({"calm-sketch-piano", "a-little-faith"}),
+    "nostalgic": frozenset({"wonder-flow", "a-little-faith"}),
+}
 # Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
 SCENE_MAX = {"short": 14, "film": 60, "podcast": 5}  # podcast: one picture, one scene entry per section (2-5 sections)
 STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 0}  # any scene may ask for stock; the approved image stays its fallback
@@ -143,13 +152,16 @@ def spoken_text(text: str) -> str:
 
 def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str, Any]:
     doc = _object(value, {"schema_version", "format", "template", "title", "approval", "script", "performance",
-                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "roles"}, field="production.json")
+                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "roles", "ala_mahl_mode"}, field="production.json")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
         _error("schema_version يجب أن يساوي 1.")
     fmt = doc["format"]
     allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa",)}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
+    vibe = doc.get("ala_mahl_mode") == "vibe"
+    if "ala_mahl_mode" in doc and (doc["template"] != "ala_mahl" or not vibe):
+        _error("ala_mahl_mode=vibe متاح فقط لشورت على مهل — إحساس.")
     _text(doc["title"], "title", 120)
     approval = _object(doc["approval"], {"status", "reviewer"}, field="approval")
     if approval != {"status": "approved", "reviewer": "Claude"}:
@@ -200,9 +212,14 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _text(direction, f"performance.{key}", 800, empty=key == "direction")
         if key in {"A", "B"} and fmt != "podcast":
             _error("توجيهات A/B للبودكاست فقط.")
-    editing = _object(doc["editing"], {"music"}, field="editing")
-    if editing["music"] != "none":
-        _error('الإصدار الأول يدعم editing.music="none" فقط، دون موسيقى مضافة.')
+    editing = _object(doc["editing"], {"music"}, {"mood", "track_id"} if vibe else frozenset(), field="editing")
+    if vibe:
+        if editing.get("music") != "vibe_instrumental" or editing.get("mood") not in VIBE_TRACKS:
+            _error("إحساس يحتاج موسيقى آلية ومزاجًا معتمدًا.")
+        if editing.get("track_id") not in VIBE_TRACKS[editing["mood"]]:
+            _error("مقطع إحساس يحتاج track_id مرخصًا ومناسبًا للمزاج من المكتبة المعتمدة.")
+    elif editing["music"] != "none":
+        _error('بقية القوالب تحتاج editing.music="none" دون تغيير.')
     if doc["captions"] != {"font": "Cairo Bold", "max_lines": 2, "enabled": True}:
         _error("الكابشن يجب أن يكون مفعّلًا بخط Cairo Bold وسطرين كحد أقصى.")
     scenes = doc["scenes"]
@@ -211,8 +228,10 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error(f"الحزمة تحتاج 1–{scene_cap} مشهدًا يغطي كل الأقسام.")
     ala_mahl = doc["template"] == "ala_mahl"
     # V22 authors 2–4 pictures; keep existing 5–6-picture ZIPs readable.
-    if ala_mahl and not 2 <= len(scenes) <= 6:
-        _error("على مهل يحتاج 2–4 صور قصصية؛ حزم 5–6 صور القديمة ما زالت مدعومة.")
+    if vibe and not VIBE_STOCK_MIN <= len(scenes) <= VIBE_STOCK_MAX:
+        _error("إحساس يحتاج 4–7 مشاهد بستوك فيديو مقصود وصورة احتياطية لكل مشهد.")
+    if ala_mahl and not vibe and not 2 <= len(scenes) <= 6:
+        _error("على مهل — قصة يحتاج 2–4 صور؛ حزم 5–6 صور القديمة مدعومة.")
     seen: set[str] = set()
     assets: set[str] = set()
     prior = (-1, -1)
@@ -221,6 +240,12 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _object(scene, {"id", "section_id", "asset", "start_text", "motion", "transition"}, {"stock", "board"}, field="scene")
         if "stock" in scene:
             _stock(scene["stock"], fmt, doc["template"])
+        if vibe:
+            if "board" in scene or "stock" not in scene or "url" not in scene["stock"]:
+                _error("إحساس يحتاج فيديو ستوك محددًا برابط مثبت لكل مشهد، دون Board أو بحث تلقائي.")
+            provider, kind, _stock_id = parse_stock_url(scene["stock"]["url"])
+            if provider not in {"pexels", "pixabay"} or kind not in {"video", "videos"}:
+                _error("إحساس يقبل صفحات فيديو Pexels/Pixabay فقط، وليس الصور أو Coverr.")
         if "board" in scene:
             if "stock" in scene:
                 _error("المشهد إما لوحة أو ستوك، لا الاثنان.")
@@ -276,9 +301,11 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     pinned_ids = [parse_stock_url(scene["stock"]["url"])[:3:2] for scene in scenes if "url" in scene.get("stock", {})]
     if len(pinned_ids) != len(set(pinned_ids)):
         _error("stock.url مكرر: لكل مشهد مقطع أو صورة مختلفة.")
-    stock_cap = ALA_MAHL_STOCK_MAX if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
+    stock_cap = (VIBE_STOCK_MAX if vibe else ALA_MAHL_STOCK_MAX) if ala_mahl else STOCK_MAX_SCENES.get(fmt, 0)
     if stock_count > stock_cap:
         _error(f"لقطات الستوك: {stock_cap} كحد أقصى لهذا النوع.")
+    if vibe and stock_count != len(scenes):
+        _error("إحساس يحتاج لقطة فيديو مقصودة لكل مشهد، مع صورة احتياطية.")
     if ala_mahl and stock_count:
         # A section without its own picture continues the previous picture. A stock clip
         # there would jump back to its still fallback in the middle of the story.
