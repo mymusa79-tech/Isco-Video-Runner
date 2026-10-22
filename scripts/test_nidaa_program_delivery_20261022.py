@@ -59,6 +59,7 @@ class ProgramIdentityContractTests(unittest.TestCase):
         doc["script"]["sections"][0]["turns"][0]["text"] = (
             "الساعة الواحدة وأربعون دقيقة. أغلقت الهاتف ثلاث مرات. لماذا لا أنام؟"
         )
+        doc["scenes"][0]["start_text"] = "الساعة الواحدة وأربعون دقيقة."
         beats = build_story(doc)["beats"]
         self.assertEqual(beats[0]["role"], "hook")
         self.assertTrue(beats[0]["writer_anchor_ar"].startswith("الساعة الواحدة"))
