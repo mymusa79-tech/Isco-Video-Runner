@@ -60,6 +60,78 @@ class ParseTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    @staticmethod
+    def new_three_link_pack(fmt="short", template=None):
+        doc = manifest(fmt, template=template)
+        doc["stock_policy"] = package.THREE_LINK_STOCK_POLICY
+        for i, scene in enumerate(doc["scenes"]):
+            scene["stock"] = {
+                "urls": [f"https://www.pexels.com/video/approved-scene-{7100000 + 3*i + j}/"
+                         for j in range(3)],
+                "must_show": "A visual matching this exact narration moment",
+            }
+        return doc
+
+    def test_every_scene_has_three_prioritized_links_and_one_approved_picture(self):
+        for fmt, template in (("short", None), ("film", None), ("podcast", None),
+                              ("short", "ala_mahl")):
+            doc = self.new_three_link_pack(fmt, template)
+            with self.subTest(fmt=fmt, template=template):
+                checked = package.validate_manifest(doc)
+                # Validate a real packaged ZIP, not only the in-memory manifest.
+                imported = package.inspect_archive(archive_bytes(doc))
+                self.assertEqual(imported["manifest"]["stock_policy"], package.THREE_LINK_STOCK_POLICY)
+                self.assertEqual(len(checked["scenes"]), len(doc["scenes"]))
+                self.assertTrue(all(len(s["stock"]["urls"]) == 3 and s["asset"]
+                                    for s in checked["scenes"]))
+                beats = ready_production.build_story(checked)["beats"]
+                for scene in checked["scenes"]:
+                    beat = next(b for b in beats if b["id"] == scene["id"])
+                    self.assertEqual(beat["owner_stock"]["urls"], scene["stock"]["urls"])
+                    self.assertEqual(beat["owner_asset"], scene["asset"])
+
+    def test_three_link_scene_stays_single_source_after_short_hook(self):
+        doc = self.new_three_link_pack("short")
+        beats = ready_production.build_story(doc)["beats"]
+        self.assertEqual(len(beats), len(doc["scenes"]))
+        self.assertFalse(any("__topic" in beat["id"] for beat in beats))
+        self.assertTrue(all(beat.get("owner_stock", {}).get("urls") and beat["owner_asset"]
+                            for beat in beats))
+        # Older packs keep the existing hook/body split unchanged.
+        old = ready_production.build_story(manifest("short"))["beats"]
+        self.assertTrue(any("__topic" in beat["id"] for beat in old))
+
+    def test_three_link_policy_refuses_missing_or_incomplete_scene_links(self):
+        base = self.new_three_link_pack("film")
+        variants = []
+        missing = copy.deepcopy(base)
+        missing["scenes"][2].pop("stock")
+        variants.append(missing)
+        partial = copy.deepcopy(base)
+        partial["scenes"][0]["stock"]["urls"] = partial["scenes"][0]["stock"]["urls"][:2]
+        variants.append(partial)
+        single = copy.deepcopy(base)
+        single["scenes"][0]["stock"] = {"url": PEXELS_VIDEO}
+        variants.append(single)
+        query = copy.deepcopy(base)
+        query["scenes"][0]["stock"] = {"query_en": "walking along sidewalk"}
+        variants.append(query)
+        overlap = copy.deepcopy(base)
+        overlap["scenes"][1]["stock"]["urls"][1] = overlap["scenes"][0]["stock"]["urls"][2]
+        variants.append(overlap)
+        for ix, doc in enumerate(variants):
+            with self.subTest(case=ix), self.assertRaises(Exception):
+                package.validate_manifest(doc)
+
+    def test_three_link_policy_is_explicit_and_does_not_break_old_approved_zips(self):
+        old = manifest("podcast")
+        self.assertEqual(package.validate_manifest(copy.deepcopy(old)), old)
+        new = self.new_three_link_pack("podcast")
+        new["stock_policy"] = "nonsense"
+        with self.assertRaises(Exception):
+            package.validate_manifest(new)
+
+
     def test_url_replaces_the_query_and_may_carry_must_show(self):
         doc = package.validate_manifest(pinned(manifest("film"), [0, 1], [PEXELS_VIDEO, PIXABAY_PHOTO]))
         self.assertEqual(doc["scenes"][0]["stock"], {"url": PEXELS_VIDEO})
@@ -80,9 +152,30 @@ class ContractTests(unittest.TestCase):
 
     def test_pinned_scenes_count_toward_the_stock_cap(self):
         doc = pinned(manifest("podcast"), [0], [PEXELS_VIDEO])
-        with self.assertRaises(Exception):  # podcast takes no stock at all
-            package.validate_manifest(doc)
+        package.validate_manifest(doc)
         package.validate_manifest(pinned(manifest("short"), [0], [PEXELS_VIDEO]))
+
+    def test_three_distinct_pinned_links_and_rejections(self):
+        doc = manifest("short")
+        scene = doc["scenes"][1]
+        scene["stock"] = {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}
+        package.validate_manifest(doc)
+        for invalid in ([PEXELS_VIDEO, PEXELS_VIDEO + "?dup=1"],
+                        [PEXELS_VIDEO, "https://bad.example/video/1"],
+                        [PEXELS_VIDEO] * 4, []):
+            scene["stock"] = {"urls": invalid}
+            with self.subTest(invalid=invalid), self.assertRaises(Exception):
+                package.validate_manifest(doc)
+        scene["stock"] = {"url": PEXELS_VIDEO, "urls": [PIXABAY_VIDEO]}
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc)
+
+    def test_reuse_of_alternate_between_scenes_is_rejected(self):
+        doc = manifest("film")
+        doc["scenes"][0]["stock"] = {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO]}
+        doc["scenes"][1]["stock"] = {"url": PIXABAY_VIDEO}
+        with self.assertRaises(Exception):
+            package.validate_manifest(doc)
 
     def test_scene_still_needs_its_approved_image(self):
         doc = pinned(manifest("film"), [0], [PEXELS_VIDEO])
@@ -150,6 +243,73 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(reason(PEXELS_VIDEO, exc=RuntimeError("HTTP 404")), "pinned_fetch_failed:RuntimeError")
 
 
+
+class MultiLinkSelectionWithoutFFmpegTests(unittest.TestCase):
+    """Never skip the three-link fallback contract when media binaries are unavailable."""
+
+    def source(self):
+        return owner_art.OwnerArtVisualSource(types.SimpleNamespace(), Path("."))
+
+    def test_two_failed_links_then_third_succeeds(self):
+        beat = {"id": "scene_01", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        expected = ((Path("clip.mp4"), {"provider": "coverr", "stock_pinned": True}), "")
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one",
+                               side_effect=[(None, "404"), (None, "no_playable_file"), expected]) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertEqual(reason, "")
+        self.assertEqual(attempt.call_count, 3)
+        self.assertEqual(chosen[1]["pinned_choice_rank"], 3)
+        self.assertEqual(chosen[1]["pinned_alternates_total"], 3)
+        self.assertEqual([v["reason"] for v in chosen[1]["pinned_prior_rejections"]],
+                         ["404", "no_playable_file"])
+
+    def test_all_three_failed_links_have_image_fallback_reason(self):
+        beat = {"id": "scene_01", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "blocked")) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertIsNone(chosen)
+        self.assertEqual(attempt.call_count, 3)
+        self.assertEqual(reason, "pinned_alternatives_exhausted:blocked,blocked,blocked")
+
+    def test_three_urls_retry_undersized_video_without_using_fallback_photo(self):
+        # This check runs even on CI hosts without ffmpeg.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = owner_art.OwnerArtVisualSource(types.SimpleNamespace(), root)
+            beat = {"id": "scene_02",
+                    "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]},
+                    "owner_motion": "hold", "viewer_intent": "x"}
+            cand = {"provider": "pexels", "asset_id": "3195394", "media_kind": "video",
+                    "download_url": "https://videos.pexels.com/x", "source_url": PEXELS_VIDEO,
+                    "creator": "", "creator_url": "", "duration": 3.0}
+            def download(_url, destination):
+                Path(destination).write_bytes(b"synthetic fake video")
+
+            with mock.patch.object(pinned_stock, "fetch_candidate", return_value=cand), \
+                 mock.patch("clean_v2.media._download_media", side_effect=download), \
+                 mock.patch("clean_v2.media.probe_duration", return_value=3.0), \
+                 mock.patch.object(owner_art, "make_motion_clip") as make_image:
+                admitted, reason = source._try_pinned_one(
+                    beat, root / "approved.jpg", root / "visuals",
+                    "short", 10.0, 0, PEXELS_VIDEO,
+                )
+            self.assertIsNone(admitted)
+            self.assertEqual(reason, "pinned_clip_too_short_for_scene")
+            make_image.assert_not_called()
+            self.assertFalse((root / "visuals/visual-stock-scene_02.mp4").exists())
+
+    def test_legacy_single_url_keeps_its_failure_reason(self):
+        beat = {"id": "scene_01", "owner_stock": {"url": PEXELS_VIDEO}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "pinned_no_api_key")) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertIsNone(chosen)
+        self.assertEqual(attempt.call_count, 1)
+        self.assertEqual(reason, "pinned_no_api_key")
+
+
 def ffmpeg(*args):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args], check=True)
 
@@ -187,6 +347,28 @@ class PreparationTests(unittest.TestCase):
         fetch = mock.patch.object(pinned_stock, "fetch_candidate", return_value=cand, side_effect=error)
         with fetch, mock.patch("clean_v2.media._download_media", side_effect=download):
             return self.source(preflight=preflight)._try_pinned(beat, self.asset, self.out, fmt, seconds, 0)
+
+    def test_three_url_fallback_selects_third_if_first_two_fail(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        final = self.out / "stock.mp4"
+        attempt = [(None, "pinned_asset_not_found"), (None, "pinned_clip_too_short"),
+                   ((final, {"provider": "coverr", "stock_pinned": True}), "")]
+        with mock.patch.object(source, "_try_pinned_one", side_effect=attempt) as worker:
+            admitted, reason = source._try_pinned(beat, self.asset, self.out, "short", 5.0, 0)
+        self.assertEqual(reason, "")
+        self.assertEqual(worker.call_count, 3)
+        self.assertEqual(admitted[1]["pinned_choice_rank"], 3)
+        self.assertEqual(len(admitted[1]["pinned_prior_rejections"]), 2)
+
+    def test_three_url_failure_returns_fallback_reason(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "pinned_no_playable_file")) as worker:
+            admitted, reason = source._try_pinned(beat, self.asset, self.out, "short", 5.0, 0)
+        self.assertIsNone(admitted)
+        self.assertEqual(worker.call_count, 3)
+        self.assertTrue(reason.startswith("pinned_alternatives_exhausted:"))
 
     def test_short_clip_plays_then_the_approved_image_finishes_the_scene(self):
         admitted, reason = self.run_pinned(length=3.0, seconds=10.0)

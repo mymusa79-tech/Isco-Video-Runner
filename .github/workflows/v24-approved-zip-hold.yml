@@ -31,3 +31,5 @@ jobs:
         run: python -m unittest scripts.test_v24_zip_static_hold -v
       - name: Verify ZIP stock fallback and approved scene importer
         run: python -m unittest scripts.test_zip_stock_scenes scripts.test_production_package -v
+      - name: Verify podcast whole-question hook and ordered stock candidates
+        run: python -m unittest scripts.test_podcast_prayer_bridge scripts.test_pinned_stock scripts.test_nidaa_program_delivery_20261022 -v

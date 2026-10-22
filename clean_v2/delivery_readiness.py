@@ -94,6 +94,26 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
     authored_cover = original.get("cover")
     if isinstance(authored_cover, dict) and not authored_cover.get("asset"):
         notes.append("approved_cover_asset_not_in_zip")
+
+    # Editorial diagnostic only: preserve legacy ZIP imports, but never silently
+    # advertise a multi-section podcast backed by one repeated photograph as
+    # complete visual coverage. This checks the approved manifest, not frames.
+    approved_photo_coverage: dict[str, Any] = {"status": "not_applicable"}
+    if fmt == "podcast" and isinstance(original.get("scenes"), list):
+        podcast_scenes = [s for s in original["scenes"] if isinstance(s, dict)]
+        photo_files = {str(s["asset"]) for s in podcast_scenes if s.get("asset")}
+        sections = {str(s["section_id"]) for s in podcast_scenes if s.get("section_id")}
+        if podcast_scenes:
+            single_source = len(photo_files) == 1 and len(sections) >= 2
+            approved_photo_coverage = {
+                "status": "review" if single_source else "observed",
+                "scene_entries": len(podcast_scenes),
+                "major_sections": len(sections),
+                "unique_approved_photo_assets": len(photo_files),
+                "note": "Manifest photo diversity only; not human assessment of video frames.",
+            }
+            if single_source:
+                notes.append("podcast_approved_photo_plan_reuses_single_image")
     captions = _read(root / ("film-captions.json" if fmt == "film" else "podcast-captions.json"))
     if fmt in {"film", "podcast"}:
         sidecar = root / f"{fmt}-captions.srt"
@@ -158,6 +178,7 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         "sha256_matches_inspected_export": hash_ok,
         "final_master_qc_status": qc.get("status") or "unknown",
         "primary_cover": cover,
+        "approved_photo_coverage": approved_photo_coverage,
         "full_spoken_caption_status": captions.get("status") if fmt in {"film", "podcast"} else "format_owned",
         "derivative": derivative,
         "review_reasons": notes,

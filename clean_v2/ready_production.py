@@ -20,10 +20,19 @@ def build_story(doc: Mapping[str, Any]) -> dict:
     from .visual_story import CHANNEL_VISUAL_IDENTITY, _default_editorial_signals, _default_shot_role
 
     beats = []
+    # Keep old one-art podcast ZIPs static, but honor new multi-shot editorial plans.
+    podcast_legacy_still = (doc["format"] == "podcast"
+                            and len({scene["asset"] for scene in doc["scenes"]}) == 1
+                            and not any(scene.get("stock") for scene in doc["scenes"]))
+    three_link_scene_sources = doc.get("stock_policy") == "three_urls_per_scene"
     for section in doc["script"]["sections"]:
         sid = section["id"]
         text = spoken_text(section_text(section))
-        hook = _first_sentence(text) if sid == "s1" else ""
+        # A podcast starts with one complete listener turn, not the first dot.
+        turns = section.get("turns") or []
+        hook = (str(turns[0]["text"]).strip() if doc["format"] == "podcast" and sid == "s1"
+                and turns and turns[0].get("speaker") == "A"
+                else (_first_sentence(text) if sid == "s1" else ""))
         scenes = [s for s in doc["scenes"] if s["section_id"] == sid]
         if not scenes and doc["template"] == "ala_mahl" and beats:
             # Section boundaries are audio bookkeeping, not picture changes.
@@ -33,7 +42,11 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                        "asset": previous["owner_asset"], "start_text": text[:300],
                        "motion": previous["owner_motion"], "transition": "cut"}]
         expanded = [dict(s) for s in scenes]
-        if hook and text[len(hook):].strip():
+        # For the new three-link contract each authored scene owns one selected
+        # stock source. Never fabricate a second __topic picture beat after the
+        # intro hook: that would show fallback art even when stock succeeded.
+        # The original scene covers its narration span until the next anchor.
+        if hook and text[len(hook):].strip() and not three_link_scene_sources:
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
             body_scenes = [s for s in scenes if s not in hook_scenes]
             remainder = text[len(hook):].strip()
@@ -76,14 +89,13 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "semantic_must_have": must_have, "semantic_should_avoid": [], "display_text_ar": "",
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
-                # Outside-ChatGPT Podcast planning owns one approved static artwork.
-                # Legacy ZIPs may contain old pan/zoom/dissolve hints; keep those
-                # archives importable but NEVER animate or crossfade the one image.
-                # Short/Film decisions remain exactly as the editor approved.
+                # Legacy single-art podcasts remain still. Multi-shot podcasts,
+                # films and Shorts honor the approved edit and transitions.
                 "owner_asset": scene["asset"],
-                "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
-                "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
-                **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
+                "owner_motion": "hold" if podcast_legacy_still else scene["motion"],
+                "owner_transition": "cut" if podcast_legacy_still else scene["transition"],
+                **({"owner_stock": {k: (copy.deepcopy(v) if k == "urls" else str(v).strip())
+                                   for k, v in stock.items()}} if stock else {}),
                 # Dialogue Podcast stays on its one approved background even if
                 # an older ZIP contains explainer-board metadata.
                 **({"owner_board": {"spec": copy.deepcopy(board), "text": board_text, "section_words": len(text.split())}}

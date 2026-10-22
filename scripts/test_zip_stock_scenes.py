@@ -1,4 +1,4 @@
-"""Optional real-stock scenes in an approved ZIP (Nidaa Short, Film, and two ambient inserts in Ala Mahl), image fallback always."""
+"""Optional real-stock scenes in approved Short, Film, Podcast and Ala Mahl ZIPs, with approved image fallbacks."""
 from __future__ import annotations
 
 import copy
@@ -31,18 +31,20 @@ class ContractTests(unittest.TestCase):
         package.validate_manifest(with_stock(manifest("short"), list(range(every))))
 
     def test_stock_may_cover_every_scene(self):
-        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 0})
+        self.assertEqual(package.STOCK_MAX_SCENES, {"short": 14, "film": 60, "podcast": 16})
 
-    def test_podcast_takes_no_stock_at_all(self):
-        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 0)
-        with self.assertRaises(Exception):
-            package.validate_manifest(with_stock(manifest("podcast"), [0]))
+    def test_podcast_accepts_optional_stock_with_an_approved_fallback(self):
+        self.assertEqual(package.STOCK_MAX_SCENES["podcast"], 16)
+        doc = with_stock(manifest("podcast"), [0])
+        package.validate_manifest(doc)
+        beats = ready_production.build_story(doc)["beats"]
+        self.assertTrue(any(b.get("owner_stock") for b in beats))
+        self.assertTrue(all(b["owner_asset"] for b in beats))
 
-    def test_podcast_with_two_different_pictures_is_rejected(self):
+    def test_podcast_accepts_two_distinct_approved_pictures(self):
         doc = manifest("podcast")
         doc["scenes"][1]["asset"] = "assets/scene_02.png"
-        with self.assertRaises(Exception):
-            package.validate_manifest(doc, {"assets/scene_01.png", "assets/scene_02.png"})
+        package.validate_manifest(doc, {"assets/scene_01.png", "assets/scene_02.png"})
 
     def test_podcast_may_reuse_one_picture_for_every_section(self):
         doc = manifest("podcast")

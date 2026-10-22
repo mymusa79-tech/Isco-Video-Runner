@@ -85,12 +85,13 @@ jobs:
       - name: Install current production dependencies
         run: |
           set -euo pipefail
+          # Prefer installed system binaries; a fallback fc-match font name
+          # is not proof that the Noto package is absent. This mirrors the
+          # already passing M7 gate and avoids unnecessary apt mirror traffic.
           missing=()
           command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
-          font_match="$(fc-match "Noto Sans" 2>/dev/null || true)"
-          if [[ "${font_match,,}" != *noto* ]]; then
-            missing+=(fontconfig fonts-noto-core)
-          fi
+          command -v fc-match >/dev/null 2>&1 || missing+=(fontconfig)
+          dpkg-query -W -f='${Status}' fonts-noto-core 2>/dev/null | grep -q 'install ok installed' || missing+=(fonts-noto-core)
           if (( ${#missing[@]} )); then
             APT_OPTS=(
               -o Acquire::Retries=5

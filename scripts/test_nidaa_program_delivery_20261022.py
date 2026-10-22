@@ -44,6 +44,26 @@ class ProgramIdentityContractTests(unittest.TestCase):
         self.assertTrue(all(beat["owner_motion"] == "hold" for beat in beats))
         self.assertEqual(doc, original)
 
+    def test_multishot_podcast_preserves_approved_motion_transitions_and_stock(self):
+        doc = manifest("podcast")
+        doc["scenes"][1]["asset"] = "assets/scene_02.png"
+        doc["scenes"][1]["stock"] = {"query_en": "person closing bedroom curtains"}
+        beats = build_story(doc)["beats"]
+        second = next(b for b in beats if b["id"] == doc["scenes"][1]["id"])
+        self.assertEqual(second["owner_motion"], doc["scenes"][1]["motion"])
+        self.assertEqual(second["owner_transition"], doc["scenes"][1]["transition"])
+        self.assertEqual(second["owner_stock"]["query_en"], "person closing bedroom curtains")
+
+    def test_multishot_podcast_uses_first_complete_a_turn_for_visual_hook(self):
+        doc = manifest("podcast")
+        doc["script"]["sections"][0]["turns"][0]["text"] = (
+            "الساعة الواحدة وأربعون دقيقة. أغلقت الهاتف ثلاث مرات. لماذا لا أنام؟"
+        )
+        doc["scenes"][0]["start_text"] = "الساعة الواحدة وأربعون دقيقة."
+        beats = build_story(doc)["beats"]
+        self.assertEqual(beats[0]["role"], "hook")
+        self.assertTrue(beats[0]["writer_anchor_ar"].startswith("الساعة الواحدة"))
+
     def test_films_and_regular_shorts_preserve_editor_approved_movements(self):
         for fmt in ("film", "short"):
             with self.subTest(fmt=fmt):
@@ -68,6 +88,39 @@ class ExportedDeliveryEvidenceTests(unittest.TestCase):
             "1\\n00:00:00,000 --> 00:00:02,000\\nكل كلمة محفوظة.\\n", encoding="utf-8"
         )
         return hashlib.sha256(video.read_bytes()).hexdigest()
+
+    def test_podcast_repeated_single_photo_is_explicit_delivery_review(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            expected = self._make_accepted_film(root)
+            (root / "podcast-captions.json").write_text('{"status":"pass"}', encoding="utf-8")
+            (root / "podcast-captions.srt").write_text(
+                "1\\n00:00:00,000 --> 00:00:02,000\\nالسؤال.\\n", encoding="utf-8"
+            )
+            (root / "production.json").write_text(json.dumps({
+                "format": "podcast",
+                "scenes": [
+                    {"id": "p1", "section_id": "s1", "asset": "assets/one.jpg"},
+                    {"id": "p2", "section_id": "s2", "asset": "assets/one.jpg"},
+                    {"id": "p3", "section_id": "s3", "asset": "assets/one.jpg"},
+                ],
+            }), encoding="utf-8")
+            result = audit_delivery(root, fmt="podcast", expected_sha256=expected)
+            self.assertEqual(result["status"], "partial_delivery")
+            self.assertTrue(result["primary_video_accepted"])  # no new video gate
+            self.assertIn("podcast_approved_photo_plan_reuses_single_image", result["review_reasons"])
+            self.assertEqual(result["approved_photo_coverage"]["unique_approved_photo_assets"], 1)
+
+            # Updating the plan with genuinely distinct photographs clears only
+            # this specific editorial warning. Runtime frame quality needs review.
+            plan = json.loads((root / "production.json").read_text(encoding="utf-8"))
+            plan["scenes"][1]["asset"] = "assets/two.jpg"
+            plan["scenes"][2]["asset"] = "assets/three.jpg"
+            (root / "production.json").write_text(json.dumps(plan), encoding="utf-8")
+            better = audit_delivery(root, fmt="podcast", expected_sha256=expected)
+            self.assertNotIn("podcast_approved_photo_plan_reuses_single_image",
+                             better["review_reasons"])
+            self.assertEqual(better["approved_photo_coverage"]["unique_approved_photo_assets"], 3)
 
     def test_exact_accepted_export_and_usable_cover_are_complete(self):
         with tempfile.TemporaryDirectory() as t:
