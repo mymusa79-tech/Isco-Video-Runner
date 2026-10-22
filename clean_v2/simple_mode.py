@@ -549,7 +549,7 @@ def _story_pacing_audit(output_dir: Path, fmt: str) -> dict[str, Any]:
         slot_lengths = {}
     if is_ala:
         for row in scene_rows:
-            if row.get("source_actual") not in {PROVIDER, "owner_art", "generated_local", "stock_still"}:
+            if row.get("source_actual") not in {OWNER_ART_PROVIDER, FALLBACK_PROVIDER, "stock_still"}:
                 continue
             secs = float(slot_lengths.get(str(row.get("local_file") or "")) or 0)
             if secs > 20:
