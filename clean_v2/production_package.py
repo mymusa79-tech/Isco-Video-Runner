@@ -104,8 +104,9 @@ def _stock(value: Any, fmt: str, template: str) -> dict:
                 or template == "ala_mahl"):
             _error("stock.mode=sequence يحتاج ثلاثة روابط فيديو لشورت نداء أو الفيلم فقط.")
         from .pinned_stock import parse_stock_url
-        if any(parse_stock_url(url)[1] != "video" for url in stock["urls"]):
-            _error("stock.mode=sequence: روابط الفيديو فقط؛ الصور تبقى احتياطية.")
+        if any(parse_stock_url(url)[1] != "video" or parse_stock_url(url)[0] not in {"pexels", "pixabay"}
+               for url in stock["urls"]):
+            _error("stock.mode=sequence: فيديوهات Pexels أو Pixabay فقط؛ الصور تبقى احتياطية.")
     for key in ("query_en", "query_alt_en"):
         if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
                              or not 2 <= len(stock[key].split()) <= 9):
