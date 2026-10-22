@@ -1,4 +1,4 @@
-"""One gentle look per format over every scene clip; boards and failures are left alone."""
+"""Gentle film/Short looks; podcast approved photographs stay ungraded."""
 from __future__ import annotations
 
 import shutil
@@ -49,8 +49,8 @@ class GradeTests(unittest.TestCase):
     def test_grade_keeps_duration_and_changes_colour(self):
         clip = self.clip("a.mp4", "0xE04020")
         before, length = mean_rgb(clip), probe_duration(clip)
-        self.assertEqual(owner_art.grade_clip(clip, "podcast"), "podcast")
-        self.assertNotEqual(mean_rgb(clip), before)
+        self.assertEqual(owner_art.grade_clip(clip, "podcast"), "podcast_natural_source_ungraded")
+        self.assertEqual(mean_rgb(clip), before)
         self.assertAlmostEqual(probe_duration(clip), length, delta=0.2)
 
     def test_formats_get_different_looks(self):
