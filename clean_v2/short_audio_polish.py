@@ -337,11 +337,51 @@ def apply_topic_audio_polish(
     try:
         topic_start, topic_end = _topic_window(output_dir)
         topic_duration = topic_end - topic_start
-        track_path, library_report = select_music_track(
-            script,
-            fmt=fmt,
-            allow_download=True,
-        )
+        approved_doc = document(output_dir)
+        vibe = approved_doc.get("ala_mahl_mode") == "vibe"
+        if vibe:
+            # Owner manually downloads the selected track from the official
+            # YouTube Studio Audio Library. Never scrape or fetch YouTube URLs.
+            from .owner_art import art_dir
+            from .production_package import VIBE_AUDIO_ASSET, VIBE_MAX_AUDIO_BYTES
+            source_dir = art_dir()
+            if source_dir is None:
+                raise RuntimeError("vibe_music_owner_zip_missing")
+            track_path = source_dir / VIBE_AUDIO_ASSET
+            if not track_path.is_file() or not 1024 < track_path.stat().st_size <= VIBE_MAX_AUDIO_BYTES:
+                raise RuntimeError("vibe_music_file_missing_or_large")
+            info = _run([
+                "ffprobe", "-v", "error", "-show_entries",
+                "stream=codec_type,codec_name:format=duration", "-of", "json",
+                str(track_path),
+            ], timeout=45)
+            parsed = json.loads(info.stdout)
+            streams = parsed.get("streams") or []
+            seconds = float((parsed.get("format") or {}).get("duration") or 0)
+            if (not any(t.get("codec_type") == "audio" and t.get("codec_name") == "mp3" for t in streams)
+                    or any(t.get("codec_type") == "video" for t in streams)
+                    or seconds < topic_duration):
+                raise RuntimeError("vibe_music_unusable_or_shorter_than_topic")
+            library_report = {
+                "selected_id": None,
+                "selected_title": approved_doc["editing"]["track_title"],
+                "selected_artist": approved_doc["editing"]["artist"],
+                "selected_origin": "user_downloaded_youtube_studio_audio_library",
+                "selected_instrumental_only": True,
+                "selected_dialogue_bed": True,
+                "selection_reason": "human_verified_youtube_audio_library_standard",
+                "selection_family": approved_doc["editing"]["mood"],
+                "license_type": approved_doc["editing"]["license_type"],
+                "manual_license_verification_required": True,
+                "source_duration_seconds": round(seconds, 2),
+                "provider_calls_added": 0,
+            }
+        else:
+            track_path, library_report = select_music_track(
+                script,
+                fmt=fmt,
+                allow_download=True,
+            )
         if track_path is None:
             raise RuntimeError("verified_music_track_unavailable")
         if not bool(library_report.get("selected_instrumental_only")):
@@ -392,6 +432,9 @@ def apply_topic_audio_polish(
             temp_dir.rmdir()
         except OSError:
             pass
+
+    if approved_doc.get("ala_mahl_mode") == "vibe" and status != "pass":
+        raise RuntimeError("vibe_approved_music_mixing_failed:" + str(reason))
 
     return {
         "schema_version": 5,

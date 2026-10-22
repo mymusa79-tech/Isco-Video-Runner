@@ -26,6 +26,10 @@ GRADE_PROFILES = {  # one gentle look per format so stock and the editor's image
     "film": "eq=contrast=1.04:saturation=0.90,colorbalance=rs=-0.01:bs=0.02",
     "short": "eq=contrast=1.05:saturation=0.92,colorbalance=rs=-0.01:bs=0.02",
     "ala_mahl": "eq=contrast=1.02:saturation=0.90,colorbalance=rs=0.04:bs=-0.04",
+    # Vibe looks stay realistic, gentle and distinct; never a global blue/gold LUT.
+    "vibe_hopeful": "eq=contrast=1.03:saturation=0.98:brightness=0.005",
+    "vibe_melancholy": "eq=contrast=1.02:saturation=0.86:brightness=0.004",
+    "vibe_nostalgic": "eq=contrast=1.02:saturation=0.92,colorbalance=rs=0.015:bs=-0.01",
 }
 PINNED_FADE_SECONDS = 0.8  # dissolve from a short pinned clip into the approved image
 _IMAGE_RE = re.compile(r"^image-(\d+)\.jpg$")
@@ -416,6 +420,8 @@ class OwnerArtVisualSource:
             cand = pinned_stock.fetch_candidate(str(beat["owner_stock"]["url"]), portrait=portrait)
         except pinned_stock.PinnedStockError as exc:
             return None, str(exc)
+        if beat.get("owner_vibe") and cand["media_kind"] != "video":
+            return None, "vibe_requires_real_motion_stock"
         work = Path(output_dir) / f"pinned-{beat['id']}"
         work.mkdir(parents=True, exist_ok=True)
         final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
@@ -542,11 +548,27 @@ class OwnerArtVisualSource:
                            **stock_note, **board_note})
         if not clips:
             raise RuntimeError("approved_package_has_no_images")
-        look = grade_profile(str(doc.get("template") or ""), str(doc.get("format") or fmt))
+        vibe = doc.get("template") == "ala_mahl" and doc.get("ala_mahl_mode") == "vibe"
+        look = ("vibe_" + doc["editing"]["mood"]) if vibe else grade_profile(str(doc.get("template") or ""), str(doc.get("format") or fmt))
         for clip, row in zip(clips, rights):
             if row.get("board_rendered"):
                 continue  # explanatory boards keep their own colours
             row["grade"] = grade_clip(clip, look)
+        if vibe:
+            from .contracts import atomic_write_json
+            motion = [r for r in rights if r.get("source_actual") == "stock_motion"]
+            fallback = [r for r in rights if r.get("source_actual") != "stock_motion"]
+            # A successful export with fewer than four verified moving clips is
+            # a PREVIEW for human review, not a completed emotion-led edit.
+            atomic_write_json(output_dir / "vibe-stock.json", {
+                "schema_version": 1, "mode": "vibe",
+                "status": "pass" if len(motion) >= 4 and not fallback else "review",
+                "requested_motion_scenes": len(doc["scenes"]),
+                "actual_motion_scenes": len(motion),
+                "fallback_scene_ids": [str(r.get("beat_id") or "") for r in fallback],
+                "pinned_video_only": True, "automatic_publishing": False,
+                "provider_calls_added": 0,
+            })
         return clips, rights
 
 

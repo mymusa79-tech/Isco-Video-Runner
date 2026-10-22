@@ -33,7 +33,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                        "asset": previous["owner_asset"], "start_text": text[:300],
                        "motion": previous["owner_motion"], "transition": "cut"}]
         expanded = [dict(s) for s in scenes]
-        if hook and text[len(hook):].strip():
+        if hook and text[len(hook):].strip() and doc.get("ala_mahl_mode") != "vibe":
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
             body_scenes = [s for s in scenes if s not in hook_scenes]
             remainder = text[len(hook):].strip()
@@ -80,6 +80,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 # Legacy ZIPs may contain old pan/zoom/dissolve hints; keep those
                 # archives importable but NEVER animate or crossfade the one image.
                 # Short/Film decisions remain exactly as the editor approved.
+                "owner_vibe": doc.get("ala_mahl_mode") == "vibe",
                 "owner_asset": scene["asset"],
                 "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
                 "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
@@ -100,6 +101,33 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     from .owner_film import _brand_signature
 
     doc = validate_manifest(pack["production"], set(pack["asset_sha256"]))
+    # Before any approved narration is synthesized, verify that the one
+    # editor-selected Studio MP3 is actually decodable. Metadata alone is NOT
+    # evidence of ownership or an Audio Library license; the editor checks that.
+    if doc.get("ala_mahl_mode") == "vibe":
+        import subprocess
+        from .owner_art import art_dir
+        from .production_package import VIBE_AUDIO_ASSET
+        directory = art_dir()
+        candidate = directory / VIBE_AUDIO_ASSET if directory else None
+        if candidate is None or not candidate.is_file():
+            raise RuntimeError("vibe_editor_selected_music_not_extracted")
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "stream=codec_type,codec_name:format=duration", "-of", "json", str(candidate)],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+            media = json.loads(probe.stdout)
+            tracks = media.get("streams") or []
+            length = float((media.get("format") or {}).get("duration") or 0)
+            if (not any(item.get("codec_type") == "audio" and item.get("codec_name") == "mp3"
+                        for item in tracks)
+                    or any(item.get("codec_type") == "video" for item in tracks)
+                    or length < 35):
+                raise ValueError("vibe_music_audio_invalid_or_too_short")
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("vibe_music_preflight_failed") from exc
     fmt = doc["format"]
     out_dir.mkdir(parents=True, exist_ok=True)
     sections = [{"id": s["id"], "narration": section_text(s)} for s in doc["script"]["sections"]]

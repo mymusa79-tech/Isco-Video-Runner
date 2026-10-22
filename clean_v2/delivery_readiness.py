@@ -88,6 +88,16 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         notes.append("primary_cover_" + cover["status"])
 
     original = _read(root / "production.json")
+    vibe = original.get("template") == "ala_mahl" and original.get("ala_mahl_mode") == "vibe"
+    if vibe:
+        stock = _read(root / "vibe-stock.json")
+        sound = _read(root / "short-audio-polish.json")
+        if stock.get("status") != "pass":
+            notes.append("vibe_required_real_motion_stock_not_complete")
+        if sound.get("status") != "pass" or sound.get("asset_origin") != "user_downloaded_youtube_studio_audio_library":
+            notes.append("vibe_youtube_audio_library_mix_not_verified")
+        # These are explicit human approvals, NOT licensing assertions by code.
+        notes.append("vibe_human_music_license_and_final_playback_review_required")
     # A generated fallback cover can meet pixel specs without meeting the
     # ChatGPT-first editorial requirement of a specifically designed image.
     # Warn instead of refusing older approved ZIPs whose cover.asset was null.
@@ -101,6 +111,13 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
             notes.append("spoken_srt_missing_after_success")
         elif captions.get("status") != "pass":
             notes.append("spoken_captions_not_confirmed")
+    vibe = original.get("template") == "ala_mahl" and original.get("ala_mahl_mode") == "vibe"
+    vibe_stock = _read(root / "vibe-stock.json") if vibe else {}
+    vibe_music = _read(root / "topic-audio-polish.json") if vibe else {}
+    if vibe and vibe_stock.get("status") != "pass":
+        notes.append("vibe_real_video_coverage_incomplete")
+    if vibe and vibe_music.get("status") != "pass":
+        notes.append("vibe_music_not_mixed_into_final")
     derivative = {"status": "not_applicable"}
     if fmt in {"film", "podcast"}:
         name = "long-short" if fmt == "film" else "podcast-short"
@@ -158,8 +175,26 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
         "sha256_matches_inspected_export": hash_ok,
         "final_master_qc_status": qc.get("status") or "unknown",
         "primary_cover": cover,
+        "vibe_production": {
+            "enabled": vibe,
+            "motion_stock": _read(root / "vibe-stock.json") if vibe else None,
+            "music": {
+                "status": _read(root / "short-audio-polish.json").get("status"),
+                "origin": _read(root / "short-audio-polish.json").get("asset_origin"),
+                "track_title": (original.get("editing") or {}).get("track_title"),
+                "artist": (original.get("editing") or {}).get("artist"),
+                "license_editor_attested": (original.get("editing") or {}).get("license_type"),
+                "license_independently_verified": False,
+            } if vibe else None,
+        },
         "full_spoken_caption_status": captions.get("status") if fmt in {"film", "podcast"} else "format_owned",
         "derivative": derivative,
+        "vibe": ({
+            "mode": "vibe",
+            "real_stock": vibe_stock,
+            "music_status": vibe_music.get("status") or "unknown",
+            "music_track": (vibe_music.get("components") or {}).get("music", {}).get("track_id"),
+        } if vibe else {"mode": "not_applicable"}),
         "review_reasons": notes,
         "notes": "Deterministic file audit; not human visual/audio judgement or a YouTube retention forecast.",
         "provider_calls_added": 0, "primary_master_mutated": False,
