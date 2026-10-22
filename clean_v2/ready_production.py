@@ -33,7 +33,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                        "asset": previous["owner_asset"], "start_text": text[:300],
                        "motion": previous["owner_motion"], "transition": "cut"}]
         expanded = [dict(s) for s in scenes]
-        if hook and text[len(hook):].strip():
+        if hook and text[len(hook):].strip() and doc.get("ala_mahl_mode") != "vibe":
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
             body_scenes = [s for s in scenes if s not in hook_scenes]
             remainder = text[len(hook):].strip()
@@ -80,6 +80,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 # Legacy ZIPs may contain old pan/zoom/dissolve hints; keep those
                 # archives importable but NEVER animate or crossfade the one image.
                 # Short/Film decisions remain exactly as the editor approved.
+                "owner_vibe": doc.get("ala_mahl_mode") == "vibe",
                 "owner_asset": scene["asset"],
                 "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
                 "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
