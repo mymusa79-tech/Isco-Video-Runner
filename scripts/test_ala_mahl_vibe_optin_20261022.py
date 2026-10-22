@@ -81,6 +81,14 @@ class VibeArchiveContractTests(unittest.TestCase):
         with self.assertRaises(OwnerPackError):
             pkg.validate_manifest(doc)
 
+    def test_reject_non_string_editor_music_choices(self):
+        for field in ("mood", "track_id"):
+            with self.subTest(field=field):
+                doc = vibe_manifest()
+                doc["editing"][field] = ["not", "a", "string"]
+                with self.assertRaises(OwnerPackError):
+                    pkg.validate_manifest(doc)
+
     def test_reject_search_photo_coverr_and_unpinned_vibe_stock(self):
         for stock in (
             {"query_en": "man walking in street"},
