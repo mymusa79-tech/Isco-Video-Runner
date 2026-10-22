@@ -431,8 +431,9 @@ class OwnerArtVisualSource:
                         seconds: float, index: int, url: str):
         """The exact Pexels/Pixabay video or photo the editor linked, or (None, reason) -> approved image.
 
-        Fetched by id, no search. A clip shorter than the scene plays first and the scene's approved
-        image continues it to the end of the slot. Pictures run as an owner image would. The normal
+        Fetched by id, no search. Three-link packages retry a video that cannot
+        cover the scene; legacy single-URL packages may continue with approved art.
+        Pictures run as an owner image would. The normal
         picture review still judges the result afterwards (objective risks only), so this never
         becomes an unchecked path; any failure keeps the approved image.
         """
@@ -467,6 +468,13 @@ class OwnerArtVisualSource:
                 length = probe_duration(clip)
                 if length < PINNED_MIN_SECONDS:
                     return None, "pinned_clip_too_short"
+                # For three-link scene packages an admitted stock choice must cover
+                # the entire estimated slot. Do not quietly append the owner
+                # fallback photo while a stock URL was successfully selected.
+                # Retry the next link instead. Single-URL legacy packs retain
+                # the original video-then-owner-image continuation behavior.
+                if len(beat.get("owner_stock", {}).get("urls", [])) == 3 and length + 0.08 < seconds:
+                    return None, "pinned_clip_too_short_for_scene"
                 if length + 0.08 >= seconds:
                     clip.replace(final)
                 else:
