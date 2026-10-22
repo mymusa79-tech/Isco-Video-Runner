@@ -28,9 +28,12 @@ def vibe_manifest(count: int = 4) -> dict:
     selected = [anchors[i] for i in ({4: (0, 1, 3, 5), 7: tuple(range(7))}[count])]
     doc["ala_mahl_mode"] = "vibe"
     doc["editing"] = {
-        "music": "vibe_instrumental",
+        "music": "youtube_audio_library",
         "mood": "hopeful",
-        "track_id": "wonder-flow",
+        "asset": "assets/vibe_music.mp3",
+        "track_title": "Editor selected",
+        "artist": "Editor verified artist",
+        "license_type": "youtube_audio_library_standard",
     }
     doc["scenes"] = [
         {
@@ -51,7 +54,7 @@ class VibeArchiveContractTests(unittest.TestCase):
             with self.subTest(count=count):
                 doc = vibe_manifest(count)
                 pkg.validate_manifest(doc)
-                inspected = pkg.inspect_archive(archive_bytes(doc))
+                inspected = pkg.inspect_archive(archive_bytes(doc, extra={"assets/vibe_music.mp3": b"ID3" + bytes(range(256)) * 12}))
                 self.assertEqual(inspected["manifest"]["ala_mahl_mode"], "vibe")
                 beats = build_story(doc)["beats"]
                 self.assertEqual(len(beats), count)  # no virtual still after hook
@@ -77,12 +80,12 @@ class VibeArchiveContractTests(unittest.TestCase):
         with self.assertRaises(OwnerPackError):
             pkg.validate_manifest(doc)
         doc = vibe_manifest()
-        doc["editing"]["track_id"] = "random-web-song"
+        doc["editing"]["license_type"] = "random-web-song"
         with self.assertRaises(OwnerPackError):
             pkg.validate_manifest(doc)
 
     def test_reject_non_string_editor_music_choices(self):
-        for field in ("mood", "track_id"):
+        for field in ("mood", "track_title", "artist"):
             with self.subTest(field=field):
                 doc = vibe_manifest()
                 doc["editing"][field] = ["not", "a", "string"]
@@ -141,52 +144,58 @@ class VibeRendererTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(reason, "vibe_requires_real_motion_stock")
 
-    def test_editor_selected_cc0_track_does_not_call_stock_music_search(self):
+    def test_youtube_audio_library_asset_does_not_use_freepd(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "production.json").write_text(json.dumps(vibe_manifest()), encoding="utf-8")
             final = root / "final.mp4"
             final.write_bytes(b"original export")
-            track = root / "approved.mp3"
-            track.write_bytes(b"verified track mock")
-            def write_mix(*, output_path, **_):
-                output_path.write_bytes(b"mixed export")
+            assets = root / "art" / "assets"
+            assets.mkdir(parents=True)
+            (assets / "vibe_music.mp3").write_bytes(b"fixture mocked decoder")
+            def mock_mix(*, output_path, **_):
+                output_path.write_bytes(b"new final")
+            probe = json.dumps({"streams": [{"codec_type": "audio", "codec_name": "mp3"}],
+                                "format": {"duration": "73"}})
             with (
-                mock.patch("clean_v2.music_library.ensure_music_library", return_value={
-                    "ready": [{"id": "wonder-flow", "path": str(track), "title": "Wonder Flow"}],
-                    "unavailable": [], "source": "verified FreePD", "license": "CC0",
-                }) as catalog,
-                mock.patch("clean_v2.short_audio_polish.select_music_track", side_effect=AssertionError("no Coverr search")),
+                mock.patch("clean_v2.owner_art.art_dir", return_value=root / "art"),
+                mock.patch("clean_v2.music_library.ensure_music_library",
+                           side_effect=AssertionError("FreePD must not be used")),
+                mock.patch("clean_v2.short_audio_polish.select_music_track",
+                           side_effect=AssertionError("Coverr and stock music search prohibited")),
                 mock.patch("clean_v2.short_audio_polish._measure_mean_db", return_value=-20.0),
                 mock.patch("clean_v2.short_audio_polish._topic_window", return_value=(4.0, 30.0)),
+                mock.patch("clean_v2.short_audio_polish._run", return_value=mock.Mock(stdout=probe)),
                 mock.patch("clean_v2.short_audio_polish._prepare_local_music_bed"),
-                mock.patch("clean_v2.short_audio_polish._normalize_relative", return_value={"relative_to_narration_db": -27}),
+                mock.patch("clean_v2.short_audio_polish._normalize_relative",
+                           return_value={"relative_to_narration_db": -27}),
                 mock.patch("clean_v2.short_audio_polish._editorial_audio_windows", return_value=[]),
-                mock.patch("clean_v2.short_audio_polish._mix_music_into_video", side_effect=write_mix),
+                mock.patch("clean_v2.short_audio_polish._mix_music_into_video", side_effect=mock_mix),
             ):
                 result = short_audio_polish.apply_topic_audio_polish(
-                    output_dir=root, final_path=final, narration_path=root / "narration.wav", fmt="short",
+                    output_dir=root, final_path=final,
+                    narration_path=root / "narration.wav", fmt="short",
                 )
             self.assertEqual(result["status"], "pass")
-            self.assertEqual(result["components"]["music"]["track_id"], "wonder-flow")
-            self.assertEqual(final.read_bytes(), b"mixed export")
-            catalog.assert_called_once_with(allow_download=True, track_ids=["wonder-flow"])
+            self.assertEqual(result["asset_origin"], "user_downloaded_youtube_studio_audio_library")
+            self.assertEqual(final.read_bytes(), b"new final")
 
-    def test_if_track_missing_final_video_is_not_changed(self):
+    def test_missing_studio_music_preserves_final_and_fails_vibe(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "production.json").write_text(json.dumps(vibe_manifest()), encoding="utf-8")
             final = root / "final.mp4"
-            final.write_bytes(b"original")
+            final.write_bytes(b"original export")
             with (
-                mock.patch("clean_v2.music_library.ensure_music_library", return_value={"ready": [], "unavailable": []}),
+                mock.patch("clean_v2.owner_art.art_dir", return_value=root),
                 mock.patch("clean_v2.short_audio_polish._measure_mean_db", return_value=-20.0),
                 mock.patch("clean_v2.short_audio_polish._topic_window", return_value=(4.0, 30.0)),
             ):
-                result = short_audio_polish.apply_topic_audio_polish(
-                    output_dir=root, final_path=final, narration_path=root / "narration.wav", fmt="short",
-                )
-            self.assertEqual(result["status"], "skipped_fail_safe")
+                with self.assertRaisesRegex(RuntimeError, "vibe_approved_music_mixing_failed"):
+                    short_audio_polish.apply_topic_audio_polish(
+                        output_dir=root, final_path=final,
+                        narration_path=root / "narration.wav", fmt="short",
+                    )
             self.assertEqual(final.read_bytes(), b"original")
 
 
