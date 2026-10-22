@@ -114,6 +114,38 @@ def _wav():
 
 
 class BridgeVoiceUnitTests(unittest.TestCase):
+    def test_entire_listener_opening_is_one_voice_unit_before_prayer(self):
+        calls = []
+
+        def tts(_key, transcript, path, *, model, **_kw):
+            calls.append(transcript)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_bytes(_wav())
+            return Path(path)
+
+        def concat(inputs, target, *a, **k):
+            Path(target).write_bytes(_wav())
+            return Path(target)
+
+        listener = ("A: الساعة الواحدة وأربعون دقيقة. أغلقت الهاتف ثلاث مرات، "
+                    "ثم عدت إليه. غدًا عمل مبكر، فلماذا أرفض النوم؟")
+        sections = _run(f"{listener} B: سأجيبك بهدوء. {PODCAST_PRAYER_MARKER} {ANSWER}")
+        sections[0]["id"] = "s1"
+        with tempfile.TemporaryDirectory() as tmp:
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch("clean_v2.media._gemini38_synthesize", side_effect=tts), patch(
+                "clean_v2.media.time.sleep"
+            ), patch("clean_v2.pipeline.concat_wav_parts", side_effect=concat):
+                _synthesize_sectioned_voice(
+                    synth, sections, Path(tmp) / "n.wav", fmt="podcast", require_charon_only=True
+                )
+        question_calls = [c for c in calls if "الساعة الواحدة" in c]
+        self.assertEqual(len(question_calls), 1)
+        self.assertIn("غدًا عمل مبكر، فلماذا أرفض النوم؟", question_calls[0])
+        self.assertNotIn(PRAYER_SENTENCE, question_calls[0])
+        self.assertNotIn("سأجيبك بهدوء", question_calls[0])
+        self.assertEqual(sum(PRAYER_SENTENCE in c for c in calls), 1)
+
     def test_bridge_is_voiced_by_charon_with_prayer_after_question(self):
         calls = []
 
