@@ -22,7 +22,7 @@ COVER_SIZE = (1280, 720)
 CLIP_WIDTH, CLIP_HEIGHT = 1280, 720  # the Podcast render size; no point encoding more
 PINNED_MIN_SECONDS = 1.5   # a pinned clip shorter than this is not worth a scene
 GRADE_PROFILES = {  # one gentle look per format so stock and the editor's images sit together
-    "podcast": "eq=contrast=1.05:saturation=0.80:brightness=-0.02,colorbalance=rs=-0.03:bs=0.05",
+    "podcast": "null",  # documentary photos retain their own natural colour
     "film": "eq=contrast=1.04:saturation=0.90,colorbalance=rs=-0.01:bs=0.02",
     "short": "eq=contrast=1.05:saturation=0.92,colorbalance=rs=-0.01:bs=0.02",
     "ala_mahl": "eq=contrast=1.02:saturation=0.90,colorbalance=rs=0.04:bs=-0.04",
@@ -410,6 +410,25 @@ class OwnerArtVisualSource:
 
     def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
                     seconds: float, index: int):
+        """Try up to three editor-approved stock links in priority order, then the approved image."""
+        stock = beat["owner_stock"]
+        urls = stock.get("urls") or [stock.get("url")]
+        reasons = []
+        for rank, url in enumerate(urls, start=1):
+            admitted, reason = self._try_pinned_one(beat, asset, output_dir, fmt, seconds, index, str(url))
+            if admitted is not None:
+                clip, row = admitted
+                row["pinned_choice_rank"] = rank
+                row["pinned_alternates_total"] = len(urls)
+                row["pinned_prior_rejections"] = reasons
+                return (clip, row), ""
+            reasons.append({"rank": rank, "reason": str(reason)[:120]})
+        if len(reasons) == 1:
+            return None, reasons[0]["reason"]  # preserve legacy single-URL diagnostics
+        return None, "pinned_alternatives_exhausted:" + ",".join(row["reason"] for row in reasons)
+
+    def _try_pinned_one(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
+                        seconds: float, index: int, url: str):
         """The exact Pexels/Pixabay video or photo the editor linked, or (None, reason) -> approved image.
 
         Fetched by id, no search. A clip shorter than the scene plays first and the scene's approved
@@ -422,7 +441,7 @@ class OwnerArtVisualSource:
 
         portrait = fmt == "short"
         try:
-            cand = pinned_stock.fetch_candidate(str(beat["owner_stock"]["url"]), portrait=portrait)
+            cand = pinned_stock.fetch_candidate(url, portrait=portrait)
         except pinned_stock.PinnedStockError as exc:
             return None, str(exc)
         work = Path(output_dir) / f"pinned-{beat['id']}"
@@ -536,7 +555,7 @@ class OwnerArtVisualSource:
             stock_note: dict[str, Any] = {}
             seconds = podcast_seconds.get(beat["id"], sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1)
             if beat.get("owner_stock"):
-                pinned = bool(beat["owner_stock"].get("url"))
+                pinned = bool(beat["owner_stock"].get("url") or beat["owner_stock"].get("urls"))
                 if pinned:
                     admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index)
                 else:
@@ -586,6 +605,9 @@ def grade_profile(template: str, fmt: str) -> str:
 def grade_clip(clip: Path, profile: str) -> str:
     """Re-encode one scene clip in place with the format's look. Fail-soft: the clip stays as it was."""
     clip = Path(clip)
+    if profile == "podcast":
+        # No film-style colour wash on natural photographic podcast coverage.
+        return "podcast_natural_source_ungraded"
     graded = clip.with_name(clip.stem + ".graded.mp4")
     try:
         from .media import _run, probe_duration
