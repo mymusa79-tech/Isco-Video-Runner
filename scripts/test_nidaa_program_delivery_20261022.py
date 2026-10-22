@@ -54,6 +54,15 @@ class ProgramIdentityContractTests(unittest.TestCase):
         self.assertEqual(second["owner_transition"], doc["scenes"][1]["transition"])
         self.assertEqual(second["owner_stock"]["query_en"], "person closing bedroom curtains")
 
+    def test_multishot_podcast_uses_first_complete_a_turn_for_visual_hook(self):
+        doc = manifest("podcast")
+        doc["script"]["sections"][0]["turns"][0]["text"] = (
+            "الساعة الواحدة وأربعون دقيقة. أغلقت الهاتف ثلاث مرات. لماذا لا أنام؟"
+        )
+        beats = build_story(doc)["beats"]
+        self.assertEqual(beats[0]["role"], "hook")
+        self.assertTrue(beats[0]["writer_anchor_ar"].startswith("الساعة الواحدة"))
+
     def test_films_and_regular_shorts_preserve_editor_approved_movements(self):
         for fmt in ("film", "short"):
             with self.subTest(fmt=fmt):
