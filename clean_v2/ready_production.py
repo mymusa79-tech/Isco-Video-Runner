@@ -20,6 +20,10 @@ def build_story(doc: Mapping[str, Any]) -> dict:
     from .visual_story import CHANNEL_VISUAL_IDENTITY, _default_editorial_signals, _default_shot_role
 
     beats = []
+    # Keep old one-art podcast ZIPs static, but honor new multi-shot editorial plans.
+    podcast_legacy_still = (doc["format"] == "podcast"
+                            and len({scene["asset"] for scene in doc["scenes"]}) == 1
+                            and not any(scene.get("stock") for scene in doc["scenes"]))
     for section in doc["script"]["sections"]:
         sid = section["id"]
         text = spoken_text(section_text(section))
@@ -76,13 +80,11 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                 "semantic_must_have": must_have, "semantic_should_avoid": [], "display_text_ar": "",
                 "writer_anchor_ar": scene["start_text"], "shot_role": _default_shot_role(role, within),
                 "environment_family": "other", **_default_editorial_signals(role),
-                # Outside-ChatGPT Podcast planning owns one approved static artwork.
-                # Legacy ZIPs may contain old pan/zoom/dissolve hints; keep those
-                # archives importable but NEVER animate or crossfade the one image.
-                # Short/Film decisions remain exactly as the editor approved.
+                # Legacy single-art podcasts remain still. Multi-shot podcasts,
+                # films and Shorts honor the approved edit and transitions.
                 "owner_asset": scene["asset"],
-                "owner_motion": "hold" if doc["format"] == "podcast" else scene["motion"],
-                "owner_transition": "cut" if doc["format"] == "podcast" else scene["transition"],
+                "owner_motion": "hold" if podcast_legacy_still else scene["motion"],
+                "owner_transition": "cut" if podcast_legacy_still else scene["transition"],
                 **({"owner_stock": {k: str(v).strip() for k, v in stock.items()}} if stock else {}),
                 # Dialogue Podcast stays on its one approved background even if
                 # an older ZIP contains explainer-board metadata.
