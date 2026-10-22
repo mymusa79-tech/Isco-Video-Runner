@@ -24,6 +24,7 @@ def build_story(doc: Mapping[str, Any]) -> dict:
     podcast_legacy_still = (doc["format"] == "podcast"
                             and len({scene["asset"] for scene in doc["scenes"]}) == 1
                             and not any(scene.get("stock") for scene in doc["scenes"]))
+    three_link_scene_sources = doc.get("stock_policy") == "three_urls_per_scene"
     for section in doc["script"]["sections"]:
         sid = section["id"]
         text = spoken_text(section_text(section))
@@ -41,7 +42,11 @@ def build_story(doc: Mapping[str, Any]) -> dict:
                        "asset": previous["owner_asset"], "start_text": text[:300],
                        "motion": previous["owner_motion"], "transition": "cut"}]
         expanded = [dict(s) for s in scenes]
-        if hook and text[len(hook):].strip():
+        # For the new three-link contract each authored scene owns one selected
+        # stock source. Never fabricate a second __topic picture beat after the
+        # intro hook: that would show fallback art even when stock succeeded.
+        # The original scene covers its narration span until the next anchor.
+        if hook and text[len(hook):].strip() and not three_link_scene_sources:
             hook_scenes = [s for s in scenes if text.index(s["start_text"]) < len(hook)]
             body_scenes = [s for s in scenes if s not in hook_scenes]
             remainder = text[len(hook):].strip()
