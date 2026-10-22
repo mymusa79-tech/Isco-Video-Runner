@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 from clean_v2 import owner_art, production_package, ready_production
 from scripts.test_production_package import manifest
@@ -24,10 +24,11 @@ from scripts.test_production_package import manifest
 FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
-def first_frame(path: Path) -> Image.Image:
+def frame_at(path: Path, seconds: float = 0.0) -> Image.Image:
     raw = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path),
-         "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{seconds:.2f}",
+         "-i", str(path), "-frames:v", "1", "-f", "image2pipe",
+         "-vcodec", "png", "-"],
         capture_output=True, check=True, timeout=30,
     ).stdout
     with Image.open(BytesIO(raw)) as opened:
@@ -56,7 +57,11 @@ class ApprovedPodcastPhotosSmoke(unittest.TestCase):
             (root / "assets").mkdir()
             colours = [(22, 41, 63), (180, 148, 102), (87, 119, 99), (144, 92, 73)]
             for i, colour in enumerate(colours, start=1):
-                Image.new("RGB", (320, 180), colour).save(root / f"assets/scene_{i:02d}.png")
+                photo = Image.new("RGB", (320, 180), colour)
+                draw = ImageDraw.Draw(photo)
+                # Off-center visual feature makes accidental pan/zoom measurable.
+                draw.rectangle((42, 37, 112, 104), fill=(225, 230, 216))
+                photo.save(root / f"assets/scene_{i:02d}.png")
             (root / "production.json").write_text(
                 json.dumps(doc, ensure_ascii=False), encoding="utf-8",
             )
@@ -95,8 +100,11 @@ class ApprovedPodcastPhotosSmoke(unittest.TestCase):
             self.assertTrue(all(row["owner_approved"] is True for row in rights))
             visual_samples = []
             for i, clip in enumerate(clips):
-                pic = first_frame(clip)
+                pic = frame_at(clip)
+                later = frame_at(clip, 1.4)
                 self.assertEqual(pic.size, (320, 180))
+                delta = ImageStat.Stat(ImageChops.difference(pic, later)).mean
+                self.assertLess(max(delta), 0.5, (i, delta))
                 observed = pic.getpixel((160, 90))
                 self.assertTrue(all(abs(observed[j] - colours[i][j]) < 18 for j in range(3)),
                                 (i, observed, colours[i]))
