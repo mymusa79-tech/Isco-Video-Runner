@@ -171,6 +171,46 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(reason(PEXELS_VIDEO, exc=RuntimeError("HTTP 404")), "pinned_fetch_failed:RuntimeError")
 
 
+
+class MultiLinkSelectionWithoutFFmpegTests(unittest.TestCase):
+    """Never skip the three-link fallback contract when media binaries are unavailable."""
+
+    def source(self):
+        return owner_art.OwnerArtVisualSource(types.SimpleNamespace(), Path("."))
+
+    def test_two_failed_links_then_third_succeeds(self):
+        beat = {"id": "scene_01", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        expected = ((Path("clip.mp4"), {"provider": "coverr", "stock_pinned": True}), "")
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one",
+                               side_effect=[(None, "404"), (None, "no_playable_file"), expected]) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertEqual(reason, "")
+        self.assertEqual(attempt.call_count, 3)
+        self.assertEqual(chosen[1]["pinned_choice_rank"], 3)
+        self.assertEqual(chosen[1]["pinned_alternates_total"], 3)
+        self.assertEqual([v["reason"] for v in chosen[1]["pinned_prior_rejections"]],
+                         ["404", "no_playable_file"])
+
+    def test_all_three_failed_links_have_image_fallback_reason(self):
+        beat = {"id": "scene_01", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "blocked")) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertIsNone(chosen)
+        self.assertEqual(attempt.call_count, 3)
+        self.assertEqual(reason, "pinned_alternatives_exhausted:blocked,blocked,blocked")
+
+    def test_legacy_single_url_keeps_its_failure_reason(self):
+        beat = {"id": "scene_01", "owner_stock": {"url": PEXELS_VIDEO}}
+        source = self.source()
+        with mock.patch.object(source, "_try_pinned_one", return_value=(None, "pinned_no_api_key")) as attempt:
+            chosen, reason = source._try_pinned(beat, Path("approved.jpg"), Path("."), "short", 8.0, 0)
+        self.assertIsNone(chosen)
+        self.assertEqual(attempt.call_count, 1)
+        self.assertEqual(reason, "pinned_no_api_key")
+
+
 def ffmpeg(*args):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args], check=True)
 
