@@ -471,7 +471,17 @@ def stock_outcomes(output_dir: Path) -> dict[str, Any]:
     pinned_used = sum(1 for r in pinned if r.get("stock_pinned") and r.get("source_actual") in {"stock_motion", "stock_still"}
                       and not r.get("owner_approved"))
     continued = sum(1 for r in rows if r.get("stock_continues_with_image"))
+    sequences = [r for r in rows if r.get("pinned_sequence")]
+    sequence_details = [
+        {"scene": str(row.get("beat_id") or ""),
+         "clips": int(row.get("pinned_sequence_used") or 0),
+         "moving_seconds": float(row.get("pinned_source_seconds") or 0),
+         "slot_seconds": float(row.get("pinned_sequence_slot_seconds") or 0),
+         "motion_share": float(row.get("pinned_sequence_motion_share") or 0)}
+        for row in sequences
+    ]
     return {"requested": len(rows), "used": used, "fallbacks": fallbacks,
+            **({"sequence_scenes": sequence_details} if sequence_details else {}),
             **({"continued_with_approved_image": continued} if continued else {}),
             **({"pinned_requested": len(pinned), "pinned_used": pinned_used,
                 "pinned_continued_with_image": sum(1 for r in pinned if r.get("pinned_continues_with_image"))} if pinned else {})}
@@ -493,7 +503,9 @@ def film_motion_preflight(rights: list[dict[str, Any]]) -> dict[str, Any]:
                  and str(row.get("source_preference") or "") != "stock_still"]
     used = [row for row in requested
             if row.get("source_actual") == "stock_motion"
-            and not row.get("owner_approved")]
+            and not row.get("owner_approved")
+            and (not row.get("pinned_sequence")
+                 or float(row.get("pinned_sequence_motion_share") or 0) >= 0.5)]
     needed = min(5, max(2, math.ceil(len(requested) / 4))) if len(requested) >= 6 else 0
     reason_counts = Counter(
         str(row.get("replacement_reason") or row.get("stock_fallback_reason") or "unverified_or_not_selected")
