@@ -232,6 +232,53 @@ class CleanV2ReleaseDeliveryTests(unittest.TestCase):
                         f"{prefix}-captions.srt"
                     ).decode("utf-8"))
 
+    def test_vibe_release_contains_source_reports_and_warns_before_manual_publish(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._output(Path(temp))
+            (root / "production.json").write_text(
+                json.dumps({"template": "ala_mahl", "ala_mahl_mode": "vibe"}),
+                encoding="utf-8",
+            )
+            (root / "vibe-stock.json").write_text(
+                json.dumps({"status": "review", "actual_motion_scenes": 2}),
+                encoding="utf-8",
+            )
+            (root / "topic-audio-polish.json").write_text(
+                json.dumps({"status": "skipped_fail_safe"}),
+                encoding="utf-8",
+            )
+            (root / "delivery-readiness.json").write_text(
+                json.dumps({"status": "partial_delivery"}),
+                encoding="utf-8",
+            )
+            package, manifest = delivery._build_publish_package(
+                root, kind="short", topic="على مهل — إحساس",
+            )
+            self.assertEqual(manifest["vibe_status"], "requires_editorial_review")
+            self.assertEqual(manifest["publication_mode"], "manual")
+            with zipfile.ZipFile(package) as archive:
+                for filename in (
+                    "vibe-stock.json", "topic-audio-polish.json", "delivery-readiness.json"
+                ):
+                    self.assertIn(filename, archive.namelist())
+                self.assertIn(
+                    "مراجعة بشرية", archive.read("README.txt").decode("utf-8")
+                )
+
+    def test_successful_vibe_release_still_requires_human_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self._output(Path(temp))
+            for filename, contents in (
+                ("production.json", {"ala_mahl_mode": "vibe"}),
+                ("vibe-stock.json", {"status": "pass", "actual_motion_scenes": 5}),
+                ("topic-audio-polish.json", {"status": "pass"}),
+                ("delivery-readiness.json", {"status": "complete"}),
+            ):
+                (root / filename).write_text(json.dumps(contents), encoding="utf-8")
+            _, manifest = delivery._build_publish_package(root, kind="short", topic="إحساس")
+            self.assertEqual(manifest["vibe_status"], "ready_for_human_review")
+            self.assertEqual(manifest["publication_mode"], "manual")
+
     def test_one_click_package_contains_publish_ready_assets_for_podcast(self):
         direct = "https://github.com/example/repo/releases/download/tag/final.mp4"
         runner = FakeRunner(direct)
