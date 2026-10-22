@@ -337,11 +337,40 @@ def apply_topic_audio_polish(
     try:
         topic_start, topic_end = _topic_window(output_dir)
         topic_duration = topic_end - topic_start
-        track_path, library_report = select_music_track(
-            script,
-            fmt=fmt,
-            allow_download=True,
-        )
+        approved_doc = document(output_dir)
+        if approved_doc.get("ala_mahl_mode") == "vibe":
+            # Editor chooses the mood and exact track. No Coverr/API search;
+            # the existing FreePD catalog verifies the downloaded CC0 blob SHA.
+            from .music_library import ensure_music_library
+            track_id = str(approved_doc["editing"]["track_id"])
+            library_report = ensure_music_library(
+                allow_download=True, track_ids=[track_id],
+            )
+            chosen = next(
+                (item for item in library_report.get("ready", [])
+                 if item.get("id") == track_id),
+                None,
+            )
+            if chosen is None:
+                raise RuntimeError("vibe_approved_cc0_track_unavailable")
+            track_path = Path(str(chosen["path"]))
+            library_report = {
+                **library_report,
+                "selected_id": track_id,
+                "selected_title": chosen.get("title"),
+                "selected_origin": "verified_cc0_freepd_editor_choice",
+                "selected_instrumental_only": True,
+                "selected_dialogue_bed": True,
+                "selection_reason": "editor_selected_vibe_mood",
+                "selection_family": approved_doc["editing"]["mood"],
+                "provider_calls_added": 0,
+            }
+        else:
+            track_path, library_report = select_music_track(
+                script,
+                fmt=fmt,
+                allow_download=True,
+            )
         if track_path is None:
             raise RuntimeError("verified_music_track_unavailable")
         if not bool(library_report.get("selected_instrumental_only")):
