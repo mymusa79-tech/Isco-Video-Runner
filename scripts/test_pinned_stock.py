@@ -60,6 +60,64 @@ class ParseTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    @staticmethod
+    def new_three_link_pack(fmt="short", template=None):
+        doc = manifest(fmt, template=template)
+        doc["stock_policy"] = package.THREE_LINK_STOCK_POLICY
+        for i, scene in enumerate(doc["scenes"]):
+            scene["stock"] = {
+                "urls": [f"https://www.pexels.com/video/approved-scene-{7100000 + 3*i + j}/"
+                         for j in range(3)],
+                "must_show": "A visual matching this exact narration moment",
+            }
+        return doc
+
+    def test_every_scene_has_three_prioritized_links_and_one_approved_picture(self):
+        for fmt, template in (("short", None), ("film", None), ("podcast", None),
+                              ("short", "ala_mahl")):
+            doc = self.new_three_link_pack(fmt, template)
+            with self.subTest(fmt=fmt, template=template):
+                checked = package.validate_manifest(doc)
+                self.assertEqual(len(checked["scenes"]), len(doc["scenes"]))
+                self.assertTrue(all(len(s["stock"]["urls"]) == 3 and s["asset"]
+                                    for s in checked["scenes"]))
+                beats = ready_production.build_story(checked)["beats"]
+                for scene in checked["scenes"]:
+                    beat = next(b for b in beats if b["id"] == scene["id"])
+                    self.assertEqual(beat["owner_stock"]["urls"], scene["stock"]["urls"])
+                    self.assertEqual(beat["owner_asset"], scene["asset"])
+
+    def test_three_link_policy_refuses_missing_or_incomplete_scene_links(self):
+        base = self.new_three_link_pack("film")
+        variants = []
+        missing = copy.deepcopy(base)
+        missing["scenes"][2].pop("stock")
+        variants.append(missing)
+        partial = copy.deepcopy(base)
+        partial["scenes"][0]["stock"]["urls"] = partial["scenes"][0]["stock"]["urls"][:2]
+        variants.append(partial)
+        single = copy.deepcopy(base)
+        single["scenes"][0]["stock"] = {"url": PEXELS_VIDEO}
+        variants.append(single)
+        query = copy.deepcopy(base)
+        query["scenes"][0]["stock"] = {"query_en": "walking along sidewalk"}
+        variants.append(query)
+        overlap = copy.deepcopy(base)
+        overlap["scenes"][1]["stock"]["urls"][1] = overlap["scenes"][0]["stock"]["urls"][2]
+        variants.append(overlap)
+        for ix, doc in enumerate(variants):
+            with self.subTest(case=ix), self.assertRaises(Exception):
+                package.validate_manifest(doc)
+
+    def test_three_link_policy_is_explicit_and_does_not_break_old_approved_zips(self):
+        old = manifest("podcast")
+        self.assertEqual(package.validate_manifest(copy.deepcopy(old)), old)
+        new = self.new_three_link_pack("podcast")
+        new["stock_policy"] = "nonsense"
+        with self.assertRaises(Exception):
+            package.validate_manifest(new)
+
+
     def test_url_replaces_the_query_and_may_carry_must_show(self):
         doc = package.validate_manifest(pinned(manifest("film"), [0, 1], [PEXELS_VIDEO, PIXABAY_PHOTO]))
         self.assertEqual(doc["scenes"][0]["stock"], {"url": PEXELS_VIDEO})
