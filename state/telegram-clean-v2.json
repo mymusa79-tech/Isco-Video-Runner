@@ -8480,6 +8480,21 @@
       "selected_at": "2026-10-21T18:51:08Z",
       "created_at": "2026-10-21T18:51:08Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-315c551cb0",
+      "title": "خارج الصورة",
+      "normalized_title": "خارج الصورة",
+      "market_query": "خارج الصورة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-22T00:51:23Z",
+      "created_at": "2026-10-22T00:51:23Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -19664,9 +19679,132 @@
         "started_at": "2026-10-21T18:52:25Z",
         "finished_at": "2026-10-21T19:01:17Z"
       }
+    },
+    "req-85f1df4b8414": {
+      "schema_version": 1,
+      "request_id": "req-85f1df4b8414",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "خارج الصورة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-315c551cb0",
+      "selected_at": "2026-10-22T00:51:23Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "خارج الصورة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "خارج الصورة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "«اقتربوا قليلًا»، قال الأب وهو يرفع هاتفه. كانت زوجته وطفلاه ملتفّين حول كعكة عيد الميلاد. التقط صورة، ثم ثانية. وفي الثالثة، تراجع خطوة ليُظهر البالونات خلفهم. كان يضحك كلما تحرّك أحدهم، ويعيد التصوير حتى تظهر الصورة كما يريد."
+              },
+              {
+                "id": "s2",
+                "text": "اقتربت ابنته ومدّت يدها نحو الهاتف. عرض لها الصور واحدةً بعد أخرى. رأت أمّها وأخاها والكعكة، لكنها لم تجد أباها. رفعت عينيها وسألته: «وأنت يا أبي؟ أين صورتك؟». ابتسم: «أنا المصوّر اليوم». أشارت إلى الرف، فناوَلها الهاتف."
+              },
+              {
+                "id": "s3",
+                "text": "وضعت الهاتف على الرف، وشغّلت المؤقّت، ثم أسرعت إليه وأمسكت بيده. حاول أن يقف عند الطرف، فسحبته إلى المنتصف وقالت ضاحكة: «هنا، معنا!». اقتربوا جميعًا، وقبل أن ينتهي العدّ، انحنى الأب ليضمّ صغيره. التُقطت الصورة وهم يضحكون. وللمرة الأولى في ذلك المساء، ظهر الأب بينهم."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد قصصي فصيح حيّ ودافئ. s1 بنشاط عائلي خفيف وابتسامة دون استعجال؛ s2 فضول مع وقفة طبيعية بعد سؤال الابنة؛ s3 إيقاع ألطف مع ابتسامة وفرح هادئ، دون حزن أو وعظ. حافظ على آخر كلمة كاملة قبل الأوترو. بلا موسيقى."
+          },
+          "scenes": [
+            {
+              "id": "family_camera",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "«اقتربوا قليلًا»، قال الأب وهو يرفع هاتفه.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "daughter_phone",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "اقتربت ابنته ومدّت يدها نحو الهاتف.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "family_together",
+              "section_id": "s3",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "وضعت الهاتف على الرف، وشغّلت المؤقّت، ثم أسرعت إليه وأمسكت بيده.",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "أين أنت يا أبي؟"
+          },
+          "publishing": {
+            "title": "خارج الصورة | سؤال صغير جمع الأب بعائلته | على مهل ☕",
+            "description": "في احتفال عائلي بسيط، كان الأب يلتقط صور الجميع. لكن ابنته لاحظت شيئًا غاب عن الصور، وقررت أن تغيّر اللقطة الأخيرة.\n\nقصة قصيرة دافئة من سلسلة «على مهل ☕» ضمن نداء اليقظة.\n\n#على_مهل #نداء_اليقظة #قصص_قصيرة #العائلة",
+            "hashtags": [
+              "#على_مهل",
+              "#نداء_اليقظة",
+              "#قصص_قصيرة",
+              "#العائلة"
+            ],
+            "tags": [
+              "على مهل",
+              "نداء اليقظة",
+              "قصة قصيرة",
+              "قصص عائلية",
+              "خارج الصورة"
+            ]
+          }
+        },
+        "zip_sha256": "7e472d487f38e98927d395de065e60138df8b41327fdb85975ccef149c2ace18",
+        "asset_sha256": {
+          "assets/cover.jpg": "5711710955f4a466b13d8d7d1778cb364f1a5cf48a85fcc01be7b4580225b8d4",
+          "assets/scene_03.jpg": "b521fbf8162e02bc94f3147318a118f7d6f2e353b929c7604e228286d2b7f041",
+          "assets/scene_01.jpg": "4446b1f87ac9567b858bd8080ee7419da9f6e04708eff1758daf895a2806d622",
+          "assets/scene_02.jpg": "9680770480ffa9f21addc15dfff98b73ee6cfe9070cb835da081a7f9ce811c7f"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "f285788532b73c78f0fddaeb1dc6790b8d50fbf01e6a99fbfb6536f7bc421923",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIN5GrZXfRL9IuC7bSOisJrm3Dtx9NJAAKyHwACa-fIUiyl-7ssOyciPQQ",
+          "sha256": "7e472d487f38e98927d395de065e60138df8b41327fdb85975ccef149c2ace18"
+        }
+      }
     }
   },
-  "current_request_id": "req-4f98f5dd830d",
+  "current_request_id": "req-85f1df4b8414",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -20162,6 +20300,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-22T00:50:40Z",
+  "updated_at": "2026-10-22T00:51:23Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
