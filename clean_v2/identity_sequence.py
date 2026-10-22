@@ -294,7 +294,7 @@ def _podcast_opening_hook(text: str) -> str:
         return _first_sentence(compact)
     boundaries = [
         marker.start() for marker in (
-            re.search(r"(?<!\\S)B:\\s+", compact),
+            re.search(r"(?<!\S)B:\s+", compact),
             re.search(re.escape(PRAYER_SENTENCE), compact),
             re.search(re.escape(PODCAST_PRAYER_MARKER), compact),
         ) if marker is not None and marker.start() > 2
