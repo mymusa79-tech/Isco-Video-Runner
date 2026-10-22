@@ -72,13 +72,12 @@ def _text(value: Any, field: str, maximum: int = 1000, *, empty: bool = False) -
 ALA_MAHL_STOCK_MAX = 2  # Story mode stays unchanged.
 VIBE_STOCK_MIN = 4
 VIBE_STOCK_MAX = 7
-# The renderer reads only verified CC0 files from the existing FreePD manifest.
-# Author chooses the exact track: never infer a sad/victorious cue from the text.
-VIBE_TRACKS = {
-    "hopeful": frozenset({"peace-in-sunlight", "wonder-flow", "other-side-now", "acoustic-shifter"}),
-    "melancholy": frozenset({"calm-sketch-piano", "a-little-faith"}),
-    "nostalgic": frozenset({"wonder-flow", "a-little-faith"}),
-}
+# Manually downloaded from the official YouTube Studio Audio Library.
+# Never allow arbitrary sound files from other providers in the ZIP.
+VIBE_AUDIO_ASSET = "assets/vibe_music.mp3"
+VIBE_MAX_AUDIO_BYTES = 8 * 1024 * 1024
+VIBE_MOODS = frozenset({"hopeful", "melancholy", "nostalgic"})
+VIBE_AUDIO_LICENSE = "youtube_audio_library_standard"
 # Scene and stock counts are planned per video (no fixed count). These are only technical safety limits.
 SCENE_MAX = {"short": 14, "film": 60, "podcast": 5}  # podcast: one picture, one scene entry per section (2-5 sections)
 STOCK_MAX_SCENES = {"short": 14, "film": 60, "podcast": 0}  # any scene may ask for stock; the approved image stays its fallback
@@ -212,14 +211,18 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _text(direction, f"performance.{key}", 800, empty=key == "direction")
         if key in {"A", "B"} and fmt != "podcast":
             _error("توجيهات A/B للبودكاست فقط.")
-    editing = _object(doc["editing"], {"music"}, {"mood", "track_id"} if vibe else frozenset(), field="editing")
+    editing = _object(
+        doc["editing"],
+        {"music", "mood", "asset", "track_title", "artist", "license_type"} if vibe else {"music"},
+        field="editing",
+    )
     if vibe:
-        mood, track_id = editing.get("mood"), editing.get("track_id")
-        if (editing.get("music") != "vibe_instrumental"
-                or not isinstance(mood, str) or mood not in VIBE_TRACKS):
-            _error("إحساس يحتاج موسيقى آلية ومزاجًا معتمدًا.")
-        if not isinstance(track_id, str) or track_id not in VIBE_TRACKS[mood]:
-            _error("مقطع إحساس يحتاج track_id مرخصًا ومناسبًا للمزاج من المكتبة المعتمدة.")
+        if editing["music"] != "youtube_audio_library" or editing["mood"] not in VIBE_MOODS:
+            _error("إحساس يحتاج YouTube Audio Library ومزاجًا واحدًا.")
+        if editing["asset"] != VIBE_AUDIO_ASSET or editing["license_type"] != VIBE_AUDIO_LICENSE:
+            _error("إحساس يقبل ملف MP3 واحدًا من مكتبة YouTube Studio بترخيص لا يتطلب نسبًا.")
+        for key in ("track_title", "artist"):
+            _text(editing[key], "editing." + key, 140)
     elif editing["music"] != "none":
         _error('بقية القوالب تحتاج editing.music="none" دون تغيير.')
     if doc["captions"] != {"font": "Cairo Bold", "max_lines": 2, "enabled": True}:
@@ -235,7 +238,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if ala_mahl and not vibe and not 2 <= len(scenes) <= 6:
         _error("على مهل — قصة يحتاج 2–4 صور؛ حزم 5–6 صور القديمة مدعومة.")
     seen: set[str] = set()
-    assets: set[str] = set()
+    assets: set[str] = {VIBE_AUDIO_ASSET} if vibe else set()
     prior = (-1, -1)
     covered = set()
     for scene in scenes:
@@ -413,11 +416,12 @@ def inspect_archive(data: bytes) -> dict[str, Any]:
                 names.add(name.casefold())
                 if name == "assets/" and item.is_dir():
                     continue
-                if name != "production.json" and not _ASSET.fullmatch(name):
+                if name != "production.json" and not (_ASSET.fullmatch(name) or name == VIBE_AUDIO_ASSET):
                     _error("ملف أو مسار غير مسموح داخل ZIP: " + name[:100])
                 if stat.S_IFMT(mode) not in {0, stat.S_IFREG} or item.is_dir():
                     _error("ZIP يسمح بالملفات العادية فقط.")
-                limit = MAX_JSON_BYTES if name == "production.json" else MAX_IMAGE_BYTES
+                limit = (MAX_JSON_BYTES if name == "production.json"
+                         else VIBE_MAX_AUDIO_BYTES if name == VIBE_AUDIO_ASSET else MAX_IMAGE_BYTES)
                 if item.file_size > limit or item.file_size > max(1, item.compress_size) * 150:
                     _error("ملف ضخم أو نسبة ضغط غير آمنة داخل ZIP.")
                 with archive.open(item) as stream:
@@ -433,6 +437,14 @@ def inspect_archive(data: bytes) -> dict[str, Any]:
             from PIL import Image
             for name, content in files.items():
                 if name == "production.json":
+                    continue
+                if name == VIBE_AUDIO_ASSET:
+                    if doc.get("ala_mahl_mode") != "vibe" or not (1024 < len(content) <= VIBE_MAX_AUDIO_BYTES):
+                        _error("موسيقى إحساس غير مسموحة أو حجمها غير صالح.")
+                    looks_id3 = content[:3] == b"ID3"
+                    looks_mp3 = len(content) >= 2 and content[0] == 0xFF and (content[1] & 0xE0) == 0xE0
+                    if not (looks_id3 or looks_mp3):
+                        _error("صيغة ملف الموسيقى ليست MP3.")
                     continue
                 with Image.open(io.BytesIO(content)) as image:
                     if image.format not in {"PNG", "JPEG", "WEBP"} or image.width * image.height > MAX_PIXELS or getattr(image, "n_frames", 1) != 1:
