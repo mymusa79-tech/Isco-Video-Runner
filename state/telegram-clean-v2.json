@@ -8525,6 +8525,21 @@
       "selected_at": "2026-10-22T10:11:10Z",
       "created_at": "2026-10-22T10:11:10Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-a58754ca74",
+      "title": "قبل أن تُمحى العلامات",
+      "normalized_title": "قبل ان تُمحي العلامات",
+      "market_query": "قبل أن تُمحى العلامات",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-22T20:32:21Z",
+      "created_at": "2026-10-22T20:32:21Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -20412,9 +20427,142 @@
         "started_at": "2026-10-22T10:12:13Z",
         "finished_at": "2026-10-22T11:00:02Z"
       }
+    },
+    "req-12bbe7018c8f": {
+      "schema_version": 1,
+      "request_id": "req-12bbe7018c8f",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "قبل أن تُمحى العلامات",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-a58754ca74",
+      "selected_at": "2026-10-22T20:32:21Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "قبل أن تُمحى العلامات",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "قبل أن تُمحى العلامات",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "كانا يحملان آخر الصناديق من بيت طفولتهما حين توقّف الأصغر عند الباب. في الداخل ستائر مطوية وغرف خالية، وعلى إطار الباب خطوط قلم باهتة. كان أبوهما يقيس طولهما هناك كل عام، بينما يتشاجران على مَن صار أطول."
+              },
+              {
+                "id": "s2",
+                "text": "رفع الأكبر فرشاة الطلاء وقال: «سنتركها خلفنا على أي حال». أمسك الأصغر يده: «أتذكر حين كان أبونا يطلب منا خلع الأحذية قبل القياس؟» ضحكا معًا. التقط صورة للعلامات بهاتفه، ثم تأملها. الخطوط ظاهرة، لكن شيئًا من تلك اللحظة لم يظهر في الصورة."
+              },
+              {
+                "id": "s3",
+                "text": "قبل تسليم المفتاح، استأذنا المالك الجديد في نزع الشريحة الخشبية التي تحمل العلامات، فوافق. عملا معًا حتى خرجت سليمة، ولفّاها في الستارة القديمة. وعندما أُغلق الباب أخيرًا، حمل الأكبر صندوق الأدوات، وحمل الأصغر قطعة الخشب. وفي السيارة، قرآ العلامات من جديد، واختلفا ضاحكين حول مَن كان أطول."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد قصصي دافئ ومحادثي، بإيقاع إنساني غير متكلف. ابدأ وسط الفعل، وامنح الوقفة عند خطوط القلم مساحة قصيرة. قل الحوار كحديث بين أخوين، ثم أنهِ بالضحك الخفيف لا بالبكاء أو الموعظة. لا تغيّر الصوت أو الهوية الثابتة أو الصلاة؛ دع الأوترو يبدأ بعد آخر كلمة فقط."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "كانا يحملان آخر الصناديق من بيت طفولتهما",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "وعلى إطار الباب خطوط قلم باهتة.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "رفع الأكبر فرشاة الطلاء وقال:",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s3",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "قبل تسليم المفتاح، استأذنا المالك الجديد",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "آخر ما أخذاه"
+          },
+          "publishing": {
+            "title": "قبل أن تُمحى العلامات | قصة قصيرة عن بيت الطفولة",
+            "description": "في آخر يوم داخل بيت الطفولة، توقّف أخوان عند علامات صغيرة على إطار الباب.\nقصة خيالية قصيرة من «على مهل ☕» عن ذكرى مشتركة وقرار يتخذانه قبل تسليم المفتاح.\n\n#على_مهل #قصة_قصيرة #بيت_الطفولة #ذكريات #نداء_اليقظة",
+            "hashtags": [
+              "#على_مهل",
+              "#قصة_قصيرة",
+              "#بيت_الطفولة",
+              "#ذكريات",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "على مهل",
+              "نداء اليقظة",
+              "بيت الطفولة",
+              "قصة قصيرة",
+              "ذكريات الطفولة"
+            ]
+          }
+        },
+        "zip_sha256": "6af71555eceb73d04fc67fdefa3b9387e571f19a88ca2b8f64d3a0a0b141d5cf",
+        "asset_sha256": {
+          "assets/cover.jpg": "3871274e2f39defdba76de0b26569c2f5aadbead9852401ea65e52492685c6a6",
+          "assets/scene_01.jpg": "bd84a8f83b0317e458e71330497526e547f3c993558809cd5b463c1a904114ed",
+          "assets/scene_02.jpg": "293d4ffff5c61f744985597b0eb83190217e88cbef63300be8d582ef67ad96f7",
+          "assets/scene_03.jpg": "c6214b7f4d358997b94b5ee4df450ba7b11bb4a6e4f4a116f066a08031abc55d",
+          "assets/scene_04.jpg": "25ce8d06edf5be3469f12a4f6085f47832d213c1f8e54c621ae5caab283137ac"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "02564366fdd170bebb46aa95442b8f21b20d858dea7ff9181d45c0085c2bb834",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIOHWracqn3B1mNYiswBkFnZZAhOiQoAAKNHgACa-fQUnu2V6EPOJkvPQQ",
+          "sha256": "6af71555eceb73d04fc67fdefa3b9387e571f19a88ca2b8f64d3a0a0b141d5cf"
+        }
+      }
     }
   },
-  "current_request_id": "req-fc1d5e6e6768",
+  "current_request_id": "req-12bbe7018c8f",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -20910,6 +21058,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-22T20:31:50Z",
+  "updated_at": "2026-10-22T20:32:22Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
