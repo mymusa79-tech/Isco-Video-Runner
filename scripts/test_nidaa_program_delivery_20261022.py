@@ -89,6 +89,39 @@ class ExportedDeliveryEvidenceTests(unittest.TestCase):
         )
         return hashlib.sha256(video.read_bytes()).hexdigest()
 
+    def test_podcast_repeated_single_photo_is_explicit_delivery_review(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            expected = self._make_accepted_film(root)
+            (root / "podcast-captions.json").write_text('{"status":"pass"}', encoding="utf-8")
+            (root / "podcast-captions.srt").write_text(
+                "1\\n00:00:00,000 --> 00:00:02,000\\nالسؤال.\\n", encoding="utf-8"
+            )
+            (root / "production.json").write_text(json.dumps({
+                "format": "podcast",
+                "scenes": [
+                    {"id": "p1", "section_id": "s1", "asset": "assets/one.jpg"},
+                    {"id": "p2", "section_id": "s2", "asset": "assets/one.jpg"},
+                    {"id": "p3", "section_id": "s3", "asset": "assets/one.jpg"},
+                ],
+            }), encoding="utf-8")
+            result = audit_delivery(root, fmt="podcast", expected_sha256=expected)
+            self.assertEqual(result["status"], "partial_delivery")
+            self.assertTrue(result["primary_video_accepted"])  # no new video gate
+            self.assertIn("podcast_approved_photo_plan_reuses_single_image", result["review_reasons"])
+            self.assertEqual(result["approved_photo_coverage"]["unique_approved_photo_assets"], 1)
+
+            # Updating the plan with genuinely distinct photographs clears only
+            # this specific editorial warning. Runtime frame quality needs review.
+            plan = json.loads((root / "production.json").read_text(encoding="utf-8"))
+            plan["scenes"][1]["asset"] = "assets/two.jpg"
+            plan["scenes"][2]["asset"] = "assets/three.jpg"
+            (root / "production.json").write_text(json.dumps(plan), encoding="utf-8")
+            better = audit_delivery(root, fmt="podcast", expected_sha256=expected)
+            self.assertNotIn("podcast_approved_photo_plan_reuses_single_image",
+                             better["review_reasons"])
+            self.assertEqual(better["approved_photo_coverage"]["unique_approved_photo_assets"], 3)
+
     def test_exact_accepted_export_and_usable_cover_are_complete(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
