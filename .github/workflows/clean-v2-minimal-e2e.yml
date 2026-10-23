@@ -32,6 +32,7 @@ on:
       - "scripts/test_clean_v2_unified_visual_story.py"
       - "scripts/test_run55_pipeline_integrity.py"
       - "scripts/test_clean_v2_podcast.py"
+      - "scripts/test_ala_mahl_podcast.py"
       - "scripts/test_clean_v2_ai_still.py"
       - "scripts/test_clean_v2_timeline_first.py"
       - "scripts/test_cover_lite.py"
@@ -130,6 +131,7 @@ jobs:
             scripts.test_clean_v2_unified_visual_story \
             scripts.test_run55_pipeline_integrity \
             scripts.test_clean_v2_podcast \
+            scripts.test_ala_mahl_podcast \
             scripts.test_clean_v2_retired_voice_absence \
             scripts.test_clean_v2_ai_still \
             scripts.test_clean_v2_timeline_first \
