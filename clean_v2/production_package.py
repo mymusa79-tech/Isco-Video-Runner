@@ -210,9 +210,15 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if fmt == "podcast":
         if doc.get("roles") != {"A": "listener", "B": "host"}:
             _error('roles يجب أن تكون {"A":"listener","B":"host"}؛ الأصوات الحالية ثابتة.')
-        from .pipeline import _validate_podcast_listener_proxy_script
+        from .pipeline import (
+            _validate_ala_mahl_podcast_dialogue_script,
+            _validate_podcast_listener_proxy_script,
+        )
         try:
-            _validate_podcast_listener_proxy_script({"sections": [{"narration": t} for t in texts.values()]})
+            validator = (_validate_ala_mahl_podcast_dialogue_script
+                         if doc["template"] == "ala_mahl_dialogue"
+                         else _validate_podcast_listener_proxy_script)
+            validator({"sections": [{"narration": t} for t in texts.values()]})
         except RuntimeError as exc:
             _error("ترتيب حوار البودكاست غير صالح: " + str(exc)[:180])
     elif "roles" in doc:
