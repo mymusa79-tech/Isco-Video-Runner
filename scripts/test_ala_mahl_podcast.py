@@ -109,6 +109,49 @@ class AlaMahlPodcastTests(unittest.TestCase):
                 synth.synthesize("A: لماذا؟ B: لنتحدث.", Path(tmp) / "x.wav",
                                  performance_mode="ala_mahl_podcast_dialogue")
 
+    def test_actual_sectioned_voice_uses_new_duo_but_prayer_keeps_B(self):
+        from unittest.mock import patch as monkeypatch
+        from clean_v2.pipeline import _synthesize_sectioned_voice
+        from clean_v2.identity_sequence import inject_spoken_identity, PRAYER_SENTENCE
+
+        sections = [
+            {"id": "s1", "narration": "A: لماذا رفض طلب صديقه؟ B: ربما كان مضطرًا لذلك."},
+            {"id": "s2", "narration": "A: لكن كيف نفسر رفضه؟ B: نحتاج إلى سماع تفاصيل الموقف. هذا هو الدرس."},
+        ]
+        inject_spoken_identity(sections, fmt="podcast")
+        invocations = []
+
+        def voice_stub(_api_key, words, path, **kwargs):
+            invocations.append((words, kwargs["questioner_voice"], kwargs["primary_voice"],
+                                kwargs.get("performance_mode")))
+            return _wav(Path(path))
+
+        def concat_stub(_parts, target, *args, **kwargs):
+            return _wav(Path(target))
+
+        with tempfile.TemporaryDirectory() as tmp, monkeypatch(
+            "clean_v2.media._gemini38_synthesize", side_effect=voice_stub
+        ), monkeypatch("clean_v2.pipeline.concat_wav_parts", side_effect=concat_stub), \
+             monkeypatch.dict(os.environ, {"CLEAN_V2_TTS_CACHE_PATH": ""}, clear=False):
+            folder = Path(tmp)
+            (folder / "production.json").write_text(
+                json.dumps({"template": "ala_mahl_dialogue"}), encoding="utf-8"
+            )
+            _synthesize_sectioned_voice(
+                media.GeminiOnlyVoiceSynthesizer("test-key"), sections,
+                folder / "narration.wav", fmt="podcast", require_charon_only=True,
+                performance_mode="ala_mahl_podcast_dialogue",
+            )
+
+        hook = next(c for c in invocations if c[0].startswith("A:"))
+        self.assertEqual((hook[1], hook[2], hook[3]),
+                         ("Iapetus", "Charon", "ala_mahl_podcast_dialogue"))
+        prayer = [c for c in invocations if PRAYER_SENTENCE in c[0]]
+        self.assertEqual(len(prayer), 1)
+        # Spoken prayer stays in existing Charon route, never replaced by Iapetus.
+        self.assertEqual((prayer[0][1], prayer[0][2]), ("Orus", "Charon"))
+        self.assertNotEqual(prayer[0][3], "ala_mahl_podcast_dialogue")
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg and ffprobe required for real identity render")
     def test_real_ala_mahl_podcast_identity_media_is_independent(self):
