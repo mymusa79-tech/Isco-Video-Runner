@@ -14,6 +14,8 @@ on:
       - clean_v2/ready_production.py
       - clean_v2/production_package.py
       - scripts/test_ala_mahl_podcast.py
+      - scripts/clean_v2_release_delivery.py
+      - scripts/test_pack_publishing_covers.py
       - scripts/test_v24_zip_static_hold.py
       - .github/workflows/v24-approved-zip-hold.yml
 
@@ -41,7 +43,7 @@ jobs:
       - name: Verify isolated Ala Mahl podcast and existing voice profiles
         run: |
           python -m py_compile clean_v2/media.py clean_v2/pipeline.py clean_v2/identity_sequence.py clean_v2/ready_production.py clean_v2/timeline_render.py scripts/test_ala_mahl_podcast.py
-          python -m unittest scripts.test_ala_mahl_podcast scripts.test_nidaa_short_voice_profile -v
+          python -m unittest scripts.test_ala_mahl_podcast scripts.test_nidaa_short_voice_profile scripts.test_pack_publishing_covers -v
       - name: Verify ZIP stock fallback and approved scene importer
         run: python -m unittest scripts.test_zip_stock_scenes scripts.test_production_package -v
       - name: Verify podcast whole-question hook and ordered stock candidates
