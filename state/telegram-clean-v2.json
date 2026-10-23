@@ -21461,8 +21461,8 @@
           "assets/scene_10.jpg": "328d0a9f64919b98265129501e6177fbd0adfe17c273af60f11d15402c2efa0d"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-23T10:40:17Z",
       "dispatched_at": null,
       "request_sha256": "54b00ed51d3098b43fb5c217964f87324c6e8845fec3620139fa35aa673acc8f",
       "owner_art": {
@@ -21470,7 +21470,8 @@
           "file_id": "BQACAgQAAxkBAAIOUWrbOUDK4k1R2EsZlmsjBs7h77UfAAJMIgACFC_gUrN98XNCTfb9PQQ",
           "sha256": "16ccf2a906b9484f7b13da952ea11cdb12a804d0058337a3555130219a9e1bf5"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-bf30beeae60a",
@@ -21969,6 +21970,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-23T10:39:19Z",
+  "updated_at": "2026-10-23T10:40:17Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
