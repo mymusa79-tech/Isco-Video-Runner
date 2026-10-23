@@ -454,13 +454,14 @@ def _gemini38_synthesize(
                     ],
                 }
             )
-        speech_config: Any = {
-            "mode": "conversational",
-            "speakers": [
-                {"speaker": "A", "voice": questioner_voice},
-                {"speaker": "B", "voice": primary_voice},
-            ],
-        }
+        # Google's Interactions API rejects the old {"mode","speakers"} object
+        # ("Unknown parameter 'mode' at generation_config.structured_speech_config",
+        # runs 171-173). Multi-speaker uses the same array form as single-speaker,
+        # with one {speaker, voice} entry per speaker.
+        speech_config: Any = [
+            {"speaker": "A", "voice": questioner_voice},
+            {"speaker": "B", "voice": primary_voice},
+        ]
     else:
         source = transcript.strip()
         if str(performance_mode or "") == "inner_dialogue":
