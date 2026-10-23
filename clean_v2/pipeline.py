@@ -5368,6 +5368,46 @@ def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[s
     }
 
 
+
+def _validate_ala_mahl_podcast_dialogue_script(script: Mapping[str, Any]) -> dict[str, Any]:
+    """Opt-in two-perspective conversation. Never modify the Outside the Text gate."""
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise RuntimeError("ala_mahl_podcast_requires_sections")
+    turns: list[tuple[str, str]] = []
+    for section in sections:
+        if not isinstance(section, Mapping):
+            raise RuntimeError("ala_mahl_podcast_section_invalid")
+        section_turns = _podcast_listener_proxy_turns(section.get("narration"))
+        if not section_turns:
+            raise RuntimeError("ala_mahl_podcast_requires_labelled_dialogue")
+        turns.extend(section_turns)
+    if len(turns) < 4 or turns[0][0] != "A" or turns[1][0] != "B":
+        raise RuntimeError("ala_mahl_podcast_requires_A_question_then_B_reply")
+    if "؟" not in turns[0][1] and "?" not in turns[0][1]:
+        raise RuntimeError("ala_mahl_podcast_hook_requires_question")
+    a_words = b_words = 0
+    for index, (speaker, spoken) in enumerate(turns):
+        count = len(spoken.split())
+        if speaker == "A":
+            if count > 85:
+                raise RuntimeError("ala_mahl_podcast_A_turn_too_long")
+            if index + 1 >= len(turns) or turns[index + 1][0] != "B":
+                raise RuntimeError("ala_mahl_podcast_A_requires_B_reply")
+            a_words += count
+        else:
+            b_words += count
+    if a_words / max(1, a_words + b_words) > 0.60:
+        raise RuntimeError("ala_mahl_podcast_A_dominates_dialogue")
+    return {
+        "status": "pass",
+        "mode": "two_perspectives",
+        "a_words": a_words,
+        "b_words": b_words,
+        "voices": {"A": "Iapetus", "B": "Charon"},
+    }
+
+
 def _validate_script_for_brief(
     value: Any,
     plan: Mapping[str, Any],
@@ -7775,8 +7815,12 @@ class CleanV2Pipeline:
                     script["sections"], fmt, identity["opener"], identity["closer"]
                 )
                 if fmt == "podcast":
-                    normalize_podcast_listener_proxy_script(script)
-                    _validate_podcast_listener_proxy_script(script)
+                    from .ready_production import document as _ready_doc
+                    if _ready_doc(output_dir).get("template") == "ala_mahl_dialogue":
+                        _validate_ala_mahl_podcast_dialogue_script(script)
+                    else:
+                        normalize_podcast_listener_proxy_script(script)
+                        _validate_podcast_listener_proxy_script(script)
                 if fmt == "short":
                     short_script_report = validate_short_script(script)
                     atomic_write_json(
@@ -7888,8 +7932,12 @@ class CleanV2Pipeline:
                     validate_short_hook_contract(script)
                     validate_short_script(script)
                 elif str(brief["format"]) == "podcast":
-                    normalize_podcast_listener_proxy_script(script)
-                    _validate_podcast_listener_proxy_script(script)
+                    from .ready_production import document as _ready_doc
+                    if _ready_doc(output_dir).get("template") == "ala_mahl_dialogue":
+                        _validate_ala_mahl_podcast_dialogue_script(script)
+                    else:
+                        normalize_podcast_listener_proxy_script(script)
+                        _validate_podcast_listener_proxy_script(script)
                 atomic_write_json(output_dir / "script.json", script)
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
