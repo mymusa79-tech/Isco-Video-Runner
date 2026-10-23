@@ -88,6 +88,26 @@ class AlaMahlPodcastTests(unittest.TestCase):
                              ("Orus", "Charon"))
             self.assertEqual(speaker.voice_roles["questioner"], "Orus")
 
+    def test_ready_artifacts_keep_approved_text_and_template(self):
+        import json
+        from clean_v2 import owner_pack
+        from clean_v2.identity_sequence import PRAYER_SENTENCE
+        from scripts.test_production_package import imported_pack
+        doc = manifest("podcast", template="ala_mahl_podcast")
+        pack = imported_pack(doc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = owner_pack.build_artifacts(pack, {"format": "podcast"}, root)
+            plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+            ready = json.loads((root / "production.json").read_text(encoding="utf-8"))
+            self.assertEqual(plan["narrative_format"], "dialogue_qa")
+            self.assertEqual(ready["template"], "ala_mahl_podcast")
+            joined = " ".join(s["narration"] for s in script["sections"])
+            self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
+            self.assertNotIn("خارج النص", joined)
+            self.assertNotIn("نداء اليقظة", joined)
+
+
     def test_unapproved_lite_voice_pair_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             speaker = GeminiOnlyVoiceSynthesizer("test-key", tts_model=GEMINI38_LITE_TTS_MODEL)
