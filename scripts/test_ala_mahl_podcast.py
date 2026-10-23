@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import json
 import subprocess
@@ -64,6 +65,46 @@ class AlaMahlPodcastTests(unittest.TestCase):
         self.assertEqual(report["voices"]["A"], "Iapetus")
         with self.assertRaisesRegex(RuntimeError, "question_too_long"):
             _validate_podcast_listener_proxy_script({"sections": sections})
+
+    def test_release_and_derived_short_never_inherit_other_channel_branding(self):
+        from scripts import clean_v2_release_delivery as release
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "production.json").write_text(json.dumps({
+                "format": "podcast", "template": "ala_mahl_dialogue"
+            }, ensure_ascii=False), encoding="utf-8")
+            (root / "plan.json").write_text(json.dumps({
+                "title": "فهم الموقف",
+                "sections": [{"id": "s1", "heading": "تفاصيل الموقف"}],
+            }, ensure_ascii=False), encoding="utf-8")
+            (root / "podcast-short.json").write_text(json.dumps({
+                "section_id": "s1", "text": "لماذا رفض المساعدة؟"
+            }, ensure_ascii=False), encoding="utf-8")
+            published = release._derived_short_publish_metadata(
+                root, parent_kind="podcast",
+                parent={"title": "فهم الموقف", "topic": "المساعدة"},
+                short_prefix="podcast-short",
+            )
+            self.assertIn("على مهل", published["title"])
+            self.assertIn("#على_مهل", published["hashtags"])
+            self.assertNotIn("#نداء_اليقظة", published["hashtags"])
+            self.assertNotIn("#خارج_النص", published["hashtags"])
+            self.assertNotIn("خارج النص", published["title"])
+            self.assertNotIn("نداء اليقظة", published["youtube_tags"])
+            self.assertIn("Ala Mahl", release._release_title(
+                "podcast", "فهم الموقف", ala_mahl_podcast=True
+            ))
+            (root / "production.json").write_text(json.dumps({
+                "format": "podcast", "template": "dialogue_qa"
+            }, ensure_ascii=False), encoding="utf-8")
+            legacy = release._derived_short_publish_metadata(
+                root, parent_kind="podcast",
+                parent={"title": "فهم الموقف", "topic": "المساعدة"},
+                short_prefix="podcast-short",
+            )
+            self.assertIn("#خارج_النص", legacy["hashtags"])
+            self.assertIn("#نداء_اليقظة", legacy["hashtags"])
+            self.assertNotIn("#على_مهل", legacy["hashtags"])
 
     def test_podcast_modes_are_not_interchanged(self):
         self.assertEqual(_voice_performance_mode_for_brief({"format": "podcast"}),
