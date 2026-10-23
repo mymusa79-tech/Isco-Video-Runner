@@ -307,9 +307,12 @@ def apply_topic_audio_polish(
 ) -> dict[str, Any]:
     """Mix one verified CC0 music bed only inside the shared measured topic window."""
     from .ready_production import document
-    if document(Path(output_dir)).get("editing", {}).get("music") == "none":
+    approved_doc = document(Path(output_dir))
+    editing = approved_doc.get("editing", {})
+    if editing.get("music") == "none":
         return {"status": "skipped_approved_package_music_none", "provider_calls_added": 0,
                 "music_added": False, "voice_changed": False}
+    owner_youtube = editing.get("music") == "youtube_audio_library"
     if fmt not in {"short", "film", "podcast"}:
         raise ValueError(f"topic audio polish unsupported format: {fmt}")
     output_dir = Path(output_dir)
@@ -333,15 +336,52 @@ def apply_topic_audio_polish(
     temp_mix = temp_dir / "final-audio-polished.mp4"
     topic_start: float | None = None
     topic_end: float | None = None
+    music_start: float | None = None
+    topic_duration: float | None = None
     editorial_windows: list[dict[str, Any]] = []
     try:
         topic_start, topic_end = _topic_window(output_dir)
-        topic_duration = topic_end - topic_start
-        track_path, library_report = select_music_track(
-            script,
-            fmt=fmt,
-            allow_download=True,
-        )
+        if owner_youtube:
+            from .owner_youtube_music import TRACKS, resolve_music_asset, valid_track
+            track_id = editing["track_id"]
+            if not valid_track(track_id, fmt, approved_doc.get("template", "")):
+                raise RuntimeError("youtube_music_format_disallowed")
+            track_path = resolve_music_asset(output_dir, editing)
+            track = TRACKS[track_id]
+            library_report = {
+                "selected_id": track_id,
+                "selected_title": track["title"],
+                "selected_artist": track["artist"],
+                "selected_origin": "owner_supplied_youtube_audio_library",
+                "selected_instrumental_only": True,
+                "selected_dialogue_bed": True,
+                "allow_download": False,
+                "provider_calls_added": 0,
+                "license_verified_by_client": False,
+                "license_check": "owner_must_verify_in_youtube_studio",
+            }
+            # Never use old automatic FreePD/Coverr selection for an approved ZIP.
+            delay = float(editing.get("delay_seconds", 3.0))
+            music_start = topic_start + delay
+            if music_start >= topic_end - 0.5:
+                raise RuntimeError("youtube_music_no_space_after_topic_intro")
+            import json as _json
+            probe = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "json", str(track_path)])
+            source_duration = float(_json.loads(probe.stdout)["format"]["duration"])
+            # Do not repeat a distinctive music bed over a long Podcast; silence
+            # after the chosen cue is better than an obvious repetitive loop.
+            topic_duration = min(topic_end - music_start, max(0.0, source_duration - 0.1))
+            if topic_duration < 0.5:
+                raise RuntimeError("youtube_music_too_short")
+        else:
+            music_start = topic_start
+            topic_duration = topic_end - topic_start
+            track_path, library_report = select_music_track(
+                script,
+                fmt=fmt,
+                allow_download=True,
+            )
         if track_path is None:
             raise RuntimeError("verified_music_track_unavailable")
         if not bool(library_report.get("selected_instrumental_only")):
@@ -368,14 +408,14 @@ def apply_topic_audio_polish(
         }
         editorial_windows = _editorial_audio_windows(
             output_dir,
-            topic_start=topic_start,
-            topic_end=topic_end,
+            topic_start=music_start if owner_youtube else topic_start,
+            topic_end=min(topic_end, music_start + topic_duration) if owner_youtube else topic_end,
         )
         _mix_music_into_video(
             final_path=final_path,
             output_path=temp_mix,
             music_path=adjusted,
-            topic_start_seconds=topic_start,
+            topic_start_seconds=music_start,
             editorial_windows=editorial_windows,
         )
         os.replace(temp_mix, final_path)
@@ -404,14 +444,20 @@ def apply_topic_audio_polish(
             or "verified_cc0_freepd_instrumental_dialogue_bed"
         ),
         "external_download_required": bool(library_report.get("allow_download", False)),
+        "owner_music_track_id": editing.get("track_id") if owner_youtube else None,
+        "owner_youtube_license_requires_studio_confirmation": bool(owner_youtube),
+        "music_added": status == "pass",
+        "voice_changed": False,
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
         "music_target_relative_db": target_relative_db,
         "music_allowed_relative_db": [minimum_relative_db, maximum_relative_db],
         "post_mix_limiter_linear": POST_MIX_LIMITER_LINEAR,
         "music_window": (
-            {"start": topic_start, "end": topic_end}
+            {"start": music_start if owner_youtube else topic_start,
+             "end": min(topic_end, music_start + topic_duration) if owner_youtube else topic_end}
             if topic_start is not None and topic_end is not None
+            and (not owner_youtube or (music_start is not None and topic_duration is not None))
             else None
         ),
         "editorial_music_envelope": editorial_windows,

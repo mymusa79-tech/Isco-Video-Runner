@@ -142,7 +142,7 @@ jobs:
             -v
 
       - name: Approved ZIP and Ala Mahl offline integration
-        run: python -m unittest scripts.test_production_package scripts.test_ready_production_e2e scripts.test_v26_sequence_and_story_pacing -v
+        run: python -m unittest scripts.test_production_package scripts.test_ready_production_e2e scripts.test_v26_sequence_and_story_pacing scripts.test_owner_youtube_music -v
 
       - name: Real FFmpeg photographic podcast stills (offline, no providers)
         run: python -m unittest scripts.test_podcast_photo_ffmpeg_smoke -v
