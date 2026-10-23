@@ -406,8 +406,8 @@ def apply_topic_audio_polish(
         }
         editorial_windows = _editorial_audio_windows(
             output_dir,
-            topic_start=topic_start,
-            topic_end=topic_end,
+            topic_start=music_start if owner_youtube else topic_start,
+            topic_end=min(topic_end, music_start + topic_duration) if owner_youtube else topic_end,
         )
         _mix_music_into_video(
             final_path=final_path,
