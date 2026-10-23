@@ -8,7 +8,7 @@ SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
 # Timeline First: duration is editorially unconstrained. The measured mastered voice
 # owns runtime; this distant ceiling is operational runaway protection only.
-SHORT_DURATION_SAFETY_MAX_SECONDS = 120.0
+SHORT_DURATION_SAFETY_MAX_SECONDS = 150.0
 SHORT_HOOK_MAX_WORDS = 18
 # Emergency acceptance headroom only. Production normalization always attempts a
 # conservative local trim back to SHORT_HOOK_MAX_WORDS first. Keeping this

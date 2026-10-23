@@ -1877,10 +1877,10 @@ class ShortContractTests(unittest.TestCase):
         render_still.assert_not_called()
 
     def test_duration_contract_has_no_editorial_target_only_operational_safety(self) -> None:
-        self.assertEqual(SHORT_DURATION_SAFETY_MAX_SECONDS, 120.0)
-        for seconds in (0.5, 34.0, 48.0, 57.0, 120.0):
+        self.assertEqual(SHORT_DURATION_SAFETY_MAX_SECONDS, 150.0)
+        for seconds in (0.5, 34.0, 48.0, 57.0, 120.0, 150.0):
             self.assertEqual(validate_short_duration(seconds, phase="test"), seconds)
-        for seconds in (0.0, 120.001):
+        for seconds in (0.0, 150.001):
             with self.assertRaisesRegex(
                 ShortFormatError, "short_duration_operational_safety_violation"
             ):

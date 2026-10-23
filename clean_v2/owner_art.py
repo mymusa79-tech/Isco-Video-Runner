@@ -528,7 +528,7 @@ class OwnerArtVisualSource:
         return (final, row), ""
 
     def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
-                    seconds: float, index: int):
+                    seconds: float, index: int, template: str = ""):
         """Try up to three editor-approved stock links in priority order, then the approved image."""
         stock = beat["owner_stock"]
         if stock.get("mode") == "sequence":
@@ -544,6 +544,22 @@ class OwnerArtVisualSource:
                 row["pinned_prior_rejections"] = reasons
                 return (clip, row), ""
             reasons.append({"rank": rank, "reason": str(reason)[:120]})
+        # Three links that were each usable but each shorter than the slot are
+        # chained as a sequence instead of dropping to still art. Only for short
+        # Nidaa / film (the formats that accept stock.mode="sequence"); blocked or
+        # missing links never trigger it and the approved image stays the fallback.
+        if (len(urls) == 3 and fmt in {"short", "film"} and template != "ala_mahl"
+                and any(r["reason"] == "pinned_clip_too_short_for_scene" for r in reasons)
+                and all(r["reason"] in {"pinned_clip_too_short_for_scene", "pinned_clip_too_short"}
+                        for r in reasons)):
+            chained, why = self._try_pinned_sequence(
+                {**beat, "owner_stock": {**stock, "urls": list(urls), "mode": "sequence"}},
+                asset, output_dir, fmt, seconds, index)
+            if chained is not None:
+                chained[1]["pinned_sequence_fallback_from_alternatives"] = True
+                chained[1]["pinned_prior_rejections"] = reasons
+                return chained, ""
+            reasons.append({"rank": 0, "reason": str(why)[:120]})
         if len(reasons) == 1:
             return None, reasons[0]["reason"]  # preserve legacy single-URL diagnostics
         return None, "pinned_alternatives_exhausted:" + ",".join(row["reason"] for row in reasons)
@@ -688,7 +704,8 @@ class OwnerArtVisualSource:
             if beat.get("owner_stock"):
                 pinned = bool(beat["owner_stock"].get("url") or beat["owner_stock"].get("urls"))
                 if pinned:
-                    admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index)
+                    admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index,
+                                                            template=str(doc.get("template") or ""))
                 else:
                     admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
