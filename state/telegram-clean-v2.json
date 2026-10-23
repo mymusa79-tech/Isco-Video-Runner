@@ -8555,6 +8555,21 @@
       "selected_at": "2026-10-22T22:07:58Z",
       "created_at": "2026-10-22T22:07:58Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-4d2e997a21",
+      "title": "بدأت المهمة خمس مرات… ولم تُنهِها!",
+      "normalized_title": "بدات المهمة خمس مرات ولم تُنهِها",
+      "market_query": "بدأت المهمة خمس مرات… ولم تُنهِها!",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-23T08:55:39Z",
+      "created_at": "2026-10-23T08:55:39Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -20840,9 +20855,296 @@
         "started_at": "2026-10-22T22:12:53Z",
         "finished_at": "2026-10-22T22:19:44Z"
       }
+    },
+    "req-01708f615414": {
+      "schema_version": 1,
+      "request_id": "req-01708f615414",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "بدأت المهمة خمس مرات… ولم تُنهِها!",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-4d2e997a21",
+      "selected_at": "2026-10-23T08:55:39Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "بدأت المهمة خمس مرات… ولم تُنهِها!",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "بدأت المهمة خمس مرات… ولم تُنهِها!",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "بدأ كتابة التقرير خمس مرات… ولم يسلّمه في موعده!"
+              },
+              {
+                "id": "s2",
+                "text": "في التاسعة صباحًا، فتح جدول المبيعات. كان عليه إرسال التقرير قبل الثالثة.\n\nرنّ الهاتف؛ زميل يسأله عن رقم من الشهر الماضي. بحث عنه وأجاب.\n\nعاد إلى الشاشة، لكنه نسي الصف الذي كان يراجعه.\n\nوقبل أن يستعيد تركيزه، جاء زميل يسأله عن اجتماع.\n\nثم رسالة عاجلة، وردّان سريعان، وعودة أخرى إلى الصفوف نفسها.\n\nعند الثانية وخمسين دقيقة، وجد رقمًا مختلفًا بين نسختين من الجدول. ولم يعرف أيهما الصحيح.\n\nلم يغامر بإرسال التقرير. اتصل بمديره وطلب مهلة حتى الصباح."
+              },
+              {
+                "id": "s3",
+                "text": "في اليوم التالي، أخبر زملاءه أنه سيرد بعد نصف ساعة.\n\nأبعد الهاتف، وقارن النسختين، وصحّح الرقم، وأرسل التقرير.\n\nلم تكن المشكلة في دقائق الرد وحدها؛ كل عودة كانت تستهلك وقتًا ليستعيد ما كان يفعله."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى محادثية بصوت نداء المعتمد دون تبديل. هوك مباشر بلا صراخ، توقف قصير عند تعاقب المقاطعات، توتر محدود عند اختلاف الرقم، وارتياح واقعي في فعل الإكمال. يُترك للصوت الطبيعي توقيت الوقفات؛ لا يُسرع لأجل رقم مدة افتراضي. لا تضف نص دعاء أو هوية."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "بدأ كتابة التقرير خمس مرات… ولم يسلّمه في موعده!",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-typing-on-a-laptop-7660344/",
+                  "https://www.pexels.com/video/a-man-busy-using-a-laptop-in-his-workplace-3255329/",
+                  "https://www.pexels.com/video/a-person-working-on-a-laptop-8479267/"
+                ],
+                "query_en": "begin work on unfinished report laptop",
+                "query_alt_en": "office worker starting work desk",
+                "must_show": "Worker seated at laptop, unfinished sales report visible"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "في التاسعة صباحًا، فتح جدول المبيعات.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-typing-on-the-laptop-7546421/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-4629176/",
+                  "https://www.pexels.com/video/person-typing-and-using-laptop-5483085/"
+                ],
+                "query_en": "person typing laptop spreadsheet",
+                "query_alt_en": "hands working on sales report",
+                "must_show": "Hands starting spreadsheet or document on laptop"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "رنّ الهاتف؛ زميل يسأله عن رقم من الشهر الماضي.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/man-wearing-eyeglasses-working-at-the-office-8632600/",
+                  "https://www.pexels.com/video/a-man-talking-on-his-phone-while-sitting-6099808/",
+                  "https://www.pexels.com/video/man-talking-on-the-phone-in-the-office-6931120/"
+                ],
+                "query_en": "man talking phone at office desk",
+                "query_alt_en": "office worker telephone call",
+                "must_show": "Worker interrupted by incoming phone call at desk"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "عاد إلى الشاشة، لكنه نسي الصف الذي كان يراجعه.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-checking-the-documents-6814544/",
+                  "https://www.pexels.com/video/a-person-reviewing-documents-5417651/",
+                  "https://www.pexels.com/video/man-reviewing-documents-7125820/"
+                ],
+                "query_en": "reviewing laptop spreadsheet documents",
+                "query_alt_en": "person searching through paperwork",
+                "must_show": "Returning to laptop and scanning documents for lost place"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "وقبل أن يستعيد تركيزه، جاء زميل يسأله عن اجتماع.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/coworkers-discussing-by-office-desk-7640079/",
+                  "https://www.pexels.com/video/coworkers-talking-in-the-office-7252804/",
+                  "https://www.pexels.com/video/colleagues-having-a-conversation-inside-the-office-5311255/"
+                ],
+                "query_en": "coworker discussing work beside desk",
+                "query_alt_en": "office colleague asking question",
+                "must_show": "Colleague approaches desk and distracts seated worker"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "ثم رسالة عاجلة، وردّان سريعان، وعودة أخرى إلى الصفوف نفسها.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/working-with-smartphone-7693410/",
+                  "https://www.pexels.com/video/working-at-the-office-7591980/",
+                  "https://www.pexels.com/video/video-of-a-person-typing-in-the-laptop-5827904/"
+                ],
+                "query_en": "person using phone beside laptop work",
+                "query_alt_en": "checking messages at work desk",
+                "must_show": "Worker checks smartphone messages beside unfinished task"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "عند الثانية وخمسين دقيقة، وجد رقمًا مختلفًا بين نسختين من الجدول.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/people-working-with-accounting-documents-6780083/",
+                  "https://www.pexels.com/video/a-woman-checking-the-documents-8298301/",
+                  "https://www.pexels.com/video/a-woman-reviewing-office-documents-7844940/"
+                ],
+                "query_en": "comparing reports documents figures laptop",
+                "query_alt_en": "hands examining paper reports",
+                "must_show": "Two inconsistent document figures being reviewed side by side"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "لم يغامر بإرسال التقرير. اتصل بمديره وطلب مهلة حتى الصباح.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-answering-the-phone-9077865/",
+                  "https://www.pexels.com/video/man-tired-from-work-4928386/",
+                  "https://www.pexels.com/video/a-tired-man-taking-a-rest-after-folding-his-laptop-8939327/"
+                ],
+                "query_en": "tired office worker on phone",
+                "query_alt_en": "businessman discussing deadline telephone",
+                "must_show": "Worker calls manager at desk with unfinished report"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "في اليوم التالي، أخبر زملاءه أنه سيرد بعد نصف ساعة.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-young-man-putting-down-his-cellphone-on-a-table-8550152/",
+                  "https://www.pexels.com/video/a-person-putting-down-a-smartphone-7430220/",
+                  "https://www.pexels.com/video/a-person-looking-at-the-time-while-working-9057169/"
+                ],
+                "query_en": "placing mobile phone down desk",
+                "query_alt_en": "person putting phone aside working",
+                "must_show": "Worker visibly places smartphone away before focused session"
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s3",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "أبعد الهاتف، وقارن النسختين، وصحّح الرقم، وأرسل التقرير.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-close-up-video-of-a-person-typing-on-a-laptop-6633341/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-9520978/",
+                  "https://www.pexels.com/video/typing-on-a-laptop-4994029/"
+                ],
+                "query_en": "typing report on laptop focused",
+                "query_alt_en": "finishing document at work desk",
+                "must_show": "Worker compares corrected figures and completes report"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "لماذا لم تُنجز؟"
+          },
+          "publishing": {
+            "title": "لماذا لا تُنهي مهامك رغم انشغالك؟ | مقاطعات العمل",
+            "description": "بدأ تقريره في التاسعة صباحًا، لكن المكالمات والأسئلة والرسائل أخّرت تسليمه. قصة قصيرة عن كلفة المقاطعات والعودة المتكررة إلى التركيز، وقرار عملي يمكن تجربته أثناء العمل.\n\n#التركيز #إدارة_الوقت #الإنتاجية #نداء_اليقظة",
+            "hashtags": [
+              "#التركيز",
+              "#إدارة_الوقت",
+              "#الإنتاجية",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "التركيز",
+              "مقاطعات العمل",
+              "إدارة الوقت",
+              "إنجاز المهام",
+              "نداء اليقظة"
+            ]
+          },
+          "stock_policy": "three_urls_per_scene"
+        },
+        "zip_sha256": "bf0af520e8b31d7ae706c3470506f268172b07295d9cc5d6cba71b33a07fe615",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "f5b54da1d40d4818525249e8975af2863a4da1ddee8f9fd1f26ce98b20bb4ce9",
+          "assets/scene_01.jpg": "4112fff34941d4920f3cef7a1bf11165124f41c2942695353e8fb6026f213e78",
+          "assets/scene_02.jpg": "cb950cb81397d5ef755687faa88e4d189a00e2ec1551e9bf66fb9c0f086e58d2",
+          "assets/scene_03.jpg": "1d742aaaf69f1a7651ce2d06d731f6fa62eb7d39ff085aed19f69223eb0008cb",
+          "assets/scene_04.jpg": "c823231a7907f35dd7c6182f16596c8f760b6ec3b999c53865d187cad2d475e9",
+          "assets/scene_05.jpg": "9284c0c56cecae88f808d774f631045ad53709f985adddbeb16d1c55730a499a",
+          "assets/scene_06.jpg": "38811d7f5c6898159ab3120366ddf45d7abaf8434e6215ff6e25104f476be129",
+          "assets/scene_07.jpg": "71fb72209497980575d436978d5628b14ff7b07dde50fc50588c419848f2bb7d",
+          "assets/scene_08.jpg": "9d66baa963b4b79e1898c2798e72ce3140fede1bd3690b37a4d4435d97c68cbc",
+          "assets/scene_09.jpg": "e6e9100efa8dca42d5d8f53c0a30b63c8a53deff3b6a76011867238c256a9d18",
+          "assets/scene_10.jpg": "328d0a9f64919b98265129501e6177fbd0adfe17c273af60f11d15402c2efa0d"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "1f36bc06384fc5f74f29f16137f716c1a8255b2f5ff1da21f7638cd41ef02905",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIOQWrbIPQwiKvbpRMNW9P4TjmTYOVcAAIrIgACFC_gUtJmbJWj4ZFePQQ",
+          "sha256": "bf0af520e8b31d7ae706c3470506f268172b07295d9cc5d6cba71b33a07fe615"
+        }
+      }
     }
   },
-  "current_request_id": "req-963e92b4b606",
+  "current_request_id": "req-01708f615414",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -21338,6 +21640,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-23T08:54:55Z",
+  "updated_at": "2026-10-23T08:55:40Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
