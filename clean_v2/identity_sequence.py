@@ -274,7 +274,7 @@ def _build_ala_mahl_podcast_card(*, kind: str):
     draw = ImageDraw.Draw(image)
     draw.ellipse((476, 103, 804, 431), fill=(28, 36, 40, 255),
                  outline=(174, 147, 102, 255), width=4)
-    name = _podcast_text_image("على مهل", size=69, fill=(240, 229, 210, 255))
+    name = _podcast_text_image("على مهل", size=53, fill=(240, 229, 210, 255))
     image.alpha_composite(name, ((1280 - name.width) // 2, 221))
     label = ("بودكاست على مهل" if kind == "intro"
              else "لنتأنَّ قبل أن نحكم.")
