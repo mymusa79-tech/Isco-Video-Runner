@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
   "kind": "",
   "topic": "لماذا نهرب من النوم رغم التعب؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39975998840",
-  "result": "",
-  "updated_at": 1792768259
+  "result": "failure",
+  "updated_at": 1792768345
 }
