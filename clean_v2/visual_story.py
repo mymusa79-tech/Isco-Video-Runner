@@ -17,6 +17,9 @@ CHANNEL_VISUAL_AVOID = (
     "generic productivity desk or writing imagery unless it is the exact semantic action",
     "repetitive stationery, notebooks, sticky notes, or typing across consecutive beats",
     "gloomy or depressive treatment",
+    "staged symbolism: old watches, envelopes, empty chairs and open books used as generic emotional metaphors without a narrated event",
+    "repetitive faceless back-view people and near-identical tungsten-lit old workshop compositions without causal changes",
+    "blanket navy color grading and artificial golden glow instead of ordinary documentary color",
 )
 SOURCE_PREFERENCES = frozenset({"stock_motion", "stock_still", "ai_still"})
 

@@ -242,6 +242,25 @@ TEMPLATE_WRITING_DIRECTIVES = {
 }
 
 
+# V24 adds qualitative instructions only, without schema changes or provider calls.
+V24_CHANNEL_FIT_CHECK = (
+    "This Short must reveal a relevant adult behavior, mistaken belief or personal "
+    "choice, and resolve the exact same issue. Reject sentimental fables that could "
+    "belong to any unrelated channel. Character stories are examples, not the "
+    "subject. Never substitute broad inspiration for an earned explanation."
+)
+V24_VISUAL_EDITORIAL_CHECK = (
+    "Every shot must depict an observable event/state and add one NEW causal fact. "
+    "Vary camera scale and angle as the thought changes: context, active scene, "
+    "decisive detail. Never recycle faceless back-view figures, old tailor shops, "
+    "envelopes, watches, notebooks, mugs, window silhouettes or golden lamps as "
+    "generic emotion. Those objects are fine only when central to the approved "
+    "topic. Favor truthful documentary daylight and natural color, not blanket "
+    "navy or staged golden glow. Stock motion is best for visible physical action; "
+    "an AI still only when specific continuity or an unavailable scene requires it. "
+    "A pretty image which tells the viewer nothing new must be rejected."
+)
+
 class ShortFormatError(RuntimeError):
     pass
 
@@ -470,6 +489,8 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
             "not generic مهمة/هدف/عادة.\n"
             "- No channel identity opener, dialogue labels or social CTA. Quotations require explicit "
             "approved evidence and the selected quote_reflection template.\n"
+            f"- CHANNEL_FIT_V24: {V24_CHANNEL_FIT_CHECK}\n"
+            f"- SHOT_QUALITY_V24: {V24_VISUAL_EDITORIAL_CHECK}\n"
             f"- {selection['writing_directive']}\n"
             "- SPOKEN_NATURALNESS_LITE: complete grammatical Arabic, concrete observations and natural "
             "sentence-length variation; no fragments, abstract diagnosis, translated/essay filler or "
@@ -515,6 +536,8 @@ def short_prompt_context(brief: Mapping[str, Any], *, for_planning: bool = False
         "never finish with only a generic slogan or restatement of s2.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
+        f"- CHANNEL_FIT_V24: {V24_CHANNEL_FIT_CHECK}\n"
+        f"- SHOT_QUALITY_V24: {V24_VISUAL_EDITORIAL_CHECK}\n"
         f"- {selection['writing_directive']}\n"
         "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page, but never dumb the idea down. Use complete, grammatically sound "
         "sentences that carry enough context to be understood on first listen. Prefer concrete observations and natural sentence-length variation; "
