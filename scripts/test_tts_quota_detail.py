@@ -22,6 +22,16 @@ class QuotaDetailTests(unittest.TestCase):
         self.assertIsNone(_tts_quota_detail(b""))
         self.assertIsNone(_tts_quota_detail(b"<html>nope</html>"))
 
+    def test_http_400_field_violation_and_key_redaction(self):
+        body = (
+            b'{"error":{"code":400,"message":"Invalid value at speech_config key=AIzaSyA1234567890abcdefghijklmnop",'
+            b'"details":[{"fieldViolations":[{"field":"generation_config.speech_config","description":"speaker B has no turns"}]}]}}'
+        )
+        detail = _tts_quota_detail(body)
+        self.assertIn("field=generation_config.speech_config", detail)
+        self.assertIn("description=speaker B has no turns", detail)
+        self.assertNotIn("AIza", detail)
+
     def test_attributes_carry_through(self):
         err = TtsProviderError("gemini_3_8_http_429", http_status=429, quota_detail="x")
         self.assertEqual(err.quota_detail, "x")
