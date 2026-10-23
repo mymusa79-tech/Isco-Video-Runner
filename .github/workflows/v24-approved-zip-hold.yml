@@ -7,6 +7,13 @@ on:
     branches: [main]
     paths:
       - clean_v2/owner_art.py
+      - clean_v2/media.py
+      - clean_v2/pipeline.py
+      - clean_v2/identity_sequence.py
+      - clean_v2/timeline_render.py
+      - clean_v2/ready_production.py
+      - clean_v2/production_package.py
+      - scripts/test_ala_mahl_podcast.py
       - scripts/test_v24_zip_static_hold.py
       - .github/workflows/v24-approved-zip-hold.yml
 
@@ -29,6 +36,10 @@ jobs:
         run: python -m py_compile clean_v2/owner_art.py scripts/test_v24_zip_static_hold.py
       - name: Verify approved hold and legacy motion isolation
         run: python -m unittest scripts.test_v24_zip_static_hold -v
+      - name: Verify isolated Ala Mahl podcast and existing voice profiles
+        run: |
+          python -m py_compile clean_v2/media.py clean_v2/pipeline.py clean_v2/identity_sequence.py clean_v2/ready_production.py clean_v2/timeline_render.py scripts/test_ala_mahl_podcast.py
+          python -m unittest scripts.test_ala_mahl_podcast scripts.test_nidaa_short_voice_profile -v
       - name: Verify ZIP stock fallback and approved scene importer
         run: python -m unittest scripts.test_zip_stock_scenes scripts.test_production_package -v
       - name: Verify podcast whole-question hook and ordered stock candidates
