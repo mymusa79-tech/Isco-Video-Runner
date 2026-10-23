@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import os
+import shutil
+import json
+import subprocess
 import tempfile
 import unittest
 import wave
@@ -105,6 +108,34 @@ class AlaMahlPodcastTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "requires Flash TTS"):
                 synth.synthesize("A: لماذا؟ B: لنتحدث.", Path(tmp) / "x.wav",
                                  performance_mode="ala_mahl_podcast_dialogue")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg and ffprobe required for real identity render")
+    def test_real_ala_mahl_podcast_identity_media_is_independent(self):
+        # No TTS, provider, stock search or licensed music is called.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = identity.identity_asset_paths(
+                "podcast", template="ala_mahl_dialogue", runtime_dir=root
+            )
+            for kind, duration in (("intro", 6.0), ("outro", 6.5)):
+                asset = assets[kind]
+                self.assertTrue(asset.is_file())
+                self.assertGreater(asset.stat().st_size, 1024)
+                run = subprocess.run([
+                    "ffprobe", "-v", "error", "-show_entries",
+                    "format=duration:stream=codec_type,width,height",
+                    "-of", "json", str(asset),
+                ], text=True, capture_output=True, check=True, timeout=25)
+                details = json.loads(run.stdout)
+                self.assertAlmostEqual(float(details["format"]["duration"]), duration, delta=0.15)
+                streams = details["streams"]
+                video = next(row for row in streams if row.get("codec_type") == "video")
+                self.assertEqual((video["width"], video["height"]), (1280, 720))
+                self.assertTrue(any(row.get("codec_type") == "audio" for row in streams))
+            # Correct per-program identity files must never alias the V8 file names.
+            self.assertTrue(assets["intro"].name.startswith("ala_mahl_"))
+            self.assertTrue(assets["outro"].name.startswith("ala_mahl_"))
 
     def test_podcast_identity_separate_old_path_untouched(self):
         ala_assets = (Path("ala-intro.mp4"), Path("ala-outro.mp4"))
