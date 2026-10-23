@@ -100,8 +100,9 @@ def _release_tag(*, kind: str, delivery_key: str, run_id: str, run_attempt: str)
     return f"{TAG_PREFIX}{kind}-{key}-{suffix}-a{attempt}"
 
 
-def _release_title(kind: str, topic: str) -> str:
-    label = "Outside Text" if kind == "podcast" else ("Short" if kind == "short" else "Long")
+def _release_title(kind: str, topic: str, *, ala_mahl_podcast: bool = False) -> str:
+    label = ("Ala Mahl Podcast" if ala_mahl_podcast and kind == "podcast"
+             else "Outside Text" if kind == "podcast" else "Short" if kind == "short" else "Long")
     base = f"Clean V2 {label}"
     return f"{base} — {topic}" if topic else base
 
@@ -209,7 +210,16 @@ def _youtube_title(value: object) -> str:
     return _compact(value)[:100].rstrip()
 
 
-def _hashtags(kind: str, *, derived_short: bool = False) -> list[str]:
+def _is_ala_mahl_podcast(root: Path, kind: str) -> bool:
+    if kind != "podcast":
+        return False
+    doc = _read_json(Path(root) / "production.json")
+    return doc.get("format") == "podcast" and doc.get("template") == "ala_mahl_dialogue"
+
+
+def _hashtags(kind: str, *, derived_short: bool = False, ala_mahl_podcast: bool = False) -> list[str]:
+    if kind == "podcast" and ala_mahl_podcast:
+        return ["#على_مهل", "#بودكاست", "#Shorts"] if derived_short else ["#على_مهل", "#بودكاست"]
     if derived_short:
         base = ["#نداء_اليقظة", "#وعي", "#Shorts"]
         if kind == "podcast":
@@ -224,7 +234,9 @@ def _hashtags(kind: str, *, derived_short: bool = False) -> list[str]:
     return ["#نداء_اليقظة", "#تطوير_الذات", "#وعي"]
 
 
-def _youtube_tags(kind: str, *, derived_short: bool = False) -> list[str]:
+def _youtube_tags(kind: str, *, derived_short: bool = False, ala_mahl_podcast: bool = False) -> list[str]:
+    if kind == "podcast" and ala_mahl_podcast:
+        return ["على مهل", "بودكاست", *(["Shorts"] if derived_short else [])]
     values = ["نداء اليقظة", "وعي"]
     if kind == "podcast":
         values.insert(0, "خارج النص")
@@ -253,8 +265,11 @@ def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, An
                 "youtube_tags": tags, "video_file": "video.mp4", "cover_file": "cover.jpg",
                 "publication_mode": "manual", "source": "approved_production_json"}
     plan = _read_json(Path(root) / "plan.json")
-    raw_title = _compact(plan.get("title") or topic or "نداء اليقظة")
-    if kind == "podcast" and "خارج النص" not in raw_title:
+    ala_mahl_podcast = _is_ala_mahl_podcast(root, kind)
+    raw_title = _compact(plan.get("title") or topic or ("على مهل" if ala_mahl_podcast else "نداء اليقظة"))
+    if ala_mahl_podcast and "على مهل" not in raw_title:
+        raw_title = f"{raw_title} | على مهل"
+    elif kind == "podcast" and not ala_mahl_podcast and "خارج النص" not in raw_title:
         raw_title = f"{raw_title} | خارج النص"
     title = _youtube_title(raw_title)
     promise = _compact(plan.get("promise"))
@@ -264,14 +279,16 @@ def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, An
         lines.append(promise)
     if resolved_topic and resolved_topic not in promise:
         lines.append(f"الموضوع: {resolved_topic}")
-    if kind == "podcast":
+    if ala_mahl_podcast:
+        lines.append("حلقة من بودكاست «على مهل» على قناة على مهل المستقلة.")
+    elif kind == "podcast":
         lines.append("حلقة من برنامج «خارج النص» على قناة نداء اليقظة.")
     elif kind == "short":
         lines.append("شورت من قناة نداء اليقظة.")
     else:
         lines.append("فيديو من قناة نداء اليقظة.")
     lines.extend(_provider_attribution_lines(root))
-    hashtags = _hashtags(kind)
+    hashtags = _hashtags(kind, ala_mahl_podcast=ala_mahl_podcast)
     description = "\n\n".join(lines + [" ".join(hashtags)])
     return {
         "schema_version": 1,
@@ -280,7 +297,7 @@ def _main_publish_metadata(root: Path, *, kind: str, topic: str) -> dict[str, An
         "topic": resolved_topic,
         "description": description,
         "hashtags": hashtags,
-        "youtube_tags": _youtube_tags(kind),
+        "youtube_tags": _youtube_tags(kind, ala_mahl_podcast=ala_mahl_podcast),
         "video_file": "video.mp4",
         "cover_file": "cover.jpg",
         "publication_mode": "manual",
@@ -353,10 +370,13 @@ def _derived_short_publish_metadata(
         angle = hook
     if not angle:
         angle = _compact(parent.get("topic") or parent.get("title") or "مقتطف من الحلقة")
+    ala_mahl_podcast = _is_ala_mahl_podcast(root, parent_kind)
     title = _youtube_title(
-        f"{angle} | خارج النص" if parent_kind == "podcast" and "خارج النص" not in angle else angle
+        f"{angle} | على مهل" if ala_mahl_podcast and "على مهل" not in angle
+        else f"{angle} | خارج النص" if parent_kind == "podcast" and not ala_mahl_podcast and "خارج النص" not in angle
+        else angle
     )
-    hashtags = _hashtags(parent_kind, derived_short=True)
+    hashtags = _hashtags(parent_kind, derived_short=True, ala_mahl_podcast=ala_mahl_podcast)
     description = "\n\n".join(
         [
             f"مقتطف من: {_compact(parent.get('title'))}",
@@ -372,7 +392,7 @@ def _derived_short_publish_metadata(
         "topic": _compact(parent.get("topic")),
         "description": description,
         "hashtags": hashtags,
-        "youtube_tags": _youtube_tags(parent_kind, derived_short=True),
+        "youtube_tags": _youtube_tags(parent_kind, derived_short=True, ala_mahl_podcast=ala_mahl_podcast),
         "video_file": "derived-short.mp4",
         "cover_file": "derived-short-cover.jpg",
         "source_section_id": section_id or None,
@@ -633,7 +653,7 @@ def publish_one(
         run_id=run_id,
         run_attempt=run_attempt,
     )
-    title = _release_title(kind, resolved_topic)
+    title = _release_title(kind, resolved_topic, ala_mahl_podcast=_is_ala_mahl_podcast(root, kind))
     _ensure_release(
         tag=tag,
         title=title,
