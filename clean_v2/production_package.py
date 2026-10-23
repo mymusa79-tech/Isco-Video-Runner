@@ -169,7 +169,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if "stock_policy" in doc and doc["stock_policy"] != THREE_LINK_STOCK_POLICY:
         _error("stock_policy: استخدم three_urls_per_scene أو احذف الحقل للحزم القديمة.")
     three_per_scene = doc.get("stock_policy") == THREE_LINK_STOCK_POLICY
-    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa",)}
+    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
     _text(doc["title"], "title", 120)
