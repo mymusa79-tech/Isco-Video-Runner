@@ -28,9 +28,17 @@ def _wav(path: Path) -> Path:
     return path
 
 
+def _ala_mahl_doc():
+    doc = manifest("podcast", template="ala_mahl_dialogue")
+    doc["publishing"]["title"] = "موقف من وجهين | على مهل"
+    doc["publishing"]["description"] = "بودكاست على مهل عن موقف من الحياة اليومية."
+    doc["publishing"]["hashtags"] = ["#على_مهل"]
+    return doc
+
+
 class AlaMahlPodcastTests(unittest.TestCase):
     def test_new_template_accepts_same_safe_podcast_contract(self):
-        new_doc = manifest("podcast", template="ala_mahl_dialogue")
+        new_doc = _ala_mahl_doc()
         old_doc = manifest("podcast")
         self.assertEqual(validate_manifest(new_doc)["template"], "ala_mahl_dialogue")
         self.assertEqual(validate_manifest(old_doc)["template"], "dialogue_qa")
@@ -40,7 +48,7 @@ class AlaMahlPodcastTests(unittest.TestCase):
 
     def test_import_rejects_other_channel_publishing_metadata(self):
         import copy
-        own = manifest("podcast", template="ala_mahl_dialogue")
+        own = _ala_mahl_doc()
         own["publishing"]["title"] = "موقف من وجهين | على مهل"
         own["publishing"]["description"] = "بودكاست على مهل عن موقف من الحياة."
         own["publishing"]["hashtags"] = ["#على_مهل"]
@@ -70,7 +78,7 @@ class AlaMahlPodcastTests(unittest.TestCase):
         self.assertEqual(validate_manifest(old)["template"], "dialogue_qa")
 
     def test_owner_zip_build_uses_legacy_dialogue_engine_without_rewriting(self):
-        doc = manifest("podcast", template="ala_mahl_dialogue")
+        doc = _ala_mahl_doc()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             script = owner_pack.build_artifacts(imported_pack(doc), {"format": "podcast"}, root)
