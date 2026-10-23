@@ -31,7 +31,7 @@ class TimelineFirstDurationTests(unittest.TestCase):
                     "format": fmt,
                     "timeline_owner": owner,
                     "voice_seconds_measured": seconds,
-                    "safety_maximum_seconds": 120.0 if fmt == "short" else 3600.0,
+                    "safety_maximum_seconds": 150.0 if fmt == "short" else 3600.0,
                 }
             ),
             encoding="utf-8",

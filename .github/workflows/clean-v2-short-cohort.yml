@@ -270,7 +270,7 @@ jobs:
           jq -e '.duration.editorial_target_seconds == null' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
           jq -e '.duration.minimum_editorial_seconds == null' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
           jq -e '.duration.maximum_editorial_seconds == null' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
-          jq -e '.duration.safety_maximum_seconds == 120' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.safety_maximum_seconds == 150' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-pre-visual.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"

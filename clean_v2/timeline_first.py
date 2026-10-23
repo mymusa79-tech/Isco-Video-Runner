@@ -9,7 +9,7 @@ from .identity_sequence import ALA_MAHL_OUTRO_SECONDS
 from .media import probe_duration
 
 CONTRACT_ID = "clean-v2-timeline-first-v1"
-DEFAULT_SHORT_SAFETY_MAX_SECONDS = 120.0
+DEFAULT_SHORT_SAFETY_MAX_SECONDS = 150.0
 DEFAULT_FILM_SAFETY_MAX_SECONDS = 3600.0
 FINAL_DURATION_TOLERANCE_SECONDS = 0.08
 # Long-form renders (film/podcast) accumulate per-segment frame rounding, so a fixed

@@ -300,6 +300,32 @@ class MultiLinkSelectionWithoutFFmpegTests(unittest.TestCase):
             make_image.assert_not_called()
             self.assertFalse((root / "visuals/visual-stock-scene_02.mp4").exists())
 
+    def test_three_short_videos_fall_back_to_sequence_not_still_art(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        chained = ((Path("seq.mp4"), {"pinned_sequence": True}), "")
+        with mock.patch.object(source, "_try_pinned_one",
+                               return_value=(None, "pinned_clip_too_short_for_scene")), \
+             mock.patch.object(source, "_try_pinned_sequence", return_value=chained) as seq:
+            chosen, reason = source._try_pinned(beat, Path("a.jpg"), Path("."), "short", 8.0, 0,
+                                                template="micro_story")
+        self.assertEqual(reason, "")
+        seq.assert_called_once()
+        self.assertEqual(seq.call_args.args[0]["owner_stock"]["mode"], "sequence")
+        self.assertTrue(chosen[1]["pinned_sequence_fallback_from_alternatives"])
+
+    def test_sequence_fallback_never_for_blocked_podcast_or_ala_mahl(self):
+        beat = {"id": "scene_02", "owner_stock": {"urls": [PEXELS_VIDEO, PIXABAY_VIDEO, COVERR_VIDEO]}}
+        source = self.source()
+        cases = [("short", "micro_story", "blocked"), ("podcast", "", "pinned_clip_too_short_for_scene"),
+                 ("short", "ala_mahl", "pinned_clip_too_short_for_scene")]
+        for fmt, template, why in cases:
+            with mock.patch.object(source, "_try_pinned_one", return_value=(None, why)), \
+                 mock.patch.object(source, "_try_pinned_sequence") as seq:
+                chosen, _ = source._try_pinned(beat, Path("a.jpg"), Path("."), fmt, 8.0, 0, template=template)
+            self.assertIsNone(chosen)
+            seq.assert_not_called()
+
     def test_legacy_single_url_keeps_its_failure_reason(self):
         beat = {"id": "scene_01", "owner_stock": {"url": PEXELS_VIDEO}}
         source = self.source()
@@ -433,7 +459,7 @@ class AcquireTests(unittest.TestCase):
             Path(dst).write_bytes(b"img")
             return dst
 
-        def pinned_try(self_, beat, asset, out, fmt, seconds, index):
+        def pinned_try(self_, beat, asset, out, fmt, seconds, index, template=""):
             seen["seconds"], seen["asset"] = seconds, asset.name
             return outcome
 
