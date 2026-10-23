@@ -1529,7 +1529,7 @@ def _voice_performance_mode_for_brief(
         )
         return template if is_ala_mahl else f"nidaa_short_{template}"
     if fmt == "podcast":
-        return "podcast_listener_proxy_qa"
+        return "ala_mahl_podcast_dialogue" if ready_template == "ala_mahl_podcast" else "podcast_listener_proxy_qa"
     selected = str((plan or {}).get("narrative_format") or "").strip()
     return selected if selected in LONGFORM_NARRATIVE_FORMATS else "direct_cinematic"
 
@@ -5310,7 +5310,11 @@ def normalize_podcast_listener_proxy_script(script: dict[str, Any]) -> dict[str,
     return {"question_trimmed": question_trimmed}
 
 
-def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_podcast_listener_proxy_script(
+    script: Mapping[str, Any], *, mode: str = "outside_text"
+) -> dict[str, Any]:
+    if mode not in {"outside_text", "ala_mahl_podcast"}:
+        raise RuntimeError("podcast_dialogue_unknown_mode")
     sections = script.get("sections")
     if not isinstance(sections, list) or not sections:
         raise RuntimeError("podcast_listener_proxy_requires_sections")
@@ -5336,6 +5340,8 @@ def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[s
         ):
             raise RuntimeError("podcast_listener_proxy_question_requires_immediate_answer")
 
+    max_a_words = 55 if mode == "ala_mahl_podcast" else PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS
+    max_a_share = 0.55 if mode == "ala_mahl_podcast" else 0.35
     a_words = 0
     b_words = 0
     a_turns = 0
@@ -5344,26 +5350,26 @@ def _validate_podcast_listener_proxy_script(script: Mapping[str, Any]) -> dict[s
         if speaker == "A":
             a_turns += 1
             a_words += words
-            if words > PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS:
+            if words > max_a_words:
                 raise RuntimeError(
                     "podcast_listener_proxy_question_too_long "
-                    f"words={words} maximum={PODCAST_LISTENER_PROXY_QUESTION_RESCUE_MAX_WORDS}"
+                    f"words={words} maximum={max_a_words}"
                 )
         else:
             b_words += words
     total = a_words + b_words
-    if total and a_words / total > 0.35:
+    if total and a_words / total > max_a_share:
         raise RuntimeError("podcast_listener_proxy_questioner_dominates_episode")
 
     return {
         "status": "pass",
-        "mode": "listener_proxy_qa",
+        "mode": mode,
         "first_speaker": "A",
         "questioner_turns": a_turns,
         "questioner_words": a_words,
         "answer_words": b_words,
         "questioner_share": round(a_words / max(1, total), 4),
-        "voices": {"A": "Orus", "B": "Charon"},
+        "voices": {"A": "Iapetus" if mode == "ala_mahl_podcast" else "Orus", "B": "Charon"},
     }
 
 
