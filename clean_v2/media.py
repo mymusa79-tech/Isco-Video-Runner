@@ -298,7 +298,13 @@ def _tts_quota_detail(raw: bytes) -> str | None:
     message = re.search(r'"message"\s*:\s*"([^"]{1,200})', text)
     if message:
         parts.append("message=" + " ".join(message.group(1).split()))
-    return " ".join(parts)[:400] or None
+    # HTTP 400 bodies name the offending field in field violations.
+    for name in ("field", "description"):
+        match = re.search(r'"%s"\s*:\s*"([^"]{1,160})' % name, text)
+        if match:
+            parts.append(f"{name}=" + " ".join(match.group(1).split()))
+    joined = re.sub(r"AIza[0-9A-Za-z_\-]{20,}", "[redacted]", " ".join(parts))
+    return joined[:400] or None
 
 
 def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
@@ -541,7 +547,7 @@ def _gemini38_synthesize(
             f"gemini_3_8_http_{int(exc.code)}",
             http_status=int(exc.code),
             retry_after_seconds=retry_after_seconds,
-            quota_detail=_tts_quota_detail(raw_error) if int(exc.code) == 429 else None,
+            quota_detail=_tts_quota_detail(raw_error) if int(exc.code) in {400, 429} else None,
         ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise TtsProviderError(
@@ -819,6 +825,11 @@ class GeminiOnlyVoiceSynthesizer:
                         f"model={self.tts_model} attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
                         f"error_type={type(exc).__name__} "
                         f"detail={_tts_exception_detail(exc)}"
+                        + (
+                            f" provider_detail={getattr(exc, 'quota_detail')}"
+                            if getattr(exc, "quota_detail", None)
+                            else ""
+                        )
                     )
                     if attempt >= CHARON_MAX_ATTEMPTS:
                         break
