@@ -82,7 +82,7 @@ def _stock(value: Any, fmt: str, template: str) -> dict:
         _error("لقطات الستوك لنداء شورت والفيلم وعلى مهل والبودكاست فقط.")
     pinned = isinstance(value, dict) and ("url" in value or "urls" in value)
     stock = _object(value, set() if pinned else {"query_en"},
-                    {"query_en", "query_alt_en", "must_show", "url", "urls"}, field="scene.stock")
+                    {"query_en", "query_alt_en", "must_show", "url", "urls", "mode"}, field="scene.stock")
     if "url" in stock and "urls" in stock:
         _error("اختر stock.url أو stock.urls وليس الاثنين.")
     if pinned:
@@ -97,6 +97,16 @@ def _stock(value: Any, fmt: str, template: str) -> dict:
             _error("stock.urls: روابط صفحات HTTPS من Pexels أو Pixabay أو Coverr فقط.")
         if len(ids) != len(set(ids)):
             _error("stock.urls: لا تكرر المقطع في روابط المشهد نفسه.")
+    # Explicit sequence is opt-in. Legacy stock.urls remain ordered *alternatives*.
+    if "mode" in stock:
+        if (stock["mode"] != "sequence" or "urls" not in stock
+                or len(stock["urls"]) != 3 or fmt not in {"short", "film"}
+                or template == "ala_mahl"):
+            _error("stock.mode=sequence يحتاج ثلاثة روابط فيديو لشورت نداء أو الفيلم فقط.")
+        from .pinned_stock import parse_stock_url
+        if any(parse_stock_url(url)[1] != "video" or parse_stock_url(url)[0] not in {"pexels", "pixabay"}
+               for url in stock["urls"]):
+            _error("stock.mode=sequence: فيديوهات Pexels أو Pixabay فقط؛ الصور تبقى احتياطية.")
     for key in ("query_en", "query_alt_en"):
         if key in stock and (not isinstance(stock[key], str) or not _STOCK_QUERY.fullmatch(stock[key].strip())
                              or not 2 <= len(stock[key].split()) <= 9):
