@@ -222,9 +222,23 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _text(direction, f"performance.{key}", 800, empty=key == "direction")
         if key in {"A", "B"} and fmt != "podcast":
             _error("توجيهات A/B للبودكاست فقط.")
-    editing = _object(doc["editing"], {"music"}, field="editing")
-    if editing["music"] != "none":
-        _error('الإصدار الأول يدعم editing.music="none" فقط، دون موسيقى مضافة.')
+    editing = _object(doc["editing"], {"music"}, {"track_id", "asset", "delay_seconds"}, field="editing")
+    music_asset = None
+    if editing["music"] == "none":
+        if len(editing) != 1:
+            _error("editing.music=none: لا تضف بيانات موسيقى.")
+    elif editing["music"] == "youtube_audio_library":
+        from .owner_youtube_music import ASSET, valid_track
+        if set(editing) - {"delay_seconds"} != {"music", "track_id", "asset"}:
+            _error("موسيقى يوتيوب: يلزم track_id وasset فقط مع delay_seconds اختياري.")
+        if editing["asset"] != ASSET or not valid_track(editing["track_id"], fmt, doc["template"]):
+            _error("المقطوعة غير معتمدة لهذا النوع أو مسار الملف الموسيقي غير صالح.")
+        delay = editing.get("delay_seconds", 3)
+        if type(delay) not in (int, float) or not 1 <= delay <= 12:
+            _error("تبدأ الموسيقى بعد 1–12 ثانية من بداية الموضوع.")
+        music_asset = ASSET
+    else:
+        _error("editing.music: استخدم none أو youtube_audio_library فقط.")
     if doc["captions"] != {"font": "Cairo Bold", "max_lines": 2, "enabled": True}:
         _error("الكابشن يجب أن يكون مفعّلًا بخط Cairo Bold وسطرين كحد أقصى.")
     scenes = doc["scenes"]
@@ -237,6 +251,8 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("على مهل يحتاج 2–4 صور قصصية؛ حزم 5–6 صور القديمة ما زالت مدعومة.")
     seen: set[str] = set()
     assets: set[str] = set()
+    if music_asset:
+        assets.add(music_asset)
     prior = (-1, -1)
     covered = set()
     for scene in scenes:
@@ -416,7 +432,8 @@ def inspect_archive(data: bytes) -> dict[str, Any]:
                 names.add(name.casefold())
                 if name == "assets/" and item.is_dir():
                     continue
-                if name != "production.json" and not _ASSET.fullmatch(name):
+                from .owner_youtube_music import ASSET as MUSIC_ASSET
+                if name != "production.json" and not (_ASSET.fullmatch(name) or name == MUSIC_ASSET):
                     _error("ملف أو مسار غير مسموح داخل ZIP: " + name[:100])
                 if stat.S_IFMT(mode) not in {0, stat.S_IFREG} or item.is_dir():
                     _error("ZIP يسمح بالملفات العادية فقط.")
@@ -433,9 +450,16 @@ def inspect_archive(data: bytes) -> dict[str, Any]:
             doc = json.loads(files["production.json"].decode("utf-8-sig"), object_pairs_hook=_unique_object,
                              parse_constant=lambda _v: _error("قيم JSON غير صالحة."))
             validate_manifest(doc, set(files) - {"production.json"})
+            from .owner_youtube_music import ASSET as MUSIC_ASSET, verify_audio
+            selected_music = doc["editing"].get("music") == "youtube_audio_library"
+            if selected_music:
+                if not verify_audio(files[MUSIC_ASSET], doc["editing"]["track_id"]):
+                    _error("الملف الصوتي ليس النسخة الموسيقية المعتمدة أو بصمته مختلفة.")
+            elif MUSIC_ASSET in files:
+                _error("لا يسمح بملف موسيقى دون اختيار صريح في editing.")
             from PIL import Image
             for name, content in files.items():
-                if name == "production.json":
+                if name in {"production.json", MUSIC_ASSET}:
                     continue
                 with Image.open(io.BytesIO(content)) as image:
                     if image.format not in {"PNG", "JPEG", "WEBP"} or image.width * image.height > MAX_PIXELS or getattr(image, "n_frames", 1) != 1:
