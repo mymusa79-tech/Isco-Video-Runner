@@ -49,6 +49,10 @@ GEMINI38_NIDAA_SHORT_PRIMARY_VOICE = "Iapetus"
 GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:Iapetus"
 GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
+# Separate opt-in podcast only; Nidaa Shorts already approve Iapetus.
+GEMINI38_ALA_MAHL_QUESTIONER_VOICE = "Iapetus"
+GEMINI38_ALA_MAHL_PODCAST_PROFILE = "ala_mahl_podcast_dialogue"
+GEMINI38_ALA_MAHL_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Iapetus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
 # Reviewed by ear against flash-tts:Charon: on gemini-3.8-flash-lite-tts,
@@ -77,6 +81,16 @@ GEMINI38_INNER_RESOLVED_STYLE = (
 GEMINI38_LISTENER_PROXY_STYLE = (
     "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
     "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
+)
+GEMINI38_ALA_MAHL_A_STYLE = (
+    "Natural Modern Standard Arabic. Curious, observant and engaged in a real two-person "
+    "conversation. Offer a concrete perspective or objection in short clear turns; "
+    "never interview patter, theatrical outrage or fake agreement. "
+)
+GEMINI38_ALA_MAHL_B_STYLE = (
+    "Natural Modern Standard Arabic. Warm, grounded and thoughtful; investigate the "
+    "other side of a real-life situation, answer the exact objection, allow uncertainty, "
+    "and speak as an equal rather than a lecturer. No invented claims or sermon tone. "
 )
 GEMINI38_PODCAST_ANSWER_STYLE = (
     "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
@@ -401,16 +415,19 @@ def _gemini38_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     return turns
 
 
-def _spoken_voice_roles(transcript: str) -> dict[str, str]:
+def _spoken_voice_roles(
+    transcript: str, *, questioner_voice: str = GEMINI38_QUESTIONER_VOICE,
+    primary_voice: str = GEMINI38_PRIMARY_VOICE,
+) -> dict[str, str]:
     """Bind every supported narration shape to the fixed Gemini voice roster."""
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
         return {
             "mode": "dialogue_qa",
-            "questioner": GEMINI38_QUESTIONER_VOICE,
-            "responder": GEMINI38_PRIMARY_VOICE,
+            "questioner": questioner_voice,
+            "responder": primary_voice,
         }
-    return {"mode": "single_narrator", "narrator": GEMINI38_PRIMARY_VOICE}
+    return {"mode": "single_narrator", "narrator": primary_voice}
 
 
 def _gemini38_synthesize(
@@ -434,6 +451,7 @@ def _gemini38_synthesize(
 
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
+        ala_mahl_podcast = str(performance_mode or "") == GEMINI38_ALA_MAHL_PODCAST_PROFILE
         listener_proxy = str(performance_mode or "") == "podcast_listener_proxy_qa"
         content: list[dict[str, Any]] = []
         for speaker, spoken in turns:
@@ -446,9 +464,11 @@ def _gemini38_synthesize(
                             "type": "speech_metadata",
                             "speaker": speaker,
                             "style": (
-                                (GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
+                                (GEMINI38_ALA_MAHL_A_STYLE if ala_mahl_podcast else
+                                 GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
                                 if speaker == "A"
-                                else (GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
+                                else (GEMINI38_ALA_MAHL_B_STYLE if ala_mahl_podcast else
+                                      GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
                             ),
                         }
                     ],
@@ -721,6 +741,9 @@ class GeminiOnlyVoiceSynthesizer:
         # The exact same text can be spoken by a different voice only when the
         # Nidaa Short mode is explicitly selected. Never infer it from length.
         short_profile = str(performance_mode or "").startswith("nidaa_short_")
+        ala_mahl_podcast = str(performance_mode or "") == GEMINI38_ALA_MAHL_PODCAST_PROFILE
+        if ala_mahl_podcast and is_lite:
+            raise RuntimeError("Ala Mahl podcast Iapetus/Charon voice roster requires Flash TTS")
         if short_profile and is_lite:
             raise RuntimeError("Nidaa Short Iapetus is approved on Flash TTS only; lite is not a substitute")
         # Consistent Iapetus timbre for every Nidaa Short voice unit.
@@ -730,17 +753,21 @@ class GeminiOnlyVoiceSynthesizer:
             else GEMINI38_LITE_PRIMARY_VOICE if is_lite
             else self.EXPECTED_PRIMARY_VOICE
         )
-        questioner_voice = self.EXPECTED_QUESTIONER_VOICE
+        questioner_voice = (GEMINI38_ALA_MAHL_QUESTIONER_VOICE if ala_mahl_podcast
+                            else self.EXPECTED_QUESTIONER_VOICE)
         provider = (
             GEMINI38_NIDAA_SHORT_PROVIDER if short_profile
             else GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
         )
         reference_profile = (
             GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if short_profile
+            else GEMINI38_ALA_MAHL_REFERENCE_PROFILE if ala_mahl_podcast
             else GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
         )
 
-        self.voice_roles = _spoken_voice_roles(transcript)
+        self.voice_roles = _spoken_voice_roles(
+            transcript, questioner_voice=questioner_voice, primary_voice=primary_voice
+        )
         if short_profile and self.voice_roles.get("mode") == "single_narrator":
             self.voice_roles["narrator"] = primary_voice
         self.last_provider = None
