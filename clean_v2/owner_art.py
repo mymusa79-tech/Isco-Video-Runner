@@ -21,6 +21,7 @@ WIDTH, HEIGHT = 1920, 1080
 COVER_SIZE = (1280, 720)
 CLIP_WIDTH, CLIP_HEIGHT = 1280, 720  # the Podcast render size; no point encoding more
 PINNED_MIN_SECONDS = 1.5   # a pinned clip shorter than this is not worth a scene
+PINNED_GRAYSCALE_MAX_CHROMA = 0.035  # mean (max-min)/255 of sampled pixels; below this a stock clip is black-and-white
 GRADE_PROFILES = {  # one gentle look per format so stock and the editor's images sit together
     "podcast": "null",  # documentary photos retain their own natural colour
     "film": "eq=contrast=1.04:saturation=0.90,colorbalance=rs=-0.01:bs=0.02",
@@ -258,6 +259,35 @@ def make_sequence_clip(
     for part in parts:
         part.unlink(missing_ok=True)
     return destination, len(parts)
+
+
+
+def clip_is_grayscale(clip: Path, *, length: float) -> bool:
+    """True when a stock video is black-and-white (sampled frames carry almost no colour).
+
+    Colour unity is part of the stock brief: a monochrome clip inside a colour
+    scene is rejected so the next linked alternative is tried. Fail-soft: any
+    probe problem returns False and never blocks a clip.
+    """
+    import subprocess
+
+    try:
+        rate = max(0.2, 6.0 / max(1.0, float(length)))
+        raw = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(clip), "-an",
+             "-vf", f"fps={rate:.4f},scale=32:32,format=rgb24", "-frames:v", "8",
+             "-f", "rawvideo", "-"],
+            capture_output=True, timeout=120, check=True).stdout
+    except Exception:
+        return False
+    pixels = len(raw) // 3
+    if pixels < 32 * 32:
+        return False
+    spread = 0
+    for i in range(0, pixels * 3, 3):
+        r, g, b = raw[i], raw[i + 1], raw[i + 2]
+        spread += max(r, g, b) - min(r, g, b)
+    return spread / (pixels * 255.0) < PINNED_GRAYSCALE_MAX_CHROMA
 
 
 class OwnerArtVisualSource:
@@ -605,6 +635,8 @@ class OwnerArtVisualSource:
                 length = probe_duration(clip)
                 if length < PINNED_MIN_SECONDS:
                     return None, "pinned_clip_too_short"
+                if clip_is_grayscale(clip, length=length):
+                    return None, "pinned_clip_grayscale"
                 # For three-link scene packages an admitted stock choice must cover
                 # the entire estimated slot. Do not quietly append the owner
                 # fallback photo while a stock URL was successfully selected.
