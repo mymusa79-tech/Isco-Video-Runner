@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "بدأت المهمة خمس مرات… ولم تُنهِها!",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/39940747736",
-  "result": "",
-  "updated_at": 1792755035
+  "result": "success",
+  "updated_at": 1792755130
 }
