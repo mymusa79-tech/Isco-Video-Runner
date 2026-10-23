@@ -336,6 +336,8 @@ def apply_topic_audio_polish(
     temp_mix = temp_dir / "final-audio-polished.mp4"
     topic_start: float | None = None
     topic_end: float | None = None
+    music_start: float | None = None
+    topic_duration: float | None = None
     editorial_windows: list[dict[str, Any]] = []
     try:
         topic_start, topic_end = _topic_window(output_dir)
@@ -455,6 +457,7 @@ def apply_topic_audio_polish(
             {"start": music_start if owner_youtube else topic_start,
              "end": min(topic_end, music_start + topic_duration) if owner_youtube else topic_end}
             if topic_start is not None and topic_end is not None
+            and (not owner_youtube or (music_start is not None and topic_duration is not None))
             else None
         ),
         "editorial_music_envelope": editorial_windows,
