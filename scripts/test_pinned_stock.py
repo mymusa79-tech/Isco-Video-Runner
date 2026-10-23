@@ -326,6 +326,45 @@ class MultiLinkSelectionWithoutFFmpegTests(unittest.TestCase):
             self.assertIsNone(chosen)
             seq.assert_not_called()
 
+    def test_grayscale_stock_clip_is_detected_and_colour_is_kept(self):
+        import shutil, subprocess
+        if shutil.which("ffmpeg") is None:
+            self.skipTest("ffmpeg unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            colour, gray, muted = root / "colour.mp4", root / "gray.mp4", root / "muted.mp4"
+            base = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"]
+            subprocess.run([*base, "testsrc=size=160x90:rate=10:duration=3", "-pix_fmt", "yuv420p", str(colour)], check=True)
+            subprocess.run([*base, "testsrc=size=160x90:rate=10:duration=3", "-vf", "format=gray,format=yuv420p",
+                            str(gray)], check=True)
+            subprocess.run([*base, "testsrc=size=160x90:rate=10:duration=3", "-vf", "eq=saturation=0.45,format=yuv420p",
+                            str(muted)], check=True)
+            self.assertFalse(owner_art.clip_is_grayscale(colour, length=3.0))
+            self.assertTrue(owner_art.clip_is_grayscale(gray, length=3.0))
+            self.assertFalse(owner_art.clip_is_grayscale(muted, length=3.0))
+            self.assertFalse(owner_art.clip_is_grayscale(root / "missing.mp4", length=3.0))  # fail-soft
+
+    def test_grayscale_clip_is_rejected_so_next_alternative_is_tried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = owner_art.OwnerArtVisualSource(types.SimpleNamespace(), root)
+            beat = {"id": "scene_07", "owner_stock": {"urls": [PEXELS_VIDEO]}, "owner_motion": "hold"}
+            cand = {"provider": "pexels", "asset_id": "1", "media_kind": "video",
+                    "download_url": "https://videos.pexels.com/x", "source_url": PEXELS_VIDEO,
+                    "creator": "", "creator_url": "", "duration": 9.0}
+
+            def download(_url, destination):
+                Path(destination).write_bytes(b"synthetic fake video")
+
+            with mock.patch.object(pinned_stock, "fetch_candidate", return_value=cand), \
+                 mock.patch("clean_v2.media._download_media", side_effect=download), \
+                 mock.patch("clean_v2.media.probe_duration", return_value=9.0), \
+                 mock.patch.object(owner_art, "clip_is_grayscale", return_value=True):
+                admitted, reason = source._try_pinned_one(
+                    beat, root / "approved.jpg", root / "visuals", "film", 6.0, 0, PEXELS_VIDEO)
+            self.assertIsNone(admitted)
+            self.assertEqual(reason, "pinned_clip_grayscale")
+
     def test_legacy_single_url_keeps_its_failure_reason(self):
         beat = {"id": "scene_01", "owner_stock": {"url": PEXELS_VIDEO}}
         source = self.source()
