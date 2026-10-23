@@ -402,9 +402,9 @@ class CleanV2Gemini38VoiceTests(unittest.TestCase):
 
         payload = json.loads(captured["request"].data.decode("utf-8"))
         speech = payload["generation_config"]["speech_config"]
-        self.assertEqual(speech["mode"], "conversational")
+        self.assertIsInstance(speech, list)
         self.assertEqual(
-            speech["speakers"],
+            speech,
             [
                 {"speaker": "A", "voice": "Orus"},
                 {"speaker": "B", "voice": "Charon"},

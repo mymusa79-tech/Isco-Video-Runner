@@ -205,7 +205,7 @@ class ApprovedArtifactsTests(unittest.TestCase):
             payload = json.loads(send.call_args.args[0].data)
         parts = payload["input"][0]["content"]
         self.assertEqual([p["text"] for p in parts], ["لماذا نؤجل؟", "لأن البداية تبدو كبيرة."])
-        self.assertEqual(payload["generation_config"]["speech_config"]["speakers"],
+        self.assertEqual(payload["generation_config"]["speech_config"],
                          [{"speaker": "A", "voice": "Orus"}, {"speaker": "B", "voice": "Charon"}])
         self.assertIn("فضول", parts[0]["annotations"][0]["style"])
         base = dict(transcript="نفس الكلمات", model=GEMINI38_TTS_MODEL, primary_voice="Charon", questioner_voice="Orus", performance_mode="", provider="test")
