@@ -343,7 +343,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):
         _error("يجب أن تغطي الصور جميع أقسام النص.")
-    if doc["template"] == "ala_mahl" and len(assets) != len(scenes):
+    # Image uniqueness is independent of the optional MP3 attachment.
+    # Never count a music bed as an Ala Mahl scene image.
+    if ala_mahl and len({scene["asset"] for scene in scenes}) != len(scenes):
         _error("على مهل يحتاج صورة أصلية مختلفة لكل مشهد؛ لا تكرر الصورة.")
     cover = _object(doc["cover"], {"asset", "text"}, field="cover")
     _text(cover["text"], "cover.text", 100, empty=True)
