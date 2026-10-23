@@ -30,7 +30,10 @@ def render_identity_composition(
     if fmt == "short":
         _render_short_identity(source, destination, timeline=timeline)
         return
-    assets = identity_asset_paths(fmt, runtime_dir=destination.parent / ".identity-assets")
+    assets = identity_asset_paths(
+        fmt, runtime_dir=destination.parent / ".identity-assets",
+        template=str(timeline.get("template") or ""),
+    )
     for name in ("intro", "prayer", "outro"):
         asset = assets[name]
         if not asset.is_file() or asset.stat().st_size <= 1024:

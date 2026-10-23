@@ -150,8 +150,13 @@ def _build_podcast_v8_card(*, logo, kind: str):
     return image
 
 
-def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str) -> Path:
-    if kind == "intro":
+def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str, series: str = "outside_text") -> Path:
+    if series == "ala_mahl_podcast":
+        # A separate soft three-note motif; the original V8 identity is unchanged.
+        tones = (("196.00", "0.68", "0.72", "0.22"),
+                 ("293.66", "1.12", "0.91", "0.16"),
+                 ("392.00", "1.65", "1.18", "0.10"))
+    elif kind == "intro":
         tones = (
             ("66", "0.72", "0.95", "1.20"),
             ("132", "0.72", "0.70", "0.30"),
@@ -257,6 +262,46 @@ def _ensure_podcast_v8_assets(runtime_dir: Path) -> tuple[Path, Path]:
     return intro, outro
 
 
+def _build_ala_mahl_podcast_card(*, kind: str):
+    """Separate 16:9 card for Ala Mahl; never display Nidaa/Outside the Text branding.
+
+    The round wordmark is a provisional rendered podcast adaptation; visual
+    approval against the existing Ala Mahl Short logo is required before launch.
+    """
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGBA", (1280, 720), (18, 25, 30, 255))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((476, 103, 804, 431), fill=(28, 36, 40, 255),
+                 outline=(174, 147, 102, 255), width=4)
+    name = _podcast_text_image("على مهل", size=53, fill=(240, 229, 210, 255))
+    image.alpha_composite(name, ((1280 - name.width) // 2, 221))
+    label = ("بودكاست على مهل" if kind == "intro"
+             else "لنتأنَّ قبل أن نحكم.")
+    subtitle = _podcast_text_image(label, size=40,
+                                    fill=(224, 208, 178, 255))
+    image.alpha_composite(subtitle, ((1280 - subtitle.width) // 2, 537))
+    return image
+
+
+def _ensure_ala_mahl_podcast_assets(runtime_dir: Path) -> tuple[Path, Path]:
+    root = Path(runtime_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    intro = root / "ala_mahl_podcast_intro.mp4"
+    outro = root / "ala_mahl_podcast_outro.mp4"
+    if all(p.is_file() and p.stat().st_size > 1024 for p in (intro, outro)):
+        return intro, outro
+    for kind, dest, seconds in (("intro", intro, 6.0), ("outro", outro, 6.5)):
+        card = root / f"ala_mahl_podcast_{kind}.png"
+        try:
+            _build_ala_mahl_podcast_card(kind=kind).convert("RGB").save(card)
+            _render_podcast_v8_asset(card=card, destination=dest,
+                                      duration=seconds, kind=kind, series="ala_mahl_podcast")
+        finally:
+            card.unlink(missing_ok=True)
+    return intro, outro
+
+
 def identity_asset_paths(
     fmt: str,
     *,
@@ -265,9 +310,11 @@ def identity_asset_paths(
 ) -> dict[str, Path]:
     """Return the approved per-format identity with no provider call or paid dependency."""
     if fmt == "podcast":
-        intro, outro = _ensure_podcast_v8_assets(
-            Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
-        )
+        asset_root = Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
+        if template == "ala_mahl_podcast":
+            intro, outro = _ensure_ala_mahl_podcast_assets(asset_root)
+        else:
+            intro, outro = _ensure_podcast_v8_assets(asset_root)
     else:
         intro, outro, _width, _height = _asset_pair(fmt)
     if fmt == "short" and template == "ala_mahl":
