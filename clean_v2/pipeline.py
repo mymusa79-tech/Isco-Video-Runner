@@ -1529,7 +1529,8 @@ def _voice_performance_mode_for_brief(
         )
         return template if is_ala_mahl else f"nidaa_short_{template}"
     if fmt == "podcast":
-        return "podcast_listener_proxy_qa"
+        return ("ala_mahl_podcast_dialogue" if ready_template == "ala_mahl_dialogue"
+                else "podcast_listener_proxy_qa")
     selected = str((plan or {}).get("narrative_format") or "").strip()
     return selected if selected in LONGFORM_NARRATIVE_FORMATS else "direct_cinematic"
 
