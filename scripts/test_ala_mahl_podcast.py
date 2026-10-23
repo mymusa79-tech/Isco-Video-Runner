@@ -38,6 +38,37 @@ class AlaMahlPodcastTests(unittest.TestCase):
         with self.assertRaises(Exception):
             validate_manifest(bad)
 
+    def test_import_rejects_other_channel_publishing_metadata(self):
+        import copy
+        own = manifest("podcast", template="ala_mahl_dialogue")
+        own["publishing"]["title"] = "موقف من وجهين | على مهل"
+        own["publishing"]["description"] = "بودكاست على مهل عن موقف من الحياة."
+        own["publishing"]["hashtags"] = ["#على_مهل"]
+        self.assertEqual(validate_manifest(own)["template"], "ala_mahl_dialogue")
+        for field, value in (
+            ("title", "تجربة من خارج النص"),
+            ("description", "شاهد نداء اليقظة"),
+            ("hashtags", ["#خارج_النص"]),
+        ):
+            bad = copy.deepcopy(own)
+            bad["publishing"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(Exception, "قناة أخرى"):
+                validate_manifest(bad)
+        bad_child = copy.deepcopy(own)
+        bad_child["derivative"] = {
+            "start_text": "سؤال عن قرار",
+            "end_text": "والمسؤولية.",
+            "publishing": {
+                "title": "مقطع من نداء اليقظة",
+                "description": "ملخص",
+                "hashtags": ["#Shorts"],
+            },
+        }
+        with self.assertRaisesRegex(Exception, "قناة أخرى"):
+            validate_manifest(bad_child)
+        old = manifest("podcast")
+        self.assertEqual(validate_manifest(old)["template"], "dialogue_qa")
+
     def test_owner_zip_build_uses_legacy_dialogue_engine_without_rewriting(self):
         doc = manifest("podcast", template="ala_mahl_dialogue")
         with tempfile.TemporaryDirectory() as temporary:
