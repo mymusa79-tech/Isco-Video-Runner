@@ -150,8 +150,13 @@ def _build_podcast_v8_card(*, logo, kind: str):
     return image
 
 
-def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str) -> Path:
-    if kind == "intro":
+def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str, series: str = "outside_text") -> Path:
+    if series == "ala_mahl_podcast":
+        # A separate soft three-note motif; the original V8 identity is unchanged.
+        tones = (("196.00", "0.68", "0.72", "0.22"),
+                 ("293.66", "1.12", "0.91", "0.16"),
+                 ("392.00", "1.65", "1.18", "0.10"))
+    elif kind == "intro":
         tones = (
             ("66", "0.72", "0.95", "1.20"),
             ("132", "0.72", "0.70", "0.30"),
@@ -291,7 +296,7 @@ def _ensure_ala_mahl_podcast_assets(runtime_dir: Path) -> tuple[Path, Path]:
         try:
             _build_ala_mahl_podcast_card(kind=kind).convert("RGB").save(card)
             _render_podcast_v8_asset(card=card, destination=dest,
-                                      duration=seconds, kind=kind)
+                                      duration=seconds, kind=kind, series="ala_mahl_podcast")
         finally:
             card.unlink(missing_ok=True)
     return intro, outro
