@@ -47,6 +47,21 @@ class AlaMahlPodcastTests(unittest.TestCase):
             self.assertEqual(__import__("json").loads((root / "plan.json").read_text())["narrative_format"],
                              "dialogue_qa")
 
+    def test_two_perspective_A_can_make_a_real_objection(self):
+        from clean_v2.pipeline import (
+            _validate_ala_mahl_podcast_dialogue_script,
+            _validate_podcast_listener_proxy_script,
+        )
+        long_objection = "لماذا نفترض أنه مخطئ؟ " + " ".join(["ربما كان لديه سبب"] * 8) + "؟"
+        sections = [
+            {"narration": "A: لماذا رفض طلب صديقه؟ B: " + " ".join(["ربما خاف من عدم القدرة."] * 14)},
+            {"narration": "A: " + long_objection + " B: " + " ".join(["هنا علينا أن نسأل عن الملابسات."] * 14)},
+        ]
+        report = _validate_ala_mahl_podcast_dialogue_script({"sections": sections})
+        self.assertEqual(report["voices"]["A"], "Iapetus")
+        with self.assertRaisesRegex(RuntimeError, "question_too_long"):
+            _validate_podcast_listener_proxy_script({"sections": sections})
+
     def test_podcast_modes_are_not_interchanged(self):
         self.assertEqual(_voice_performance_mode_for_brief({"format": "podcast"}),
                          "podcast_listener_proxy_qa")
