@@ -150,6 +150,50 @@ def _build_podcast_v8_card(*, logo, kind: str):
     return image
 
 
+def _build_ala_mahl_podcast_card(*, kind: str):
+    """Own 16:9 identity, deliberately free of Nidaa/Outside the Text marks."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    image = Image.new("RGBA", (1280, 720), (30, 29, 28, 255))
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((370, -75, 910, 465), fill=(196, 174, 137, 29))
+    image.alpha_composite(glow.filter(ImageFilter.GaussianBlur(85)))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((470, 72, 810, 412), outline=(194, 168, 130, 255), width=5)
+    draw.ellipse((483, 85, 797, 399), outline=(132, 116, 94, 155), width=1)
+
+    def center_text(label: str, font_size: int, y: int, fill: tuple[int, int, int, int]) -> None:
+        lettering = _podcast_text_image(label, size=font_size, fill=fill)
+        image.alpha_composite(lettering, ((1280 - lettering.width) // 2, y))
+
+    center_text("على مهل", 78, 193, (244, 235, 217, 255))
+    if kind == "intro":
+        center_text("بودكاست على مهل", 42, 469, (235, 223, 203, 255))
+        center_text("المواقف من أكثر من وجه", 29, 552, (176, 161, 142, 255))
+    else:
+        center_text("نلتقي على مهل.", 45, 472, (235, 223, 203, 255))
+        center_text("حكاية وحوار وفهم", 28, 556, (176, 161, 142, 255))
+    return image
+
+
+def _ensure_ala_mahl_podcast_assets(runtime_dir: Path) -> tuple[Path, Path]:
+    """Render a channel-specific identity without touching the approved V8 assets."""
+    root = Path(runtime_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    intro = root / "ala_mahl_podcast_intro_v1.mp4"
+    outro = root / "ala_mahl_podcast_outro_v1.mp4"
+    if all(p.is_file() and p.stat().st_size > 1024 for p in (intro, outro)):
+        return intro, outro
+    for kind, destination, duration in (("intro", intro, 6.0), ("outro", outro, 6.5)):
+        card = root / f"ala_mahl_podcast_{kind}_v1.jpg"
+        try:
+            _build_ala_mahl_podcast_card(kind=kind).convert("RGB").save(card, quality=95)
+            _render_podcast_v8_asset(card=card, destination=destination, duration=duration, kind=kind)
+        finally:
+            card.unlink(missing_ok=True)
+    return intro, outro
+
+
 def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str) -> Path:
     if kind == "intro":
         tones = (
@@ -265,8 +309,11 @@ def identity_asset_paths(
 ) -> dict[str, Path]:
     """Return the approved per-format identity with no provider call or paid dependency."""
     if fmt == "podcast":
-        intro, outro = _ensure_podcast_v8_assets(
-            Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
+        identity_root = Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
+        intro, outro = (
+            _ensure_ala_mahl_podcast_assets(identity_root)
+            if template == "ala_mahl_dialogue"
+            else _ensure_podcast_v8_assets(identity_root)
         )
     else:
         intro, outro, _width, _height = _asset_pair(fmt)
