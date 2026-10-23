@@ -780,10 +780,11 @@ class GeminiOnlyVoiceSynthesizer:
         # New short profiles bind the exact final metadata style. Legacy
         # bindings are passed unchanged, preserving long/podcast/old cache keys.
         style_binding = {}
-        if short_profile:
-            style = GEMINI38_PERFORMANCE_STYLES.get(
+        if short_profile or ala_mahl_dialogue:
+            style = (GEMINI38_ALA_MAHL_PODCAST_A_STYLE + GEMINI38_ALA_MAHL_PODCAST_B_STYLE
+                     if ala_mahl_dialogue else GEMINI38_PERFORMANCE_STYLES.get(
                 str(performance_mode or ""), GEMINI38_NARRATOR_STYLE
-            )
+            ))
             if performance_direction:
                 direction = str(performance_direction.get("direction") or "")
                 style += " " + " ".join(v for v in (direction,) if v)
