@@ -8585,6 +8585,21 @@
       "selected_at": "2026-10-23T10:39:18Z",
       "created_at": "2026-10-23T10:39:18Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-5261b5e078",
+      "title": "الجسر المائل",
+      "normalized_title": "الجسر المايل",
+      "market_query": "الجسر المائل",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-23T11:42:48Z",
+      "created_at": "2026-10-23T11:42:48Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -21488,9 +21503,152 @@
         "started_at": "2026-10-23T10:40:40Z",
         "finished_at": "2026-10-23T11:32:12Z"
       }
+    },
+    "req-71cf8714d82b": {
+      "schema_version": 1,
+      "request_id": "req-71cf8714d82b",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الجسر المائل",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-5261b5e078",
+      "selected_at": "2026-10-23T11:42:48Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الجسر المائل",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "الجسر المائل",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "في منتصف الليل، نزع الأب دعامة مائلة من جسر ابنته. كانت قد قضت المساء تقصّ الكرتون وتربط الخيوط، وكلما ثبّتت طرفًا انفصل الآخر. وقبل نومها قالت إنها ستكمل إصلاحه في الصباح. لكنه خشي أن يتفكك الجسر في الطريق إلى معرض المدرسة. لذلك انتظر نومها، واستبدل الأعواد غير المستقيمة، وشدّ الحبال، وأخفى آثار الغراء. وحين انتهى، أصبح الجسر متينًا ومتناسقًا، لكنه لم يعد يشبه ما تركته على الطاولة."
+              },
+              {
+                "id": "s2",
+                "text": "في الصباح، دخلت ابنته تحمل حقيبتها، وركضت إلى الجسر. راحت تبحث عن العقدة التي ربطتها بنفسها، ثم عن الدعامة القصيرة التي ظلّت تميل معها. لم تجد شيئًا منهما. قال الأب مبتسمًا: أصلحته لك. الآن لن يسقط. سألت بعد صمت: وإذا سألوني كيف بنيته، ماذا سأقول؟"
+              },
+              {
+                "id": "s3",
+                "text": "أشار إلى الجسر الجميل، لكنها نظرت إلى الأعواد القديمة الملقاة قرب المقص، وقالت: كنت أريد أن أريهم ما فعلته بيدي. جلس الأب بجوارها، وجمع الأعواد القديمة بدل أن يرميها. ناولها الدعامة القصيرة وسأل: أين كانت؟ أمسك القاعدة كي لا تتحرك، وترك لها شدّ الخيوط وربطها. مال العمود مرة أخرى؛ مدّ يده ليقوّمه، ثم توقف، وانتظر محاولتها الثانية. هذه المرة ثبت، ولو بقي الجسر مائلًا قليلًا. تأخرا عن الخروج دقائق. عند الباب حملته بحذر، فقال: هل تريدين أن أقوّمه؟ هزّت رأسها: لا. الآن أعرف كيف صنعتُه. فتح لها الباب، وراقبها وهي تخرج حاملة جسرها."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "أداء قصصي دافئ وطبيعي بفصحى محادثية واضحة، مع توقف وجيز بعد سؤال الابنة وصمت صغير عندما يتوقف الأب عن تقويم العمود. دون وعظ أو استعجال أو مبالغة تمثيلية. لا قراءة لتعريف القناة أو الصلاة داخل النص."
+          },
+          "scenes": [
+            {
+              "id": "night_remove",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "في منتصف الليل، نزع الأب دعامة مائلة من جسر ابنته.",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "night_rebuild",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "لذلك انتظر نومها، واستبدل الأعواد غير المستقيمة، وشدّ الحبال، وأخفى آثار الغراء.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "morning_discovery",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "في الصباح، دخلت ابنته تحمل حقيبتها، وركضت إلى الجسر.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "returns_pieces",
+              "section_id": "s3",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "أشار إلى الجسر الجميل، لكنها نظرت إلى الأعواد القديمة الملقاة قرب المقص، وقالت: كنت أريد أن أريهم ما فعلته بيدي.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "joint_rebuild",
+              "section_id": "s3",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "أمسك القاعدة كي لا تتحرك، وترك لها شدّ الخيوط وربطها.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "departure",
+              "section_id": "s3",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "عند الباب حملته بحذر، فقال: هل تريدين أن أقوّمه؟",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "حين عاد الجسر لها"
+          },
+          "publishing": {
+            "title": "الجسر المائل | حين أعاد الأب لابنته ما صنعته بيديها | على مهل ☕",
+            "description": "قصة قصيرة عن أبٍ أصلح جسر ابنته المدرسي ليصبح أكثر إتقانًا، قبل أن يكتشف أن أهم ما فيه كان جهدها هي. لحظة صغيرة بين أب وابنته تنتهي بفعل يغيّر طريقتهما في البناء معًا.\n\n#على_مهل #قصة_قصيرة #نداء_اليقظة #الأبوة",
+            "hashtags": [
+              "#على_مهل",
+              "#قصة_قصيرة",
+              "#نداء_اليقظة",
+              "#الأبوة"
+            ]
+          }
+        },
+        "zip_sha256": "8570d74618ad7d5d24050639196867ca96544b20e26ca4fb4d1ada6d5710d7f8",
+        "asset_sha256": {
+          "assets/cover.jpg": "a7006b0b3e60adccfc8aadb96e8b47de5c21e91ff68ad6541bce6b3e1d24aadf",
+          "assets/scene_01.jpg": "3165278232d6f445564528bb6dd8c736063fd52ba4bb4ec358a764a13a595889",
+          "assets/scene_02.jpg": "c59d70cee3e2375affba447f152872b0a684a873fe0e11b85cbe37d2353c9ed1",
+          "assets/scene_03.jpg": "b187663488c651ab6fae5352046e610cd57ecab8a4a146cbb23c2356301859fd",
+          "assets/scene_04.jpg": "ee39dda611731d1d7735333707fb1583c82de049b0334d6013222317e2b1f1e0",
+          "assets/scene_05.jpg": "698ea99694b2c12e03da5eea689f72e24fdef8c828f0a6014dadd4a632ad231e",
+          "assets/scene_06.jpg": "7718376abad0ddcc71ed8b237900bb15eff4760d95edec9155dc11e79fdce70f"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "336b13fed4a4e3187e8d24ea4aa95510138d326da9cbcb2d9549e25b21b060b4",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIOYWrbSCER4ZyKq2nzkB6J2pVsxZp_AAJcIgACFC_gUtXhxpgm40rxPQQ",
+          "sha256": "8570d74618ad7d5d24050639196867ca96544b20e26ca4fb4d1ada6d5710d7f8"
+        }
+      }
     }
   },
-  "current_request_id": "req-bf30beeae60a",
+  "current_request_id": "req-71cf8714d82b",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -21986,6 +22144,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-23T11:40:04Z",
+  "updated_at": "2026-10-23T11:42:48Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
