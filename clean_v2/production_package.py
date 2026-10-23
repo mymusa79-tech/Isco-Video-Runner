@@ -169,7 +169,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if "stock_policy" in doc and doc["stock_policy"] != THREE_LINK_STOCK_POLICY:
         _error("stock_policy: استخدم three_urls_per_scene أو احذف الحقل للحزم القديمة.")
     three_per_scene = doc.get("stock_policy") == THREE_LINK_STOCK_POLICY
-    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa",)}
+    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_podcast")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
     _text(doc["title"], "title", 120)
@@ -212,7 +212,10 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             _error('roles يجب أن تكون {"A":"listener","B":"host"}؛ الأصوات الحالية ثابتة.')
         from .pipeline import _validate_podcast_listener_proxy_script
         try:
-            _validate_podcast_listener_proxy_script({"sections": [{"narration": t} for t in texts.values()]})
+            _validate_podcast_listener_proxy_script(
+                {"sections": [{"narration": t} for t in texts.values()]},
+                mode="ala_mahl_podcast" if doc["template"] == "ala_mahl_podcast" else "outside_text",
+            )
         except RuntimeError as exc:
             _error("ترتيب حوار البودكاست غير صالح: " + str(exc)[:180])
     elif "roles" in doc:
