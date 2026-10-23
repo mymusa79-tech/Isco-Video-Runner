@@ -361,6 +361,26 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         assets.add(_asset(cover["asset"]))
     _publishing(doc["publishing"], "publishing")
     derivative = doc.get("derivative")
+    if fmt == "podcast" and doc["template"] == "ala_mahl_dialogue":
+        # A manually approved ZIP must never deliver the wrong channel's title or
+        # hashtags. Limit this to publishing metadata: legitimate discussion of
+        # the other channel in an episode is not forbidden.
+        for label, publishing in (
+            ("publishing", doc["publishing"]),
+            ("derivative.publishing", (derivative or {}).get("publishing")),
+        ):
+            if not isinstance(publishing, dict):
+                continue
+            values = [
+                publishing.get("title", ""), publishing.get("description", ""),
+                *(publishing.get("hashtags") or []),
+                *(publishing.get("tags") or []),
+            ]
+            text = " ".join(str(value) for value in values).casefold()
+            if any(other in text for other in (
+                "نداء اليقظة", "نداء_اليقظة", "خارج النص", "خارج_النص"
+            )):
+                _error(f"{label}: بيانات النشر تخص قناة أخرى؛ على مهل مستقل.")
     if derivative is not None:
         _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field="derivative")
         if fmt == "short":
