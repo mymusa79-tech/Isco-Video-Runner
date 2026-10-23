@@ -49,6 +49,9 @@ GEMINI38_NIDAA_SHORT_PRIMARY_VOICE = "Iapetus"
 GEMINI38_NIDAA_SHORT_PROVIDER = "gemini-3.8:Iapetus"
 GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Iapetus:Orus"
 GEMINI38_QUESTIONER_VOICE = "Orus"
+# New podcast identity only: reuse the approved Nidaa Short speaker for A.
+GEMINI38_ALA_MAHL_PODCAST_QUESTIONER_VOICE = GEMINI38_NIDAA_SHORT_PRIMARY_VOICE
+GEMINI38_ALA_MAHL_PODCAST_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Iapetus"
 GEMINI38_PROVIDER = "gemini-3.8:Charon"
 GEMINI38_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Charon:Orus"
 # Reviewed by ear against flash-tts:Charon: on gemini-3.8-flash-lite-tts,
@@ -77,6 +80,16 @@ GEMINI38_INNER_RESOLVED_STYLE = (
 GEMINI38_LISTENER_PROXY_STYLE = (
     "Natural Modern Standard Arabic listener voice. Brief, curious and personally invested, as if voicing "
     "the listener's own question or objection; warm and spontaneous, never interviewer-like, theatrical or performative."
+)
+GEMINI38_ALA_MAHL_PODCAST_A_STYLE = (
+    "Natural Modern Standard Arabic, conversational, curious and engaged. "
+    "Offer a plausible first judgment, challenge it or bring an actual counterexample; "
+    "warm and lightly playful when warranted, never an interview prompt or performance."
+)
+GEMINI38_ALA_MAHL_PODCAST_B_STYLE = (
+    "Natural Modern Standard Arabic, warm and grounded. Discuss the human situation, "
+    "listen to A objections, acknowledge uncertainty and give concrete usable distinctions. "
+    "No lecturing, theatrical drama, or slow sleepy introspection."
 )
 GEMINI38_PODCAST_ANSWER_STYLE = (
     "Same established Charon channel voice. Calm, close and thoughtful, answering one listener directly; "
@@ -435,6 +448,7 @@ def _gemini38_synthesize(
     turns = _gemini38_dialogue_turns(transcript)
     if turns:
         listener_proxy = str(performance_mode or "") == "podcast_listener_proxy_qa"
+        ala_mahl_dialogue = str(performance_mode or "") == "ala_mahl_podcast_dialogue"
         content: list[dict[str, Any]] = []
         for speaker, spoken in turns:
             content.append(
@@ -446,9 +460,11 @@ def _gemini38_synthesize(
                             "type": "speech_metadata",
                             "speaker": speaker,
                             "style": (
-                                (GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
+                                (GEMINI38_ALA_MAHL_PODCAST_A_STYLE if ala_mahl_dialogue
+                                 else GEMINI38_LISTENER_PROXY_STYLE if listener_proxy else GEMINI38_QUESTIONER_STYLE)
                                 if speaker == "A"
-                                else (GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
+                                else (GEMINI38_ALA_MAHL_PODCAST_B_STYLE if ala_mahl_dialogue
+                                      else GEMINI38_PODCAST_ANSWER_STYLE if listener_proxy else GEMINI38_NARRATOR_STYLE)
                             ),
                         }
                     ],
@@ -730,17 +746,24 @@ class GeminiOnlyVoiceSynthesizer:
             else GEMINI38_LITE_PRIMARY_VOICE if is_lite
             else self.EXPECTED_PRIMARY_VOICE
         )
-        questioner_voice = self.EXPECTED_QUESTIONER_VOICE
+        ala_mahl_dialogue = str(performance_mode or "") == "ala_mahl_podcast_dialogue"
+        if ala_mahl_dialogue and is_lite:
+            raise RuntimeError("Ala Mahl Podcast Iapetus/Charon requires Flash TTS, not lite")
+        questioner_voice = (GEMINI38_ALA_MAHL_PODCAST_QUESTIONER_VOICE
+                            if ala_mahl_dialogue else self.EXPECTED_QUESTIONER_VOICE)
         provider = (
             GEMINI38_NIDAA_SHORT_PROVIDER if short_profile
             else GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
         )
         reference_profile = (
-            GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if short_profile
+            GEMINI38_ALA_MAHL_PODCAST_REFERENCE_PROFILE if ala_mahl_dialogue
+            else GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if short_profile
             else GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
         )
 
         self.voice_roles = _spoken_voice_roles(transcript)
+        if ala_mahl_dialogue and self.voice_roles.get("mode") == "dialogue_qa":
+            self.voice_roles["questioner"] = questioner_voice
         if short_profile and self.voice_roles.get("mode") == "single_narrator":
             self.voice_roles["narrator"] = primary_voice
         self.last_provider = None
