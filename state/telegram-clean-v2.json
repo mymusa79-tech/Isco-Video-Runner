@@ -8690,6 +8690,21 @@
       "selected_at": "2026-10-24T15:10:07Z",
       "created_at": "2026-10-24T15:10:07Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-6826ab497c",
+      "title": "حين انطفأ الفيلم",
+      "normalized_title": "حين انطفا الفيلم",
+      "market_query": "حين انطفأ الفيلم",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-24T17:02:48Z",
+      "created_at": "2026-10-24T17:02:48Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -23795,9 +23810,143 @@
         "started_at": "2026-10-24T15:11:24Z",
         "finished_at": "2026-10-24T15:21:16Z"
       }
+    },
+    "req-226681c9e47a": {
+      "schema_version": 1,
+      "request_id": "req-226681c9e47a",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "حين انطفأ الفيلم",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-6826ab497c",
+      "selected_at": "2026-10-24T17:02:48Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "حين انطفأ الفيلم",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "حين انطفأ الفيلم",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قبل أن يبدأ الفيلم بثانية، انطفأت الكهرباء في البيت كله! تجمّد حسام وطفلاه أمام الشاشة. كان قد أغلق الستائر، ورتّب الوسائد، ووضع الفشار بين آدم وليلى. أمضى الطفلان وقتًا طويلًا يختاران الفيلم، حتى اتفقا أخيرًا. حاول حسام تشغيل الجهاز، لكن الشاشة بقيت سوداء. غضب آدم وسحب وسادته نحو غرفته، بينما أمسكت ليلى بوعاء الفشار كأنها ترفض انتهاء السهرة. طلب حسام الانتظار. مرت دقائق، ولم تعد الكهرباء."
+              },
+              {
+                "id": "s2",
+                "text": "التقط آدم مصباحًا صغيرًا، وأضاءه نحو الشاشة. ظهرت صورة كلب ضخم صنعها ظل أصابعه. ضحكت ليلى، وجربت صنع طائر بيديها، لكنه بدا كدجاجة مرتبكة. ضحك آدم للمرة الأولى منذ انطفاء النور. فتح حسام درج الطاولة، وأخرج ورقًا ومقصًا، فقصّ تنينًا وفارسًا صغيرًا. حمل الطفلان المصباح، وأخذ الأب يحرّك الشخصيات أمامه. صار التنين يطارد الفارس، ثم يهرب منه كلما صرخت ليلى محذّرة."
+              },
+              {
+                "id": "s3",
+                "text": "فجأة عادت الكهرباء، وأضاء جهاز العرض. توقفت الظلال، وسكت الجميع لحظة. نظر آدم إلى شاشة الفيلم، ثم إلى التنين الورقي في يد أبيه. مد حسام يده وأطفأ الجهاز. أعاد آدم المصباح إلى مكانه، ورتّبت ليلى الوسائد أمام الشاشة. ثم صاحا معًا: أكمل حكاية التنين! جلس حسام بينهما، ورفع الفارس مرة أخرى؛ حتى الفشار الذي برد، نسياه وسط الضحك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "سرد دافئ وحيّ، كأنك تروي سهرة عائلية حدثت فعلًا. ابدأ الانقطاع بدهشة قصيرة، ثم احك تفاصيل استعداد الأسرة بسرعة طبيعية. عند غضب آدم اخفض النبرة دون دراما. أظهر المرح فور ظهور ظل الكلب والطائر، واجعل حركة التنين والفارس ذات إيقاع أكثر حيوية. توقف وقفة قصيرة عند عودة الكهرباء، ثم اختم بابتسامة مسموعة طبيعية من دون حكمة أو خطاب مباشر. لا تنطق أسماء الأقسام ولا أي تعليمات أداء."
+          },
+          "scenes": [
+            {
+              "id": "setup",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "قبل أن يبدأ الفيلم بثانية، انطفأت الكهرباء في البيت كله!",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "blackout",
+              "section_id": "s1",
+              "asset": "assets/scene_02.png",
+              "start_text": "حاول حسام تشغيل الجهاز، لكن الشاشة بقيت سوداء.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "first_shadow",
+              "section_id": "s2",
+              "asset": "assets/scene_03.png",
+              "start_text": "التقط آدم مصباحًا صغيرًا، وأضاءه نحو الشاشة.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "puppet_show",
+              "section_id": "s2",
+              "asset": "assets/scene_04.png",
+              "start_text": "فتح حسام درج الطاولة، وأخرج ورقًا ومقصًا، فقصّ تنينًا وفارسًا صغيرًا.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "decision",
+              "section_id": "s3",
+              "asset": "assets/scene_05.png",
+              "start_text": "فجأة عادت الكهرباء، وأضاء جهاز العرض.",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.png",
+            "text": "حين انطفأ الفيلم"
+          },
+          "publishing": {
+            "title": "حين انطفأ الفيلم | حكاية عائلية طريفة من على مهل ☕",
+            "description": "استعد الأب وطفلاه لمشاهدة فيلم في البيت، لكن الكهرباء انقطعت قبل البداية. مصباح صغير وخيال طفلين حوّلا السهرة إلى مسرح ظلال لا يريد أحد انتهاءه. قصة أصلية من على مهل ☕.\n\n#على_مهل #قصة_قصيرة #عائلة #قصص_إنسانية",
+            "hashtags": [
+              "#على_مهل",
+              "#قصة_قصيرة",
+              "#عائلة",
+              "#قصص_إنسانية"
+            ]
+          }
+        },
+        "zip_sha256": "6da2770d080af1ff4ab96a8b0dc2f4b3f38c6a14ba0be7b581300f35f2235d83",
+        "asset_sha256": {
+          "assets/cover.png": "aa9419cdaa26140f38d744606218782225abe87c53478a4bdbe386497ecf01ab",
+          "assets/scene_01.png": "bb73e09a14aa6f39dcbf7bc62c957c2f099aeee3591765af4dda0031a6b19a26",
+          "assets/scene_02.png": "37d9a641bc545faf0c8ed2628308fbde58339b424a8db4218fcbd89cc698803a",
+          "assets/scene_03.png": "dc5952554e79a43e1214a3f9c258943b49e15c08b27a677d9f022046df8df511",
+          "assets/scene_04.png": "95d74073dba4914416024d5ae37f10d81d2dae46b8ead9108d78bac583a7b6fa",
+          "assets/scene_05.png": "f9fc7566cbc4d1b4526a3eb4f3c7e40b3397b2c3e38143c6af8ed3c6eaaa5a0e"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "a4b1ad590cdfeda3a288509a140a7057e109160e83d7c2a81f12ffd532f732e7",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIO42rc5JZJCuspDgfIZJzJFcSfV4PvAALRJAACulTgUnkE5XBKPP6ePQQ",
+          "sha256": "6da2770d080af1ff4ab96a8b0dc2f4b3f38c6a14ba0be7b581300f35f2235d83"
+        }
+      }
     }
   },
-  "current_request_id": "req-94fb97f25d62",
+  "current_request_id": "req-226681c9e47a",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -24293,6 +24442,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-24T17:02:22Z",
+  "updated_at": "2026-10-24T17:02:48Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
