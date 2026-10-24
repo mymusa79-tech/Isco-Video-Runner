@@ -228,9 +228,9 @@ def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> s
     The navy card design now belongs to Film: see build_card_ass.
     """
     if fmt != "short":
-        from .film_captions import build_plain_ass
+        from .film_captions import PODCAST_FONT_SIZE, build_plain_ass
 
-        return build_plain_ass(events, speaker_colours=True)
+        return build_plain_ass(events, speaker_colours=True, font_size=PODCAST_FONT_SIZE, fmt="podcast_plain")
     return _build_short_ass(events)
 
 

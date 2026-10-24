@@ -183,10 +183,24 @@ class BarTests(unittest.TestCase):
 
         ass = pc.build_ass(self.EVENTS)
         self.assertNotIn(r"\p1", ass)  # no card, no drawing layers
-        self.assertIn(f"Style: Film,Cairo,{film_captions.FONT_SIZE},", ass)
+        self.assertIn(f"Style: Film,Cairo,{film_captions.PODCAST_FONT_SIZE},", ass)
         self.assertIn(r"\c&H4BA2C9&", ass)  # speaker A keeps gold
         self.assertIn(r"\c&HEFF3F5&", ass)  # speaker B keeps warm white
         self.assertEqual(len([line for line in ass.splitlines() if line.startswith("Dialogue:")]), 3)
+
+    def test_podcast_captions_are_large_cairo_bold_and_never_shrink_below_the_floor(self) -> None:
+        from clean_v2 import film_captions, short_timed_text
+
+        self.assertGreaterEqual(film_captions.PODCAST_FONT_SIZE, 116)
+        ass = pc.build_ass(self.EVENTS)
+        self.assertIn(f"Style: Film,Cairo,{film_captions.PODCAST_FONT_SIZE},", ass)
+        style = next(line for line in ass.splitlines() if line.startswith("Style: Film,"))
+        self.assertEqual(style.split(",")[7], "-1")  # Bold flag on: libass asks for the 700 instance
+        long_text = "أو اتصال سريع ممن يمر قريبًا وبعدها نكمل الكلام عن الموضوع بهدوء تام"
+        rows, size = short_timed_text._caption_rows_and_size(long_text, fmt="podcast_plain", font_size=film_captions.PODCAST_FONT_SIZE)
+        self.assertLessEqual(len(rows), 2)
+        self.assertGreaterEqual(size, short_timed_text._CAPTION_FONT_MIN["podcast_plain"])
+        self.assertGreaterEqual(short_timed_text._CAPTION_FONT_MIN["podcast_plain"], 100)
 
     def test_card_without_speakers_has_no_accent_bar_and_scales_with_font(self) -> None:
         small = pc.build_card_ass(self.EVENTS, font_size=pc.FONT_SIZE, speaker_colours=False)

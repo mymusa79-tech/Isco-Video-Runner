@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -194,14 +195,63 @@ def _approved_ala_mahl_image(kind: str) -> Path | None:
     return path
 
 
+_ALA_MAHL_VIDEO_SECONDS = {"intro": 6.0, "outro": 6.5}
+_ALA_MAHL_VIDEO_SIZES = frozenset({(1280, 720), (1920, 1080)})
+_ALA_MAHL_VIDEO_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _approved_ala_mahl_video(kind: str) -> Path | None:
+    """Owner-approved *animated* intro/outro for the new podcast only.
+
+    A present but malformed file fails loudly (never a silent fallback), exactly like
+    the approved still images. Absent means "not installed", not "rejected".
+    """
+    if kind not in _ALA_MAHL_VIDEO_SECONDS:
+        raise ValueError("unsupported_ala_mahl_identity_video_kind")
+    path = _ALA_MAHL_APPROVED_DIR / f"{kind}_16x9.mp4"
+    if not path.exists():
+        return None
+    invalid = RuntimeError(f"ala_mahl_approved_identity_video_invalid:{kind}")
+    try:
+        size = path.stat().st_size
+        if not 1024 < size <= _ALA_MAHL_VIDEO_MAX_BYTES:
+            raise invalid
+        run = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format=duration:stream=codec_type,width,height",
+             "-of", "json", str(path)],
+            text=True, capture_output=True, check=True, timeout=30,
+        )
+        details = json.loads(run.stdout)
+        streams = details.get("streams") or []
+        video = next((row for row in streams if row.get("codec_type") == "video"), None)
+        has_audio = any(row.get("codec_type") == "audio" for row in streams)
+        duration = float((details.get("format") or {}).get("duration") or 0.0)
+    except RuntimeError:
+        raise
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+        raise invalid from exc
+    if (video is None or not has_audio
+            or (video.get("width"), video.get("height")) not in _ALA_MAHL_VIDEO_SIZES
+            or abs(duration - _ALA_MAHL_VIDEO_SECONDS[kind]) > 0.15):
+        raise invalid
+    return path
+
+
 def _ensure_ala_mahl_podcast_assets(runtime_dir: Path) -> tuple[Path, Path]:
-    """Prefer approved owner's 16:9 identity, never touch Outside the Text V8."""
+    """Prefer approved owner's animated video, then approved stills, then the prototype.
+
+    Never touches Outside the Text V8.
+    """
     root = Path(runtime_dir)
     root.mkdir(parents=True, exist_ok=True)
-    approved = {kind: _approved_ala_mahl_image(kind) for kind in ("intro", "outro")}
     destinations = {}
     for kind, duration in (("intro", 6.0), ("outro", 6.5)):
-        original = approved[kind]
+        video = _approved_ala_mahl_video(kind)
+        if video is not None:
+            destinations[kind] = video
+            continue
+        original = _approved_ala_mahl_image(kind)
         # Filename hash prevents stale pre-approval cards returning from resume cache.
         fingerprint = (hashlib.sha256(original.read_bytes()).hexdigest()[:12]
                        if original is not None else "prototype_v1")

@@ -21,6 +21,7 @@ from .short_timed_text import (
 
 SCHEMA_VERSION = 1
 FONT_SIZE = 90  # unboxed design (now worn by the Podcast); was 66, mobile viewers asked for larger
+PODCAST_FONT_SIZE = 116  # podcast dialogue captions: the 90 px version read too small on a phone held in portrait
 CARD_FONT_SIZE = 84  # card design (now worn by Film): card geometry scales with this size
 WHITE_ASS = "&H00EEF2F4"  # warm off-white
 GOLD_ASS = "&H004BA2C9"  # restrained identity gold
@@ -129,7 +130,8 @@ def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
     return build_card_ass(events, font_size=CARD_FONT_SIZE, speaker_colours=False)
 
 
-def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: bool = False) -> str:
+def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: bool = False,
+                    font_size: int = FONT_SIZE, fmt: str = "film") -> str:
     """Short voice-timed phrases, unboxed with a dark outline (the Podcast design).
 
     With speaker_colours the text keeps the dialogue colours: A gold, B warm white."""
@@ -139,7 +141,7 @@ def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: boo
         "YCbCr Matrix: TV.709", "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Film,{BODY_FONT},{FONT_SIZE},{WHITE_ASS},{WHITE_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,1,2,150,150,{SAFE_BOTTOM_MARGIN},-1",
+        f"Style: Film,{BODY_FONT},{font_size},{WHITE_ASS},{WHITE_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,4,1,2,150,150,{SAFE_BOTTOM_MARGIN},-1",
         "", "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
@@ -147,7 +149,7 @@ def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: boo
         start, end = float(event["start"]), float(event["end"])
         if end <= start:
             raise FilmCaptionError("film_caption_invalid_window")
-        rows, font_size = _caption_rows_and_size(str(event["text"]), fmt="film", font_size=FONT_SIZE)
+        rows, row_size = _caption_rows_and_size(str(event["text"]), fmt=fmt, font_size=font_size)
         if not rows or len(rows) > MAX_ROWS:
             raise FilmCaptionError("film_caption_invalid_rows")
         # Emphasise a single already-spoken word only occasionally. No sweeps,
@@ -172,7 +174,7 @@ def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: boo
             colour = SPEAKER_ASS.get(str(event.get("speaker") or ""), "")
         lines.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Film,,0,0,0,,"
-            + r"{\fs" + str(font_size) + r"\fad(100,130)\blur0.5" + colour + "}"
+            + r"{\fs" + str(row_size) + r"\fad(100,130)\blur0.5" + colour + "}"
             + rendered
         )
     return "\n".join(lines) + "\n"

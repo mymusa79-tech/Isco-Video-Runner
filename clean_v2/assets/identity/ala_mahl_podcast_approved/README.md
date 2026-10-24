@@ -15,3 +15,12 @@ The importer still requires actual independently Claude-approved `production.jso
 Runtime: for `format=podcast, template=ala_mahl_dialogue` only, `clean_v2.identity_sequence` validates PNG and 1920×1080; a real owner image overrides the old prototype, and its SHA-256 fingerprint rotates the intro/outro video cache. A missing asset retains the old prototype pending installation and MUST NOT be called final visual approval. The original prayer spoken text/audio and its position are unchanged; only the on-screen still is different. Do not import a new prayer voice.
 
 Before merging or releasing, verify real FFmpeg intro/outro, exact circular crop (no square), no spurious typography, no cut last word, and full-screen prayer. If approved files are missing, keep release status **NOT READY**. No auto publishing or unauthorized TTS.
+
+
+## Animated intro/outro (installed 24 Oct 2026)
+
+`intro_16x9.mp4` (6.0 s) and `outro_16x9.mp4` (6.5 s) are the owner-approved **animated** identity for `format=podcast, template=ala_mahl_dialogue` only: H.264 + AAC, 1920×1080 (1280×720 also accepted), 30 fps, with their own signature sound (soft tones; the outro adds the subscribe click). They are built on the original circular logo with El Messiri typography (SIL OFL) and a calm warm palette; the outro CTA is visual only and is never spoken.
+
+Priority per kind (intro / outro): approved `*_16x9.mp4` → approved `*_16x9.png` (rendered as a static card) → prototype card. A present but malformed video (wrong duration ±0.15 s, unsupported size, no audio stream, unreadable or >20 MB) raises `ala_mahl_approved_identity_video_invalid:<kind>`; it never falls back silently. `prayer_16x9.png` is unchanged by this: the prayer still uses the existing prayer image until an approved still is installed.
+
+Not exercised by these files: spoken audio, final loudness balance against dialogue on a phone speaker, and release approval. Keep the release status **NOT READY** until the real render has been heard.
