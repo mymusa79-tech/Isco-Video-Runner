@@ -1790,7 +1790,14 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_workflow_uses_frozen_engine_and_approved_brief(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8")
-        engine_sha = "595f69a28ff6ddc5532291c9f113f334562292f9"
+        # Exact, independently pinned private Engine commit must agree between
+        # runner env and checkout; don't freeze an obsolete SHA in this test.
+        pins = re.findall(r"(?m)^\\s+ISCO_ENGINE_SHA:\\s+([0-9a-f]{40})\\s*$", text)
+        refs = re.findall(r"(?m)^\\s+ref:\\s+([0-9a-f]{40})\\s*$", text)
+        self.assertEqual(len(pins), 1)
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0], pins[0])
+        engine_sha = pins[0]
         brief_sha = "bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129"
         self.assertGreaterEqual(text.count(engine_sha), 2)
         self.assertEqual(text.count(brief_sha), 1)
