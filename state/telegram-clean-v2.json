@@ -8675,6 +8675,21 @@
       "selected_at": "2026-10-24T09:39:02Z",
       "created_at": "2026-10-24T09:39:02Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-78a904c05c",
+      "title": "المقعد الذي تركته له",
+      "normalized_title": "المقعد الذي تركته له",
+      "market_query": "المقعد الذي تركته له",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-24T15:10:07Z",
+      "created_at": "2026-10-24T15:10:07Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -23628,9 +23643,144 @@
         "started_at": "2026-10-24T10:21:39Z",
         "finished_at": "2026-10-24T11:06:31Z"
       }
+    },
+    "req-94fb97f25d62": {
+      "schema_version": 1,
+      "request_id": "req-94fb97f25d62",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "المقعد الذي تركته له",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-78a904c05c",
+      "selected_at": "2026-10-24T15:10:07Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "المقعد الذي تركته له",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "ala_mahl",
+          "title": "المقعد الذي تركته له",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "عند باب قاعة المدرسة، رأى سامر زوجته السابقة، فتراجع خطوة. كان مساء الخميس. جلست مريم في الصف الأول، وحقيبتها الرمادية تشغل المقعد المجاور. قبل أسبوع تشاجرا بسبب موعد زيارة ابنتهما ليان، ومنذ ذلك المساء لم يتبادلا سوى رسائل قصيرة باردة. ومع ذلك حضر سامر؛ فقد وعد ابنته بسماع أول عزف لها على الكمان. وسط صرير الكراسي وهمس الأهالي، اختار الصف الأخير قرب المخرج، وأخذ يثني برنامج الحفل بين أصابعه."
+              },
+              {
+                "id": "s2",
+                "text": "صعدت ليان إلى المسرح، وثبتت الكمان تحت ذقنها. رأت أمها، ثم راحت تبحث عن أبيها بين الصفوف حتى وجدته قرب الباب. انخفض قوسها لحظة. لاحظت مريم نظرتها، فالتفتت إلى الخلف ورأت سامر جالسًا وحده. تذكرت سؤال ليان في الصباح، وهي ترتدي فستان الحفل: هل سيأتي أبي فعلًا؟ نظرت إلى حقيبتها، وأمسكت مقبضها. توقفت. ما زالت غاضبة منه. ثم سحبت الحقيبة تحت كرسيها، وأشارت إلى المقعد الخالي. فهم سامر الإشارة، لكنه لم يتحرك فورًا. وبعد لحظة نهض، وسار بين الكراسي بينما كانت القاعة تسكن."
+              },
+              {
+                "id": "s3",
+                "text": "أفسحت له مريم الطريق، وجلس دون كلام. بقيت مسافة صغيرة بين كتفيهما. من المسرح، رأتهما ليان معًا، فرفعت القوس وبدأت تعزف. أخطأت نغمة، ثم تماسكت وأكملت حتى النهاية. صفقا لها في الوقت نفسه. بعد الحفل أسرعت نحوهما، تحمل علبة الكمان، وسألت بلهفة: هل سمعتما المقطوعة كلها؟ أجابا في اللحظة نفسها: كلها. ضحكت، وراحت تحكي لهما عن النغمة التي كادت توقفها. خرج الثلاثة من القاعة، وليان تتكلم، ووالداها يصغيان."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "أدِّ الحكاية بفصحى محادثية دافئة لا حزينة ولا خطابية. ابدأ الهوك بتردد مسموع، وامنح «فتراجع خطوة» وقفة قصيرة. أسرع قليلًا في شرح الخلاف القديم، ثم تمهّل عند بحث ليان عن والدها. اخفض النبرة عند يد مريم على مقبض الحقيبة، واترك وقفة قصيرة قبل «ثم سحبت الحقيبة». اجعل نهوض سامر لحظة ارتياح صامت، لا نصرًا. في مشهد التصفيق ارتفع قليلًا في الدفء، ثم اختم «ووالداها يصغيان» بنزول هادئ دون عظة أو مبالغة."
+          },
+          "scenes": [
+            {
+              "id": "entrance",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "عند باب قاعة المدرسة، رأى سامر زوجته السابقة، فتراجع خطوة.",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "violin",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "صعدت ليان إلى المسرح، وثبتت الكمان تحت ذقنها.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "bag",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "نظرت إلى حقيبتها، وأمسكت مقبضها.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "applause",
+              "section_id": "s3",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "أفسحت له مريم الطريق، وجلس دون كلام.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "exit",
+              "section_id": "s3",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "بعد الحفل أسرعت نحوهما، تحمل علبة الكمان، وسألت بلهفة: هل سمعتما المقطوعة كلها؟",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "المقعد الذي تركته له"
+          },
+          "publishing": {
+            "title": "المقعد الذي تركته له | على مهل ☕",
+            "description": "في حفل المدرسة، يلتقي والدان فرّقهما خلاف قديم. إشارة صغيرة من الأم تمنح ابنتهما لحظة ستتذكرها. قصة إنسانية قصيرة من سلسلة «على مهل» عن الإصغاء لطفلة حين يكون الكلام بين الكبار صعبًا.\n\n#على_مهل #علاقات #قصة_قصيرة #الأسرة",
+            "hashtags": [
+              "#على_مهل",
+              "#علاقات",
+              "#قصة_قصيرة",
+              "#الأسرة"
+            ]
+          }
+        },
+        "zip_sha256": "5e37f82c982465c323fcbabc2a443cd964c40de7c1458a98c20dd10540129115",
+        "asset_sha256": {
+          "assets/cover.jpg": "24d732e1224ac60df52f6efb31e8861515b9abe537ef978f4a43d5be686a3793",
+          "assets/cover_alt.jpg": "05f8561c218b53c1bfaa21be36c1b530495001804c0b2029eaa5d795d3915955",
+          "assets/scene_01.jpg": "48329645ea3c1930177df3f32ca74b3c1c36375106b3ec0c743be134bf76209d",
+          "assets/scene_02.jpg": "991f8caa5852efe55a21d6002f96bf46cb73b1f1e922db139a2e8f2b5566b303",
+          "assets/scene_03.jpg": "5dda94e29d91d544ec93f813ac032b153e527a17f39e3bfd619b4025cde18a75",
+          "assets/scene_04.jpg": "074755b165d37b7f7e542404be2d0c7509b79dfd48d8e19208881e8bdc13e37e",
+          "assets/scene_05.jpg": "7771f475756c567ac780dda1267366935221c094da2778519601813b41d9110f"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "aaba894f18e1a1f421fc3f59a64e981831f7acf7caa4454c16e7e6423802b35d",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIOz2rcyjcRYA903QGxh0DFfivlppdcAALAHgACFC_oUioXuhjuZLS6PQQ",
+          "sha256": "5e37f82c982465c323fcbabc2a443cd964c40de7c1458a98c20dd10540129115"
+        }
+      }
     }
   },
-  "current_request_id": "req-f739a12924e7",
+  "current_request_id": "req-94fb97f25d62",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -24126,6 +24276,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-24T15:09:41Z",
+  "updated_at": "2026-10-24T15:10:08Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
