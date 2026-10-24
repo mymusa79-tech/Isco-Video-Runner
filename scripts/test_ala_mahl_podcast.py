@@ -279,6 +279,74 @@ class AlaMahlPodcastTests(unittest.TestCase):
             self.assertTrue(assets["intro"].name.startswith("ala_mahl_"))
             self.assertTrue(assets["outro"].name.startswith("ala_mahl_"))
 
+    def test_exact_owner_assets_override_only_new_podcast_identity(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            own = root / "approved"
+            own.mkdir()
+            for kind in ("intro", "prayer", "outro"):
+                Image.new("RGB", (1920, 1080), (244, 234, 212)).save(
+                    own / f"{kind}_16x9.png"
+                )
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", own), patch.object(
+                identity, "_ensure_ala_mahl_podcast_assets",
+                return_value=(root / "intro.mp4", root / "outro.mp4")
+            ), patch.object(identity, "_ensure_podcast_v8_assets",
+                return_value=(root / "legacy_intro.mp4", root / "legacy_outro.mp4")
+            ):
+                modern = identity.identity_asset_paths(
+                    "podcast", template="ala_mahl_dialogue", runtime_dir=root
+                )
+                legacy = identity.identity_asset_paths(
+                    "podcast", template="dialogue_qa", runtime_dir=root
+                )
+                self.assertEqual(modern["prayer"], own / "prayer_16x9.png")
+                self.assertEqual(legacy["prayer"], identity._PRAYER_IMAGE)
+                self.assertEqual(modern["intro"], root / "intro.mp4")
+                self.assertEqual(legacy["intro"], root / "legacy_intro.mp4")
+
+    def test_owner_asset_validation_rejects_invalid_resolution(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temporary:
+            own = Path(temporary)
+            wrong = own / "intro_16x9.png"
+            Image.new("RGB", (640, 480)).save(wrong)
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", own):
+                with self.assertRaisesRegex(RuntimeError, "approved_identity_invalid"):
+                    identity._approved_ala_mahl_image("intro")
+                self.assertIsNone(identity._approved_ala_mahl_image("outro"))
+
+    def test_owner_image_digest_rotates_only_new_identity_video_cache(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            approved = root / "approved"
+            approved.mkdir()
+            for kind in ("intro", "outro"):
+                Image.new("RGB", (1920, 1080), (244, 234, 212)).save(
+                    approved / f"{kind}_16x9.png"
+                )
+            generated = []
+            def fake_render(*, card, destination, duration, kind):
+                generated.append((kind, card, duration))
+                destination.write_bytes(b"test-video" * 300)
+                return destination
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", approved), patch.object(
+                identity, "_render_podcast_v8_asset", side_effect=fake_render
+            ):
+                first = identity._ensure_ala_mahl_podcast_assets(root)
+                again = identity._ensure_ala_mahl_podcast_assets(root)
+                self.assertEqual(first, again)
+                self.assertEqual(len(generated), 2)
+                Image.new("RGB", (1920, 1080), (241, 229, 201)).save(
+                    approved / "intro_16x9.png"
+                )
+                revised = identity._ensure_ala_mahl_podcast_assets(root)
+                self.assertNotEqual(first[0], revised[0])
+                self.assertEqual(first[1], revised[1])
+                self.assertEqual(len(generated), 3)
+
     def test_podcast_identity_separate_old_path_untouched(self):
         ala_assets = (Path("ala-intro.mp4"), Path("ala-outro.mp4"))
         legacy_assets = (Path("old-intro.mp4"), Path("old-outro.mp4"))
