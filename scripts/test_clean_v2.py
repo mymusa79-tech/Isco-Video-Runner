@@ -1793,8 +1793,8 @@ class WorkflowContractTests(unittest.TestCase):
         text = self.WORKFLOW.read_text(encoding="utf-8")
         # Exact, independently pinned private Engine commit must agree between
         # runner env and checkout; don't freeze an obsolete SHA in this test.
-        pins = re.findall(r"(?m)^\\s+ISCO_ENGINE_SHA:\\s+([0-9a-f]{40})\\s*$", text)
-        refs = re.findall(r"(?m)^\\s+ref:\\s+([0-9a-f]{40})\\s*$", text)
+        pins = re.findall(r"(?m)^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text)
+        refs = re.findall(r"(?m)^\s+ref:\s+([0-9a-f]{40})\s*$", text)
         self.assertEqual(len(pins), 1)
         self.assertEqual(len(refs), 1)
         self.assertEqual(refs[0], pins[0])
