@@ -27,6 +27,20 @@ def _wav(path: Path) -> Path:
     return path
 
 
+def _identity_video(path: Path, *, seconds: float, size: str = "1280x720", audio: bool = True) -> Path:
+    """Tiny real MP4 so the approved-video validator is exercised by real ffprobe."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    command = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+               "-f", "lavfi", "-i", f"color=c=0x2b1f16:s={size}:r=30:d={seconds}"]
+    if audio:
+        command += ["-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}"]
+    command += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if audio:
+        command += ["-c:a", "aac", "-shortest"]
+    subprocess.run(command + [str(path)], check=True, timeout=60)
+    return path
+
+
 def _ala_mahl_doc():
     doc = manifest("podcast", template="ala_mahl_dialogue")
     doc["script"]["sections"][0]["turns"][0]["text"] = "لماذا نحكم على صديق اعتذر عن مساعدتنا في أصعب أيامنا، قبل أن نعرف ما الذي كان يمر به، وهل كان يستطيع فعل شيء آخر؟"
@@ -273,11 +287,15 @@ class AlaMahlPodcastTests(unittest.TestCase):
                 self.assertAlmostEqual(float(details["format"]["duration"]), duration, delta=0.15)
                 streams = details["streams"]
                 video = next(row for row in streams if row.get("codec_type") == "video")
-                self.assertEqual((video["width"], video["height"]), (1280, 720))
+                self.assertIn((video["width"], video["height"]), {(1280, 720), (1920, 1080)})
                 self.assertTrue(any(row.get("codec_type") == "audio" for row in streams))
             # Correct per-program identity files must never alias the V8 file names.
-            self.assertTrue(assets["intro"].name.startswith("ala_mahl_"))
-            self.assertTrue(assets["outro"].name.startswith("ala_mahl_"))
+            for kind in ("intro", "outro"):
+                self.assertNotIn("podcast_intro_v8", assets[kind].name)
+                self.assertNotIn("podcast_outro_v8", assets[kind].name)
+                self.assertTrue(
+                    assets[kind].name.startswith("ala_mahl_") or assets[kind].name == f"{kind}_16x9.mp4"
+                )
 
     def test_exact_owner_assets_override_only_new_podcast_identity(self):
         from PIL import Image
@@ -360,6 +378,87 @@ class AlaMahlPodcastTests(unittest.TestCase):
                 "podcast", template="dialogue_qa")["intro"], legacy_assets[0])
             self.assertEqual(ala.call_count, 1)
             self.assertEqual(legacy.call_count, 1)
+
+    def test_approved_animated_identity_video_overrides_stills_and_prototype(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            approved = root / "approved"
+            approved.mkdir()
+            for kind in ("intro", "outro"):
+                Image.new("RGB", (1920, 1080), (244, 234, 212)).save(approved / f"{kind}_16x9.png")
+            intro = _identity_video(approved / "intro_16x9.mp4", seconds=6.0, size="1280x720")
+            outro = _identity_video(approved / "outro_16x9.mp4", seconds=6.5, size="1920x1080")
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", approved), patch.object(
+                identity, "_render_podcast_v8_asset"
+            ) as render:
+                first = identity._ensure_ala_mahl_podcast_assets(root / "runtime")
+                again = identity._ensure_ala_mahl_podcast_assets(root / "runtime")
+            self.assertEqual(first, (intro, outro))
+            self.assertEqual(first, again)
+            render.assert_not_called()
+
+    def test_approved_video_for_one_kind_leaves_the_other_on_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            approved = root / "approved"
+            intro = _identity_video(approved / "intro_16x9.mp4", seconds=6.0)
+            calls = []
+            def fake_render(*, card, destination, duration, kind):
+                calls.append(kind)
+                destination.write_bytes(b"prototype-video" * 200)
+                return destination
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", approved), patch.object(
+                identity, "_render_podcast_v8_asset", side_effect=fake_render
+            ):
+                got_intro, got_outro = identity._ensure_ala_mahl_podcast_assets(root / "runtime")
+            self.assertEqual(got_intro, intro)
+            self.assertEqual(calls, ["outro"])
+            self.assertIn("prototype_v1", got_outro.name)
+
+    def test_malformed_approved_video_fails_loudly_never_falls_back(self):
+        cases = {
+            "wrong_duration": dict(seconds=3.0),
+            "wrong_resolution": dict(seconds=6.0, size="640x360"),
+            "no_audio": dict(seconds=6.0, audio=False),
+        }
+        for name, options in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as temporary:
+                approved = Path(temporary) / "approved"
+                _identity_video(approved / "intro_16x9.mp4", **options)
+                with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", approved):
+                    with self.assertRaisesRegex(RuntimeError, "approved_identity_video_invalid:intro"):
+                        identity._approved_ala_mahl_video("intro")
+                    with self.assertRaisesRegex(RuntimeError, "approved_identity_video_invalid:intro"):
+                        identity._ensure_ala_mahl_podcast_assets(Path(temporary) / "runtime")
+        with tempfile.TemporaryDirectory() as temporary:
+            approved = Path(temporary) / "approved"
+            approved.mkdir()
+            (approved / "outro_16x9.mp4").write_bytes(b"not a video" * 200)
+            with patch.object(identity, "_ALA_MAHL_APPROVED_DIR", approved):
+                with self.assertRaisesRegex(RuntimeError, "approved_identity_video_invalid:outro"):
+                    identity._approved_ala_mahl_video("outro")
+                self.assertIsNone(identity._approved_ala_mahl_video("intro"))
+                with self.assertRaises(ValueError):
+                    identity._approved_ala_mahl_video("prayer")
+
+    def test_installed_ala_mahl_identity_videos_are_valid_and_podcast_only(self):
+        # The real files shipped in the repo, probed by the production validator.
+        for kind in ("intro", "outro"):
+            path = identity._approved_ala_mahl_video(kind)
+            self.assertIsNotNone(path, f"{kind}_16x9.mp4 must be installed")
+            self.assertTrue(path.is_file())
+        with tempfile.TemporaryDirectory() as temporary:
+            legacy = identity.identity_asset_paths(
+                "podcast", template="dialogue_qa", runtime_dir=Path(temporary)
+            )
+            self.assertNotIn("ala_mahl_podcast_approved", str(legacy["intro"]))
+            self.assertNotIn("ala_mahl_podcast_approved", str(legacy["outro"]))
+            ala = identity.identity_asset_paths(
+                "podcast", template="ala_mahl_dialogue", runtime_dir=Path(temporary)
+            )
+            self.assertEqual(ala["intro"].name, "intro_16x9.mp4")
+            self.assertEqual(ala["outro"].name, "outro_16x9.mp4")
 
 
 if __name__ == "__main__":
