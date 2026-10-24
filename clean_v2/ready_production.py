@@ -117,7 +117,7 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     sections = [{"id": s["id"], "narration": section_text(s)} for s in doc["script"]["sections"]]
     plan = validate_plan({
         "title": doc["title"], "promise": doc["title"], "cta": "",
-        "narrative_format": doc["template"] if fmt != "short" else "",
+        "narrative_format": ("dialogue_qa" if fmt == "podcast" else doc["template"] if fmt != "short" else ""),
         "cover_text": doc["cover"]["text"],
         "sections": [{"id": s["id"], "heading": f"الجزء {i}", "purpose": doc["title"],
                       "visual_query_en": f"approved owner illustration section {i}"}

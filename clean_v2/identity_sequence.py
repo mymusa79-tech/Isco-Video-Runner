@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import re
 import subprocess
@@ -32,6 +33,7 @@ _LONG_INTRO = _ASSET_DIR / "long_intro.mp4"
 _LONG_OUTRO = _ASSET_DIR / "long_outro.mp4"
 _PODCAST_LOGO_B64 = _ASSET_DIR / "podcast_logo_v8.b64"
 _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
+_ALA_MAHL_APPROVED_DIR = _ASSET_DIR / "ala_mahl_podcast_approved"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _SUPPORTED_IDENTITY_FORMATS = frozenset({"short", "film", "podcast"})
 _TIMING_PROFILES = {
@@ -150,6 +152,78 @@ def _build_podcast_v8_card(*, logo, kind: str):
     return image
 
 
+def _build_ala_mahl_podcast_card(*, kind: str):
+    """Own 16:9 identity, deliberately free of Nidaa/Outside the Text marks."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    image = Image.new("RGBA", (1280, 720), (30, 29, 28, 255))
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((370, -75, 910, 465), fill=(196, 174, 137, 29))
+    image.alpha_composite(glow.filter(ImageFilter.GaussianBlur(85)))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((470, 72, 810, 412), outline=(194, 168, 130, 255), width=5)
+    draw.ellipse((483, 85, 797, 399), outline=(132, 116, 94, 155), width=1)
+
+    def center_text(label: str, font_size: int, y: int, fill: tuple[int, int, int, int]) -> None:
+        lettering = _podcast_text_image(label, size=font_size, fill=fill)
+        image.alpha_composite(lettering, ((1280 - lettering.width) // 2, y))
+
+    center_text("على مهل", 78, 193, (244, 235, 217, 255))
+    if kind == "intro":
+        center_text("بودكاست على مهل", 42, 469, (235, 223, 203, 255))
+        center_text("المواقف من أكثر من وجه", 29, 552, (176, 161, 142, 255))
+    else:
+        center_text("نلتقي على مهل.", 45, 472, (235, 223, 203, 255))
+        center_text("حكاية وحوار وفهم", 28, 556, (176, 161, 142, 255))
+    return image
+
+
+def _approved_ala_mahl_image(kind: str) -> Path | None:
+    """Owner-supplied real circular identity; never fall through on malformed assets."""
+    if kind not in {"intro", "prayer", "outro"}:
+        raise ValueError("unsupported_ala_mahl_identity_kind")
+    path = _ALA_MAHL_APPROVED_DIR / f"{kind}_16x9.png"
+    if not path.exists():
+        return None
+    from PIL import Image
+    with Image.open(path) as image:
+        image.verify()
+    with Image.open(path) as image:
+        if image.size != (1920, 1080) or image.format != "PNG":
+            raise RuntimeError(f"ala_mahl_approved_identity_invalid:{kind}")
+    return path
+
+
+def _ensure_ala_mahl_podcast_assets(runtime_dir: Path) -> tuple[Path, Path]:
+    """Prefer approved owner's 16:9 identity, never touch Outside the Text V8."""
+    root = Path(runtime_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    approved = {kind: _approved_ala_mahl_image(kind) for kind in ("intro", "outro")}
+    destinations = {}
+    for kind, duration in (("intro", 6.0), ("outro", 6.5)):
+        original = approved[kind]
+        # Filename hash prevents stale pre-approval cards returning from resume cache.
+        fingerprint = (hashlib.sha256(original.read_bytes()).hexdigest()[:12]
+                       if original is not None else "prototype_v1")
+        destination = root / f"ala_mahl_podcast_{kind}_{fingerprint}.mp4"
+        destinations[kind] = destination
+        if destination.is_file() and destination.stat().st_size > 1024:
+            continue
+        if original is not None:
+            _render_podcast_v8_asset(card=original, destination=destination,
+                                     duration=duration, kind=kind)
+        else:
+            # Backward-compatible fallback only while owner media is not installed.
+            card = root / f"ala_mahl_podcast_{kind}_prototype_v1.jpg"
+            try:
+                _build_ala_mahl_podcast_card(kind=kind).convert("RGB").save(card, quality=95)
+                _render_podcast_v8_asset(card=card, destination=destination,
+                                         duration=duration, kind=kind)
+            finally:
+                card.unlink(missing_ok=True)
+    return destinations["intro"], destinations["outro"]
+
+
 def _render_podcast_v8_asset(*, card: Path, destination: Path, duration: float, kind: str) -> Path:
     if kind == "intro":
         tones = (
@@ -265,14 +339,20 @@ def identity_asset_paths(
 ) -> dict[str, Path]:
     """Return the approved per-format identity with no provider call or paid dependency."""
     if fmt == "podcast":
-        intro, outro = _ensure_podcast_v8_assets(
-            Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
+        identity_root = Path(runtime_dir or (Path.cwd() / ".clean-v2-identity-assets"))
+        intro, outro = (
+            _ensure_ala_mahl_podcast_assets(identity_root)
+            if template == "ala_mahl_dialogue"
+            else _ensure_podcast_v8_assets(identity_root)
         )
     else:
         intro, outro, _width, _height = _asset_pair(fmt)
     if fmt == "short" and template == "ala_mahl":
         outro = _ALA_MAHL_OUTRO
-    return {"intro": intro, "prayer": _PRAYER_IMAGE, "outro": outro}
+    prayer = (_approved_ala_mahl_image("prayer") or _PRAYER_IMAGE
+              if fmt == "podcast" and template == "ala_mahl_dialogue"
+              else _PRAYER_IMAGE)
+    return {"intro": intro, "prayer": prayer, "outro": outro}
 
 
 def _first_sentence(text: str) -> str:

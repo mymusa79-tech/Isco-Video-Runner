@@ -34,7 +34,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-      ISCO_ENGINE_SHA: 595f69a28ff6ddc5532291c9f113f334562292f9
+      ISCO_ENGINE_SHA: 305d7af14afdd53b862087395110db78ddb882f7
       GITHUB_RUNTIME_TOKEN: ${{ github.token }}
 
     steps:

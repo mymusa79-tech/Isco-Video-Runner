@@ -169,7 +169,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if "stock_policy" in doc and doc["stock_policy"] != THREE_LINK_STOCK_POLICY:
         _error("stock_policy: استخدم three_urls_per_scene أو احذف الحقل للحزم القديمة.")
     three_per_scene = doc.get("stock_policy") == THREE_LINK_STOCK_POLICY
-    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa",)}
+    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
     _text(doc["title"], "title", 120)
@@ -210,9 +210,15 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if fmt == "podcast":
         if doc.get("roles") != {"A": "listener", "B": "host"}:
             _error('roles يجب أن تكون {"A":"listener","B":"host"}؛ الأصوات الحالية ثابتة.')
-        from .pipeline import _validate_podcast_listener_proxy_script
+        from .pipeline import (
+            _validate_ala_mahl_podcast_dialogue_script,
+            _validate_podcast_listener_proxy_script,
+        )
         try:
-            _validate_podcast_listener_proxy_script({"sections": [{"narration": t} for t in texts.values()]})
+            validator = (_validate_ala_mahl_podcast_dialogue_script
+                         if doc["template"] == "ala_mahl_dialogue"
+                         else _validate_podcast_listener_proxy_script)
+            validator({"sections": [{"narration": t} for t in texts.values()]})
         except RuntimeError as exc:
             _error("ترتيب حوار البودكاست غير صالح: " + str(exc)[:180])
     elif "roles" in doc:
@@ -355,6 +361,26 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         assets.add(_asset(cover["asset"]))
     _publishing(doc["publishing"], "publishing")
     derivative = doc.get("derivative")
+    if fmt == "podcast" and doc["template"] == "ala_mahl_dialogue":
+        # A manually approved ZIP must never deliver the wrong channel's title or
+        # hashtags. Limit this to publishing metadata: legitimate discussion of
+        # the other channel in an episode is not forbidden.
+        for label, publishing in (
+            ("publishing", doc["publishing"]),
+            ("derivative.publishing", (derivative or {}).get("publishing")),
+        ):
+            if not isinstance(publishing, dict):
+                continue
+            values = [
+                publishing.get("title", ""), publishing.get("description", ""),
+                *(publishing.get("hashtags") or []),
+                *(publishing.get("tags") or []),
+            ]
+            text = " ".join(str(value) for value in values).casefold()
+            if any(other in text for other in (
+                "نداء اليقظة", "نداء_اليقظة", "خارج النص", "خارج_النص"
+            )):
+                _error(f"{label}: بيانات النشر تخص قناة أخرى؛ على مهل مستقل.")
     if derivative is not None:
         _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field="derivative")
         if fmt == "short":
