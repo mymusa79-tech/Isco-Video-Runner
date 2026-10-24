@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import json
 import shutil
-import json
 import subprocess
 import tempfile
 import unittest
@@ -30,6 +29,8 @@ def _wav(path: Path) -> Path:
 
 def _ala_mahl_doc():
     doc = manifest("podcast", template="ala_mahl_dialogue")
+    doc["script"]["sections"][0]["turns"][0]["text"] = "لماذا نحكم على صديق اعتذر عن مساعدتنا في أصعب أيامنا، قبل أن نعرف ما الذي كان يمر به، وهل كان يستطيع فعل شيء آخر؟"
+    doc["scenes"][0]["start_text"] = "لماذا نحكم على صديق اعتذر عن مساعدتنا في أصعب أيامنا، قبل أن نعرف ما الذي كان يمر به، وهل كان يستطيع فعل شيء آخر؟"
     doc["publishing"]["title"] = "موقف من وجهين | على مهل"
     doc["publishing"]["description"] = "بودكاست على مهل عن موقف من الحياة اليومية."
     doc["publishing"]["hashtags"] = ["#على_مهل"]
@@ -97,13 +98,31 @@ class AlaMahlPodcastTests(unittest.TestCase):
         )
         long_objection = "لماذا نفترض أنه مخطئ؟ " + " ".join(["ربما كان لديه سبب"] * 8) + "؟"
         sections = [
-            {"narration": "A: لماذا رفض طلب صديقه؟ B: " + " ".join(["ربما خاف من عدم القدرة."] * 14)},
+            {"narration": "A: لماذا نحكم على صديق اعتذر عن مساعدتنا في أصعب أيامنا، قبل أن نعرف ما الذي كان يمر به، وهل كان يستطيع فعل شيء آخر؟ B: " + " ".join(["ربما خاف من عدم القدرة."] * 14)},
             {"narration": "A: " + long_objection + " B: " + " ".join(["هنا علينا أن نسأل عن الملابسات."] * 14)},
         ]
         report = _validate_ala_mahl_podcast_dialogue_script({"sections": sections})
         self.assertEqual(report["voices"]["A"], "Iapetus")
         with self.assertRaisesRegex(RuntimeError, "question_too_long"):
             _validate_podcast_listener_proxy_script({"sections": sections})
+
+    def test_new_podcast_hook_has_15_to_25_words_only(self):
+        from clean_v2.pipeline import _validate_ala_mahl_podcast_dialogue_script
+        valid = "لماذا نحكم على صديق اعتذر عن مساعدتنا في أصعب أيامنا، قبل أن نعرف ما الذي كان يمر به، وهل كان يستطيع فعل شيء آخر؟"
+        self.assertEqual(len(valid.split()), 24)
+        def candidate(opening):
+            return {"sections": [{"narration": "A: " + opening + " B: "
+                + " ".join(["تحتاج الصورة إلى تفاصيل قبل الحكم."] * 15)},
+                {"narration": "A: وهل يمكن اختبار هذا؟ B: "
+                + " ".join(["بالتأكيد، علينا النظر إلى الظروف كاملة."] * 12)}]}
+        self.assertEqual(_validate_ala_mahl_podcast_dialogue_script(
+            candidate(valid))["status"], "pass")
+        for bad in ("لماذا رفض طلب صديقه؟",
+                    valid + " وأكثر وأكثر وأكثر دون تفاصيل موثقة أو جديدة؟"):
+            with self.subTest(bad=bad), self.assertRaisesRegex(
+                RuntimeError, "ala_mahl_podcast_hook_requires_15_to_25_words"
+            ):
+                _validate_ala_mahl_podcast_dialogue_script(candidate(bad))
 
     def test_release_and_derived_short_never_inherit_other_channel_branding(self):
         from scripts import clean_v2_release_delivery as release
