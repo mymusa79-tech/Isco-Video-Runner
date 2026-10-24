@@ -5386,6 +5386,11 @@ def _validate_ala_mahl_podcast_dialogue_script(script: Mapping[str, Any]) -> dic
         raise RuntimeError("ala_mahl_podcast_requires_A_question_then_B_reply")
     if "؟" not in turns[0][1] and "?" not in turns[0][1]:
         raise RuntimeError("ala_mahl_podcast_hook_requires_question")
+    # Opt-in Ala Mahl podcast only: a substantial opening question, not a
+    # five-word listener-proxy prompt. Other podcasts retain their own limits.
+    hook_words = len(turns[0][1].split())
+    if not 15 <= hook_words <= 25:
+        raise RuntimeError("ala_mahl_podcast_hook_requires_15_to_25_words")
     a_words = b_words = 0
     for index, (speaker, spoken) in enumerate(turns):
         count = len(spoken.split())
