@@ -23601,9 +23601,9 @@
           "assets/derived_cover.jpg": "4701a52e2cee93e7327ee4deafee8f3215f90741aca9919c3ea7e4a47e6c843d"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-24T10:21:15Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-24T10:21:20Z",
       "request_sha256": "1c1f2278e1dac5f0e165f6a4606e6458917cf03ba1ddb80975fc4ab76c8824a6",
       "owner_art": {
         "zip": {
@@ -24110,6 +24110,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-24T10:21:16Z",
+  "updated_at": "2026-10-24T10:21:20Z",
   "provider_cooldown_until": "2026-10-16T17:52:26.920984Z"
 }
