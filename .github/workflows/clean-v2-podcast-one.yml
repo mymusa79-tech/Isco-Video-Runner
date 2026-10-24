@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      ISCO_ENGINE_SHA: adb08665c6bdddf9ffa6ba4d503ae75254617e69
+      ISCO_ENGINE_SHA: 305d7af14afdd53b862087395110db78ddb882f7
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.8-flash-tts
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: adb08665c6bdddf9ffa6ba4d503ae75254617e69
+          ref: 305d7af14afdd53b862087395110db78ddb882f7
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false

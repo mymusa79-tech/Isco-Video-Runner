@@ -25,7 +25,7 @@ permissions:
   actions: read
 
 env:
-  ISCO_ENGINE_SHA: adb08665c6bdddf9ffa6ba4d503ae75254617e69
+  ISCO_ENGINE_SHA: 305d7af14afdd53b862087395110db78ddb882f7
   CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-telegram-resume
 
 jobs:
