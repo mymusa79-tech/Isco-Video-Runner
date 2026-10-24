@@ -24844,8 +24844,35 @@
         "likes": 0,
         "comments": 0
       }
+    },
+    {
+      "captured_at": "2026-10-24T17:43:43Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 67,
+      "hidden_subscribers": false,
+      "total_views": 42907,
+      "video_count": 160,
+      "last_long": null,
+      "last_podcast": {
+        "video_id": "buTHl9uZkMU",
+        "title": "لماذا نؤجل النوم رغم التعب؟ | أسباب السهر وتأجيل النوم | خارج النص",
+        "published_at": "2026-10-24T13:30:10Z",
+        "duration_seconds": 1007,
+        "views": 0,
+        "likes": 0,
+        "comments": 0
+      },
+      "last_short": {
+        "video_id": "UHWKoBAOEH4",
+        "title": "لماذا نسهر رغم التعب؟ هل صار الليل وقتك الوحيد؟ #Shorts",
+        "published_at": "2026-10-24T15:00:04Z",
+        "duration_seconds": 31,
+        "views": 16,
+        "likes": 1,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-24T17:37:59Z",
+  "updated_at": "2026-10-24T17:43:43Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
