@@ -51,7 +51,7 @@ class ShortVoiceV2Tests(unittest.TestCase):
                 mock.patch.object(short_voice_v2, "secret", return_value="key"),
                 mock.patch.object(short_voice_v2, "env", side_effect=lambda _name, default=None: default),
                 mock.patch.object(short_voice_v2.orchestrator, "_synthesize_tts_section"),
-                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "piper", "fallback_used": True}),
+                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "gemini-3.8:Charon", "fallback_used": False}),
                 mock.patch.object(short_voice_v2, "_final_duration", return_value=15.0),
                 mock.patch.object(short_voice_v2, "_fit_voice_to_video", return_value=root / "voice.wav"),
                 mock.patch.object(short_voice_v2, "_mix_voice"),

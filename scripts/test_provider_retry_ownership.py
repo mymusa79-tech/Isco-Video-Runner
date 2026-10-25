@@ -25,23 +25,21 @@ class ProviderRetryOwnershipTests(unittest.TestCase):
         self.assertEqual(parameter.default, 1)
 
     def test_voice_mesh_rejects_caller_controlled_multi_attempt_retry(self) -> None:
-        with patch.object(voice_mesh, "gemini_synthesize") as gemini:
+        with patch.object(voice_mesh, "_gemini38_synthesize") as gemini:
             with self.assertRaisesRegex(RuntimeError, "voice_mesh_retry_owner_violation"):
                 voice_mesh.synthesize(
                     "key",
                     "نص",
                     Path("unused.wav"),
-                    model="gemini-3.1-flash-tts-preview",
-                    voice="Gacrux",
+                    model="gemini-3.8-flash-tts",
+                    voice="Charon",
                     attempts=2,
                 )
         gemini.assert_not_called()
 
     def test_install_certifies_final_tts_and_vision_boundaries_without_provider_calls(self) -> None:
-        with patch.object(voice_mesh, "_local_voice") as local_voice, \
-                patch.object(voice_mesh, "gemini_synthesize") as gemini:
+        with patch.object(voice_mesh, "_gemini38_synthesize") as gemini:
             voice_mesh.install_voice_mesh()
-        local_voice.assert_not_called()
         gemini.assert_not_called()
         result = ownership.certify_provider_retry_ownership()
         self.assertEqual(result["status"], "pass")

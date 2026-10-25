@@ -59,7 +59,7 @@ def install_tts_runtime_port() -> TTSRuntimePortEvidence:
     """Install the certified TTS layers exactly once behind one stable entrypoint.
 
     Existing implementation owners remain unchanged:
-    - Voice Mesh owns Gemini/Piper provider selection and provider retry certification.
+    - Voice Mesh compatibility seam owns Gemini 3.8-only routing and provider retry certification.
     - TTS durable cache owns semantic reuse and current-hit revalidation.
     - Voice Identity Observer remains observe-only and wraps the final section boundary.
     - Audio Semantic Integrity remains outside this seam at the produce() scope.
