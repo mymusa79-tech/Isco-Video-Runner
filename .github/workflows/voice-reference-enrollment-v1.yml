@@ -146,7 +146,7 @@ jobs:
               "source": {
                   "runner_run_id": int(os.environ["APPROVED_RUN_ID"]),
                   "artifact_id": int(os.environ["APPROVED_ARTIFACT_ID"]),
-                  "tts_model": "gemini-3.1-flash-tts-preview",
+                  "tts_model": "gemini-3.8-flash-tts",
                   "human_approval": "Charon=primary; Orus=questioner",
               },
               "embedding": {

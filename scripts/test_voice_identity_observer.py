@@ -33,10 +33,10 @@ class VoiceRosterContractTests(unittest.TestCase):
 
     def test_voice_provenance_is_consumed_once(self) -> None:
         output = Path("voice.wav")
-        voice_mesh._record_voice_provenance(output, provider="piper-local", fallback_used=True)
+        voice_mesh._record_voice_provenance(output, provider="gemini", fallback_used=False)
         self.assertEqual(
             voice_mesh.consume_voice_provenance(output),
-            {"provider": "piper-local", "fallback_used": True},
+            {"provider": "gemini", "fallback_used": False},
         )
         self.assertEqual(
             voice_mesh.consume_voice_provenance(output),
@@ -72,7 +72,7 @@ class VoiceObserverArtifactTests(unittest.TestCase):
                     task_id="TTS_SECTION_01",
                     transcript="هذا نص واحد.",
                     output=output,
-                    model="gemini-3.1-flash-tts-preview",
+                    model="gemini-3.8-flash-tts",
                     requested_voice="Charon",
                 )
             data = json.loads((root / observer.AUDIT_FILENAME).read_text(encoding="utf-8"))
@@ -104,7 +104,7 @@ class VoiceObserverArtifactTests(unittest.TestCase):
                     task_id="TTS_SECTION_02",
                     transcript="A: لماذا؟\nB: لأننا نختبر.",
                     output=output,
-                    model="gemini-3.1-flash-tts-preview",
+                    model="gemini-3.8-flash-tts",
                     requested_voice="Charon",
                 )
             entry = json.loads((root / observer.AUDIT_FILENAME).read_text(encoding="utf-8"))["sections"][0]
@@ -119,20 +119,20 @@ class VoiceObserverArtifactTests(unittest.TestCase):
             output = root / "audio" / "03.wav"
             output.parent.mkdir(parents=True)
             with patch.object(observer, "_load_profile", return_value=_PROFILE), \
-                    patch.object(observer, "_actual_provider", return_value={"provider": "piper-local", "fallback_used": True}), \
+                    patch.object(observer, "_actual_provider", return_value={"provider": "gemini", "fallback_used": False}), \
                     patch.object(observer, "_analyze_wav", side_effect=RuntimeError("broken audio")):
                 observer.observe_output(
                     task_id="TTS_SECTION_03",
                     transcript="نص",
                     output=output,
-                    model="gemini-3.1-flash-tts-preview",
+                    model="gemini-3.8-flash-tts",
                     requested_voice="Charon",
                 )
             data = json.loads((root / observer.AUDIT_FILENAME).read_text(encoding="utf-8"))
             entry = data["sections"][0]
             self.assertEqual(entry["decision"], "audit_error")
-            self.assertEqual(entry["provider"], "piper-local")
-            self.assertTrue(entry["fallback_used"])
+            self.assertEqual(entry["provider"], "gemini")
+            self.assertFalse(entry["fallback_used"])
             self.assertEqual(data["summary"]["audit_errors"], 1)
 
 

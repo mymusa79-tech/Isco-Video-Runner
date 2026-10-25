@@ -81,7 +81,6 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         self.assertIn('rm -rf "$RUNNER_TEMP/isco-secrets"', block)
         self.assertIn('rm -rf "$RUNNER_TEMP/isco-state"', block)
         self.assertIn('rm -f "$RUNNER_TEMP/isco-request.json"', block)
-        self.assertNotIn("piper-preflight", block.lower())
         self.assertNotIn("\n      - name:", block[len("- name: Remove plaintext production secrets and state"):])
 
     def test_workflow_dispatch_exposes_only_immutable_telegram_ingress_inputs(self) -> None:

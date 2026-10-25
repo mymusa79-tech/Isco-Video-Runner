@@ -50,7 +50,6 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
             "run_telegram_control_production.py",
             "run_control_production.py",
             "release_transaction.py",
-            "piper-tts",
             "GROQ_API_KEY",
             "PEXELS_API_KEY",
             "PIXABAY_API_KEY",

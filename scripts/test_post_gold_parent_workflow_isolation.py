@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 class PostGoldParentWorkflowIsolationTests(unittest.TestCase):
-    def test_parent_workflow_has_no_provider_or_piper_work_after_gold(self) -> None:
+    def test_parent_workflow_has_no_provider_or_local_voice_work_after_gold(self) -> None:
         path = Path('.github/workflows/resume-gold-qc-pending.yml')
         text = path.read_text(encoding='utf-8')
         marker = '- name: Execute current certified Gold over exact source final'
@@ -16,8 +16,6 @@ class PostGoldParentWorkflowIsolationTests(unittest.TestCase):
             'Prepare sibling Short runtime when approved',
             'Rematerialize post-Gold provider capabilities',
             'post-gold-secrets',
-            'PIPER_MODEL_PATH',
-            'python -m piper.download_voices',
         )
         # GEMINI_TTS_MODEL is deliberately not forbidden: the marker split happens right
         # after the Gold step's own `- name:` line, so this slice still includes that
@@ -68,7 +66,6 @@ class PostGoldParentWorkflowIsolationTests(unittest.TestCase):
         self.assertIn('run_deferred_sibling_shorts_v1.py', text)
         self.assertIn('GEMINI_TTS_MODEL: gemini-3.8-flash-tts', text)
         self.assertIn('GEMINI_API_KEY_FILE', text)
-        self.assertNotIn('PIPER_MODEL_PATH', text)
         self.assertIn('GROQ_API_KEY_FILE', text)
         self.assertIn('PEXELS_API_KEY_FILE', text)
         self.assertIn('parent_release_tag', text)

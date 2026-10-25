@@ -5,7 +5,7 @@
   "source": {
     "runner_run_id": 32224276241,
     "artifact_id": 9355112613,
-    "tts_model": "gemini-3.1-flash-tts-preview",
+    "tts_model": "gemini-3.8-flash-tts",
     "human_approval": "Charon=primary; Orus=questioner"
   },
   "embedding": {

@@ -45,7 +45,7 @@ class ProviderPreflightTests(unittest.TestCase):
         if include_tts:
             models.append(
                 {
-                    "name": "models/gemini-3.1-flash-tts-preview",
+                    "name": "models/gemini-3.8-flash-tts",
                     "supportedGenerationMethods": ["generateContent"],
                 }
             )
@@ -77,7 +77,7 @@ class ProviderPreflightTests(unittest.TestCase):
             result = preflight.check_gemini(
                 "secret",
                 content_model="gemini-2.5-flash",
-                tts_model="gemini-3.1-flash-tts-preview",
+                tts_model="gemini-3.8-flash-tts",
             )
         self.assertEqual(result.status, "pass")
         self.assertEqual(result.capacity_status, "dynamic_unobservable")
@@ -95,7 +95,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.check_gemini(
                     "secret",
                     content_model="gemini-2.5-flash",
-                    tts_model="gemini-3.1-flash-tts-preview",
+                    tts_model="gemini-3.8-flash-tts",
                 )
 
     def test_gemini_requires_generatecontent_on_resolved_model(self) -> None:
@@ -115,18 +115,17 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.check_gemini(
                     "secret",
                     content_model="gemini-2.5-flash",
-                    tts_model="gemini-3.1-flash-tts-preview",
+                    tts_model="gemini-3.8-flash-tts",
                 )
 
-    def test_gemini_missing_cloud_tts_is_observable_not_hard_block(self) -> None:
+    def test_gemini_missing_cloud_tts_fails_closed_without_substitution(self) -> None:
         with patch.object(preflight.requests, "get", return_value=self._gemini_models(include_tts=False)):
-            result = preflight.check_gemini(
-                "secret",
-                content_model="gemini-2.5-flash",
-                tts_model="gemini-3.1-flash-tts-preview",
-            )
-        self.assertEqual(result.status, "pass")
-        self.assertIn("Piper fallback required", result.detail)
+            with self.assertRaisesRegex(RuntimeError, "gemini TTS model unavailable"):
+                preflight.check_gemini(
+                    "secret",
+                    content_model="gemini-2.5-flash",
+                    tts_model="gemini-3.8-flash-tts",
+                )
 
     def test_gemini_pagination_and_repeated_token_guard(self) -> None:
         first = self._response(
@@ -146,7 +145,7 @@ class ProviderPreflightTests(unittest.TestCase):
             {
                 "models": [
                     {
-                        "name": "models/gemini-3.1-flash-tts-preview",
+                        "name": "models/gemini-3.8-flash-tts",
                         "supportedGenerationMethods": ["generateContent"],
                     }
                 ]
@@ -157,7 +156,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.check_gemini(
                     "secret",
                     content_model="gemini-2.5-flash",
-                    tts_model="gemini-3.1-flash-tts-preview",
+                    tts_model="gemini-3.8-flash-tts",
                 ).status,
                 "pass",
             )
@@ -168,7 +167,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.check_gemini(
                     "secret",
                     content_model="gemini-2.5-flash",
-                    tts_model="gemini-3.1-flash-tts-preview",
+                    tts_model="gemini-3.8-flash-tts",
                 )
 
     def test_groq_models_endpoint_without_capacity_headers_is_not_false_block(self) -> None:
@@ -364,7 +363,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 pexels_key="d",
                 pixabay_key="e",
                 content_model="gemini-2.5-flash",
-                tts_model="gemini-3.1-flash-tts-preview",
+                tts_model="gemini-3.8-flash-tts",
                 output=output,
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
@@ -392,7 +391,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 pexels_key="d",
                 pixabay_key="e",
                 content_model="gemini-2.5-flash",
-                tts_model="gemini-3.1-flash-tts-preview",
+                tts_model="gemini-3.8-flash-tts",
                 output=output,
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
@@ -427,7 +426,7 @@ class ProviderPreflightTests(unittest.TestCase):
                         pexels_key="d",
                         pixabay_key="e",
                         content_model="gemini-2.5-flash",
-                        tts_model="gemini-3.1-flash-tts-preview",
+                        tts_model="gemini-3.8-flash-tts",
                         output=output,
                     )
                 payload = json.loads(output.read_text(encoding="utf-8"))
@@ -478,7 +477,7 @@ class ProviderPreflightTests(unittest.TestCase):
                     pexels_key="d",
                     pixabay_key="e",
                     content_model="gemini-2.5-flash",
-                    tts_model="gemini-3.1-flash-tts-preview",
+                    tts_model="gemini-3.8-flash-tts",
                     output=output,
                 )
             text = output.read_text(encoding="utf-8")

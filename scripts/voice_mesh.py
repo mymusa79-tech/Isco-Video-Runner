@@ -10,10 +10,9 @@ from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.media.audio_pacing import add_tail_silence_in_place, section_tail_seconds
-from isco_video_agent.media.ffmpeg import concat_audio, duration
+from isco_video_agent.media.ffmpeg import duration
 from isco_video_agent.providers.gemini import synthesize_wav as gemini_synthesize
 
-_piper = None
 _voice_provenance: dict[str, dict] = {}
 
 # Human-approved Voice Roster V1. Fixed, never randomized per video.
@@ -21,14 +20,8 @@ DIALOGUE_QUESTIONER_VOICE = "Orus"
 DIALOGUE_RESPONDER_VOICE = "Charon"
 _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
 
-# Local fallback must stay bounded on low-memory runners. Long Film sections are split
-# at natural Arabic/Latin sentence boundaries before Piper, then concatenated locally.
-# This adds no provider calls and does not change cloud retry ownership.
-PIPER_MAX_CHARS_PER_CHUNK = 420
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?؟!؛])\s+|\n+")
-
 # Acoustic QA scans the whole synthesized WAV in bounded one-second windows. The
-# historical first-15s sample could miss a truncated/silent tail after Piper chunk
+# Historical first-15s sampling could miss a truncated or silent synthesized tail.
 # concatenation. Keep the existing RMS floor and allow ordinary rhetorical pauses,
 # while failing closed on a sustained five-second acoustic dropout anywhere in-file.
 VOICE_QA_RMS_FLOOR = 25.0
@@ -125,97 +118,6 @@ def qa_voice_output(path: Path, transcript: str) -> None:
     _qa(Path(path), text)
 
 
-def _local_voice():
-    global _piper
-    if _piper is None:
-        from piper import PiperVoice
-        model = Path(os.environ["PIPER_MODEL_PATH"])
-        _piper = PiperVoice.load(str(model), config_path=str(model) + ".json")
-    return _piper
-
-
-def _split_long_piece(piece: str, max_chars: int) -> list[str]:
-    words = piece.split()
-    if not words:
-        return []
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for word in words:
-        added = len(word) if not current else len(word) + 1
-        if current and current_len + added > max_chars:
-            chunks.append(" ".join(current))
-            current = [word]
-            current_len = len(word)
-        else:
-            current.append(word)
-            current_len += added
-    if current:
-        chunks.append(" ".join(current))
-    return chunks
-
-
-def _piper_chunks(text: str, max_chars: int = PIPER_MAX_CHARS_PER_CHUNK) -> list[str]:
-    """Deterministic natural-boundary chunks for the local Piper fallback.
-
-    Prefer sentence boundaries. If one sentence itself exceeds the limit, fall back to
-    word-boundary splitting. No text is dropped or paraphrased; whitespace is merely
-    normalized between words/chunks.
-    """
-    normalized = str(text or "").strip()
-    if not normalized:
-        return []
-    if len(normalized) <= max_chars:
-        return [normalized]
-
-    chunks: list[str] = []
-    current = ""
-    for piece in [x.strip() for x in _SENTENCE_BOUNDARY.split(normalized) if x.strip()]:
-        if len(piece) > max_chars:
-            if current:
-                chunks.append(current)
-                current = ""
-            chunks.extend(_split_long_piece(piece, max_chars))
-            continue
-        candidate = piece if not current else current + " " + piece
-        if len(candidate) <= max_chars:
-            current = candidate
-        else:
-            chunks.append(current)
-            current = piece
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def _synthesize_piper_piece(text: str, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(output), "wb") as wav:
-        _local_voice().synthesize_wav(text, wav)
-    return output
-
-
-def _local(text: str, output: Path) -> Path:
-    chunks = _piper_chunks(text)
-    if not chunks:
-        raise RuntimeError("voice_local_empty_transcript")
-    if len(chunks) == 1:
-        return _synthesize_piper_piece(chunks[0], output)
-
-    parts: list[Path] = []
-    try:
-        for index, chunk in enumerate(chunks, 1):
-            part = output.with_name(f"{output.stem}-piper-chunk-{index:02d}.wav")
-            _synthesize_piper_piece(chunk, part)
-            parts.append(part)
-        concat_audio(parts, output)
-    finally:
-        for part in parts:
-            part.unlink(missing_ok=True)
-    print(f"Piper local fallback chunked safely: chunks={len(chunks)}")
-    return output
-
-
 def _dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     matches = list(_DIALOGUE_LABEL.finditer(transcript))
     turns: list[tuple[str, str]] = []
@@ -283,21 +185,6 @@ def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str,
     return output
 
 
-def _local_dialogue(transcript: str, output: Path) -> Path:
-    """Fail-soft local fallback: preserve turns but keep Piper's single licensed Arabic speaker."""
-    turns = _dialogue_turns(transcript)
-    parts: list[Path] = []
-    for index, (_, text) in enumerate(turns, 1):
-        part = output.with_name(f"{output.stem}-turn-{index:02d}.wav")
-        _local(text, part)
-        parts.append(part)
-    concat_audio(parts, output)
-    for part in parts:
-        part.unlink(missing_ok=True)
-    print("Dialogue fallback degraded safely: Piper Arabic has one speaker; turn separation preserved")
-    return output
-
-
 def synthesize(
     api_key: str,
     transcript: str,
@@ -308,10 +195,9 @@ def synthesize(
     style: str = "",
     attempts: int = 1,
 ) -> Path:
-    # Retry ownership is outside this provider boundary. Engine orchestrator's
-    # TtsBudget/TtsCircuit decides whether one transient failure earns one extra cloud
-    # attempt or falls back to Piper. Never allow a caller to reactivate the provider's
-    # historical blind multi-attempt loop through this Runner surface.
+    # Retry ownership is outside this provider boundary. The Engine ledger/TTS budget
+    # decides whether the same Gemini provider earns a bounded retry. No cross-provider
+    # or local voice substitution is permitted.
     if attempts != 1:
         raise RuntimeError(
             f"voice_mesh_retry_owner_violation attempts={attempts} expected=1"
@@ -344,20 +230,9 @@ def synthesize(
 
 
 def synthesize_local_wav(transcript: str, output: Path) -> Path:
-    dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
-    if dialogue:
-        _local_dialogue(transcript, output)
-        add_tail_silence_in_place(output, section_tail_seconds(transcript))
-        _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-        _record_voice_provenance(output, provider="piper-local-dialogue-single-speaker", fallback_used=True)
-        print("Voice provider selected: piper-local-dialogue-single-speaker")
-    else:
-        _local(transcript, output)
-        add_tail_silence_in_place(output, section_tail_seconds(transcript))
-        _qa(output, transcript)
-        _record_voice_provenance(output, provider="piper-local", fallback_used=True)
-        print("Voice provider selected: piper-local")
-    return output
+    """Compatibility seam for the pinned Engine: local voice substitution is disabled."""
+    del transcript, output
+    raise RuntimeError("voice_fallback_disabled_gemini_only")
 
 
 def install_voice_mesh() -> None:
@@ -368,7 +243,7 @@ def install_voice_mesh() -> None:
     # this function honest about the fact that it is replacing something, and gives any
     # future caller a safe seam to compose through instead of overwriting blind.
     current = orchestrator.synthesize_wav  # noqa: F841 - preserved for future composition, not consumed here
-    current_local = orchestrator.synthesize_local_wav  # noqa: F841
+    current_local = orchestrator.synthesize_local_wav  # noqa: F841 - replaced with fail-closed seam
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
     # This certification runs only after the final TTS boundary has been installed,
@@ -377,7 +252,7 @@ def install_voice_mesh() -> None:
 
     certify_provider_retry_ownership()
     print(
-        "Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices "
+        "Voice Mesh installed: Gemini-only -> QA; fixed dialogue voices "
         f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}; provider_attempts=1"
     )
 
