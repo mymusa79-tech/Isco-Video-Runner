@@ -348,29 +348,45 @@ def _mix_music_into_video(
             "[0:a][music]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
             f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
         )
-    # The mastered source video is authoritative for duration. Some CI FFmpeg
-    # versions make a ducked-audio output slightly shorter under -shortest,
-    # clipping the final frames even though the source voice/video is intact.
-    probe = _run([
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=duration", "-of", "json", str(final_path),
-    ])
-    video_streams = json.loads(probe.stdout).get("streams") or []
-    video_duration = float(video_streams[0]["duration"]) if video_streams else 0.0
-    if not math.isfinite(video_duration) or video_duration <= 0:
-        raise RuntimeError("topic_mix_video_duration_unavailable")
-    # Pad silence AFTER the whole mastered mix, not just the music, then use
-    # the exact original video duration as the output boundary.
-    music_chain = music_chain.replace("[mix]", "[pre_padded];[pre_padded]apad[mix]")
-    _run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(final_path), "-i", str(music_path),
-        "-filter_complex", music_chain,
-        "-map", "0:v:0", "-map", "[mix]",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-t", f"{video_duration:.6f}",
-        str(output_path),
-    ])
+    if duck_under_voice:
+        # The owner's mastered video determines the exact output length. On
+        # older FFmpeg releases -shortest can prematurely truncate a ducked
+        # mix by several frames. Pad silence at the END of the final mix;
+        # never alter or trim the pre-mastered voice.
+        probe = _run([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=duration:format=duration",
+            "-of", "json", str(final_path),
+        ])
+        metadata = json.loads(probe.stdout)
+        streams = metadata.get("streams") or []
+        raw_duration = streams[0].get("duration") if streams else None
+        if raw_duration in (None, "N/A"):
+            raw_duration = (metadata.get("format") or {}).get("duration")
+        video_duration = float(raw_duration)
+        if not math.isfinite(video_duration) or video_duration <= 0:
+            raise RuntimeError("topic_mix_video_duration_unavailable")
+        music_chain = music_chain.replace(
+            "[mix]", "[unpadded_mix];[unpadded_mix]apad[mix]"
+        )
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(final_path), "-i", str(music_path),
+            "-filter_complex", music_chain,
+            "-map", "0:v:0", "-map", "[mix]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-t", f"{video_duration:.6f}", str(output_path),
+        ])
+    else:
+        # Legacy non-owner music remains completely unchanged.
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(final_path), "-i", str(music_path),
+            "-filter_complex", music_chain,
+            "-map", "0:v:0", "-map", "[mix]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", str(output_path),
+        ])
     if not output_path.is_file() or output_path.stat().st_size <= 0:
         raise RuntimeError("topic_audio_mix_output_missing_or_empty")
 
