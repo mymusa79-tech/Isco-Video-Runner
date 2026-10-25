@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -22,6 +23,8 @@ MUSIC_LEVELS_REL_DB = {
     "podcast": (-30.0, -32.0, -28.0),
 }
 POST_MIX_LIMITER_LINEAR = 0.84
+# End the approved music before the measured outro, with room for the fade.
+OWNER_MUSIC_OUTRO_CLEARANCE_SECONDS = 0.8
 LEVEL_TOLERANCE_DB = 1.0
 
 # Meaning-led music dynamics. These are relative adjustments to the already
@@ -232,18 +235,60 @@ def _editorial_audio_windows(
     return windows
 
 
-def _prepare_local_music_bed(src: Path, dest: Path, duration: float) -> Path:
+def _prepare_local_music_bed(
+    src: Path, dest: Path, duration: float, *,
+    seamless_repeat: bool = False,
+    source_duration: float | None = None,
+) -> Path:
+    """Make a bounded, softly faded topic bed without modifying the narration.
+
+    Owner-approved audio repeats through the *entire* topic with short crossfades
+    at joins; legacy non-owner mixes keep their previous behavior.
+    """
+    if not math.isfinite(duration) or duration <= 0:
+        raise RuntimeError("topic_music_duration_invalid")
     fade = min(0.65, max(0.12, duration / 6.0))
     fade_out_start = max(0.0, duration - fade)
-    _run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-stream_loop", "-1", "-i", str(src),
-        "-af",
+    suffix = (
         f"atrim=duration={duration:.3f},asetpts=PTS-STARTPTS,"
         f"afade=t=in:st=0:d={fade:.3f},"
-        f"afade=t=out:st={fade_out_start:.3f}:d={fade:.3f}",
-        "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(dest),
-    ])
+        f"afade=t=out:st={fade_out_start:.3f}:d={fade:.3f}"
+    )
+    if seamless_repeat:
+        if source_duration is None or not math.isfinite(source_duration) or source_duration < 8.0:
+            raise RuntimeError("approved_music_source_too_short_for_repeat")
+        # Avoid MP3 encoder padding at each seam; crossfade adjacent copies.
+        usable = source_duration - 0.08
+        overlap = min(1.5, usable / 8.0)
+        copies = max(1, math.ceil((duration - overlap) / (usable - overlap)))
+        if copies > 64:
+            raise RuntimeError("approved_music_repeat_count_exceeded")
+        inputs = [piece for _ in range(copies) for piece in ("-i", str(src))]
+        chains = [
+            f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,"
+            f"atrim=duration={usable:.3f},asetpts=PTS-STARTPTS[part{i}]"
+            for i in range(copies)
+        ]
+        prior = "part0"
+        for i in range(1, copies):
+            nxt = f"joined{i}"
+            chains.append(
+                f"[{prior}][part{i}]acrossfade=d={overlap:.3f}:c1=tri:c2=tri[{nxt}]"
+            )
+            prior = nxt
+        chains.append(f"[{prior}]{suffix}[bed]")
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
+            "-filter_complex", ";".join(chains), "-map", "[bed]",
+            "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(dest),
+        ], timeout=600)
+    else:
+        _run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-stream_loop", "-1", "-i", str(src),
+            "-af", suffix,
+            "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(dest),
+        ])
     if not dest.is_file() or dest.stat().st_size <= 0:
         raise RuntimeError("topic_music_preparation_failed")
     return dest
@@ -256,6 +301,7 @@ def _mix_music_into_video(
     music_path: Path,
     topic_start_seconds: float,
     editorial_windows: list[Mapping[str, Any]] | None = None,
+    duck_under_voice: bool = False,
 ) -> None:
     delay_ms = int(round(topic_start_seconds * 1000))
     music_filters: list[str] = []
@@ -280,15 +326,28 @@ def _mix_music_into_video(
                 f"volume={duck_db:.3f}dB:enable='between(t,{duck_start:.3f},{end:.3f})'"
             )
     envelope = (",".join(music_filters) + ",") if music_filters else ""
-    _run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(final_path), "-i", str(music_path),
-        "-filter_complex",
-        (
+    if duck_under_voice:
+        # [0:a] is the already mastered narration. Only the bed is compressed;
+        # the original voice is passed unchanged into the final mix.
+        music_chain = (
+            f"[1:a]{envelope}adelay={delay_ms}|{delay_ms}[music];"
+            "[0:a]asplit=2[voice][speech_key];"
+            "[music][speech_key]sidechaincompress="
+            "threshold=0.018:ratio=4:attack=35:release=350[quiet_music];"
+            "[voice][quiet_music]amix=inputs=2:normalize=0:"
+            "duration=first:dropout_transition=0,"
+            f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
+        )
+    else:
+        music_chain = (
             f"[1:a]{envelope}adelay={delay_ms}|{delay_ms}[music];"
             "[0:a][music]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
             f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
-        ),
+        )
+    _run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(final_path), "-i", str(music_path),
+        "-filter_complex", music_chain,
         "-map", "0:v:0", "-map", "[mix]",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
         str(output_path),
@@ -369,9 +428,9 @@ def apply_topic_audio_polish(
             probe = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                           "-of", "json", str(track_path)])
             source_duration = float(_json.loads(probe.stdout)["format"]["duration"])
-            # Do not repeat a distinctive music bed over a long Podcast; silence
-            # after the chosen cue is better than an obvious repetitive loop.
-            topic_duration = min(topic_end - music_start, max(0.0, source_duration - 0.1))
+            # Repeat the approved track only within the measured topic, and
+            # finish the fade before the outro. Never touch hook/intro/prayer.
+            topic_duration = topic_end - music_start - OWNER_MUSIC_OUTRO_CLEARANCE_SECONDS
             if topic_duration < 0.5:
                 raise RuntimeError("youtube_music_too_short")
         else:
@@ -391,7 +450,11 @@ def apply_topic_audio_polish(
 
         raw_bed = temp_dir / "music-window-raw.wav"
         adjusted = temp_dir / "music-window.wav"
-        _prepare_local_music_bed(track_path, raw_bed, topic_duration)
+        _prepare_local_music_bed(
+            track_path, raw_bed, topic_duration,
+            seamless_repeat=owner_youtube,
+            source_duration=source_duration if owner_youtube else None,
+        )
         level = _normalize_relative(
             src=raw_bed,
             dest=adjusted,
@@ -411,12 +474,19 @@ def apply_topic_audio_polish(
             topic_start=music_start if owner_youtube else topic_start,
             topic_end=min(topic_end, music_start + topic_duration) if owner_youtube else topic_end,
         )
+        if owner_youtube:
+            # The music is subordinate to speech: no "lift" gain boost.
+            editorial_windows = [
+                {**window, "gain_db": min(0.0, float(window.get("gain_db") or 0.0))}
+                for window in editorial_windows
+            ]
         _mix_music_into_video(
             final_path=final_path,
             output_path=temp_mix,
             music_path=adjusted,
             topic_start_seconds=music_start,
             editorial_windows=editorial_windows,
+            duck_under_voice=owner_youtube and fmt in {"film", "podcast"},
         )
         os.replace(temp_mix, final_path)
         status = "pass"
@@ -447,6 +517,9 @@ def apply_topic_audio_polish(
         "owner_music_track_id": editing.get("track_id") if owner_youtube else None,
         "owner_youtube_license_requires_studio_confirmation": bool(owner_youtube),
         "music_added": status == "pass",
+        "owner_music_repeat_with_crossfade": bool(owner_youtube and status == "pass"),
+        "owner_music_speech_ducking": bool(owner_youtube and fmt in {"film", "podcast"} and status == "pass"),
+        "owner_music_outro_clearance_seconds": OWNER_MUSIC_OUTRO_CLEARANCE_SECONDS if owner_youtube else None,
         "voice_changed": False,
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
