@@ -8750,6 +8750,21 @@
       "selected_at": "2026-10-25T02:27:49Z",
       "created_at": "2026-10-25T02:27:49Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-78d6243d61",
+      "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "normalized_title": "متي يصبح الصبر علي الوضع الخاطي خسارة؟",
+      "market_query": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-25T03:12:03Z",
+      "created_at": "2026-10-25T03:12:03Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -25121,9 +25136,594 @@
         "started_at": "2026-10-25T02:29:10Z",
         "finished_at": "2026-10-25T02:58:47Z"
       }
+    },
+    "req-3aca57a81137": {
+      "schema_version": 1,
+      "request_id": "req-3aca57a81137",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-78d6243d61",
+      "selected_at": "2026-10-25T03:12:03Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "hypothesis_test",
+          "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "في نهاية الشهر، دفع إيجار ورشته مرةً أخرى، وهو يعرف أن الطلبات لا تكفي. إلى متى يستمر؟\nلنتخيل صاحب ورشة نجارة صغيرة. بدأها بحماس، واشترى المعدات، وعلّق آمالًا كثيرة على أول قطعة يبيعها. أحب المهنة فعلًا، وكان يجيدها، لكن إجادة العمل وحدها لم تجلب الزبائن الذين توقعهم.\nأول عامٍ لم يكن سهلًا. قال لنفسه إن البدايات صعبة، وإن الصبر سيؤتي ثماره. تعلّم أكثر، وحسّن أعماله، وانتظر. هذا تفسير معقول، في البداية على الأقل.\nثم بدأت الفواتير تتراكم. كان يقتطع من مدخراته ليسدد الإيجار، ويقضي ساعات في صناعة قطع لا يشتريها أحد. وكلما فكر في التغيير تذكر ما دفعه في الآلات، وما قضاه من أمسيات داخل الورشة.\nحين اقترح صديق أن يغيّر نوع الخدمة، أجابه: بعد كل هذا التعب، تريدني أن أتراجع؟ قد يكون محقًا في الاستمرار، وقد يكون محقًا في تغيير المسار. السؤال ليس: هل تعب بما يكفي؟ السؤال: هل ما ينتظره يستحق الثمن الذي سيدفعه بعد اليوم؟ وهذه قصة افتراضية سنستخدمها لاختبار قرار نواجهه بأشكال مختلفة."
+              },
+              {
+                "id": "s2",
+                "text": "ما الذي يجعله يتمسك بالورشة؟ هناك سبب واضح: يريد ألّا تتحول السنوات الماضية إلى خسارة. لكنه قد يخلط بين احترام جهده، والدفاع عن قرار لم تعد شروطه كما كانت.\nاستعادة المال الماضي ليست خيارًا متاحًا. ثمن آلة اشتراها، وإيجار أشهر انقضت، وساعات انتهت، كلها وقعت بالفعل. يمكنه بيع بعض المعدات واستعادة جزء من قيمتها، لكن ما لا يمكن استعادته لن يعود لمجرد أنه واصل العمل.\nلكن القادم لم يُدفع بعد. إيجار الشهر المقبل، وثمن الخشب الجديد، والوقت الذي سيترك فيه فرصًا أخرى: هذه تكاليف حقيقية ما زال يستطيع الاختيار بشأنها. وفي المقابل قد تأتي طلبات جديدة، أو يظهر سوق أفضل، أو تنجح خطة مختلفة. كلا الوجهين يستحق الحساب.\nيمكنه مثلًا أن يحتفظ بعملائه، ويحوّل الورشة من صناعة الأثاث الكبير إلى إصلاح القطع الصغيرة. أو أن يشارك مساحة العمل مع حرفي آخر. وربما يكشف الحساب أن الاستمرار بالشكل الحالي أفضل من البدائل. لا توجد إجابة واحدة لكل مشروع.\nالفرق هنا مهم: إذا قلت سأستمر لأن أمامي فرصة مدعومة بطلبات وأرقام واضحة، فهذا سبب يتعلق بالمستقبل. أما إذا قلت سأستمر لأنني لا أحتمل الاعتراف بما خسرته، فقد أصبح الماضي صاحب القرار. وهنا تبدأ المشكلة."
+              },
+              {
+                "id": "s3",
+                "text": "هذا الانحياز له اسم في علم اتخاذ القرار: أثر التكلفة الغارقة. يحدث عندما يدفعنا مال أو وقت أو جهد سبق أن أنفقناه إلى الاستمرار، حتى حين لا تكفي المكاسب المتوقعة لتبرير ما سننفقه لاحقًا.\nفي دراسة نشرها هال آركس وكاثرين بلومر عام ألف وتسعمئة وخمسة وثمانين، رصد الباحثان سلوك حضور عروض مسرحية بعد شراء اشتراكات بأسعار مختلفة. ارتبط دفع المبلغ الكامل بحضور عروض أكثر في النصف الأول من الموسم. وقدّمت الدراسة تجارب وأسئلة أخرى تدعم أن ما دفعناه قد يؤثر في القرار التالي.\nهذه النتيجة لا تقول إن كل من يُكمل مشروعًا مخطئ، ولا إنها تفسر وحدها سلوك كل إنسان. هي تُظهر ميلًا يمكن أن يتدخل في الاختيار.\nوفي مراجعة تحليلية نُشرت عام ألفين وخمسة عشر، وجمع فيها الباحثون ثمانيةً وتسعين حجم أثر من دراسات سابقة، وجدوا دليلًا على وجود الظاهرة، لكن قوتها تتغير بحسب نوع القرار وظروفه. والأهم أنهم ميّزوا بين استخدام شيء دُفع ثمنه بالفعل، وبين استثمار مال إضافي لإكمال مشروع.\nومع ذلك، ليس كل استمرار عنادًا. فبعض المشاريع تستغرق وقتًا طويلًا قبل أن تؤتي ثمارها. ودور المعرفة هنا أن يجعلنا نفحص السبب الذي يجعلنا نبقى، لا أن نغادر لمجرد أننا تعرّفنا على اسم انحياز نفسي."
+              },
+              {
+                "id": "s4",
+                "text": "اعترض الآن على هذه الفكرة. ماذا لو ترك صاحب الورشة عمله قبل أسابيع من وصول طلب كبير؟ ألن يكون التخلي المبكر خسارة أيضًا؟ نعم، وهذا اعتراض يستحق الأخذ به.\nقد يتعثر مشروع جيد مؤقتًا. ربما يتأخر زبون في الدفع، أو تكون المبيعات موسمية، أو يحتاج المنتج إلى تعديل معلوم قبل أن يجد جمهوره. المثابرة هنا قد تكون استثمارًا معقولًا، بشرط أن يكون لدينا ما يدعم توقع التحسن.\nلهذا لا يكفي أن تنظر إلى الخسائر الماضية. انظر إلى الطلبات الفعلية، وإلى كلفة الأشهر المقبلة، وإلى ما سيحدث إن لم تتحقق الخطة. وقارن بين هذا المسار وما تستطيع فعله بالوقت والمال نفسيهما. من غير الدقة اعتبار كل أمل وهمًا، كما أنه من الخطأ التعامل مع كل أمل بوصفه دليلًا.\nلنفترض أن الورشة حصلت على عقود جديدة حقيقية. أصبحت المواد المطلوبة معروفة، ومواعيد التسليم واضحة، والعائد المتوقع أعلى من المصروفات اللازمة. في هذه الحالة، قد يكون الاستمرار قرارًا سليمًا، حتى بعد شهور صعبة.\nأما إذا كانت الوعود تتكرر بلا طلبات، والديون تكبر، والخطة لا تتغير، فما الذي سيختلف الشهر المقبل؟ هنا يصبح الصبر كلمة مريحة تخفي سؤالًا صعبًا. ليس المطلوب شجاعة الإغلاق في كل مرة؛ المطلوب شجاعة تغيير الرأي عندما تتغير الأدلة."
+              },
+              {
+                "id": "s5",
+                "text": "كيف نتخذ قرارًا أعدل؟ بدل أن تبدأ بسؤال: كم خسرت حتى الآن؟ ابدأ بسؤال: لو عُرض عليّ هذا المشروع اليوم بشروطه الحالية، هل سأدخله؟ هذا السؤال لا يحسم كل شيء، لكنه يكشف مقدار تأثير الماضي في نظرتك. ويجبرك على فحص الموقف القائم بدل الاحتماء ببدايته الجميلة.\nيمكنك أن تختبر قرارك بثلاث خطوات. الخطوة الأولى: احسب تكلفة الاستمرار من اليوم، لا ما دفعته بالأمس. ثم ضع البدائل على الطاولة، بما فيها تغيير الخدمة أو التوقف المؤقت. وأخيرًا حدد موعدًا لمراجعة النتائج، وعلامة واحدة قابلة للقياس، مثل طلبات حقيقية أو تغطية المصروفات.\nهذه الخطوات لا تضمن القرار الصحيح، لكنها تمنعك من تسليم المقود للماضي. ومن الأفضل أن تطلب رأي شخص يعرف تفاصيل المشروع، ويستطيع أن يعارضك بلا خوف من جرحك. فالنصيحة العامة لا تكفي حين يكون قرارك مرتبطًا بالتزامات مالية أو بأشخاص يعتمدون عليك.\nقد يقرر صاحب الورشة أن يمنح التغيير شهرًا محددًا، ثم يحتفظ بما ينجح ويتخلى عما يستنزفه. وربما يقرر الاستمرار كما هو، لأن الحساب يدعمه. في الحالتين، لم تعد السنوات الماضية حجةً قاطعة. ولم يعد الاعتراف بتغير الظروف إهانةً للجهد الذي سبق أن بذله.\nالسؤال الذي بدأنا به لم يكن: هل يجب أن تتوقف؟ بل: ماذا تدفع كي لا تعترف بأن الطريق يحتاج إلى تغيير؟ أحيانًا يكون الصبر قوة. وأحيانًا تكون القوة في مراجعة القرار قبل أن تصبح الخسارة المقبلة أكبر من الماضية. ما بذلته يستحق الاحترام، لكنه لا يملك وحده حق تقرير ما ستفعله غدًا."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى طبيعية بصوت حواري فضولي. في الافتتاح قلق عملي دون تهويل، مع وقفات قصيرة عند الأسئلة. لا تقرأ الإحالات البحثية بصورة أكاديمية جافة. يختلف الإيقاع عند الانتقال من المثال الافتراضي إلى الدليل ثم الاعتراض، وتكون النهاية هادئة وحاسمة من غير وعظ. الأرقام تُنطق كما كُتبت. تجنب الموسيقى فوق الهوك والصلاة والهوية."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "في نهاية الشهر،",
+              "motion": "slow_pan",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "لنتخيل صاحب ورشة نجارة صغيرة.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Quiet carpentry workshop interior",
+                "query_alt_en": "Small woodworking studio with empty workbenches",
+                "must_show": "Small workshop interior, tools and benches; no prominent person or signage",
+                "urls": [
+                  "https://www.pexels.com/photo/interior-of-messy-old-workshop-3853233/",
+                  "https://www.pexels.com/video/carpenter-in-the-workshop-6789586/",
+                  "https://www.pexels.com/photo/wooden-tables-in-abandoned-workshop-10066176/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "أول عامٍ لم يكن سهلًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Woodworker making wooden furniture",
+                "query_alt_en": "woodworking workshop details",
+                "must_show": "Close-up making or sanding wooden furniture",
+                "urls": [
+                  "https://www.pexels.com/video/carpenter-working-on-a-wood-piece-6789897/",
+                  "https://www.pexels.com/video/wood-man-construction-working-4480601/",
+                  "https://www.pexels.com/video/carpenter-sanding-wood-surface-in-workshop-28930929/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "ثم بدأت الفواتير تتراكم.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Calculating expenses on table",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Hands count expenses with paper and calculator",
+                "urls": [
+                  "https://www.pexels.com/video/man-counting-money-in-the-office-6699594/",
+                  "https://www.pexels.com/video/a-man-using-a-calculator-and-counting-cash-8479059/",
+                  "https://www.pexels.com/video/a-person-typing-on-calculator-while-writing-on-a-paper-9056542/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "حين اقترح صديق أن يغيّر نوع الخدمة،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Planning changes at a desk",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Paperwork and planning notes on a work surface",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-writing-on-a-brown-paper-7308092/",
+                  "https://www.pexels.com/video/close-up-footage-of-a-person-writing-on-a-notebook-8069596/",
+                  "https://www.pexels.com/video/close-up-view-of-a-person-writing-on-paper-7687967/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "ما الذي يجعله يتمسك بالورشة؟",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Empty workshop wooden chair",
+                "query_alt_en": "Old workshop tools and unused seating",
+                "must_show": "An unoccupied chair or empty work area conveys years of commitment",
+                "urls": [
+                  "https://www.pexels.com/photo/vintage-workshop-with-tools-and-chair-36801652/",
+                  "https://www.pexels.com/video/close-up-shot-of-chairs-3923501/",
+                  "https://www.pexels.com/photo/a-woodworking-bench-with-a-small-tool-on-it-28231739/"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "استعادة المال الماضي ليست خيارًا متاحًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "لكن القادم لم يُدفع بعد.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Budget documents and calculator",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Hands examining expenses and totals",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-using-calculator-6963965/",
+                  "https://www.pexels.com/video/man-calculating-his-money-6693624/",
+                  "https://www.pexels.com/video/man-counting-money-6700646/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "يمكنه مثلًا أن يحتفظ بعملائه،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Worker shaping small wooden part",
+                "query_alt_en": "woodworking workshop details",
+                "must_show": "Carpenter working on a smaller wood item",
+                "urls": [
+                  "https://www.pexels.com/video/a-carpenter-fixing-the-wood-6790430/",
+                  "https://www.pexels.com/video/a-person-using-a-chisel-on-wood-5972648/",
+                  "https://www.pexels.com/video/man-cutting-the-edges-of-wood-with-chisel-4480552/"
+                ]
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s2",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "الفرق هنا مهم:",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Sand falling through hourglass",
+                "query_alt_en": "Minimalist timepiece on wooden desk",
+                "must_show": "Time passing visibly without readable figures or written notes",
+                "urls": [
+                  "https://www.pexels.com/video/elegant-hourglasses-with-flowing-sand-37127207/",
+                  "https://www.pexels.com/video/a-hourglass-7955161/",
+                  "https://www.pexels.com/photo/hourglass-on-brown-wooden-frame-1178684/"
+                ]
+              }
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s3",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "هذا الانحياز له اسم في علم اتخاذ القرار:",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Writing reflections in notebook",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Hands writing in a simple notebook",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-notebook-8731583/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-notebook-6860424/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-with-a-pen-5583722/"
+                ]
+              }
+            },
+            {
+              "id": "scene_12",
+              "section_id": "s3",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "في دراسة نشرها هال آركس وكاثرين بلومر عام ألف وتسعمئة وخمسة وثمانين،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Empty movie theatre seats",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Rows of empty seats in a cinema",
+                "urls": [
+                  "https://www.pexels.com/video/tracking-shot-of-empty-seats-in-the-movie-theater-7985880/",
+                  "https://www.pexels.com/video/empty-theater-seats-in-a-quiet-cinema-29732319/",
+                  "https://www.pexels.com/video/empty-seats-at-a-cinema-7233533/"
+                ]
+              }
+            },
+            {
+              "id": "scene_13",
+              "section_id": "s3",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "هذه النتيجة لا تقول إن كل من يُكمل مشروعًا مخطئ،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Reviewing records and documents",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Documents being reviewed on a desk",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-working-with-documents-8298013/",
+                  "https://www.pexels.com/video/a-woman-looking-at-documents-on-a-table-9034510/",
+                  "https://www.pexels.com/video/a-person-holding-a-pencil-7710749/"
+                ]
+              }
+            },
+            {
+              "id": "scene_14",
+              "section_id": "s3",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "وفي مراجعة تحليلية نُشرت عام ألفين وخمسة عشر،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Writing notes with pen",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Hands arranging and reading research papers",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-a-paper-7687969/",
+                  "https://www.pexels.com/video/person-writing-on-a-paper-7428839/",
+                  "https://www.pexels.com/video/person-reading-a-papers-8061377/"
+                ]
+              }
+            },
+            {
+              "id": "scene_15",
+              "section_id": "s3",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "ومع ذلك، ليس كل استمرار عنادًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Carpenter working on a bench",
+                "query_alt_en": "woodworking workshop details",
+                "must_show": "Woodworking continues in a workshop",
+                "urls": [
+                  "https://www.pexels.com/video/woodworker-smoothing-surface-in-workshop-35170035/",
+                  "https://www.pexels.com/video/spacing-a-wood-with-a-chisel-5972654/",
+                  "https://www.pexels.com/video/a-man-sanding-a-wood-4480572/"
+                ]
+              }
+            },
+            {
+              "id": "scene_16",
+              "section_id": "s4",
+              "asset": "assets/scene_16.jpg",
+              "start_text": "اعترض الآن على هذه الفكرة.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Carpenter cutting wood in workshop",
+                "query_alt_en": "woodworking workshop details",
+                "must_show": "Active carpentry tools and timber",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-working-at-a-carpentry-workshop-7492602/",
+                  "https://www.pexels.com/video/carpentry-tools-6790698/",
+                  "https://www.pexels.com/video/video-clip-showing-carpentry-tools-5215219/"
+                ]
+              }
+            },
+            {
+              "id": "scene_17",
+              "section_id": "s4",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "قد يتعثر مشروع جيد مؤقتًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Quiet local shops street",
+                "query_alt_en": "Empty commercial street shopfronts",
+                "must_show": "Mostly empty street with shops; quiet sales period without visible faces",
+                "urls": [
+                  "https://www.pexels.com/video/quiet-street-in-a-small-town-with-stores-29731292/",
+                  "https://www.pexels.com/photo/empty-urban-street-with-shops-and-trees-29681249/",
+                  "https://www.pexels.com/video/quiet-suburban-street-with-local-shops-29620417/"
+                ]
+              }
+            },
+            {
+              "id": "scene_18",
+              "section_id": "s4",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "لهذا لا يكفي أن تنظر إلى الخسائر الماضية.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Desk covered in financial documents",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Invoice and cost estimates on a desk",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-looking-at-the-invoice-while-on-the-table-7546415/",
+                  "https://www.pexels.com/video/elderly-man-looking-at-receipts-7546130/",
+                  "https://www.pexels.com/video/a-woman-opening-a-folder-with-receipts-7710779/"
+                ]
+              }
+            },
+            {
+              "id": "scene_19",
+              "section_id": "s4",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "لنفترض أن الورشة حصلت على عقود جديدة حقيقية.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Carpenter using tools in woodshop",
+                "query_alt_en": "woodworking workshop details",
+                "must_show": "Evidence of current workshop work",
+                "urls": [
+                  "https://www.pexels.com/video/carpenter-working-in-workshop-with-lathe-machine-40205781/",
+                  "https://www.pexels.com/video/a-person-using-chisel-6789598/",
+                  "https://www.pexels.com/video/a-man-using-chisel-and-hammer-6790438/"
+                ]
+              }
+            },
+            {
+              "id": "scene_20",
+              "section_id": "s4",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "أما إذا كانت الوعود تتكرر بلا طلبات،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Checking receipts with calculator",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Expense review and careful calculation",
+                "urls": [
+                  "https://www.pexels.com/video/man-using-calculator-6963487/",
+                  "https://www.pexels.com/video/a-woman-holding-a-billing-statement-7545831/",
+                  "https://www.pexels.com/video/a-person-using-a-calculator-7710750/"
+                ]
+              }
+            },
+            {
+              "id": "scene_21",
+              "section_id": "s5",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "كيف نتخذ قرارًا أعدل؟",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Planning on a paper notebook",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "A notebook and hand writing a decision",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-a-person-writing-in-a-notebook-8554164/",
+                  "https://www.pexels.com/video/a-person-using-a-calculator-and-taking-notes-5466768/",
+                  "https://www.pexels.com/video/a-person-computing-using-calculator-6963480/"
+                ]
+              }
+            },
+            {
+              "id": "scene_22",
+              "section_id": "s5",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "يمكنك أن تختبر قرارك بثلاث خطوات.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "steps",
+                "theme": "editorial",
+                "title": "اختبار القرار",
+                "items": [
+                  {
+                    "label": "تكلفة الاستمرار",
+                    "at_text": "الخطوة الأولى: احسب تكلفة الاستمرار من اليوم"
+                  },
+                  {
+                    "label": "البدائل المتاحة",
+                    "at_text": "ثم ضع البدائل على الطاولة"
+                  },
+                  {
+                    "label": "موعد المراجعة",
+                    "at_text": "وأخيرًا حدد موعدًا لمراجعة النتائج"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_23",
+              "section_id": "s5",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "هذه الخطوات لا تضمن القرار الصحيح،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Empty meeting room chairs",
+                "query_alt_en": "Conference table awaiting frank discussion",
+                "must_show": "Empty seats facing a discussion table; independent advice is pending",
+                "urls": [
+                  "https://www.pexels.com/video/video-inside-a-conference-room-8716780/",
+                  "https://www.pexels.com/photo/conference-table-and-chairs-in-an-empty-office-17739892/",
+                  "https://www.pexels.com/video/an-empty-meeting-room-5519767/"
+                ]
+              }
+            },
+            {
+              "id": "scene_24",
+              "section_id": "s5",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "قد يقرر صاحب الورشة أن يمنح التغيير شهرًا محددًا،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Writing schedule on paper planner",
+                "query_alt_en": "hands working at a desk",
+                "must_show": "Hands set a deadline in a planner",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-writing-in-the-planner-6541138/",
+                  "https://www.pexels.com/video/person-writing-in-notebook-at-desk-33350918/",
+                  "https://www.pexels.com/video/a-woman-writing-on-her-planner-4393235/"
+                ]
+              }
+            },
+            {
+              "id": "scene_25",
+              "section_id": "s5",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "السؤال الذي بدأنا به لم يكن:",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "ما الذي تدفعه غدًا؟"
+          },
+          "publishing": {
+            "title": "متى يصبح الصبر خسارة؟ كيف تعرف أن وقت تغيير المسار قد حان",
+            "description": "متى تتحول المثابرة إلى خسارة؟ نفحص أثر التكلفة الغارقة، ولماذا نواصل قرارًا لمجرد أننا أنفقنا عليه سنوات من حياتنا، وكيف نراجع استمرارنا دون تسرّع.\n\nنبدأ بقصة افتراضية لصاحب ورشة، ثم نعرض ما تقوله دراسات اتخاذ القرار عن التكلفة الغارقة، ونطرح اعتراضًا حقيقيًا: قد يكون الاستمرار صائبًا أيضًا. في النهاية اختبار عملي يساعدك على التفكير في تكلفة المستقبل والبدائل المتاحة.\n\nمصادر البحث:\nArkes & Blumer (1985): https://doi.org/10.1016/0749-5978(85)90049-4\nRoth, Robbert & Straus (2015): https://doi.org/10.1007/s40685-014-0014-8\n\n#نداء_اليقظة #التكلفة_الغارقة #اتخاذ_القرار #تطوير_الذات",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التكلفة_الغارقة",
+              "#اتخاذ_القرار",
+              "#تطوير_الذات"
+            ],
+            "tags": [
+              "التكلفة الغارقة",
+              "أثر التكلفة الغارقة",
+              "متى تتوقف",
+              "اتخاذ القرارات",
+              "المثابرة",
+              "الصبر",
+              "تغيير المسار",
+              "نداء اليقظة"
+            ]
+          },
+          "derivative": {
+            "start_text": "ماذا لو ترك صاحب الورشة عمله قبل أسابيع من وصول طلب كبير؟",
+            "end_text": "المثابرة هنا قد تكون استثمارًا معقولًا، بشرط أن يكون لدينا ما يدعم توقع التحسن.",
+            "cover": {
+              "asset": "assets/derived_cover.jpg",
+              "text": "هل المثابرة دائمًا صحيحة؟"
+            },
+            "publishing": {
+              "title": "هل ترك المشروع دائمًا خسارة؟ | اختبار المثابرة",
+              "description": "ماذا لو توقفت قبل أن تتحسن الأمور؟ اعتراض حقيقي على فكرة ترك المشاريع الخاسرة؛ لقطات مقتطفة حرفيًا من الفيلم الكامل «متى يصبح الصبر على الوضع الخاطئ خسارة؟».\n\n#نداء_اليقظة #التكلفة_الغارقة #اتخاذ_القرار",
+              "hashtags": [
+                "#نداء_اليقظة",
+                "#التكلفة_الغارقة",
+                "#اتخاذ_القرار"
+              ],
+              "tags": [
+                "الصبر",
+                "التكلفة الغارقة",
+                "تغيير القرار",
+                "نداء اليقظة"
+              ]
+            }
+          }
+        },
+        "zip_sha256": "faf1c32305cbd4996b49396176f1c9cfe4f28115b02f92da81addd84c8a42bda",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "e4f4476643a157f03c4a0994b4971c402dd4390fb3e1a94cdbd27fbf532b8201",
+          "assets/derived_cover.jpg": "465d062b16584f82e97e413834a154ea7f6c456b93b61e6134401a9177479da3",
+          "assets/scene_01.jpg": "9e69de0d19f38912d3798a08f43e3af669bf0f3b5c0c25c253230c6036717b83",
+          "assets/scene_02.jpg": "9206f8fe9f480217a8c30466d56a3792489205de71462504c71a1193ebf01446",
+          "assets/scene_03.jpg": "ab76723725425aeae184a1e26d972311a852e2c65e1d436c63a2265b28e1cb0c",
+          "assets/scene_04.jpg": "85fe666ca7146d51c8c6224aafbc07f7369234832f47efd5ce4662f956a0cb63",
+          "assets/scene_05.jpg": "275717943343cd8f19242fb89ca9545e470997193c11d6469281fbf27be8db90",
+          "assets/scene_06.jpg": "215a1dae858ea71edd239dc9fb9ded62c7291ca4d52f0094cdc6c8123bdb0de5",
+          "assets/scene_07.jpg": "af423c3ea155dedee0397bf5e09b6c5ab8095d5e0c1027d0d64d2d44274b3afe",
+          "assets/scene_08.jpg": "d81882b2a28ef89602b3c96f448a2b87a1d16495eac82120b67d5b72a8dde8fe",
+          "assets/scene_09.jpg": "b463e3da7f834bf61a128f2895db2337e3a0671689f901fcddd4fd7f79573565",
+          "assets/scene_10.jpg": "37ea56d44651fc3e593c53b7f49f9db1b55f34c255c6e87ee4b9ee7198ee5217",
+          "assets/scene_11.jpg": "711351b0b2c09e2a20678d4770ee167b0e40197ff1d8179a812b005ea3f27e4b",
+          "assets/scene_12.jpg": "f1aab676fe556c6af0c91d4d1b131a6f98cee3cc7abd4e1ac401988ff225fa55",
+          "assets/scene_13.jpg": "0502c313d0d405af800f27a38c318a9cb91b94a6f5973553cdd4c041d165821c",
+          "assets/scene_14.jpg": "ad1405541a5528428148821013619135eceb3ad97dbd09b04089ba6de51925a6",
+          "assets/scene_15.jpg": "ba5e6ac96ba43424a00f8d7a9f9eb77cd9f21dae948155885dc750fca2de82a7",
+          "assets/scene_16.jpg": "34d4ecb95563533aefa8f2e81ce19c9a791d55f0e8325c08636c8e037b59fe3a",
+          "assets/scene_17.jpg": "78481ce85cc6828a3ef263a6c73ff5310cdad5d4120b0f73d983a0ee032131bb",
+          "assets/scene_18.jpg": "7791ee85dbe0def3c60e12f3deb9b5152ec3ab4d738e4b18c1893a3ccda54daa",
+          "assets/scene_19.jpg": "70b0f151b9ac97f78c37fc8d0625adce3239b7d68d97f3a00a36032501d54f06",
+          "assets/scene_20.jpg": "445f840c5c05f196db5b7c70c857f5e8e52f5f63e335e88de9f029dba4ad98b0",
+          "assets/scene_21.jpg": "c725cd8f6635cb4f99edf43fdffe993992a67ca33e4613f4d55d02d863bae24d",
+          "assets/scene_22.jpg": "c16ed7fa30c86561c6a6cc91ee904c1d0c6a3472721246550e0fc77527f34ab0",
+          "assets/scene_23.jpg": "378193db77ee08c389869c27a3434b93d508f6821c8a6ed063382d37797353c4",
+          "assets/scene_24.jpg": "0fb231e2776121cf564b7a7e287666831f563485d9a393e241c27dcc1f544e7a",
+          "assets/scene_25.jpg": "bb80ebbe49c61e5a12f7eae50df3e82080b54bba80cbc8ce9cb46fe7e2537140"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6a9e9cf095cb5ca9b65af44f0255cabb2538b77baf005379d8bfd19a0f3a2887",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIPK2rdc1YQDUbCwRXOK3ytP_JirNIrAALHIwACulToUpErXNK2iumVPQQ",
+          "sha256": "faf1c32305cbd4996b49396176f1c9cfe4f28115b02f92da81addd84c8a42bda"
+        }
+      }
     }
   },
-  "current_request_id": "req-e8b81ae44d46",
+  "current_request_id": "req-3aca57a81137",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -25646,6 +26246,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-25T03:11:16Z",
+  "updated_at": "2026-10-25T03:12:03Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
