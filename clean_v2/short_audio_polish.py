@@ -334,7 +334,11 @@ def _mix_music_into_video(
             "[0:a]asplit=2[voice][speech_key];"
             "[music][speech_key]sidechaincompress="
             "threshold=0.018:ratio=4:attack=35:release=350[quiet_music];"
-            "[voice][quiet_music]amix=inputs=2:normalize=0:"
+            # Pad only the *bed* after sidechain processing: some FFmpeg builds
+            # finish it a few frames early, which otherwise truncates a spoken
+            # ending when the output is muxed using -shortest.
+            "[quiet_music]apad[bed_full];"
+            "[voice][bed_full]amix=inputs=2:normalize=0:"
             "duration=first:dropout_transition=0,"
             f"alimiter=limit={POST_MIX_LIMITER_LINEAR:.2f}:level=disabled[mix]"
         )
