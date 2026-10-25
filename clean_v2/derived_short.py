@@ -22,6 +22,10 @@ CAPTION_ROLES = {"topic", "outro", "promo_short", "cta_topic"}
 # Text-free master kept beside the parent so a retry cuts the Short from it, not from the captioned final.
 CLEAN_MASTER = "final-no-captions.mp4"
 CLEAN_MASTER_MAX_BYTES = 400 * 1024 * 1024
+# Every derived Short ends like a Nidaa Short: the clip plays untouched, then a short quiet beat after
+# the last word and the owner's branded outro (icon + subscribe), exactly the standalone Short's outro.
+OUTRO_QUIET_SECONDS = 0.45
+OUTRO_SECONDS = 67 / 30
 
 
 def derivative_candidates(doc: Mapping[str, Any] | None) -> list[dict]:
@@ -219,7 +223,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     """
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
-    message = "أكمل النقاش\\Nفي الحلقة الكاملة" if podcast else "شاهد الفيلم كاملًا"
+    message = "شاهد البودكاست\\Nكاملًا" if podcast else "شاهد الحلقة\\Nكاملة"
     from .podcast_captions import BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card
 
     # Navy + gold card (same identity as the captions), high enough to clear them.
@@ -326,13 +330,24 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
         hook_ass = root / f"{prefix}-hook.ass"
         hook_ass.write_text(_hook_ass(hook, excerpt_duration), encoding="utf-8")
         filters += ",ass='" + _filter_escape_path(hook_ass) + "'"
-    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-          "-vf", filters,
-          "-map", "0:v:0", "-map", "0:a:0",
+    from .identity_sequence import _SHORT_OUTRO
+    if not _SHORT_OUTRO.is_file():
+        raise RuntimeError("derived_short_outro_asset_missing")
+    graph = (
+        f"[0:v]setsar=1,fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration={OUTRO_QUIET_SECONDS}[v0];"
+        "[1:v]setsar=1,fps=30,format=yuv420p[v1];"
+        f"[0:a]aresample=44100,aformat=channel_layouts=stereo,apad=pad_dur={OUTRO_QUIET_SECONDS}[a0];"
+        "[1:a]aresample=44100,aformat=channel_layouts=stereo[a1];"
+        "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
+    )
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw), "-i", str(_SHORT_OUTRO),
+          "-filter_complex", f"[0:v]{filters}[cv];" + graph.replace("[0:v]", "[cv]", 1),
+          "-map", "[v]", "-map", "[a]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-          "-c:a", "copy", str(final)], timeout=900)
+          "-c:a", "aac", "-b:a", "192k", str(final)], timeout=900)
     qc = inspect_final(final)
-    if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-excerpt_duration) > 0.15:
+    total_duration = excerpt_duration + OUTRO_QUIET_SECONDS + OUTRO_SECONDS
+    if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-total_duration) > 0.3:
         raise RuntimeError("derived_short_stream_or_duration_mismatch")
     final.replace(root / f"{prefix}.mp4")
     atomic_write_json(root / f"{prefix}-qc.json", {**qc, "status": "pass"})
@@ -341,6 +356,8 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
               "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
               "source_video": source_video.name, "teaser_cta_seconds": 5,
               "teaser_cta_over_original_speech": True,
+              "outro": "short_outro", "outro_seconds": round(OUTRO_QUIET_SECONDS + OUTRO_SECONDS, 3),
+              "clip_seconds": round(excerpt_duration, 3),
               "hook_text": str(window.get("hook") or "") or None,
               "final_master_qc_status": "pass"}
     return report
