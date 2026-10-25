@@ -162,7 +162,7 @@ def spoken_text(text: str) -> str:
 
 def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str, Any]:
     doc = _object(value, {"schema_version", "format", "template", "title", "approval", "script", "performance",
-                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "roles", "stock_policy"}, field="production.json")
+                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "extra_derivatives", "roles", "stock_policy"}, field="production.json")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
         _error("schema_version يجب أن يساوي 1.")
     fmt = doc["format"]
@@ -368,6 +368,8 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         for label, publishing in (
             ("publishing", doc["publishing"]),
             ("derivative.publishing", (derivative or {}).get("publishing")),
+            *((f"extra_derivatives[{n}].publishing", (item or {}).get("publishing"))
+              for n, item in enumerate(doc.get("extra_derivatives") or [], 1) if isinstance(item, dict)),
         ):
             if not isinstance(publishing, dict):
                 continue
@@ -382,26 +384,65 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             )):
                 _error(f"{label}: بيانات النشر تخص قناة أخرى؛ على مهل مستقل.")
     if derivative is not None:
-        _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field="derivative")
-        if fmt == "short":
-            _error("المشتق متاح للفيلم والبودكاست فقط.")
-        for key in ("start_text", "end_text"):
-            _text(derivative[key], f"derivative.{key}", 1500)
-        if "cover" in derivative:
-            # The derived Short's own cover, designed by the editor (portrait 9:16), never a frame crop.
-            dcover = _object(derivative["cover"], {"asset", "text"}, field="derivative.cover")
-            _text(dcover["text"], "derivative.cover.text", 100, empty=True)
-            if len(dcover["text"].split()) > 6:
-                _error("نص غلاف المشتق لا يتجاوز 6 كلمات.")
-            assets.add(_asset(dcover["asset"]))
-        if "publishing" in derivative:
-            _publishing(derivative["publishing"], "derivative.publishing")
-        _derivative_avoids_boards(doc, texts, derivative)
+        _validate_derivative(doc, texts, fmt, derivative, "derivative", assets)
         # Invalid/missing anchors are intentionally NOT a parent-production gate.
         # The optional extractor records the precise skip reason after parent success.
+    extras = doc.get("extra_derivatives")
+    if extras is not None:
+        if derivative is None:
+            _error("extra_derivatives تتطلب derivative أولًا؛ المشتق الأول هو الأساس.")
+        if not isinstance(extras, list) or not 1 <= len(extras) <= MAX_EXTRA_DERIVATIVES:
+            _error(f"extra_derivatives قائمة من 1–{MAX_EXTRA_DERIVATIVES} مقتطفات إضافية (المجموع مع المشتق الأول ≤{1 + MAX_EXTRA_DERIVATIVES}).")
+        for number, extra in enumerate(extras, 1):
+            _validate_derivative(doc, texts, fmt, extra, f"extra_derivatives[{number}]", assets)
+        _extras_distinct(texts, [derivative, *extras], (doc.get("cover") or {}).get("asset"))
     if available is not None and assets - available:
         _error("صور أساسية مفقودة: " + "، ".join(sorted(assets - available)))
     return doc
+
+
+MAX_EXTRA_DERIVATIVES = 4  # one primary derivative + up to four extra Shorts per episode
+
+
+def _validate_derivative(doc: Mapping[str, Any], texts: Mapping[str, str], fmt: str,
+                         derivative: Any, field: str, assets: set) -> None:
+    _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field=field)
+    if fmt == "short":
+        _error("المشتق متاح للفيلم والبودكاست فقط.")
+    for key in ("start_text", "end_text"):
+        _text(derivative[key], f"{field}.{key}", 1500)
+    if "cover" in derivative:
+        # The derived Short's own cover, designed by the editor (portrait 9:16), never a frame crop.
+        dcover = _object(derivative["cover"], {"asset", "text"}, field=f"{field}.cover")
+        _text(dcover["text"], f"{field}.cover.text", 100, empty=True)
+        if len(dcover["text"].split()) > 6:
+            _error("نص غلاف المشتق لا يتجاوز 6 كلمات.")
+        assets.add(_asset(dcover["asset"]))
+    if "publishing" in derivative:
+        _publishing(derivative["publishing"], f"{field}.publishing")
+    _derivative_avoids_boards(doc, texts, derivative)
+
+
+def _extras_distinct(texts: Mapping[str, str], items: list, main_cover: Any = None) -> None:
+    """Each Short is its own excerpt: no shared cover or title, and no overlapping text windows."""
+    covers = [i["cover"]["asset"] for i in items if isinstance(i.get("cover"), dict) and i["cover"].get("asset")]
+    if len(covers) != len(set(covers)) or (main_cover and main_cover in covers):
+        _error("كل شورت مشتق يحتاج غلافه الخاص؛ لا تكرر ملف الغلاف ولا غلاف الحلقة.")
+    titles = [i["publishing"]["title"] for i in items
+              if isinstance(i.get("publishing"), dict) and i["publishing"].get("title")]
+    if len(titles) != len(set(titles)):
+        _error("كل شورت مشتق يحتاج عنوان نشر مختلفًا.")
+    whole = " ".join(spoken_text(text) for text in texts.values())
+    windows = []
+    for item in items:
+        start = whole.find(" ".join(item["start_text"].split()))
+        end = whole.find(" ".join(item["end_text"].split()))
+        if start >= 0 and end >= 0:  # unresolved anchors are reported by the extractor, not a gate
+            windows.append((start, end + len(" ".join(item["end_text"].split()))))
+    windows.sort()
+    for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
+        if next_start < previous_end:
+            _error("مقاطع المشتقات تتداخل؛ اجعل كل شورت مقتطفًا مستقلًا من الحلقة.")
 
 
 def _derivative_avoids_boards(doc: Mapping[str, Any], texts: Mapping[str, str], derivative: Mapping[str, Any]) -> None:

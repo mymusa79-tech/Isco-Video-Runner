@@ -942,10 +942,13 @@ def _synthesize_sectioned_voice_pass(
                 str(podcast_promo.get("text") or ""),
             )
 
-        from .derived_short import split_voice_units
+        from .derived_short import derivative_candidates, split_voice_units
         original_voice_units = voice_units
         try:
-            voice_units = split_voice_units(voice_units, ready_doc.get("derivative"))
+            # The primary Short and every extra Short of the episode need their sentence
+            # boundaries exposed in this SAME voice pass; text is never changed.
+            for _candidate in derivative_candidates(ready_doc):
+                voice_units = split_voice_units(voice_units, _candidate)
         except Exception as boundary_exc:
             # Optional timing preparation must not block the original voice
             # pass. Unmapped anchors are reported after primary SUCCESS.
@@ -956,7 +959,7 @@ def _synthesize_sectioned_voice_pass(
         roles = [role for role, text in voice_units if text]
         from .production_package import spoken_text
         original_units_match = " ".join(" ".join(chunks).split()) == " ".join(section_text.split())
-        if not original_units_match and not (ready_doc.get("derivative") and spoken_text(" ".join(chunks)) == spoken_text(section_text)):
+        if not original_units_match and not ((ready_doc.get("derivative") or ready_doc.get("extra_derivatives")) and spoken_text(" ".join(chunks)) == spoken_text(section_text)):
             raise RuntimeError(f"Timeline First voice-unit split changed narration: section={section_id}")
         if not chunks:
             raise RuntimeError(
@@ -8567,6 +8570,27 @@ class CleanV2Pipeline:
                             output_dir / "long-short-cover.jpg", long_short_cover_report)
                 except Exception as derivative_sidecar_exc:
                     print(f"Optional derivative sidecar warning: {type(derivative_sidecar_exc).__name__}")
+                # Extra Shorts of the same episode (production.json extra_derivatives): offline cuts of
+                # the accepted master, each with its own cover. Fail-soft per Short; never touches SUCCESS.
+                try:
+                    from clean_v2.derived_short import attempt_extras
+                    extra_short_reports = attempt_extras(output_dir)
+                    for _extra in extra_short_reports:
+                        if _extra.get("status") != "pass":
+                            continue
+                        _stem = str(_extra["file"])[:-4]
+                        _extra_cover = run_cover_lite_fail_soft(
+                            output_dir=output_dir, plan=plan, fmt="short",
+                            final_path=output_dir / str(_extra["file"]),
+                            output_name=f"{_stem}-cover.jpg", report_name=f"{_stem}-cover.json",
+                            section_id=str(_extra.get("section_id") or ""),
+                            exclude_source_files=(str(cover_report.get("source_file") or ""),),
+                        )
+                        from clean_v2 import owner_art as _owner_art_extra
+                        _owner_art_extra.apply_owner_derivative_cover(
+                            output_dir / f"{_stem}-cover.jpg", _extra_cover, index=int(_extra["index"]) - 1)
+                except Exception as extra_exc:
+                    print(f"Optional extra Shorts warning: {type(extra_exc).__name__}")
 
             # Audit exact exported master and local deliverables AFTER captions,
             # cover and derivative attempts. The certified Final Master QC is

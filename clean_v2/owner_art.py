@@ -804,7 +804,7 @@ def grade_clip(clip: Path, profile: str) -> str:
         return f"unavailable:{type(exc).__name__}"
 
 
-def apply_owner_derivative_cover(cover_path: Path, report: dict[str, Any]) -> dict[str, Any]:
+def apply_owner_derivative_cover(cover_path: Path, report: dict[str, Any], index: int = 0) -> dict[str, Any]:
     """The cover the editor designed for the derived Short, if the approved package carries one.
 
     Replaces the frame-crop cover Cover Lite just made. Fail-soft: anything wrong keeps that cover.
@@ -814,7 +814,12 @@ def apply_owner_derivative_cover(cover_path: Path, report: dict[str, Any]) -> di
         if not directory or not (directory / "production.json").is_file():
             return report
         doc = json.loads((directory / "production.json").read_text(encoding="utf-8"))
-        cover = (doc.get("derivative") or {}).get("cover")
+        if index <= 0:
+            owner = doc.get("derivative") or {}
+        else:  # extra Short number `index` (1-based) of the same episode
+            extras = doc.get("extra_derivatives") or []
+            owner = extras[index - 1] if index <= len(extras) and isinstance(extras[index - 1], dict) else {}
+        cover = owner.get("cover")
         if not isinstance(cover, dict) or not cover.get("asset"):
             return report
         normalize_image(directory / cover["asset"], Path(cover_path), (1080, 1920))

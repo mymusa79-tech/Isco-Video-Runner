@@ -24,6 +24,14 @@ CLEAN_MASTER = "final-no-captions.mp4"
 CLEAN_MASTER_MAX_BYTES = 400 * 1024 * 1024
 
 
+def derivative_candidates(doc: Mapping[str, Any] | None) -> list[dict]:
+    """The primary derivative first, then up to four extra Shorts from the same episode."""
+    doc = doc or {}
+    primary = doc.get("derivative")
+    extras = [c for c in (doc.get("extra_derivatives") or []) if isinstance(c, dict)]
+    return ([primary] if isinstance(primary, dict) else []) + extras
+
+
 def _read(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -118,6 +126,7 @@ def prepare_retry_source(root: Path) -> None:
         doc = _read(root / "production.json") if (root / "production.json").is_file() else {}
         atomic_write_json(context_path, {"schema_version": 1, "rows": rows, "events": events,
                                          "caption_timing": timing, "candidate": doc.get("derivative"),
+                                         "extra_candidates": doc.get("extra_derivatives") or [],
                                          "format": _read(root / "timeline-first.json")["format"]})
     primary = _read(root / "primary-success.json")
     primary["files"]["derivative-context.json"] = _hash(context_path)
@@ -249,6 +258,70 @@ def _ass_clock(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
+def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, Any], prefix: str,
+                   base: Mapping[str, Any], temporary: list, renderer=None) -> dict:
+    """Cut one excerpt from the frozen master, burn its captions, verify it, and return its report."""
+    from .media import render_derived_short, inspect_final, _run
+    from .podcast_captions import build_ass, build_srt
+    from .short_timed_text import _filter_escape_path
+    raw, final = root / f".{prefix}-raw.mp4", root / f".{prefix}-captioned.mp4"
+    temporary += [raw, final]
+    # Podcast burns long captions into final.mp4; cut from the caption-free
+    # master when this run kept one (retry from a release has final.mp4 only).
+    source_video = root / CLEAN_MASTER
+    if not source_video.is_file():
+        source_video = root / "final.mp4"
+    (renderer or render_derived_short)(source_video, raw,
+        start_seconds=window["start"], end_seconds=window["end"], maximum_seconds=60)
+    events = [dict(e, start=round(float(e["start"])-window["start"], 3),
+                    end=round(float(e["end"])-window["start"], 3)) for e in context["events"]
+              if float(e["start"]) >= window["start"]-0.01 and float(e["end"]) <= window["end"]+0.01]
+    if not events:
+        raise RuntimeError("derived_caption_events_missing")
+    ass = root / f"{prefix}.ass"
+    ass.write_text(build_ass(events, fmt="short"), encoding="utf-8")
+    (root / f"{prefix}.srt").write_text(build_srt(events), encoding="utf-8")
+    cta_ass = root / f"{prefix}-teaser-cta.ass"
+    cta_ass.write_text(_teaser_cta_ass(window["end"] - window["start"],
+                                      podcast=context["format"] == "podcast"), encoding="utf-8")
+    # Show the invitation over the final five seconds while preserving
+    # every spoken word and the original measured clip duration.
+    excerpt_duration = window["end"] - window["start"]
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
+          "-vf", "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'",
+          "-map", "0:v:0", "-map", "0:a:0",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+          "-c:a", "copy", str(final)], timeout=900)
+    qc = inspect_final(final)
+    if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-excerpt_duration) > 0.15:
+        raise RuntimeError("derived_short_stream_or_duration_mismatch")
+    final.replace(root / f"{prefix}.mp4")
+    atomic_write_json(root / f"{prefix}-qc.json", {**qc, "status": "pass"})
+    report = {**base, **window, "status": "pass", "file": f"{prefix}.mp4", "width": 1080, "height": 1920,
+              "duration_seconds": qc["duration_seconds"], "caption_timing": context["caption_timing"],
+              "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
+              "source_video": source_video.name, "teaser_cta_seconds": 5,
+              "teaser_cta_over_original_speech": True,
+              "final_master_qc_status": "pass"}
+    return report
+
+
+def _load_doc(root: Path, context: Mapping[str, Any]) -> dict:
+    if (root / "production.json").is_file():
+        return _read(root / "production.json")
+    # TXT and the legacy flow have the same approved script/timing
+    # checkpoint, even though they have no production.json manifest.
+    from .media import _gemini38_dialogue_turns
+    saved = _read(root / "script.json")
+    sections = []
+    for section in saved["sections"]:
+        text = section["narration"]
+        turns = _gemini38_dialogue_turns(text) if context["format"] == "podcast" else []
+        sections.append({"turns": [{"speaker": speaker, "text": words} for speaker, words in turns]}
+                        if turns else {"text": text})
+    return {"script": {"sections": sections}}
+
+
 def attempt(root: Path, *, renderer=None) -> dict:
     """Optional extraction; failure is a report, never a parent-production error."""
     root = Path(root)
@@ -261,66 +334,12 @@ def attempt(root: Path, *, renderer=None) -> dict:
         prepare_retry_source(root)
         verify_primary(root)
         context = _read(root / "derivative-context.json")
-        if (root / "production.json").is_file():
-            doc = _read(root / "production.json")
-        else:
-            # TXT and the legacy flow have the same approved script/timing
-            # checkpoint, even though they have no production.json manifest.
-            from .media import _gemini38_dialogue_turns
-            saved = _read(root / "script.json")
-            sections = []
-            for section in saved["sections"]:
-                text = section["narration"]
-                turns = _gemini38_dialogue_turns(text) if context["format"] == "podcast" else []
-                sections.append({"turns": [{"speaker": speaker, "text": words} for speaker, words in turns]}
-                                if turns else {"text": text})
-            doc = {"script": {"sections": sections}}
+        doc = _load_doc(root, context)
         window, reason = _selection(context, doc)
         if window is None:
             report = {**base, "status": "skipped", "reason": reason}
         else:
-            from .media import render_derived_short, inspect_final, _run
-            from .podcast_captions import build_ass, build_srt
-            from .short_timed_text import _filter_escape_path
-            raw, final = root / f".{prefix}-raw.mp4", root / f".{prefix}-captioned.mp4"
-            temporary += [raw, final]
-            # Podcast burns long captions into final.mp4; cut from the caption-free
-            # master when this run kept one (retry from a release has final.mp4 only).
-            source_video = root / CLEAN_MASTER
-            if not source_video.is_file():
-                source_video = root / "final.mp4"
-            (renderer or render_derived_short)(source_video, raw,
-                start_seconds=window["start"], end_seconds=window["end"], maximum_seconds=60)
-            events = [dict(e, start=round(float(e["start"])-window["start"], 3),
-                            end=round(float(e["end"])-window["start"], 3)) for e in context["events"]
-                      if float(e["start"]) >= window["start"]-0.01 and float(e["end"]) <= window["end"]+0.01]
-            if not events:
-                raise RuntimeError("derived_caption_events_missing")
-            ass = root / f"{prefix}.ass"
-            ass.write_text(build_ass(events, fmt="short"), encoding="utf-8")
-            (root / f"{prefix}.srt").write_text(build_srt(events), encoding="utf-8")
-            cta_ass = root / f"{prefix}-teaser-cta.ass"
-            cta_ass.write_text(_teaser_cta_ass(window["end"] - window["start"],
-                                              podcast=context["format"] == "podcast"), encoding="utf-8")
-            # Show the invitation over the final five seconds while preserving
-            # every spoken word and the original measured clip duration.
-            excerpt_duration = window["end"] - window["start"]
-            _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                  "-vf", "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'",
-                  "-map", "0:v:0", "-map", "0:a:0",
-                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-                  "-c:a", "copy", str(final)], timeout=900)
-            qc = inspect_final(final)
-            if (qc["width"], qc["height"]) != (1080, 1920) or abs(qc["duration_seconds"]-excerpt_duration) > 0.15:
-                raise RuntimeError("derived_short_stream_or_duration_mismatch")
-            final.replace(root / f"{prefix}.mp4")
-            atomic_write_json(root / f"{prefix}-qc.json", {**qc, "status": "pass"})
-            report = {**base, **window, "status": "pass", "file": f"{prefix}.mp4", "width": 1080, "height": 1920,
-                      "duration_seconds": qc["duration_seconds"], "caption_timing": context["caption_timing"],
-                      "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
-                      "source_video": source_video.name, "teaser_cta_seconds": 5,
-                      "teaser_cta_over_original_speech": True,
-                      "final_master_qc_status": "pass"}
+            report = _extract_short(root, context, window, prefix, base, temporary, renderer)
     except Exception as exc:
         report = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:220]}"}
     finally:
@@ -338,6 +357,75 @@ def attempt(root: Path, *, renderer=None) -> dict:
     except OSError:
         pass  # An optional status-write failure cannot invalidate the accepted parent.
     return report
+
+
+def attempt_extras(root: Path, *, renderer=None) -> list[dict]:
+    """Cut the extra Shorts of the same episode (production.json `extra_derivatives`).
+
+    Runs after `attempt` has frozen and verified the accepted parent. Offline like the primary:
+    no TTS, no provider call. Each Short is independent: one failure never touches the parent,
+    the primary Short or the other extras. Files are `<prefix>-2.mp4` ... `<prefix>-5.mp4`.
+    """
+    root = Path(root)
+    context_path = root / "derivative-context.json"
+    if not context_path.is_file():
+        return []
+    context = _read(context_path)
+    candidates = [c for c in (context.get("extra_candidates") or []) if isinstance(c, dict)]
+    if not candidates:
+        return []
+    base = {"schema_version": 1, "primary_status": "SUCCESS", "provider_calls_added": 0, "tts_calls_added": 0}
+    reports: list[dict] = []
+    taken: list[tuple[float, float]] = []
+    try:
+        primary = _read(root / "derivative-status.json")
+        if primary.get("status") == "pass":
+            taken.append((float(primary["start"]), float(primary["end"])))
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        verify_primary(root)
+        doc = _load_doc(root, context)
+        prefix_root = _prefix(root)
+    except Exception as exc:
+        failure = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:200]}"}
+        reports = [{**failure, "index": n} for n in range(2, 2 + len(candidates))]
+        atomic_write_json(root / "derivative-extras.json", {"schema_version": 1, "shorts": reports})
+        return reports
+    for number, candidate in enumerate(candidates, 2):
+        prefix = f"{prefix_root}-{number}"
+        temporary: list = []
+        try:
+            window, reason = _selection({**context, "candidate": candidate}, doc)
+            if window is not None and any(window["start"] < end and window["end"] > start for start, end in taken):
+                window, reason = None, "candidate_overlaps_another_short_of_the_same_episode"
+            if window is None:
+                report = {**base, "status": "skipped", "reason": reason}
+            else:
+                report = _extract_short(root, context, window, prefix, base, temporary, renderer)
+                taken.append((float(window["start"]), float(window["end"])))
+        except Exception as exc:
+            report = {**base, "status": "failed", "reason": f"{type(exc).__name__}:{str(exc)[:220]}"}
+        finally:
+            for path in temporary:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        report = {**report, "index": number}
+        try:
+            atomic_write_json(root / f"{prefix}.json", report)
+            if report["status"] != "pass":
+                (root / f"{prefix}.mp4").unlink(missing_ok=True)
+                (root / f"{prefix}-qc.json").unlink(missing_ok=True)
+        except OSError:
+            pass
+        reports.append(report)
+    try:
+        atomic_write_json(root / "derivative-extras.json", {"schema_version": 1, "shorts": reports})
+    except OSError:
+        pass
+    return reports
 
 
 def restore_retry_source(archive: Path, root: Path) -> None:

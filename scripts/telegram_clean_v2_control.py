@@ -2085,7 +2085,7 @@ def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
     if pack.get("production"):
         doc = pack["production"]
         words = sum(len(production_package.spoken_text(production_package.section_text(s)).split()) for s in doc["script"]["sections"])
-        derivative = "مقطع مرشّح محدد في الحزمة" if doc.get("derivative") else "محاولة اختيار مقطع موجود؛ التخطي عند عدم صلاحيته"
+        derivative = (f"{1 + len(doc.get('extra_derivatives') or [])} شورتات مشتقة محددة في الحزمة" if doc.get("extra_derivatives") else "مقطع مرشّح محدد في الحزمة") if doc.get("derivative") else "محاولة اختيار مقطع موجود؛ التخطي عند عدم صلاحيته"
         return "\n".join([
             "✅ استلمت حزمة ZIP الجاهزة", f"العنوان: {doc['title']}",
             f"النوع: {doc['format']} — القالب: {doc['template']}",
