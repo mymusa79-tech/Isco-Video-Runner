@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "الزيارة المفاجئة: متى تكون لطفًا ومتى تصبح إحراجًا؟",
-  "stage": "🎙️ خارج النص · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40154594022",
-  "result": "",
-  "updated_at": 1792897031
+  "result": "success",
+  "updated_at": 1792897124
 }
