@@ -27057,9 +27057,9 @@
           "assets/music_bed.mp3": "47c783337b3d28f52fb529605e651ecd4acc1bfc6edbe03f23335a08c0028335"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-25T14:46:11Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-25T14:46:15Z",
       "request_sha256": "42e456faa74fad758fef27940942c600ea00bda4050e3dcaea85df55c70240e8",
       "owner_art": {
         "zip": {
@@ -27593,6 +27593,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-25T14:46:12Z",
+  "updated_at": "2026-10-25T14:46:15Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
