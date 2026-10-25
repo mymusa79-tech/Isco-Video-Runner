@@ -4955,6 +4955,24 @@ def _source_has_natural_motion(source: Path, seconds: float) -> bool:
         return True
 
 
+_ALA_MAHL_TERMINAL_TEMPLATES = frozenset({"ala_mahl", "ala_mahl_dialogue"})
+
+
+def _extend_last_slot_to_terminal(
+    visual_schedule: list[dict[str, Any]], template: str, duration: float,
+) -> None:
+    """Let the last Ala Mahl story image run to the end of the timeline.
+
+    The outro overlays that interval from its measured start. Without this the
+    pre-outro breath fell back to the generic #283a54 slate and the podcast
+    showed a ~0.2 s solid blue frame right before the outro.
+    """
+    if template in _ALA_MAHL_TERMINAL_TEMPLATES and visual_schedule:
+        end = round(float(duration) * 30) / 30
+        visual_schedule[-1]["end"] = end
+        visual_schedule[-1]["duration_seconds"] = end - visual_schedule[-1]["start"]
+
+
 def _render_terminal_story_hold(
     source: Path, destination: Path, *, displayed_seconds: float, seconds: float,
 ) -> Path:
@@ -5269,9 +5287,7 @@ def render_video(
     visual_schedule: list[dict[str, Any]] = []
     if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
         visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
-        if timeline.get("template") == "ala_mahl" and visual_schedule:
-            visual_schedule[-1]["end"] = round(duration * 30) / 30
-            visual_schedule[-1]["duration_seconds"] = visual_schedule[-1]["end"] - visual_schedule[-1]["start"]
+        _extend_last_slot_to_terminal(visual_schedule, str(timeline.get("template") or ""), duration)
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
         if approved_package and fmt in {"film", "podcast", "short"}:
