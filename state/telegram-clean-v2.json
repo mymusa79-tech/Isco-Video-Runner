@@ -8780,6 +8780,21 @@
       "selected_at": "2026-10-25T05:55:46Z",
       "created_at": "2026-10-25T05:55:46Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-324bbe4d9a",
+      "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "normalized_title": "متي يصبح الصبر علي الوضع الخاطي خسارة؟",
+      "market_query": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-25T14:45:15Z",
+      "created_at": "2026-10-25T14:45:15Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -26238,9 +26253,823 @@
         "started_at": "2026-10-25T05:57:31Z",
         "finished_at": "2026-10-25T06:21:02Z"
       }
+    },
+    "req-4eb05593de6c": {
+      "schema_version": 1,
+      "request_id": "req-4eb05593de6c",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-324bbe4d9a",
+      "selected_at": "2026-10-25T14:45:15Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "hypothesis_test",
+          "title": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "أنت تعرف قرارًا يستنزفك، ومع ذلك تواصل دفع ثمنه. هل تبقى أم تتوقف؟ سنبدأ بقصة ورشة تكشف كيف يخدعنا ما أنفقناه. وفي منتصف الفيلم سنواجه اعتراضًا صعبًا: ماذا لو كان الاستمرار صائبًا؟ وفي النهاية ستخرج باختبار عملي من ثلاث خطوات تطبقه على قرارك.\nفي نهاية الشهر، دفع إيجار ورشته مرةً أخرى، وهو يعرف أن الطلبات لا تكفي. إلى متى يستمر؟\nلنتخيل صاحب ورشة نجارة صغيرة. بدأها بحماس، واشترى المعدات، وعلّق آمالًا كثيرة على أول قطعة يبيعها. أحب المهنة فعلًا، وكان يجيدها، لكن إجادة العمل وحدها لم تجلب الزبائن الذين توقعهم. وقد تجد نفسك في قرار مشابه، تدفع من وقتك ومالك خشية أن تضيع تضحياتك السابقة.\nأول عامٍ لم يكن سهلًا. قال لنفسه إن البدايات صعبة، وإن الصبر سيؤتي ثماره. تعلّم أكثر، وحسّن أعماله، وانتظر. هذا تفسير معقول، في البداية على الأقل.\nثم بدأت الفواتير تتراكم. كان يقتطع من مدخراته ليسدد الإيجار، ويقضي ساعات في صناعة قطع لا يشتريها أحد. وكلما فكر في التغيير تذكر ما دفعه في الآلات، وما قضاه من أمسيات داخل الورشة.\nحين اقترح صديق أن يغيّر نوع الخدمة، قال: بعد كل هذا التعب، أتراجع؟ قد يكون الصواب في الاستمرار أو التغيير. السؤال ليس: هل تعب بما يكفي؟ السؤال: هل ما ينتظره يستحق الثمن الذي سيدفعه بعد اليوم؟ وهذه قصة افتراضية."
+              },
+              {
+                "id": "s2",
+                "text": "ما الذي يجعله يتمسك بالورشة؟ هناك سبب واضح: يريد ألّا تتحول السنوات الماضية إلى خسارة. لكنه قد يخلط بين احترام جهده، والدفاع عن قرار لم تعد شروطه كما كانت.\nاستعادة المال الماضي ليست خيارًا متاحًا. ثمن آلة اشتراها، وإيجار أشهر انقضت، وساعات انتهت، كلها وقعت بالفعل. يمكنه بيع بعض المعدات واستعادة جزء من قيمتها، لكن ما لا يمكن استعادته لن يعود لمجرد أنه واصل العمل.\nلكن القادم لم يُدفع بعد. إيجار الشهر المقبل، وثمن الخشب الجديد، والوقت الذي سيترك فيه فرصًا أخرى: هذه تكاليف حقيقية ما زال يستطيع الاختيار بشأنها. وفي المقابل قد تأتي طلبات جديدة، أو يظهر سوق أفضل، أو تنجح خطة مختلفة. كلا الوجهين يستحق الحساب.\nيمكنه مثلًا أن يحتفظ بعملائه، ويحوّل الورشة من صناعة الأثاث الكبير إلى إصلاح القطع الصغيرة. أو أن يشارك مساحة العمل مع حرفي آخر. وربما يكشف الحساب أن الاستمرار بالشكل الحالي أفضل من البدائل. لا توجد إجابة واحدة لكل مشروع.\nالفرق هنا مهم: إذا قلت سأستمر لأن أمامي فرصة مدعومة بطلبات وأرقام واضحة، فهذا سبب يتعلق بالمستقبل. أما إذا قلت سأستمر لأنني لا أحتمل الاعتراف بما خسرته، فقد أصبح الماضي صاحب القرار. وهنا تبدأ المشكلة."
+              },
+              {
+                "id": "s3",
+                "text": "هذا الانحياز له اسم في علم اتخاذ القرار: أثر التكلفة الغارقة. يحدث عندما يدفعنا مال أو وقت أو جهد سبق أن أنفقناه إلى الاستمرار، حتى حين لا تكفي المكاسب المتوقعة لتبرير ما سننفقه لاحقًا.\nفي دراسة نشرها هال آركس وكاثرين بلومر عام ألف وتسعمئة وخمسة وثمانين، رصد الباحثان سلوك حضور عروض مسرحية بعد شراء اشتراكات بأسعار مختلفة. ارتبط دفع المبلغ الكامل بحضور عروض أكثر في النصف الأول من الموسم. وقدّمت الدراسة تجارب وأسئلة أخرى تدعم أن ما دفعناه قد يؤثر في القرار التالي.\nهذه النتيجة لا تقول إن كل من يُكمل مشروعًا مخطئًا، ولا إنها تفسر وحدها سلوك كل إنسان. هي تُظهر ميلًا يمكن أن يتدخل في الاختيار.\nوفي مراجعة تحليلية نُشرت عام ألفين وخمسة عشر، وجمع فيها الباحثون ثمانيةً وتسعين حجم أثر من دراسات سابقة، وجدوا دليلًا على وجود الظاهرة، لكن قوتها تتغير بحسب نوع القرار وظروفه. والأهم أنهم ميّزوا بين استخدام شيء دُفع ثمنه بالفعل، وبين استثمار مال إضافي لإكمال مشروع.\nومع ذلك، ليس كل استمرار عنادًا. فبعض المشاريع تستغرق وقتًا طويلًا قبل أن تؤتي ثمارها. ودور المعرفة هنا أن يجعلنا نفحص السبب الذي يجعلنا نبقى، لا أن نغادر لمجرد أننا تعرّفنا على اسم انحياز نفسي."
+              },
+              {
+                "id": "s4",
+                "text": "وماذا لو كان الاستمرار صائبًا؟ ماذا لو ترك صاحب ورشة نجارة عمله قبل أسابيع من وصول طلب كبير؟ ألن يكون التخلي المبكر خسارة أيضًا؟ نعم، وهذا اعتراض يستحق الأخذ به.\nقد يتعثر مشروع جيد مؤقتًا. ربما يتأخر زبون في الدفع، أو تكون المبيعات موسمية، أو يحتاج المنتج إلى تعديل معلوم قبل أن يجد جمهوره. المثابرة هنا قد تكون استثمارًا معقولًا، بشرط أن يكون لدينا ما يدعم توقع التحسن.\nلهذا لا يكفي أن تنظر إلى الخسائر الماضية. انظر إلى الطلبات الفعلية، وإلى كلفة الأشهر المقبلة، وإلى ما سيحدث إن لم تتحقق الخطة. وقارن بين هذا المسار وما تستطيع فعله بالوقت والمال نفسيهما. من غير الدقة اعتبار كل أمل وهمًا، كما أنه من الخطأ التعامل مع كل أمل بوصفه دليلًا.\nلنفترض أن الورشة حصلت على عقود جديدة حقيقية. أصبحت المواد المطلوبة معروفة، ومواعيد التسليم واضحة، والعائد المتوقع أعلى من المصروفات اللازمة. في هذه الحالة، قد يكون الاستمرار قرارًا سليمًا، حتى بعد شهور صعبة.\nأما إذا كانت الوعود تتكرر بلا طلبات، والديون تكبر، والخطة لا تتغير، فما الذي سيختلف الشهر المقبل؟ هنا يصبح الصبر كلمة مريحة تخفي سؤالًا صعبًا. ليس المطلوب شجاعة الإغلاق في كل مرة؛ المطلوب شجاعة تغيير الرأي عندما تتغير الأدلة."
+              },
+              {
+                "id": "s5",
+                "text": "كيف نتخذ قرارًا أعدل؟ بدل أن تبدأ بسؤال: كم خسرت حتى الآن؟ ابدأ بسؤال: لو عُرض عليّ هذا المشروع اليوم بشروطه الحالية، هل سأدخله؟ هذا السؤال لا يحسم كل شيء، لكنه يكشف مقدار تأثير الماضي في نظرتك. ويجبرك على فحص الموقف القائم بدل الاحتماء ببدايته الجميلة.\nيمكنك أن تختبر قرارك بثلاث خطوات. الخطوة الأولى: احسب تكلفة الاستمرار من اليوم، لا ما دفعته بالأمس. ثم ضع البدائل على الطاولة، بما فيها تغيير الخدمة أو التوقف المؤقت. وأخيرًا حدد موعدًا لمراجعة النتائج، وعلامة واحدة قابلة للقياس، مثل طلبات حقيقية أو تغطية المصروفات.\nهذه الخطوات لا تضمن القرار الصحيح، لكنها تمنعك من تسليم المقود للماضي. ومن الأفضل أن تطلب رأي شخص يعرف تفاصيل المشروع، ويستطيع أن يعارضك بلا خوف من جرحك. فالنصيحة العامة لا تكفي حين يكون قرارك مرتبطًا بالتزامات مالية أو بأشخاص يعتمدون عليك.\nقد يقرر صاحب الورشة أن يمنح التغيير شهرًا محددًا، ثم يحتفظ بما ينجح ويتخلى عما يستنزفه. وربما يقرر الاستمرار كما هو، لأن الحساب يدعمه. في الحالتين، لم تعد السنوات الماضية حجةً قاطعة. ولم يعد الاعتراف بتغير الظروف إهانةً للجهد الذي سبق أن بذله.\nالسؤال الذي بدأنا به لم يكن: هل يجب أن تتوقف؟ بل: ماذا تدفع كي لا تعترف بأن الطريق يحتاج إلى تغيير؟ أحيانًا يكون الصبر قوة. وأحيانًا تكون القوة في مراجعة القرار قبل أن تصبح الخسارة المقبلة أكبر من الماضية. ما بذلته يستحق الاحترام، لكنه لا يملك وحده حق تقرير ما ستفعله غدًا."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "s1: مباشر في الهوك، مع وقفة 0.6 ثانية قبل «ماذا لو كان الاستمرار صائبًا؟»؛ أبطئ عند الورشة ثم اجعل «هل تبقى أم تتوقف؟» حادة. s2: شرح متوازن، أبطئ وتوقف 0.6 ثانية قبل «لكن القادم لم يُدفع بعد.»؛ اجعل الجملة قصيرة وحادة. s3: حياد علمي وتوقف 0.6 ثانية قبل «ارتبط دفع المبلغ الكامل...»؛ لا تبالغ في الاستنتاج. s4: سؤال الاعتراض بحيوية ووقفة 0.6 ثانية قبل «نعم، وهذا اعتراض...» ثم ميز بين الرجاء والدليل. s5: أبطئ عند كل خطوة، واترك 0.6 ثانية قبل «هذه الخطوات لا تضمن القرار الصحيح»؛ أنهِ بهدوء وحسم."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "أنت تعرف قرارًا يستنزفك، ومع ذلك تواصل دفع ثمنه.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/money-in-a-jar-7710770/",
+                "query_en": "Household expenses and overdue bills",
+                "query_alt_en": "Small business cost on table",
+                "must_show": "Decision spending resources with close-up motion"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "سنبدأ بقصة ورشة تكشف كيف يخدعنا ما أنفقناه.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/close-up-footage-of-tools-in-carpentry-6790701/",
+                "query_en": "Vacant modest workshop establishing shot",
+                "query_alt_en": "Empty workshop bench natural window light",
+                "must_show": "Workshop tools active closeup without faces"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "ماذا لو كان الاستمرار صائبًا؟",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/a-ticking-clock-7033786/",
+                "query_en": "Clock ticking against neutral background",
+                "query_alt_en": "Time passing mechanical hands closeup",
+                "must_show": "Time passing on a ticking analog clock"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "في نهاية الشهر، دفع إيجار ورشته مرةً أخرى،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Empty furniture workshop interior",
+                "query_alt_en": "Unfinished wooden chair workshop",
+                "must_show": "Wide shop with workbench and unsold chair"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "بدأها بحماس، واشترى المعدات،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/carpentry-flatlay-6789912/",
+                  "https://www.pexels.com/video/carpentry-tools-on-wooden-table-4480587/",
+                  "https://www.pexels.com/video/panning-shot-of-carpentry-tools-6789590/"
+                ],
+                "query_en": "Woodcraft workshop tools and equipment",
+                "query_alt_en": "Wide close moving views of workbench",
+                "must_show": "Workshop equipment establishing shot, close workshop tools, panning motion; no readable text or visible faces"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s1",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "وقد تجد نفسك في قرار مشابه، تدفع من وقتك ومالك خشية أن تضيع تضحياتك السابقة.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Wood workshop opening morning",
+                "query_alt_en": "Quiet storefront workbench",
+                "must_show": "Wide workshop at start of day, no faces"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s1",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "أول عامٍ لم يكن سهلًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Quiet evening empty small business",
+                "query_alt_en": "Unused workshop at end of day",
+                "must_show": "Room after failed trading day, no people"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s1",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "ثم بدأت الفواتير تتراكم.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Almost empty glass savings jar",
+                "query_alt_en": "Coins remaining in anonymous jar",
+                "must_show": "Neutral coins without identified currency"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s1",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "وكلما فكر في التغيير تذكر ما دفعه في الآلات،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Unused appointment calendar on wall",
+                "query_alt_en": "Empty order schedule wall calendar",
+                "must_show": "No readable letters or numbers"
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s1",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "حين اقترح صديق أن يغيّر نوع الخدمة،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "السؤال الذي يغيّر القرار",
+                "items": [
+                  {
+                    "label": "ما بذلته سابقًا",
+                    "at_text": "السؤال ليس: هل تعب بما يكفي؟"
+                  },
+                  {
+                    "label": "ما ستدفعه لاحقًا",
+                    "at_text": "السؤال: هل ما ينتظره يستحق الثمن الذي سيدفعه بعد اليوم؟"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s2",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "ما الذي يجعله يتمسك بالورشة؟ هناك سبب واضح: يريد",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Old woodworking machinery idle",
+                "query_alt_en": "Stored machine in empty shop",
+                "must_show": "Machine purchased in past, no person"
+              }
+            },
+            {
+              "id": "scene_12",
+              "section_id": "s2",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "استعادة المال الماضي ليست خيارًا متاحًا. ثمن آلة اشتراها،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Used power tools on workbench",
+                "query_alt_en": "Workshop equipment arranged for sale",
+                "must_show": "Recoverable equipment value rather than repeated sawing"
+              }
+            },
+            {
+              "id": "scene_13",
+              "section_id": "s2",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "يمكنه بيع بعض المعدات واستعادة جزء من قيمتها، لكن",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Old industrial machine unused interior",
+                "query_alt_en": "Abandoned unused woodworking equipment",
+                "must_show": "Vacant machinery, no persons"
+              }
+            },
+            {
+              "id": "scene_14",
+              "section_id": "s2",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "إيجار الشهر المقبل، وثمن الخشب الجديد، والوقت الذي سيترك",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Quiet empty commercial storage room",
+                "query_alt_en": "Closed small warehouse interior no workers",
+                "must_show": "Interior with stillness, no signs"
+              }
+            },
+            {
+              "id": "scene_15",
+              "section_id": "s2",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "وفي المقابل قد تأتي طلبات جديدة، أو يظهر سوق",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "New materials lumber stacks",
+                "query_alt_en": "Wood inventory on shelves",
+                "must_show": "Upcoming choices and material costs"
+              }
+            },
+            {
+              "id": "scene_16",
+              "section_id": "s2",
+              "asset": "assets/scene_16.jpg",
+              "start_text": "يمكنه مثلًا أن يحتفظ بعملائه، ويحوّل الورشة من صناعة",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Small wooden chair awaiting repair",
+                "query_alt_en": "Discarded chair unfinished repairs",
+                "must_show": "One unfinished object no people"
+              }
+            },
+            {
+              "id": "scene_17",
+              "section_id": "s2",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "وربما يكشف الحساب أن الاستمرار بالشكل الحالي أفضل من",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "الاستمرار يحتاج دليلًا",
+                "items": [
+                  {
+                    "label": "تقييم الفرص",
+                    "at_text": "وربما يكشف الحساب أن الاستمرار بالشكل الحالي أفضل من البدائل."
+                  },
+                  {
+                    "label": "لا حل واحدًا للجميع",
+                    "at_text": "لا توجد إجابة واحدة لكل مشروع."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_18",
+              "section_id": "s2",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "الفرق هنا مهم: إذا قلت سأستمر لأن أمامي فرصة",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Open workshop threshold two pathways",
+                "query_alt_en": "Empty workroom doorway afternoon light",
+                "must_show": "Perspective from a small business workshop toward a choice of paths, without identifiable faces or text"
+              }
+            },
+            {
+              "id": "scene_19",
+              "section_id": "s3",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "هذا الانحياز له اسم في علم اتخاذ القرار: أثر",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Seesaw balancing object weights",
+                "query_alt_en": "Old balance scale close up",
+                "must_show": "Mechanism of sunk cost bias illustrated physically"
+              }
+            },
+            {
+              "id": "scene_20",
+              "section_id": "s3",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "يحدث عندما يدفعنا مال أو وقت أو جهد سبق",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Half finished chair untouched workspace",
+                "query_alt_en": "Abandoned craft project on bench",
+                "must_show": "Incomplete object, no workers"
+              }
+            },
+            {
+              "id": "scene_21",
+              "section_id": "s3",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "في دراسة نشرها هال آركس وكاثرين بلومر عام ألف",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Empty theater hall tracking",
+                "query_alt_en": "Theater seating stage interior",
+                "must_show": "Historical theater experiment reference no text"
+              }
+            },
+            {
+              "id": "scene_22",
+              "section_id": "s3",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "ارتبط دفع المبلغ الكامل بحضور عروض أكثر في النصف",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Quiet empty cinema seats slow tracking",
+                "query_alt_en": "Empty theater auditorium rows of chairs",
+                "must_show": "Unoccupied small theater auditorium in motion, no numbered seats, no posters or clear text"
+              }
+            },
+            {
+              "id": "scene_23",
+              "section_id": "s3",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "هذه النتيجة لا تقول إن كل من يُكمل مشروعًا",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_24",
+              "section_id": "s3",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "وفي مراجعة تحليلية نُشرت عام ألفين وخمسة عشر، وجمع",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "ماذا وجدت المراجعة؟",
+                "items": [
+                  {
+                    "label": "ثمانية وتسعون أثرًا",
+                    "at_text": "وجمع فيها الباحثون ثمانيةً وتسعين حجم أثر من دراسات سابقة،"
+                  },
+                  {
+                    "label": "الأثر يختلف",
+                    "at_text": "وجدوا دليلًا على وجود الظاهرة، لكن قوتها تتغير بحسب نوع القرار وظروفه."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_25",
+              "section_id": "s3",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "والأهم أنهم ميّزوا بين استخدام شيء دُفع ثمنه بالفعل،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Neutral balance scales past future",
+                "query_alt_en": "Wood and metal weights on antique scales",
+                "must_show": "No visible text or currency"
+              }
+            },
+            {
+              "id": "scene_26",
+              "section_id": "s3",
+              "asset": "assets/scene_27.jpg",
+              "start_text": "ودور المعرفة هنا أن يجعلنا نفحص السبب الذي يجعلنا",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Sunlit workshop door and shelves",
+                "query_alt_en": "Work tools ready near open door",
+                "must_show": "Return from explanation to real decision"
+              }
+            },
+            {
+              "id": "scene_27",
+              "section_id": "s4",
+              "asset": "assets/scene_objection.jpg",
+              "start_text": "وماذا لو كان الاستمرار صائبًا؟",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_28",
+              "section_id": "s4",
+              "asset": "assets/scene_objection_question.jpg",
+              "start_text": "ماذا لو ترك صاحب ورشة نجارة عمله قبل أسابيع من وصول طلب كبير؟",
+              "motion": "slow_zoom",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_29",
+              "section_id": "s4",
+              "asset": "assets/scene_30.jpg",
+              "start_text": "نعم، وهذا اعتراض يستحق الأخذ به.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Open door to silent workplace",
+                "query_alt_en": "Unoccupied shop interior",
+                "must_show": "Waiting for decision and opportunity"
+              }
+            },
+            {
+              "id": "scene_30",
+              "section_id": "s4",
+              "asset": "assets/scene_31.jpg",
+              "start_text": "ربما يتأخر زبون في الدفع،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Boxes arranged for delivery",
+                "query_alt_en": "Wooden packages ready for customer",
+                "must_show": "Potential order before delivery, no signs"
+              }
+            },
+            {
+              "id": "scene_31",
+              "section_id": "s4",
+              "asset": "assets/scene_32.jpg",
+              "start_text": "المثابرة هنا قد تكون استثمارًا معقولًا،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Packed handcrafted furniture awaiting collection",
+                "query_alt_en": "Delivery ready chairs wrapped in paper",
+                "must_show": "Products ready for pickup, no people"
+              }
+            },
+            {
+              "id": "scene_32",
+              "section_id": "s4",
+              "asset": "assets/scene_33.jpg",
+              "start_text": "لهذا لا يكفي أن تنظر إلى الخسائر الماضية.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "الاستمرار أم التغيير؟",
+                "items": [
+                  {
+                    "label": "طلبات وعوائد فعلية",
+                    "at_text": "انظر إلى الطلبات الفعلية، وإلى كلفة الأشهر المقبلة، وإلى ما سيحدث إن لم تتحقق الخطة."
+                  },
+                  {
+                    "label": "البدائل المتاحة",
+                    "at_text": "وقارن بين هذا المسار وما تستطيع فعله بالوقت والمال نفسيهما."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_33",
+              "section_id": "s4",
+              "asset": "assets/scene_34.jpg",
+              "start_text": "من غير الدقة اعتبار كل أمل وهمًا،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Two separate sets of documents",
+                "query_alt_en": "Budget choice on empty table",
+                "must_show": "Two plausible choices, neither implied certain"
+              }
+            },
+            {
+              "id": "scene_34",
+              "section_id": "s4",
+              "asset": "assets/scene_29.jpg",
+              "start_text": "لنفترض أن الورشة حصلت على عقود جديدة حقيقية.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/carpentry-tools-on-wooden-table-6789602/",
+                  "https://www.pexels.com/video/carpenter-working-on-a-wood-piece-6789897/",
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-sanding-wood-6789575/"
+                ],
+                "query_en": "Workshop preparing furniture production",
+                "query_alt_en": "Craftsman hands shaping wood interior",
+                "must_show": "Workshop work prepares to fulfill confirmed orders; hands closeups, no identifiable faces or brands"
+              }
+            },
+            {
+              "id": "scene_35",
+              "section_id": "s4",
+              "asset": "assets/scene_35.jpg",
+              "start_text": "في هذه الحالة، قد يكون الاستمرار قرارًا سليمًا،",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Packed furniture boxes in storage",
+                "query_alt_en": "Workshop finished orders",
+                "must_show": "Opportunity supported by real work"
+              }
+            },
+            {
+              "id": "scene_36",
+              "section_id": "s4",
+              "asset": "assets/scene_36.jpg",
+              "start_text": "هنا يصبح الصبر كلمة مريحة تخفي سؤالًا صعبًا.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Closed door workshop late evening",
+                "query_alt_en": "Quiet shop after working hours",
+                "must_show": "What actually changes next month"
+              }
+            },
+            {
+              "id": "scene_37",
+              "section_id": "s5",
+              "asset": "assets/scene_37.jpg",
+              "start_text": "كيف نتخذ قرارًا أعدل؟ بدل أن تبدأ بسؤال: كم",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "Neutral workroom empty conference chairs",
+                "query_alt_en": "Two empty chairs around plain table",
+                "must_show": "No participants or signs"
+              }
+            },
+            {
+              "id": "scene_38",
+              "section_id": "s5",
+              "asset": "assets/scene_38.jpg",
+              "start_text": "هذا السؤال لا يحسم كل شيء، لكنه يكشف مقدار",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Unmarked wall calendar and pencil",
+                "query_alt_en": "Timetable blank days closeup",
+                "must_show": "Blank calendar without dates"
+              }
+            },
+            {
+              "id": "scene_39",
+              "section_id": "s5",
+              "asset": "assets/scene_39.jpg",
+              "start_text": "الخطوة الأولى: احسب تكلفة الاستمرار من اليوم، لا ما",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "board": {
+                "layout": "steps",
+                "theme": "editorial",
+                "title": "اختبار من ثلاث خطوات",
+                "items": [
+                  {
+                    "label": "تكلفة الغد",
+                    "at_text": "الخطوة الأولى: احسب تكلفة الاستمرار من اليوم، لا ما دفعته بالأمس."
+                  },
+                  {
+                    "label": "اختبر البدائل",
+                    "at_text": "ثم ضع البدائل على الطاولة، بما فيها تغيير الخدمة أو التوقف المؤقت."
+                  },
+                  {
+                    "label": "موعد ومؤشر",
+                    "at_text": "وأخيرًا حدد موعدًا لمراجعة النتائج، وعلامة واحدة قابلة للقياس، مثل طلبات حقيقية أو تغطية المصروفات."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_40",
+              "section_id": "s5",
+              "asset": "assets/scene_40.jpg",
+              "start_text": "هذه الخطوات لا تضمن القرار الصحيح، لكنها تمنعك من",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Unused carpenter workbench end of day",
+                "query_alt_en": "Empty workshop window late afternoon",
+                "must_show": "Unoccupied calm worktable"
+              }
+            },
+            {
+              "id": "scene_41",
+              "section_id": "s5",
+              "asset": "assets/scene_41.jpg",
+              "start_text": "فالنصيحة العامة لا تكفي حين يكون قرارك مرتبطًا بالتزامات",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Two chairs at meeting table",
+                "query_alt_en": "Second opinion in quiet room",
+                "must_show": "Honest external perspective without faces"
+              }
+            },
+            {
+              "id": "scene_42",
+              "section_id": "s5",
+              "asset": "assets/scene_42.jpg",
+              "start_text": "قد يقرر صاحب الورشة أن يمنح التغيير شهرًا محددًا،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Coiled rope measuring tape on wood",
+                "query_alt_en": "Packed unfinished chairs in workshop",
+                "must_show": "Products not computer desk"
+              }
+            },
+            {
+              "id": "scene_43",
+              "section_id": "s5",
+              "asset": "assets/scene_43.jpg",
+              "start_text": "في الحالتين، لم تعد السنوات الماضية حجةً قاطعة. ولم",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Old workshop balance weights",
+                "query_alt_en": "Two weight pans symbolic decision",
+                "must_show": "Balance metal and wood, no logos"
+              }
+            },
+            {
+              "id": "scene_44",
+              "section_id": "s5",
+              "asset": "assets/scene_44.jpg",
+              "start_text": "السؤال الذي بدأنا به لم يكن: هل يجب أن",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "Half open workshop wooden door",
+                "query_alt_en": "Daylight at workshop entrance",
+                "must_show": "Threshold suggesting a choice"
+              }
+            },
+            {
+              "id": "scene_45",
+              "section_id": "s5",
+              "asset": "assets/scene_45.jpg",
+              "start_text": "وأحيانًا تكون القوة في مراجعة القرار قبل أن تصبح",
+              "motion": "slow_pan",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "youtube_audio_library",
+            "track_id": "after-sunset",
+            "asset": "assets/music_bed.mp3",
+            "delay_seconds": 3
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "ما الذي تدفعه غدًا؟"
+          },
+          "publishing": {
+            "title": "متى يصبح الصبر خسارة؟ كيف تعرف أن وقت تغيير المسار قد حان",
+            "description": "متى تتحول المثابرة إلى خسارة؟ نفحص أثر التكلفة الغارقة، ولماذا نواصل قرارًا لمجرد أننا أنفقنا عليه سنوات من حياتنا، وكيف نراجع استمرارنا دون تسرّع.\n\nنبدأ بقصة افتراضية لصاحب ورشة، ثم نعرض ما تقوله دراسات اتخاذ القرار عن التكلفة الغارقة، ونطرح اعتراضًا حقيقيًا: قد يكون الاستمرار صائبًا أيضًا. في النهاية اختبار عملي يساعدك على التفكير في تكلفة المستقبل والبدائل المتاحة.\n\nمصادر البحث:\nArkes & Blumer (1985): https://doi.org/10.1016/0749-5978(85)90049-4\nRoth, Robbert & Straus (2015): https://doi.org/10.1007/s40685-014-0014-8\n\n#نداء_اليقظة #التكلفة_الغارقة #اتخاذ_القرار #تطوير_الذات",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التكلفة_الغارقة",
+              "#اتخاذ_القرار",
+              "#تطوير_الذات"
+            ],
+            "tags": [
+              "التكلفة الغارقة",
+              "أثر التكلفة الغارقة",
+              "متى تتوقف",
+              "اتخاذ القرارات",
+              "المثابرة",
+              "الصبر",
+              "تغيير المسار",
+              "نداء اليقظة"
+            ]
+          },
+          "derivative": {
+            "start_text": "ماذا لو ترك صاحب ورشة نجارة عمله قبل أسابيع من وصول طلب كبير؟",
+            "end_text": "المثابرة هنا قد تكون استثمارًا معقولًا، بشرط أن يكون لدينا ما يدعم توقع التحسن.",
+            "cover": {
+              "asset": "assets/derived_cover.jpg",
+              "text": "هل المثابرة دائمًا صحيحة؟"
+            },
+            "publishing": {
+              "title": "هل ترك المشروع دائمًا خسارة؟ | اختبار المثابرة",
+              "description": "ماذا لو توقفت قبل أن تتحسن الأمور؟ اعتراض حقيقي على فكرة ترك المشاريع الخاسرة؛ مقتطف حرفي من الفيلم الكامل «متى يصبح الصبر على الوضع الخاطئ خسارة؟».\n\n#نداء_اليقظة #التكلفة_الغارقة #اتخاذ_القرار",
+              "hashtags": [
+                "#نداء_اليقظة",
+                "#التكلفة_الغارقة",
+                "#اتخاذ_القرار"
+              ],
+              "tags": [
+                "الصبر",
+                "التكلفة الغارقة",
+                "تغيير القرار",
+                "نداء اليقظة"
+              ]
+            }
+          }
+        },
+        "zip_sha256": "e3af5cd09505b1ba3232154132c5266f2c664bffd6e142c970f2f450a0f5961a",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "78988e5c5ea5dd9f607665c6f66082ffabb894b9801312180f64293aed9db65a",
+          "assets/derived_cover.jpg": "465d062b16584f82e97e413834a154ea7f6c456b93b61e6134401a9177479da3",
+          "assets/scene_01.jpg": "b58c97a5477837c2af7a58e7dd458987607f42a9cd504ebb260583a0e7530f7b",
+          "assets/scene_02.jpg": "9d7b7148b9fdda083c1b0d5f89e03c0b6cdffcd2f1c71e46dc26e6148f810590",
+          "assets/scene_03.jpg": "5a52a78434af4bb704e090338332ef7625156ebe7eb63f81cf6f175be7fc4acf",
+          "assets/scene_04.jpg": "cb1cd27e250d3eb83e1d33da2056436432c004253cb2df5e6c840c49592417ee",
+          "assets/scene_05.jpg": "bc4da36110e62226b77477875e27237a8b449f3228c59ab4ef944ab0de5fb728",
+          "assets/scene_06.jpg": "02ab67cff63ff34b22ab69df09b066230e02f2e6cadc4c4cd5bfd72b0f1aab77",
+          "assets/scene_07.jpg": "2e91bf156e48d5e3753ffa2b5b54d43ae5acf9ab4d59a80102ae9330205fa754",
+          "assets/scene_08.jpg": "0c5b578d4fc3e4670b85a2fb01d858d88826e835c44f6d5058386db1f27c661c",
+          "assets/scene_09.jpg": "fb0e1e8ebb185c3e30383cbfc690c03f019c298ad863a09c057ea1bf35325f5f",
+          "assets/scene_10.jpg": "e8d6061e9a4bcbcd088e6a4da774b910cfc4ad111b3f630732182d8fcc9ececb",
+          "assets/scene_11.jpg": "59e199c0096a15b0f74beed47b7bdc41598442bdf46cba62bb86fcb2d5e84b94",
+          "assets/scene_12.jpg": "2253a3810d2642104c18c0da9c95de6efabfdbcec7cdb32d0c4f4e2a620ee02e",
+          "assets/scene_13.jpg": "05ab7dc32f22b9628aeb652b071bac24f00481b1bfc90de6bc8482e69da2ec60",
+          "assets/scene_14.jpg": "a42ed534a0a6b13f221fc8bce28bbfe6ee324ed105b6d6ae6c9033eadc60eb12",
+          "assets/scene_15.jpg": "09b7a360e2d03d06223fac0506c5b179761fe4ea9b2b4a4b40c580898c09573c",
+          "assets/scene_16.jpg": "0f29a1e0a4c46493899e0dc2ee3c16c39a9ac1f2702a314d7aa79c940565d7f1",
+          "assets/scene_17.jpg": "b02beb0d54b3987475a1ff8c577811c61ed91130573c05831d064e610e456cc0",
+          "assets/scene_18.jpg": "d623ae15f6cdbbe65cce083be83d80bdb8d08c5a378096c05113d1c9b9a9936f",
+          "assets/scene_19.jpg": "f5033128910cff502d2e6eba3489824a8145ffdde2f3fa6e2a62bae53e002935",
+          "assets/scene_20.jpg": "749d0c26c3a378e8d837cc818e5292cf78fe0898d2e0275390247d09b4502e6f",
+          "assets/scene_21.jpg": "d412a1ffecbb3b7bf3ad0cf6716818911882a3a3ad1f1b1e4cf2636b94791393",
+          "assets/scene_22.jpg": "698968910fc3a5250ebe28fd58e7aa74a74ccaa02566e834d04dfd2fa58db0b7",
+          "assets/scene_23.jpg": "ba8ec118ba486b0b8cd1624a2829aa2d414977e7e35174583ac5eb45061fb892",
+          "assets/scene_24.jpg": "68586f213c953988a3a93c11c3f3606c3b670ec0116ec63d545e98c5d3c03c46",
+          "assets/scene_25.jpg": "2c6c6f2768f3e6c06a94fbf62ac84b65bd791ebeb10113bbb65a8636a92659d2",
+          "assets/scene_27.jpg": "8f68b9eaa5aa3511449cc89caad7ab2424bc93a7205151ec8e544470d090e963",
+          "assets/scene_29.jpg": "a3c79f6eabd89c9ef3531dc2285a0773bf75b5e6f62831fe02ef871ae0b2fb6a",
+          "assets/scene_30.jpg": "c05976213060fdb33b1b5e2fffc1178de8eec76d36cf6f658e14f83e7c73d599",
+          "assets/scene_31.jpg": "b16c05f969e798bacdbf96c840338ef7fbcf086e7f575d12f1b97aeb909d73cf",
+          "assets/scene_32.jpg": "887529f1b94568063af80407cefa7b6c146baeeae302845ce1855638e9c6f90e",
+          "assets/scene_33.jpg": "5bdaca47db27ab55c3bbdbc6f1e65772a935f038ca9019761e4922c86e9f5819",
+          "assets/scene_34.jpg": "7bdeb9c8b416ffe661e383ab04db10a915f71049cccbf01683e2015092e11d2a",
+          "assets/scene_35.jpg": "19834f271836f7ed6b696d32ca416b63c64e554472fd7602984373374e893ab9",
+          "assets/scene_36.jpg": "9212cf11cfc2c93213ccc0da77962d66ee95aaacf8686de47434b43639fe8024",
+          "assets/scene_37.jpg": "72e5f2430183c008daecb83e37ada5a44180f8d17119a1e380fca24f8ea981af",
+          "assets/scene_38.jpg": "34458cc0cf02340478d5b655c34212fe7a1e5f172e4398e3e00266dd3b87dde3",
+          "assets/scene_39.jpg": "b7447d44eee210d0370ea54a6585cb408639d9cd6e6f170032cbbd63267f546c",
+          "assets/scene_40.jpg": "6f30a8f94c3db6ab5d7c067926cb3029ae28c83b04a4df6428b3189321494df9",
+          "assets/scene_41.jpg": "b1c2a91fb27479ef54090b39af9b26cc2964a61065c70cc33af990182bda710c",
+          "assets/scene_42.jpg": "ffdd99ef3cc658808e4c775b14e01a55bcbb2d75738e06471fbb18b8edd2bcde",
+          "assets/scene_43.jpg": "6952cae82ecf5b11b99005f15576ff0971134380c6aba0472e5a5e7dd2b77f8d",
+          "assets/scene_44.jpg": "f4e57f956029ee617d96bf4b611999fb58c12fa9629ea144a92d36e776bef288",
+          "assets/scene_45.jpg": "4bea43eaf61185d8dba27aa9b4166906e959a877b52fbafad566531abc3cf457",
+          "assets/scene_objection.jpg": "cae77ac7a9dc92e5fe83f6b353ccdc12c1b914c88111379e06dc88dc20a9872b",
+          "assets/scene_objection_question.jpg": "9c2a5d59657d80de166c7f6d062e1e60a39e951922782bdd0edb370e6a2c9afc",
+          "assets/music_bed.mp3": "47c783337b3d28f52fb529605e651ecd4acc1bfc6edbe03f23335a08c0028335"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "42e456faa74fad758fef27940942c600ea00bda4050e3dcaea85df55c70240e8",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIPUGreFeATTJECQ72TqEzFyDD2T-kXAAKtJgACulTwUriR_-o6IX0EPQQ",
+          "sha256": "e3af5cd09505b1ba3232154132c5266f2c664bffd6e142c970f2f450a0f5961a"
+        }
+      }
     }
   },
-  "current_request_id": "req-141667ae9d71",
+  "current_request_id": "req-4eb05593de6c",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -26763,6 +27592,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-25T14:42:24Z",
+  "updated_at": "2026-10-25T14:45:15Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
