@@ -27778,8 +27778,8 @@
           "assets/music_bed.mp3": "47c783337b3d28f52fb529605e651ecd4acc1bfc6edbe03f23335a08c0028335"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-25T17:09:34Z",
       "dispatched_at": null,
       "request_sha256": "40e2095ab0ef3069a4344356db65875ae73d2ca78e628d0f0409f433ac8c0a33",
       "owner_art": {
@@ -27787,7 +27787,8 @@
           "file_id": "BQACAgQAAxkBAAIPXWreNUoEJ-Qe0KDHfBVh6U5ab8l-AALwJgACulTwUkeZy8PcQWCMPQQ",
           "sha256": "933e0d3d4ce305712caf70f83a18ef4a59298547eeee27ac691ee28f8ff5de66"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-c30e18b36c49",
@@ -28313,6 +28314,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-25T16:59:24Z",
+  "updated_at": "2026-10-25T17:09:35Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
