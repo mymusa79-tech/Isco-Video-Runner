@@ -12,6 +12,7 @@ on:
       - "scripts/test_production_package.py"
       - "scripts/test_ready_production_e2e.py"
       - "scripts/test_isolated_derivative.py"
+      - "scripts/test_extra_derivatives.py"
       - "scripts/retry_clean_v2_derivative.py"
       - ".github/workflows/clean-v2-derivative-only.yml"
       - "scripts/test_clean_v2_channel_persona.py"
@@ -148,7 +149,7 @@ jobs:
         run: python -m unittest scripts.test_podcast_photo_ffmpeg_smoke -v
 
       - name: Optional derivative isolation and no-TTS retry
-        run: python -m unittest scripts.test_isolated_derivative -v
+        run: python -m unittest scripts.test_isolated_derivative scripts.test_extra_derivatives -v
 
   produce:
     permissions:

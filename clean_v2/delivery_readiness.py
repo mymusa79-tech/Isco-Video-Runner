@@ -168,7 +168,26 @@ def audit_delivery(output_dir: Path, *, fmt: str, expected_sha256: str = "") -> 
             if derivative_cover["status"] != "pass":
                 notes.append("derivative_cover_" + derivative_cover["status"])
 
+    extra_rows = []
+    if fmt in {"film", "podcast"}:
+        wanted = [c for c in (original.get("extra_derivatives") or []) if isinstance(c, dict)]
+        reported = {int(r.get("index", 0)): r for r in (_read(root / "derivative-extras.json").get("shorts") or [])
+                    if isinstance(r, dict)}
+        stem = "long-short" if fmt == "film" else "podcast-short"
+        for number, wished in enumerate(wanted, 2):
+            row = reported.get(number, {})
+            present = _existing(root / f"{stem}-{number}.mp4")
+            done = row.get("status") == "pass" and present
+            extra_rows.append({"number": number, "status": "pass" if done else "review",
+                               "reported_status": str(row.get("status") or "unreported"),
+                               "reason": row.get("reason"), "file": f"{stem}-{number}.mp4" if present else None})
+            if not (isinstance(wished.get("cover"), dict) and wished["cover"].get("asset")):
+                notes.append(f"approved_extra_{number}_cover_asset_not_in_zip")
+            if not done:
+                notes.append(f"approved_extra_short_{number}_not_delivered")
+
     report = {
+        "extra_derivatives": extra_rows,
         "schema_version": 1, "format": fmt, "source": "post_render_actual_files",
         "status": ("review_master" if not primary_ready
                    else "complete" if not notes else "partial_delivery"),

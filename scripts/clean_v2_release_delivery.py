@@ -332,6 +332,9 @@ def _derived_hook_title(text: object, *, limit: int = 62) -> str:
     return pick
 
 
+MAX_EXTRA_SHORTS = 4  # matches clean_v2.production_package.MAX_EXTRA_DERIVATIVES
+
+
 def _derived_short_publish_metadata(
     root: Path,
     *,
@@ -339,11 +342,19 @@ def _derived_short_publish_metadata(
     parent: dict[str, Any],
     short_prefix: str,
     published_parent_youtube_video_id: str | None = None,
+    extra_index: int = 0,
 ) -> dict[str, Any]:
     plan = _read_json(Path(root) / "plan.json")
     report = _read_json(Path(root) / f"{short_prefix}.json")
     section_id = _compact(report.get("section_id"))
-    owned = ((_read_json(Path(root) / "production.json").get("derivative") or {}).get("publishing"))
+    stem = "derived-short" if extra_index <= 0 else f"derived-short-{extra_index + 1}"
+    production = _read_json(Path(root) / "production.json")
+    if extra_index <= 0:
+        owner_item = production.get("derivative") or {}
+    else:
+        extras_list = production.get("extra_derivatives") or []
+        owner_item = extras_list[extra_index - 1] if extra_index <= len(extras_list) else {}
+    owned = (owner_item or {}).get("publishing")
     if isinstance(owned, dict) and owned.get("title"):
         # The editor wrote this derived Short's own title/description/hashtags (checked against
         # YouTube's limits when the package was imported); use them as written.
@@ -353,7 +364,7 @@ def _derived_short_publish_metadata(
             "description": str(owned.get("description") or ""),
             "hashtags": [str(h) for h in owned.get("hashtags") or []],
             "youtube_tags": [str(t) for t in owned.get("tags") or []],
-            "video_file": "derived-short.mp4", "cover_file": "derived-short-cover.jpg",
+            "video_file": f"{stem}.mp4", "cover_file": f"{stem}-cover.jpg",
             "source_section_id": section_id or None,
             "suggested_related_video_id": _published_parent_youtube_video_id(published_parent_youtube_video_id),
             "related_video_assignment": "manual_youtube_studio", "publication_mode": "manual",
@@ -393,8 +404,8 @@ def _derived_short_publish_metadata(
         "description": description,
         "hashtags": hashtags,
         "youtube_tags": _youtube_tags(parent_kind, derived_short=True, ala_mahl_podcast=ala_mahl_podcast),
-        "video_file": "derived-short.mp4",
-        "cover_file": "derived-short-cover.jpg",
+        "video_file": f"{stem}.mp4",
+        "cover_file": f"{stem}-cover.jpg",
         "source_section_id": section_id or None,
         "suggested_related_video_id": _published_parent_youtube_video_id(
             published_parent_youtube_video_id
@@ -536,6 +547,34 @@ def _build_publish_package(
         derived_reason = f"{type(exc).__name__}:{str(exc)[:180]}"
         for partial in stage.glob("derived-short*"):
             partial.unlink(missing_ok=True)
+    # Extra Shorts of the same episode: independent, fail-soft, never a gate on the package.
+    extra_shorts: list[dict[str, Any]] = []
+    if kind in {"podcast", "long"} and short_prefix:
+        for number in range(2, 2 + MAX_EXTRA_SHORTS):
+            extra_video = root / f"{short_prefix}-{number}.mp4"
+            extra_qc = _read_json(root / f"{short_prefix}-{number}-qc.json")
+            if not (extra_video.is_file() and extra_video.stat().st_size > 0
+                    and _compact(extra_qc.get("status")).casefold() == "pass"):
+                continue
+            try:
+                extra_cover = _ensure_cover(
+                    video=extra_video, cover=root / f"{short_prefix}-{number}-cover.jpg", portrait=True)
+                extra_meta = _derived_short_publish_metadata(
+                    root, parent_kind=kind, parent=main_meta, short_prefix=f"{short_prefix}-{number}",
+                    published_parent_youtube_video_id=published_parent_youtube_video_id,
+                    extra_index=number - 1,
+                )
+                shutil.copy2(extra_video, stage / f"derived-short-{number}.mp4")
+                shutil.copy2(extra_cover, stage / f"derived-short-{number}-cover.jpg")
+                (stage / f"derived-short-{number}-publish.txt").write_text(_publish_text(extra_meta), encoding="utf-8")
+                (stage / f"derived-short-{number}-publish.json").write_text(
+                    json.dumps(extra_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                extra_shorts.append({"number": number, "title": extra_meta.get("title"),
+                                     "video_file": f"derived-short-{number}.mp4",
+                                     "source_file": extra_video.name})
+            except Exception:
+                for partial in stage.glob(f"derived-short-{number}*"):
+                    partial.unlink(missing_ok=True)
     if kind in {"podcast", "long"}:
         report = _read_json(root / "derivative-status.json") or _read_json(root / f"{short_prefix}.json")
         if not derived_included:
@@ -577,6 +616,13 @@ def _build_publish_package(
                 "إذا كان suggested_related_video_id موجودًا في الملف، أدخله يدويًا كـ Related Video في YouTube Studio.",
             ]
         )
+    if extra_shorts:
+        readme_lines.append("")
+        for item in extra_shorts:
+            n = item["number"]
+            readme_lines.append(
+                f"derived-short-{n}.mp4 / derived-short-{n}-cover.jpg / derived-short-{n}-publish.txt — الشورت رقم {n} من نفس الحلقة"
+            )
     readme_lines.extend(["", "النشر إلى YouTube يبقى يدويًا."])
     (stage / "README.txt").write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
 
@@ -589,6 +635,7 @@ def _build_publish_package(
         "derived_short_included": derived_included,
         "derived_short_status": derived_status,
         "derived_short_reason": derived_reason,
+        "extra_derived_shorts": extra_shorts,
         "optional_caption_files": caption_files,
         "files": sorted(path.name for path in stage.iterdir() if path.is_file()),
         "provider_calls_added": 0,
@@ -740,6 +787,17 @@ def publish_one(
         ):
             print("Telegram derived-short delivery warning: message was not delivered")
         delivery["short_browser_download_url"] = short_url
+    for extra in package_manifest.get("extra_derived_shorts") or []:
+        # Optional convenience links; the complete package above already holds every Short.
+        try:
+            extra_url = _upload_and_get_direct_url(
+                tag=tag, video=Path(root) / str(extra["source_file"]), repository=repository, run=run)
+            send_message(
+                f"⚡ الشورت رقم {extra['number']} من نفس الحلقة\n{extra.get('title') or ''}".strip(),
+                button_text="⚡ مشاهدة/تحميل الشورت", button_url=extra_url)
+            delivery[f"short_{extra['number']}_browser_download_url"] = extra_url
+        except Exception as exc:
+            print(f"Telegram extra short {extra.get('number')} warning: {type(exc).__name__}")
     return delivery
 
 

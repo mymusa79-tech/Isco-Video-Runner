@@ -8,7 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from clean_v2.derived_short import attempt, restore_retry_source, warning_text
+from clean_v2.derived_short import attempt, attempt_extras, restore_retry_source, warning_text
 from scripts.clean_v2_release_delivery import _upload_and_get_direct_url
 from scripts.telegram_clean_v2_notify import send_message
 
@@ -32,6 +32,18 @@ def retry(output: Path, tag: str, repository: str) -> dict:
             report = {**report, "status": "failed", "reason": f"derivative_delivery:{type(exc).__name__}:{str(exc)[:150]}"}
     if report["status"] != "pass":
         send_message(warning_text(report))
+    # Extra Shorts of the same episode are re-cut from the same frozen source; each is independent.
+    try:
+        for extra in attempt_extras(output):
+            if extra.get("status") != "pass":
+                send_message(warning_text({"reason": f"الشورت رقم {extra.get('index')}: {extra.get('reason')}"}))
+                continue
+            extra_url = _upload_and_get_direct_url(
+                tag=tag, video=output / extra["file"], repository=repository, run=subprocess.run)
+            send_message(f"⚡ الشورت رقم {extra['index']} جاهز من الفيديو المحفوظ. لم يُولّد صوت جديد.",
+                         button_text="⚡ مشاهدة/تحميل الشورت", button_url=extra_url)
+    except Exception as exc:
+        print(f"Extra Shorts retry warning: {type(exc).__name__}")
     return report
 
 
