@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "long",
-  "kind": "long",
+  "kind": "",
   "topic": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
-  "stage": "🎬 الطويل · 6/6 الفحص النهائي ✅",
+  "stage": "توقف التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40215109239",
-  "result": "",
-  "updated_at": 1792953723
+  "result": "cancelled",
+  "updated_at": 1792953726
 }
