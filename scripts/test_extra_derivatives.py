@@ -211,5 +211,43 @@ class CoverAndPublishingTests(unittest.TestCase):
             self.assertEqual((first["title"], first["video_file"]), ("الشورت الأول", "derived-short.mp4"))
 
 
+class HookTests(unittest.TestCase):
+    def test_hook_is_optional_short_and_applies_to_primary_and_extras(self):
+        doc = episode()
+        doc["derivative"]["hook"] = "لماذا نسهر رغم التعب؟"
+        doc["extra_derivatives"][0]["hook"] = "الاعتراض الذي يقلب الفكرة"
+        self.assertEqual(package.validate_manifest(doc)["derivative"]["hook"], "لماذا نسهر رغم التعب؟")
+        self.assertNotIn("hook", package.validate_manifest(episode())["derivative"])
+
+    def test_hook_over_40_characters_or_7_words_is_refused(self):
+        for bad in ("ك" * 41, "كلمة " * 8, "", 5):
+            doc = episode()
+            doc["derivative"]["hook"] = bad
+            with self.assertRaises(package.OwnerPackError, msg=repr(bad)):
+                package.validate_manifest(doc)
+
+    def test_hook_card_ends_before_the_closing_card_and_is_visual_only(self):
+        ass = derived_short._hook_ass("لماذا نسهر؟", 12.0)
+        self.assertIn("0:00:00.15,0:00:02.60", ass)
+        self.assertIn("لماذا نسهر؟", ass)
+        short = derived_short._hook_ass("لماذا نسهر؟", 7.2)
+        self.assertIn("0:00:00.15,0:00:02.10", short)  # 7.2 - 5.0 - 0.1
+
+    def test_hook_is_rendered_and_reported_without_changing_duration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            doc = episode()
+            doc["derivative"]["hook"] = "لماذا نسهر رغم التعب؟"
+            parent_two_excerpts(root, doc)
+            primary = derived_short.attempt(root)
+            self.assertEqual(primary["status"], "pass", primary)
+            self.assertEqual(primary["hook_text"], "لماذا نسهر رغم التعب؟")
+            self.assertAlmostEqual(primary["duration_seconds"], 12, delta=0.2)
+            extras = derived_short.attempt_extras(root)
+            self.assertEqual(extras[0]["status"], "pass", extras)
+            self.assertIsNone(extras[0]["hook_text"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

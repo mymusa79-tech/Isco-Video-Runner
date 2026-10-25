@@ -208,7 +208,8 @@ def _selection(context: Mapping[str, Any], doc: Mapping[str, Any]) -> tuple[dict
             return None, "podcast_candidate_ends_with_unanswered_question"
     return {"start": float(selected[0]["start"]), "end": float(selected[-1]["end"]),
             "text": text, "section_id": selected[0]["section_id"],
-            "selection_basis": "approved_exact_text_measured_audio_units" if requested else "existing_measured_topic_unit"}, ""
+            "selection_basis": "approved_exact_text_measured_audio_units" if requested else "existing_measured_topic_unit",
+            "hook": str((requested or {}).get("hook") or "").strip()}, ""
 
 
 def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
@@ -218,7 +219,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     """
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
-    message = "أكمل النقاش\\Nفي الحلقة الكاملة" if podcast else "شاهد الحلقة الكاملة"
+    message = "أكمل النقاش\\Nفي الحلقة الكاملة" if podcast else "شاهد الفيلم كاملًا"
     from .podcast_captions import BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card
 
     # Navy + gold card (same identity as the captions), high enough to clear them.
@@ -247,6 +248,38 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
         f"{shape(GOLD_ASS, '&H00&')}{_rounded_card(right - 52, top + 36, right - 42, bottom - 36, 5)}{{\\p0}}\n"
         f"Dialogue: 3,{stamp},Teaser,line,0,0,0,,"
         f"{{\\an5\\pos(520,{(top + bottom) // 2}){fade}}}{message}\n"
+    )
+
+
+def _hook_ass(text: str, duration: float) -> str:
+    """Visual-only opening line over the first ~2.6 s (never touches speech or timing).
+
+    Same navy + gold card as the closing invitation, so the Short opens and closes in one identity.
+    It always ends before the closing card starts.
+    """
+    from .podcast_captions import BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card
+
+    end = max(0.5, min(2.6, duration - 5.0 - 0.1))
+    stamp = f"{_ass_clock(0.15)},{_ass_clock(end)}"
+    left, right, top, bottom = 60, 1020, 130, 410
+    fade = r"\fad(220,220)"
+    body = text.replace("\\", " ").replace("{", "(").replace("}", ")")
+
+    def shape(colour: str, alpha: str) -> str:
+        return f"{{\\an7\\pos(0,0){fade}\\1c{colour}\\1a{alpha}\\bord0\\shad0\\p1}}"
+
+    return (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n"
+        "ScaledBorderAndShadow: yes\n"
+        "[V4+ Styles]\n"
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
+        "Style: Hook,Cairo,88,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
+        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+        f"Dialogue: 1,{stamp},Hook,card,0,0,0,,{shape(BAR_COLOUR_ASS, BAR_ALPHA_ASS)}{_rounded_card(left, top, right, bottom, 44)}{{\\p0}}\n"
+        f"Dialogue: 2,{stamp},Hook,rim,0,0,0,,"
+        f"{{\\an7\\pos(0,0){fade}\\1a&HFF&\\3c{GOLD_ASS}\\3a&H60&\\bord2\\shad0\\p1}}"
+        f"{_rounded_card(left, top, right, bottom, 44)}{{\\p0}}\n"
+        f"Dialogue: 3,{stamp},Hook,line,0,0,0,,{{\\an5\\pos(540,{(top + bottom) // 2}){fade}}}{body}\n"
     )
 
 
@@ -287,8 +320,14 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
     # Show the invitation over the final five seconds while preserving
     # every spoken word and the original measured clip duration.
     excerpt_duration = window["end"] - window["start"]
+    filters = "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'"
+    hook = str(window.get("hook") or "").strip()
+    if hook and excerpt_duration >= 7.0:
+        hook_ass = root / f"{prefix}-hook.ass"
+        hook_ass.write_text(_hook_ass(hook, excerpt_duration), encoding="utf-8")
+        filters += ",ass='" + _filter_escape_path(hook_ass) + "'"
     _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-          "-vf", "ass='" + _filter_escape_path(ass) + "',ass='" + _filter_escape_path(cta_ass) + "'",
+          "-vf", filters,
           "-map", "0:v:0", "-map", "0:a:0",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
           "-c:a", "copy", str(final)], timeout=900)
@@ -302,6 +341,7 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
               "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
               "source_video": source_video.name, "teaser_cta_seconds": 5,
               "teaser_cta_over_original_speech": True,
+              "hook_text": str(window.get("hook") or "") or None,
               "final_master_qc_status": "pass"}
     return report
 

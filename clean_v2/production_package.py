@@ -406,11 +406,16 @@ MAX_EXTRA_DERIVATIVES = 4  # one primary derivative + up to four extra Shorts pe
 
 def _validate_derivative(doc: Mapping[str, Any], texts: Mapping[str, str], fmt: str,
                          derivative: Any, field: str, assets: set) -> None:
-    _object(derivative, {"start_text", "end_text"}, {"cover", "publishing"}, field=field)
+    _object(derivative, {"start_text", "end_text"}, {"cover", "publishing", "hook"}, field=field)
     if fmt == "short":
         _error("المشتق متاح للفيلم والبودكاست فقط.")
     for key in ("start_text", "end_text"):
         _text(derivative[key], f"{field}.{key}", 1500)
+    if "hook" in derivative:
+        # Optional opening line on screen for the first ~2.6 s (visual only; never changes speech or timing).
+        _text(derivative["hook"], f"{field}.hook", 40)
+        if len(derivative["hook"].split()) > 7:
+            _error(f"{field}.hook: لا يتجاوز 7 كلمات.")
     if "cover" in derivative:
         # The derived Short's own cover, designed by the editor (portrait 9:16), never a frame crop.
         dcover = _object(derivative["cover"], {"asset", "text"}, field=f"{field}.cover")

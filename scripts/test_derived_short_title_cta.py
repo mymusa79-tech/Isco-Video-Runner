@@ -57,7 +57,7 @@ class CtaCardTests(unittest.TestCase):
             self.assertIn(f",Teaser,{name},", ass)
         self.assertIn("0:00:25.00,0:00:29.92", ass)
         self.assertIn("أكمل النقاش", ass); self.assertIn("في الحلقة الكاملة", ass)
-        self.assertIn("شاهد الحلقة الكاملة", _teaser_cta_ass(30.0, podcast=False))
+        self.assertIn("شاهد الفيلم كاملًا", _teaser_cta_ass(30.0, podcast=False))
 
     def test_short_clip_starts_at_zero(self) -> None:
         self.assertIn("0:00:00.00,", _teaser_cta_ass(4.0, podcast=True))
