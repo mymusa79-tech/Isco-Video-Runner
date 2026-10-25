@@ -28187,8 +28187,8 @@
           "assets/short_05_cover.png": "e5cea24871d21c885d5ff43a7567b04ea619e977c26792027500b82c708891ac"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-25T21:12:06Z",
       "dispatched_at": null,
       "request_sha256": "b0fa8c11cf109f230e8e6a9e1e7bcc06f660abb47f358a55c453502f1d0409ea",
       "owner_art": {
@@ -28196,7 +28196,8 @@
           "file_id": "BQACAgQAAxkBAAIPgmrecG7u2XmqAUK7KHkh065hMV1RAAJeJwACulTwUhrjSjM2yZ8gPQQ",
           "sha256": "da63b0af91ec21d68287ca97024a61055dd3ec31f24190db3c2bdca9d2841fec"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-dd79643a2fe1",
@@ -28830,6 +28831,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-25T21:11:34Z",
+  "updated_at": "2026-10-25T21:12:06Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
