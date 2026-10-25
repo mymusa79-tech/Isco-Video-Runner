@@ -32,7 +32,7 @@ class TtsDurableCacheTests(unittest.TestCase):
             api_key="secret-never-persisted",
             transcript=transcript,
             output=output,
-            model="gemini-3.1-flash-tts-preview",
+            model="gemini-3.8-flash-tts",
             voice="Charon",
             style="warm",
         )
@@ -99,7 +99,7 @@ class TtsDurableCacheTests(unittest.TestCase):
                 output = Path(kwargs["output"])
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_bytes(bytes([70 + calls["count"]]) * 4096)
-                voice_mesh.record_voice_provenance(output, provider="piper-local", fallback_used=True)
+                voice_mesh.record_voice_provenance(output, provider="gemini-3.8:Charon", fallback_used=False)
                 return output
 
             with patch.dict(os.environ, self._env(root), clear=False), \

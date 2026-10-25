@@ -57,6 +57,15 @@ def _literal_attempts_one_calls(fn, target_name: str) -> int:
     return count
 
 
+
+def _named_call_count(fn, target_name: str) -> int:
+    """Count direct calls to one named compatibility/provider boundary."""
+    count = 0
+    for node in ast.walk(_tree(fn)):
+        if isinstance(node, ast.Call) and _callable_name(node.func) == target_name:
+            count += 1
+    return count
+
 def _assert_single_wire_call_without_loop(fn, *, label: str) -> None:
     tree = _tree(fn)
     loops = [node for node in ast.walk(tree) if isinstance(node, (ast.For, ast.AsyncFor, ast.While))]
@@ -96,16 +105,16 @@ def certify_provider_retry_ownership() -> dict[str, object]:
             "tts_retry_owner_drift final_voice_boundary_attempts_default_must_equal_1"
         )
 
-    # The Runner Voice Mesh must pass a literal one to Engine's historical provider
-    # adapter, never forward a caller-controlled retry count.
-    if _literal_attempts_one_calls(final_tts, "gemini_synthesize") != 1:
+    # The Runner Voice Mesh must hand off exactly once to the Gemini 3.8 provider
+    # boundary. Caller-controlled attempts are rejected by voice_mesh.synthesize().
+    if _named_call_count(final_tts, "_gemini38_synthesize") != 1:
         raise ProviderRetryOwnershipError(
-            "tts_retry_owner_drift voice_mesh_must_forward_attempts_1_exactly_once"
+            "tts_retry_owner_drift voice_mesh_must_call_gemini38_exactly_once"
         )
 
     # Engine's production TTS owner passes synthesize_wav as a callback into its direct
-    # provider ledger and must force attempts=1 when Runner's Piper fallback is installed.
-    # TtsBudget/TtsCircuit then owns the one optional bonus cloud attempt and failover.
+    # provider ledger and must force attempts=1. TtsBudget/TtsCircuit may grant only
+    # its existing bounded same-Gemini retry; the local seam is terminal fail-closed.
     if _literal_attempts_one_calls(orchestrator._synthesize_tts_section, "synthesize_wav") < 1:
         raise ProviderRetryOwnershipError(
             "tts_retry_owner_drift engine_runner_path_missing_attempts_1"
@@ -125,13 +134,13 @@ def certify_provider_retry_ownership() -> dict[str, object]:
     result = {
         "status": "pass",
         "tts_final_default_attempts": 1,
-        "tts_outer_retry_owner": "engine_tts_budget_circuit",
+        "tts_outer_retry_owner": "engine_tts_budget_circuit_same_gemini_only",
         "vision_single_wire_boundaries": len(vision_boundaries),
         "provider_calls_executed": 0,
     }
     print(
         "Provider retry ownership certified: "
-        "tts_single_attempt_boundary=true tts_outer_owner=engine_tts_budget_circuit "
+        "tts_single_attempt_boundary=true tts_outer_owner=engine_tts_budget_circuit_same_gemini_only "
         f"vision_single_wire_boundaries={len(vision_boundaries)} provider_calls=0"
     )
     return result

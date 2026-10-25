@@ -16,7 +16,7 @@ from typing import Callable
 
 
 HARNESS_VERSION = "tts-blind-v1"
-DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-tts-preview"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash-tts"
 DEFAULT_GEMINI_VOICE = "Charon"
 ENGINES = ("gemini", "voxcpm2", "chatterbox_multilingual_v3")
 BLIND_SEED = "isco-tts-blind-v1-fixed"

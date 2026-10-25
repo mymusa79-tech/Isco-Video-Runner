@@ -262,8 +262,8 @@ def apply_voice_owned_short(
     gemini = secret("GEMINI_API_KEY")
     if not gemini:
         raise RuntimeError("Voice-Owned Timeline requires Gemini key for Voice Mesh primary")
-    model = env("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview") or "gemini-3.1-flash-tts-preview"
-    voice = env("GEMINI_TTS_VOICE", "Gacrux") or "Gacrux"
+    model = env("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts") or "gemini-3.8-flash-tts"
+    voice = "Charon"
     voice_path = root / "short-voice-owned-v1.wav"
     orchestrator._synthesize_tts_section(
         ledger,
@@ -388,7 +388,7 @@ def apply_voice_owned_short(
             "measured_voice_is_authoritative": True,
             "performance_punctuation_preserves_words": True,
             "gemini_provider_attempt_cap": 1,
-            "piper_local_fallback": True,
+            "voice_fallback_allowed": False,
             "extra_text_ai_calls": 0,
             "quality_final_refreshed_after_voice": True,
             "quality_final_refreshed_after_short_finishing": True,
