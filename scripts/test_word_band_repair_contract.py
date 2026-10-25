@@ -216,6 +216,128 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertLessEqual(estimate["estimated_request_tokens"], 6500)
         self.assertEqual(list(additions), [f"sec_{index}" for index in range(1, 9)])
 
+    def test_run268_754_all_target_prompt_dedup_fits_operational_headroom_geometry(self) -> None:
+        counts = [95, 94, 94, 94, 94, 94, 94, 95]
+        self.assertEqual(sum(counts), 754)
+        sections = self._sections(counts)
+        for index, section in enumerate(sections, start=1):
+            section.key_point = (
+                f"RUN268_KEY_POINT_{index}_ "
+                "distinct bounded role with concrete consequence and practical implication"
+            )
+        prompts: list[str] = []
+
+        def fake_json(api_key, prompt, model):
+            del api_key, model
+            prompts.append(prompt)
+            return {
+                "additions": [
+                    {
+                        "id": f"sec_{index}",
+                        "append_text": " ".join(["إضافة"] * 46),
+                    }
+                    for index in range(1, 9)
+                ]
+            }
+
+        install_word_band_repair_contract()
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            additions = staged._script_doctor_underlength_retry(
+                "key",
+                topic="كيف تنهض عندما تفقد الدافع تمامًا؟",
+                model="model",
+                sections=sections,
+                policy_json="{}",
+                research_json="{}",
+                editorial_intent_json=json.dumps(
+                    {
+                        "viewer_promise": "فهم عملي بلا ادعاءات جديدة",
+                        "editorial_turn": "من لوم الذات إلى فهم السلوك",
+                        "evidence_boundaries": ["no new facts"],
+                        "earned_payoff": "خطوة قابلة للتطبيق",
+                    },
+                    ensure_ascii=False,
+                ),
+                narrative_format="problem_reveal_solution",
+                current_words=754,
+                minimum=800,
+            )
+
+        self.assertEqual(len(prompts), 1)
+        prompt = prompts[0]
+        target_ids = [f"sec_{index}" for index in range(1, 9)]
+        self.assertEqual(list(additions), target_ids)
+        for section in sections:
+            self.assertEqual(prompt.count(section.key_point), 1)
+
+        context_marker = (
+            "ALL_SECTION_KEY_POINTS (context only; target key_points are already in "
+            "TARGET_SECTIONS):\n"
+        )
+        context_json = prompt.split(context_marker, 1)[1].split("\n\nEDITORIAL_POLICY:", 1)[0]
+        self.assertEqual(json.loads(context_json), [])
+
+        # Run #268 recorded prompt_utf8_bytes=21_538, reserve=2_000 and a Groq
+        # admission estimate of 7_318. The prompt body itself was not persisted, so
+        # reproduce the exact byte geometry conservatively: rebuild the pre-fix
+        # duplicate key-point block and pre-fix target JSON formatting from this
+        # 754-word/8-target fixture, then add identical inert ASCII padding to old and
+        # new forms until the old form is exactly the observed 21_538 bytes. The
+        # padding cancels out; only this patch's deterministic byte savings differ.
+        target_marker = "TARGET_SECTIONS:\n"
+        target_json = prompt.split(target_marker, 1)[1].split("\n\n" + context_marker, 1)[0]
+        target_specs = json.loads(target_json)
+        old_prompt = prompt.replace(
+            target_json,
+            json.dumps(target_specs, ensure_ascii=False),
+            1,
+        )
+        old_context_header = (
+            "ALL_SECTION_KEY_POINTS (context only; do not duplicate another section's role):\n"
+        )
+        old_context_json = json.dumps(
+            [{"id": section.id, "key_point": section.key_point} for section in sections],
+            ensure_ascii=False,
+        )
+        old_prompt = old_prompt.replace(
+            context_marker + context_json,
+            old_context_header + old_context_json,
+            1,
+        )
+
+        observed_run268_bytes = 21_538
+        old_bytes = len(old_prompt.encode("utf-8"))
+        new_bytes = len(prompt.encode("utf-8"))
+        saved_bytes = old_bytes - new_bytes
+        self.assertGreaterEqual(saved_bytes, 501)
+        self.assertLessEqual(old_bytes, observed_run268_bytes)
+        padding = "x" * (observed_run268_bytes - old_bytes)
+        old_geometry = old_prompt + padding
+        new_geometry = prompt + padding
+        self.assertEqual(len(old_geometry.encode("utf-8")), observed_run268_bytes)
+        self.assertLessEqual(len(new_geometry.encode("utf-8")), 21_037)
+
+        append_spec = stage_contract.append_stage_spec(
+            target_ids,
+            allow_ordered_subset=True,
+        )
+        reserved_completion = append_spec.provider_policy.completion_tokens_for("groq")
+        old_estimate = capacity.groq_capacity_estimate(
+            old_geometry,
+            model_name="openai/gpt-oss-120b",
+            reserved_completion_tokens=reserved_completion,
+            contract_name=append_spec.contract_id,
+        )
+        new_estimate = capacity.groq_capacity_estimate(
+            new_geometry,
+            model_name="openai/gpt-oss-120b",
+            reserved_completion_tokens=reserved_completion,
+            contract_name=append_spec.contract_id,
+        )
+        self.assertEqual(reserved_completion, 2000)
+        self.assertEqual(old_estimate["estimated_request_tokens"], 7318)
+        self.assertLessEqual(new_estimate["estimated_request_tokens"], 7200)
+
     def test_projection_does_not_create_an_extra_provider_retry(self) -> None:
         sections = self._sections([120, 100, 120, 120, 120, 120, 120, 120])
         calls = 0
