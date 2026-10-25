@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "متى يصبح الصبر على الوضع الخاطئ خسارة؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40157362730",
-  "result": "success",
-  "updated_at": 1792901000
+  "topic": "لماذا نتوقف كلما بدأنا نتحسن؟ | خارج النص",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40167366662",
+  "result": "",
+  "updated_at": 1792907860
 }
