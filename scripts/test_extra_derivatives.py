@@ -129,8 +129,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual([r["status"] for r in extras], ["pass"], extras)
             self.assertEqual(extras[0]["index"], 2)
             self.assertEqual(extras[0]["file"], "podcast-short-2.mp4")
-            self.assertAlmostEqual(primary["duration_seconds"], 12, delta=0.2)
-            self.assertAlmostEqual(extras[0]["duration_seconds"], 14, delta=0.2)
+            self.assertAlmostEqual(primary["duration_seconds"], 12 + derived_short.OUTRO_QUIET_SECONDS + derived_short.OUTRO_SECONDS, delta=0.3)
+            self.assertAlmostEqual(extras[0]["duration_seconds"], 14 + derived_short.OUTRO_QUIET_SECONDS + derived_short.OUTRO_SECONDS, delta=0.3)
             self.assertEqual((extras[0]["tts_calls_added"], extras[0]["provider_calls_added"]), (0, 0))
             for name in ("podcast-short-2.mp4", "podcast-short-2-qc.json", "podcast-short-2.json", "derivative-extras.json"):
                 self.assertTrue((root / name).is_file(), name)
@@ -209,6 +209,64 @@ class CoverAndPublishingTests(unittest.TestCase):
             first = delivery._derived_short_publish_metadata(
                 root, parent_kind="podcast", parent={"topic": "حلقة", "title": "حلقة"}, short_prefix="podcast-short")
             self.assertEqual((first["title"], first["video_file"]), ("الشورت الأول", "derived-short.mp4"))
+
+
+class HookTests(unittest.TestCase):
+    def test_hook_is_optional_short_and_applies_to_primary_and_extras(self):
+        doc = episode()
+        doc["derivative"]["hook"] = "لماذا نسهر رغم التعب؟"
+        doc["extra_derivatives"][0]["hook"] = "الاعتراض الذي يقلب الفكرة"
+        self.assertEqual(package.validate_manifest(doc)["derivative"]["hook"], "لماذا نسهر رغم التعب؟")
+        self.assertNotIn("hook", package.validate_manifest(episode())["derivative"])
+
+    def test_hook_over_40_characters_or_7_words_is_refused(self):
+        for bad in ("ك" * 41, "كلمة " * 8, "", 5):
+            doc = episode()
+            doc["derivative"]["hook"] = bad
+            with self.assertRaises(package.OwnerPackError, msg=repr(bad)):
+                package.validate_manifest(doc)
+
+    def test_hook_card_ends_before_the_closing_card_and_is_visual_only(self):
+        ass = derived_short._hook_ass("لماذا نسهر؟", 12.0)
+        self.assertIn("0:00:00.15,0:00:02.60", ass)
+        self.assertIn("لماذا نسهر؟", ass)
+        short = derived_short._hook_ass("لماذا نسهر؟", 7.2)
+        self.assertIn("0:00:00.15,0:00:02.10", short)  # 7.2 - 5.0 - 0.1
+
+    def test_every_derived_short_ends_with_the_nidaa_outro_after_the_last_word(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent_two_excerpts(root, episode())
+            report = derived_short.attempt(root)
+            self.assertEqual(report["status"], "pass", report)
+            self.assertEqual(report["outro"], "short_outro")
+            self.assertAlmostEqual(report["clip_seconds"], 12, delta=0.1)
+            out = root / "podcast-short.mp4"
+            probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "json", str(out)]))
+            kinds = {s["codec_type"] for s in probe["streams"]}
+            self.assertEqual(kinds, {"video", "audio"})
+            # The last 2.2 s are the owner's outro, not the clip: its frame differs from the clip's last frame.
+            frames = []
+            for at in (report["clip_seconds"] - 0.5, report["duration_seconds"] - 1.0):
+                png = root / f"f{int(at*10)}.png"
+                subprocess.check_call(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{at:.2f}", "-i", str(out), "-frames:v", "1", str(png)])
+                frames.append(Image.open(png).convert("L").resize((54, 96)).tobytes())
+            self.assertNotEqual(frames[0], frames[1])
+
+    def test_hook_is_rendered_and_reported_without_changing_duration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            doc = episode()
+            doc["derivative"]["hook"] = "لماذا نسهر رغم التعب؟"
+            parent_two_excerpts(root, doc)
+            primary = derived_short.attempt(root)
+            self.assertEqual(primary["status"], "pass", primary)
+            self.assertEqual(primary["hook_text"], "لماذا نسهر رغم التعب؟")
+            self.assertAlmostEqual(primary["clip_seconds"], 12, delta=0.1)
+            extras = derived_short.attempt_extras(root)
+            self.assertEqual(extras[0]["status"], "pass", extras)
+            self.assertIsNone(extras[0]["hook_text"])
+
 
 
 if __name__ == "__main__":
