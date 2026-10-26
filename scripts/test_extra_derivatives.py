@@ -233,6 +233,38 @@ class HookTests(unittest.TestCase):
         short = derived_short._hook_ass("لماذا نسهر؟", 7.2)
         self.assertIn("0:00:00.15,0:00:02.10", short)  # 7.2 - 5.0 - 0.1
 
+    def test_outro_follows_the_channel_template_never_the_other_channels_logo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for template, expected in (("dialogue_qa", "short_outro"), ("ala_mahl_dialogue", "ala_mahl_outro"),
+                                       ("ala_mahl", "ala_mahl_outro"), ("film_whatever", "short_outro")):
+                atomic_write_json(root / "production.json", {"template": template})
+                self.assertEqual(derived_short._outro_for(root).stem, expected, template)
+            (root / "production.json").unlink()
+            self.assertEqual(derived_short._outro_for(root).stem, "short_outro")
+
+    def test_ala_mahl_derived_short_ends_with_its_own_outro(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            doc = episode()
+            doc["template"] = "ala_mahl_dialogue"
+            parent_two_excerpts(root, doc)
+            report = derived_short.attempt(root)
+            self.assertEqual(report["status"], "pass", report)
+            self.assertEqual(report["outro"], "ala_mahl_outro")
+            out = root / "podcast-short.mp4"
+            png = root / "end.png"
+            subprocess.check_call(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{report['duration_seconds'] - 0.3:.2f}", "-i", str(out), "-frames:v", "1", str(png)])
+            ref = root / "ref.png"
+            subprocess.check_call(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "1.9", "-i", str(derived_short._outro_for(root)), "-frames:v", "1", str(ref)])
+            nidaa = root / "nidaa.png"
+            subprocess.check_call(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "1.9", "-i", str(derived_short.identity_sequence_outro_nidaa()), "-frames:v", "1", str(nidaa)])
+            def sig(path):
+                return list(Image.open(path).convert("L").resize((27, 48)).getdata())
+            def dist(a, b):
+                return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
+            self.assertLess(dist(sig(png), sig(ref)), dist(sig(png), sig(nidaa)))
+
     def test_every_derived_short_ends_with_the_nidaa_outro_after_the_last_word(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

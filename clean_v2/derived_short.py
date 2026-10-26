@@ -255,6 +255,21 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     )
 
 
+def _outro_for(root: Path) -> Path:
+    """The outro of the channel the episode belongs to: Ala Mahl is its own channel, never Nidaa's logo."""
+    from . import identity_sequence as identity
+    try:
+        template = str(_read(Path(root) / "production.json").get("template") or "")
+    except (OSError, ValueError):
+        template = ""
+    return identity._ALA_MAHL_OUTRO if template in {"ala_mahl", "ala_mahl_dialogue"} else identity._SHORT_OUTRO
+
+
+def identity_sequence_outro_nidaa() -> Path:
+    from . import identity_sequence as identity
+    return identity._SHORT_OUTRO
+
+
 def _hook_ass(text: str, duration: float) -> str:
     """Visual-only opening line over the first ~2.6 s (never touches speech or timing).
 
@@ -330,8 +345,8 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
         hook_ass = root / f"{prefix}-hook.ass"
         hook_ass.write_text(_hook_ass(hook, excerpt_duration), encoding="utf-8")
         filters += ",ass='" + _filter_escape_path(hook_ass) + "'"
-    from .identity_sequence import _SHORT_OUTRO
-    if not _SHORT_OUTRO.is_file():
+    outro_asset = _outro_for(root)
+    if not outro_asset.is_file():
         raise RuntimeError("derived_short_outro_asset_missing")
     graph = (
         f"[0:v]setsar=1,fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration={OUTRO_QUIET_SECONDS}[v0];"
@@ -340,7 +355,7 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
         "[1:a]aresample=44100,aformat=channel_layouts=stereo[a1];"
         "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
     )
-    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw), "-i", str(_SHORT_OUTRO),
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw), "-i", str(outro_asset),
           "-filter_complex", f"[0:v]{filters}[cv];" + graph.replace("[0:v]", "[cv]", 1),
           "-map", "[v]", "-map", "[a]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
@@ -356,7 +371,7 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
               "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
               "source_video": source_video.name, "teaser_cta_seconds": 5,
               "teaser_cta_over_original_speech": True,
-              "outro": "short_outro", "outro_seconds": round(OUTRO_QUIET_SECONDS + OUTRO_SECONDS, 3),
+              "outro": _outro_for(root).stem, "outro_seconds": round(OUTRO_QUIET_SECONDS + OUTRO_SECONDS, 3),
               "clip_seconds": round(excerpt_duration, 3),
               "hook_text": str(window.get("hook") or "") or None,
               "final_master_qc_status": "pass"}
