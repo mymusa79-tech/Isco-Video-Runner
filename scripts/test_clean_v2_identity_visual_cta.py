@@ -104,11 +104,29 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         ]
         inject_spoken_identity(sections, fmt="short")
         first = sections[0]["narration"]
-        self.assertTrue(first.startswith("قد لا تكون المشكلة في الدافع نفسه."))
+        self.assertTrue(first.startswith("قد لا تكون المشكلة في الدافع نفسه. حين تتوقف قليلًا ترى ما يحدث بوضوح. "))
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 0)  # owner decision: prayer + outro only
         assert_spoken_identity(sections, fmt="short")
-        self.assertIn(f"{PRAYER_SENTENCE} حين تتوقف قليلًا", first)
+        # Owner order (27 Oct 2026): the prayer waits for the first TWO sentences.
+        self.assertTrue(first.endswith(f"حين تتوقف قليلًا ترى ما يحدث بوضوح. {PRAYER_SENTENCE}"))
+
+    def test_short_prayer_waits_for_two_sentences_even_in_a_longer_first_section(self) -> None:
+        sections = [
+            {"id": "s1", "narration": "فتحت الهاتف لدقيقة فمرّت ساعة. لماذا يحدث هذا كل مرة؟ لأن الشاشة تبدأ قبلك."},
+            {"id": "s2", "narration": "ابدأ بخطوة واحدة واضحة الآن."},
+        ]
+        inject_spoken_identity(sections, fmt="short")
+        assert_spoken_identity(sections, fmt="short")
+        first = sections[0]["narration"]
+        self.assertEqual(first.count(PRAYER_SENTENCE), 1)
+        self.assertTrue(first.startswith(
+            f"فتحت الهاتف لدقيقة فمرّت ساعة. لماذا يحدث هذا كل مرة؟ {PRAYER_SENTENCE} لأن الشاشة"))
+        # An old placement (prayer after one sentence) no longer passes the order check.
+        bad = [{"id": "s1", "narration": f"فتحت الهاتف. {PRAYER_SENTENCE} لماذا؟ لأن الشاشة تبدأ."},
+               {"id": "s2", "narration": "ابدأ."}]
+        with self.assertRaises(RuntimeError):
+            assert_spoken_identity(bad, fmt="short")
 
     def test_short_spoken_order_normalizes_punctuationless_hook_boundary(self) -> None:
         sections = [

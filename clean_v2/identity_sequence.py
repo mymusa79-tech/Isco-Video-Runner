@@ -413,6 +413,30 @@ def _first_sentence(text: str) -> str:
     return compact[: match.end()].strip() if match else compact
 
 
+def _short_opening_hook(text: str) -> str:
+    """Owner order (27 Oct 2026): the Short prayer waits for the FIRST TWO sentences.
+
+    One sentence was too little to say what the Short is about before the prayer. The hook
+    is now up to two complete sentences of the first section; a first section with a single
+    sentence keeps that sentence (the prayer never moves into the next section).
+    """
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact:
+        return ""
+    ends = [match.end() for match in _SENTENCE_END_RE.finditer(compact)]
+    if len(ends) >= 2:
+        return compact[: ends[1]].strip()
+    return _first_sentence(compact)
+
+
+def _opening_hook_for(fmt: str, text: str) -> str:
+    if fmt == "podcast":
+        return _podcast_opening_hook(text)
+    if fmt == "short":
+        return _short_opening_hook(text)
+    return _first_sentence(text)
+
+
 def _podcast_first_a_turn(text: str) -> str:
     """Keep the complete first A turn (including internal full stops).
 
@@ -545,7 +569,7 @@ def inject_spoken_identity(
         section["narration"] = narration
 
     first = str(sections[0].get("narration") or "").strip()
-    hook = _podcast_opening_hook(first) if fmt == "podcast" else _first_sentence(first)
+    hook = _opening_hook_for(fmt, first)
     if not hook:
         raise RuntimeError("identity sequence requires a non-empty opening hook")
     if bridge_in_place:
@@ -611,10 +635,13 @@ def assert_spoken_identity(
         raise RuntimeError("identity sequence requires exactly one channel-definition sentence")
 
     first = str(sections[0].get("narration") or "")
-    hook = _podcast_opening_hook(first) if fmt == "podcast" else _first_sentence(first)
+    # The prayer is host-owned text; the Short hook is measured on the script WITHOUT it.
+    hook = _opening_hook_for(fmt, first.replace(PRAYER_SENTENCE, " ") if fmt == "short" else first)
     prayer_pos = first.find(PRAYER_SENTENCE)
     if not hook or prayer_pos < len(hook):
         raise RuntimeError("identity sequence order must begin hook -> prayer")
+    if fmt == "short" and not " ".join(first[:prayer_pos].split()).strip() == hook:
+        raise RuntimeError("identity sequence: the Short prayer must follow the first two sentences")
     if fmt != "podcast" and definition:
         definition_pos = first.find(definition)
         if definition_pos <= prayer_pos:
