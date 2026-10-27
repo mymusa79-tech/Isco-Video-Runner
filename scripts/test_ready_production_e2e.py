@@ -125,7 +125,12 @@ class ReadyProductionMediaTests(unittest.TestCase):
             self.assertTrue(all(r["provider"] == "owner_art" for r in rights))
             self.assertEqual(before_assets, {name: hashlib.sha256((art / name).read_bytes()).hexdigest() for name in before_assets})
             editing = json.loads((output / "edit-decision-contract.json").read_text())
-            self.assertEqual(len(editing["slots"]), count + 1)  # prayer splits the first picture once
+            # The prayer now follows the first two sentences (27 Oct 2026). It splits a picture
+            # only when it falls inside one; when a picture starts exactly where the second
+            # section starts (the prayer's end) the prayer sits on a picture boundary.
+            second_start = doc["script"]["sections"][1]["text"].split(". ")[0]
+            on_boundary = any(scene["start_text"] == second_start for scene in doc["scenes"])
+            self.assertEqual(len(editing["slots"]), count + (0 if on_boundary else 1))
             self.assertTrue(all(r["owner_motion"] == "hold" for r in rights))
             stock.acquire.assert_not_called(); router.route.assert_not_called()
             return ([text for text, _kwargs in voice.spoken],
