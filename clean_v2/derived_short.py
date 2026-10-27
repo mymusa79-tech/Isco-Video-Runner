@@ -25,6 +25,12 @@ CLEAN_MASTER_MAX_BYTES = 400 * 1024 * 1024
 # Every derived Short ends like a Nidaa Short: the clip plays untouched, then a short quiet beat after
 # the last word and the owner's branded outro (icon + subscribe), exactly the standalone Short's outro.
 OUTRO_QUIET_SECONDS = 0.45
+# Two soft bell notes (A5 then E6) with exponential decay, ~0.9 s, played once as
+# the closing card appears. Volume is relative to the speech bed.
+_CHIME_EXPR = ("0.5*sin(2*PI*880*t)*exp(-5*t)"
+               "+0.42*gte(t,0.16)*sin(2*PI*1318.5*(t-0.16))*exp(-6*(t-0.16))")
+CTA_CHIME_SOURCE = f"aevalsrc='{_CHIME_EXPR}|{_CHIME_EXPR}':d=0.9:s=44100"
+CTA_CHIME_VOLUME = 1.1
 OUTRO_SECONDS = 67 / 30
 
 
@@ -223,11 +229,14 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
     """
     start = max(0.0, duration - 5.0)
     end = max(start, duration - 0.08)
-    message = "شاهد البودكاست\\Nكاملًا" if podcast else "شاهد الحلقة\\Nكاملة"
     from .podcast_captions import BAR_ALPHA_ASS, BAR_COLOUR_ASS, GOLD_ASS, _rounded_card
 
+    # Two big lines: white call, gold payoff word (148pt reads clearly on a phone).
+    gold = "{\\1c" + GOLD_ASS + "}"
+    message = ("شاهد البودكاست\\N" + gold + "كاملًا") if podcast else ("شاهد الحلقة\\N" + gold + "كاملة")
+
     # Navy + gold card (same identity as the captions), high enough to clear them.
-    left, right, top, bottom = 60, 1020, 130, 410
+    left, right, top, bottom = 40, 1040, 120, 500
     stamp = f"{_ass_clock(start)},{_ass_clock(end)}"
     fade = r"\fad(260,200)"
 
@@ -239,7 +248,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
         "ScaledBorderAndShadow: yes\n"
         "[V4+ Styles]\n"
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-        "Style: Teaser,Cairo,92,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
+        "Style: Teaser,Cairo,148,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
         f"Dialogue: 0,{stamp},Teaser,shade,0,0,0,,"
         f"{shape('&H000000&', '&H78&', chr(92) + 'blur16')}{_rounded_card(left, top + 10, right, bottom + 10, 44)}{{\\p0}}\n"
@@ -251,7 +260,7 @@ def _teaser_cta_ass(duration: float, *, podcast: bool) -> str:
         f"Dialogue: 2,{stamp},Teaser,accent,0,0,0,,"
         f"{shape(GOLD_ASS, '&H00&')}{_rounded_card(right - 52, top + 36, right - 42, bottom - 36, 5)}{{\\p0}}\n"
         f"Dialogue: 3,{stamp},Teaser,line,0,0,0,,"
-        f"{{\\an5\\pos(520,{(top + bottom) // 2}){fade}}}{message}\n"
+        f"{{\\an5\\pos(520,{(top + bottom) // 2}){fade}\\fscx86\\fscy86\\t(0,260,\\fscx100\\fscy100)}}{message}\n"
     )
 
 
@@ -280,9 +289,19 @@ def _hook_ass(text: str, duration: float) -> str:
 
     end = max(0.5, min(2.6, duration - 5.0 - 0.1))
     stamp = f"{_ass_clock(0.15)},{_ass_clock(end)}"
-    left, right, top, bottom = 60, 1020, 130, 410
+    left, right, top, bottom = 40, 1040, 120, 500
     fade = r"\fad(220,220)"
     body = text.replace("\\", " ").replace("{", "(").replace("}", ")")
+    # Big and readable on a phone: one line up to 14 characters, otherwise two balanced
+    # lines (WrapStyle 2 never wraps by itself, so the break is explicit and the size drops
+    # with the length so no line leaves the card).
+    size = 130
+    if len(body) > 14:
+        words = body.split()
+        cut = min(range(1, len(words)), key=lambda i: abs(len(" ".join(words[:i])) - len(" ".join(words[i:])))) if len(words) > 1 else 0
+        if cut:
+            body = " ".join(words[:cut]) + "\\N" + " ".join(words[cut:])
+        size = 116 if len(text) <= 28 else 94
 
     def shape(colour: str, alpha: str) -> str:
         return f"{{\\an7\\pos(0,0){fade}\\1c{colour}\\1a{alpha}\\bord0\\shad0\\p1}}"
@@ -292,7 +311,7 @@ def _hook_ass(text: str, duration: float) -> str:
         "ScaledBorderAndShadow: yes\n"
         "[V4+ Styles]\n"
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-        "Style: Hook,Cairo,88,&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
+        f"Style: Hook,Cairo,{size},&H00FFFFFF,&H00FFFFFF,&H00121B29,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,100,100,0,1\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
         f"Dialogue: 1,{stamp},Hook,card,0,0,0,,{shape(BAR_COLOUR_ASS, BAR_ALPHA_ASS)}{_rounded_card(left, top, right, bottom, 44)}{{\\p0}}\n"
         f"Dialogue: 2,{stamp},Hook,rim,0,0,0,,"
@@ -348,14 +367,21 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
     outro_asset = _outro_for(root)
     if not outro_asset.is_file():
         raise RuntimeError("derived_short_outro_asset_missing")
+    # A short generated two-note chime marks the start of the closing card. It is
+    # synthesised by ffmpeg (no third-party audio, no licence), mixed under the
+    # speech, and never trims or moves a spoken word.
+    chime_delay_ms = int(round(max(0.0, excerpt_duration - 5.0) * 1000))
     graph = (
         f"[0:v]setsar=1,fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration={OUTRO_QUIET_SECONDS}[v0];"
         "[1:v]setsar=1,fps=30,format=yuv420p[v1];"
-        f"[0:a]aresample=44100,aformat=channel_layouts=stereo,apad=pad_dur={OUTRO_QUIET_SECONDS}[a0];"
+        f"[0:a]aresample=44100,aformat=channel_layouts=stereo,apad=pad_dur={OUTRO_QUIET_SECONDS}[a0s];"
+        f"[2:a]aformat=channel_layouts=stereo,volume={CTA_CHIME_VOLUME},adelay={chime_delay_ms}:all=1[chime];"
+        "[a0s][chime]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a0];"
         "[1:a]aresample=44100,aformat=channel_layouts=stereo[a1];"
         "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
     )
     _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw), "-i", str(outro_asset),
+          "-f", "lavfi", "-i", CTA_CHIME_SOURCE,
           "-filter_complex", f"[0:v]{filters}[cv];" + graph.replace("[0:v]", "[cv]", 1),
           "-map", "[v]", "-map", "[a]",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
@@ -371,6 +397,7 @@ def _extract_short(root: Path, context: Mapping[str, Any], window: Mapping[str, 
               "clip_boundary_timing": "exact_saved_audio_units", "word_level_alignment_claimed": False,
               "source_video": source_video.name, "teaser_cta_seconds": 5,
               "teaser_cta_over_original_speech": True,
+              "teaser_cta_chime": True,
               "outro": _outro_for(root).stem, "outro_seconds": round(OUTRO_QUIET_SECONDS + OUTRO_SECONDS, 3),
               "clip_seconds": round(excerpt_duration, 3),
               "hook_text": str(window.get("hook") or "") or None,
