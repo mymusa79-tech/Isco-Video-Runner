@@ -513,10 +513,10 @@ def _reattach_dialogue_speaker_label(previous_turn_text: str, continuation_text:
     """
     if not continuation_text or re.match(r"^[AB]:\s*\S", continuation_text):
         return continuation_text
-    speaker = re.match(r"^([AB]):\s*\S", previous_turn_text)
-    if not speaker:
+    labels = re.findall(r"(?<!\S)([AB]):\s*\S", previous_turn_text)
+    if not labels:
         return continuation_text
-    return f"{speaker.group(1)}: {continuation_text}"
+    return f"{labels[-1]}: {continuation_text}"
 
 
 def _bounded_voice_chunks(text: str, *, max_chars: int = VOICE_CHUNK_MAX_CHARS) -> list[str]:
@@ -847,29 +847,23 @@ def _synthesize_sectioned_voice_pass(
             hook_text = section_text[:prayer_pos].strip()
 
             if fmt == "podcast":
-                # Outside the Text V8: A asks first, the branded intro plays,
-                # prayer follows, then B answers directly. The visual intro already
-                # says "بودكاست من نداء اليقظة", so no extra spoken brand sentence.
-                # A spoken bridge ("B: <short lead-in>.") may sit between the listener's
-                # question and the prayer. It belongs to Charon's prayer unit so the
-                # intro still follows the question alone: A asks -> intro -> bridge +
-                # prayer -> answer. Labels are kept so the split never changes narration.
-                bridge_split = re.match(r"^(A:\s*.*?)\s+(B:\s+\S.*)$", hook_text, re.S)
-                prayer_unit = PRAYER_SENTENCE
-                if bridge_split:
-                    hook_text = bridge_split.group(1).strip()
-                    prayer_unit = f"{bridge_split.group(2).strip()} {PRAYER_SENTENCE}"
+                # Owner order (27 Oct 2026), both podcasts: A asks, B's first reply lands,
+                # the branded intro plays, the prayer follows, then the dialogue continues.
+                # The hook voice unit is therefore the whole opening exchange (A turn + B's
+                # first turn); the intro silence is attached after it. The visual intro
+                # already says "بودكاست من نداء اليقظة", so no spoken brand sentence.
                 after_prayer = _reattach_dialogue_speaker_label(
-                    hook_text if not bridge_split else bridge_split.group(2).strip(),
+                    hook_text,
                     section_text[prayer_pos + len(PRAYER_SENTENCE):].strip(),
                 )
                 voice_units.extend(
                     [
                         ("hook", hook_text),
-                        ("prayer", prayer_unit),
+                        ("prayer", PRAYER_SENTENCE),
                     ]
                 )
-                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
+                if after_prayer:
+                    voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_prayer))
             elif fmt == "short":
                 # Shorts: hook -> prayer -> topic (no spoken channel definition, no logo card).
                 voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
