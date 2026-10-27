@@ -413,8 +413,8 @@ def _first_sentence(text: str) -> str:
     return compact[: match.end()].strip() if match else compact
 
 
-def _podcast_opening_hook(text: str) -> str:
-    """Keep the complete first A turn (including internal full stops) before branding.
+def _podcast_first_a_turn(text: str) -> str:
+    """Keep the complete first A turn (including internal full stops).
 
     Legacy unlabeled openings retain the first-sentence boundary. This makes
     the podcast identity independent of punctuation inside the listener's story.
@@ -430,6 +430,32 @@ def _podcast_opening_hook(text: str) -> str:
         ) if marker is not None and marker.start() > 2
     ]
     return compact[:min(boundaries)].strip() if boundaries else compact
+
+
+def _podcast_opening_hook(text: str) -> str:
+    """Owner order (27 Oct 2026): A asks, B's first reply lands, THEN the branded intro.
+
+    The opening unit is the complete first A turn plus the host's first B turn, so the
+    listener hears a real exchange before the intro card and the prayer. The B turn ends
+    at the next A label (or at the prayer / marker if one already sits there). Scripts
+    where B does not directly follow A keep the previous A-only boundary.
+    """
+    first = _podcast_first_a_turn(text)
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact.startswith("A:"):
+        return first
+    rest = compact[len(first):].lstrip()
+    if not re.match(r"B:\s+\S", rest):
+        return first
+    boundaries = [
+        marker.start() for marker in (
+            re.search(r"(?<!\S)A:\s+", rest),
+            re.search(re.escape(PRAYER_SENTENCE), rest),
+            re.search(re.escape(PODCAST_PRAYER_MARKER), rest),
+        ) if marker is not None and marker.start() > 2
+    ]
+    b_turn = rest[:min(boundaries)].strip() if boundaries else rest
+    return f"{first} {b_turn}".strip()
 
 
 def channel_definition(fmt: str, opener: str = "") -> str:
@@ -457,7 +483,7 @@ def _podcast_marker_prayer_in_place(sections: list[dict[str, Any]]) -> bool:
     if total == 1:
         first = " ".join(str(sections[0].get("narration") or "").split()).strip()
         position = first.find(PODCAST_PRAYER_MARKER)
-        hook = _podcast_opening_hook(first)
+        hook = _podcast_first_a_turn(first)
         if position >= len(hook) > 0:
             between = first[len(hook):position].strip()
             match = _PODCAST_BRIDGE_TURN_RE.match(between)

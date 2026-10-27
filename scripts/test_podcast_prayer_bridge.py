@@ -47,11 +47,19 @@ class BridgeInjectionTests(unittest.TestCase):
         self.assertLess(out.index("سأشرح لك السبب"), out.index(PRAYER_SENTENCE))
         self.assertLess(out.index(PRAYER_SENTENCE), out.index("لأن الدماغ"))
 
-    def test_missing_marker_uses_fallback_bridge_and_keeps_prayer(self):
+    def test_first_b_reply_lands_before_the_prayer_without_a_marker(self):
+        # Owner order (27 Oct 2026): A asks, B's first reply, THEN intro and prayer.
         out = _run(f"{HOOK} {ANSWER}")[0]["narration"]
         self.assertEqual(out.count(PRAYER_SENTENCE), 1)
-        self.assertIn(PODCAST_FALLBACK_BRIDGE, out)
-        self.assertLess(out.index(PODCAST_FALLBACK_BRIDGE), out.index(PRAYER_SENTENCE))
+        self.assertNotIn(PODCAST_FALLBACK_BRIDGE, out)
+        self.assertLess(out.index("لماذا نؤجل"), out.index("لأن الدماغ"))
+        self.assertLess(out.index("لأن الدماغ"), out.index(PRAYER_SENTENCE))
+
+    def test_dialogue_continues_with_a_after_the_prayer(self):
+        out = _run(f"{HOOK} {ANSWER} A: وماذا أفعل الآن؟ B: ابدأ بخطوة صغيرة.")[0]["narration"]
+        self.assertEqual(out.count(PRAYER_SENTENCE), 1)
+        self.assertLess(out.index("لأن الدماغ"), out.index(PRAYER_SENTENCE))
+        self.assertLess(out.index(PRAYER_SENTENCE), out.index("وماذا أفعل الآن؟"))
 
     def test_misplaced_marker_is_stripped_and_falls_back(self):
         extra = [{"narration": f"B: تتمة {PODCAST_PRAYER_MARKER} الكلام."}]
@@ -59,7 +67,8 @@ class BridgeInjectionTests(unittest.TestCase):
         joined = " ".join(s["narration"] for s in sections)
         self.assertNotIn(PODCAST_PRAYER_MARKER, joined)
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
-        self.assertIn(PODCAST_FALLBACK_BRIDGE, joined)
+        self.assertNotIn(PODCAST_FALLBACK_BRIDGE, joined)
+        self.assertLess(joined.index("لأن الدماغ"), joined.index(PRAYER_SENTENCE))
 
     def test_bridge_with_question_or_prayer_text_is_rejected(self):
         for bad in ("هل تعرف السبب؟", f"{PRAYER_SENTENCE}"):
@@ -70,7 +79,9 @@ class BridgeInjectionTests(unittest.TestCase):
     def test_too_long_bridge_is_rejected(self):
         long = " ".join(["كلمة"] * 20) + "."
         out = _run(f"{HOOK} B: {long} {PODCAST_PRAYER_MARKER} {ANSWER}")[0]["narration"]
-        self.assertIn(PODCAST_FALLBACK_BRIDGE, out)
+        self.assertNotIn(PODCAST_PRAYER_MARKER, out)
+        self.assertEqual(out.count(PRAYER_SENTENCE), 1)
+        self.assertNotIn(PODCAST_FALLBACK_BRIDGE, out)
 
     def test_two_markers_rejected(self):
         out = _run(f"{HOOK} B: سأجيب الآن. {PODCAST_PRAYER_MARKER} {ANSWER} {PODCAST_PRAYER_MARKER}")[0]["narration"]
@@ -143,7 +154,8 @@ class BridgeVoiceUnitTests(unittest.TestCase):
         self.assertEqual(len(question_calls), 1)
         self.assertIn("غدًا عمل مبكر، فلماذا أرفض النوم؟", question_calls[0])
         self.assertNotIn(PRAYER_SENTENCE, question_calls[0])
-        self.assertNotIn("سأجيبك بهدوء", question_calls[0])
+        # The whole opening exchange (A question + B's first reply) is one unit before the prayer.
+        self.assertIn("سأجيبك بهدوء", question_calls[0])
         self.assertEqual(sum(PRAYER_SENTENCE in c for c in calls), 1)
 
     def test_bridge_is_voiced_by_charon_with_prayer_after_question(self):
@@ -173,8 +185,41 @@ class BridgeVoiceUnitTests(unittest.TestCase):
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
         self.assertLess(joined.index("سأشرح لك السبب"), joined.index(PRAYER_SENTENCE))
         question_call = next(c for c in calls if "لماذا نؤجل" in c)
-        self.assertNotIn("سأشرح لك السبب", question_call)
+        self.assertIn("سأشرح لك السبب", question_call)
         self.assertNotIn(PRAYER_SENTENCE, question_call)
+
+    def test_opening_exchange_is_one_unit_then_prayer_then_the_rest(self):
+        calls = []
+
+        def tts(_key, transcript, path, *, model, **_kw):
+            calls.append(transcript)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_bytes(_wav())
+            return Path(path)
+
+        def concat(inputs, target, *a, **k):
+            Path(target).write_bytes(_wav())
+            return Path(target)
+
+        sections = _run(f"{HOOK} {ANSWER} A: وماذا أفعل الآن؟ B: ابدأ بخطوة صغيرة.")
+        sections[0]["id"] = "s1"
+        with tempfile.TemporaryDirectory() as tmp:
+            synth = GeminiOnlyVoiceSynthesizer("gemini-test-key")
+            with patch("clean_v2.media._gemini38_synthesize", side_effect=tts), patch(
+                "clean_v2.media.time.sleep"
+            ), patch("clean_v2.pipeline.concat_wav_parts", side_effect=concat):
+                _synthesize_sectioned_voice(
+                    synth, sections, Path(tmp) / "n.wav", fmt="podcast", require_charon_only=True
+                )
+        opening = next(c for c in calls if "لماذا نؤجل" in c)
+        self.assertIn("لأن الدماغ", opening)
+        self.assertNotIn(PRAYER_SENTENCE, opening)
+        self.assertNotIn("وماذا أفعل الآن", opening)
+        order = [i for i, c in enumerate(calls) if "لماذا نؤجل" in c or PRAYER_SENTENCE in c or "وماذا أفعل" in c]
+        self.assertEqual(len(order), 3)
+        self.assertLess(calls.index(opening), next(i for i, c in enumerate(calls) if PRAYER_SENTENCE in c))
+        self.assertLess(next(i for i, c in enumerate(calls) if PRAYER_SENTENCE in c),
+                        next(i for i, c in enumerate(calls) if "وماذا أفعل" in c))
 
 
 if __name__ == "__main__":

@@ -125,7 +125,7 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(SHORT_CHANNEL_DEFINITION), 0)
 
-    def test_podcast_spoken_order_is_A_question_then_prayer_then_B_answer(self) -> None:
+    def test_podcast_spoken_order_is_A_question_then_B_reply_then_prayer(self) -> None:
         sections = [
             {
                 "id": "s1",
@@ -144,7 +144,8 @@ class ApprovedIdentityLiteTests(unittest.TestCase):
         self.assertTrue(first.startswith("A: لماذا أعرف ما أريد"))
         self.assertEqual(first.count(PRAYER_SENTENCE), 1)
         self.assertEqual(first.count(PODCAST_CHANNEL_DEFINITION), 0)
-        self.assertIn(f"{PRAYER_SENTENCE} B: لأن وضوح الهدف", first)
+        # Owner order (27 Oct 2026): B's first reply is spoken BEFORE the intro and the prayer.
+        self.assertIn(f"B: لأن وضوح الهدف لا يلغي احتكاك البداية. {PRAYER_SENTENCE}", first)
         assert_spoken_identity(sections, fmt="podcast", opener="ignored dynamic opener")
 
         timing = identity_timing_profile("podcast")
