@@ -62,6 +62,38 @@ class CtaCardTests(unittest.TestCase):
     def test_short_clip_starts_at_zero(self) -> None:
         self.assertIn("0:00:00.00,", _teaser_cta_ass(4.0, podcast=True))
 
+    def test_card_is_large_with_a_gold_payoff_line(self) -> None:
+        ass = _teaser_cta_ass(30.0, podcast=True)
+        self.assertIn("Style: Teaser,Cairo,148,", ass)
+        # Card 1000px wide, top below the Shorts header, white call then a gold payoff word.
+        self.assertIn("شاهد البودكاست\\N{\\1c&H4BA2C9&}كاملًا", ass)
+        self.assertIn("\\t(0,260,\\fscx100\\fscy100)", ass)
+
+    def test_closing_chime_is_generated_not_downloaded(self) -> None:
+        from clean_v2 import derived_short
+
+        self.assertTrue(derived_short.CTA_CHIME_SOURCE.startswith("aevalsrc="))
+        self.assertGreater(derived_short.CTA_CHIME_VOLUME, 0.5)
+        self.assertNotIn("http", derived_short.CTA_CHIME_SOURCE)
+
+
+class HookCardSizeTests(unittest.TestCase):
+    def test_short_hook_is_one_big_line(self) -> None:
+        from clean_v2.derived_short import _hook_ass
+
+        ass = _hook_ass("هل التذكر حكم؟", 30.0)
+        self.assertIn("Style: Hook,Cairo,130,", ass)
+        self.assertNotIn("\\N", ass.split("[Events]")[1])
+
+    def test_long_hook_breaks_into_two_balanced_lines_and_shrinks(self) -> None:
+        from clean_v2.derived_short import _hook_ass
+
+        medium = _hook_ass("ما الذي يفتحه الهدوء؟", 30.0)
+        self.assertIn("Style: Hook,Cairo,116,", medium)
+        self.assertEqual(medium.split("[Events]")[1].count("\\N"), 1)
+        long_ = _hook_ass("لماذا نعيد أخطاءنا القديمة كل ليلة قبل النوم؟", 30.0)
+        self.assertIn("Style: Hook,Cairo,94,", long_)
+
 
 if __name__ == "__main__":
     unittest.main()
