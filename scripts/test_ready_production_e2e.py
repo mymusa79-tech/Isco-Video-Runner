@@ -85,7 +85,10 @@ class ReadyProductionMediaTests(unittest.TestCase):
             kinds = [e["kind"] for e in timeline["identity_events"]]
             self.assertNotIn("channel_identity", kinds); self.assertNotIn("intro", kinds)
             self.assertFalse((output / ".ala-mahl-signature.png").exists())
-            self.assertEqual(len(voice.spoken), 6)
+            # 27 Oct 2026: the Short prayer waits for the first TWO sentences. This fixture's first
+            # section has exactly two, so the whole section is the hook unit and nothing follows the
+            # prayer inside it: 5 voice units (hook, prayer, 2 more sections, outro) instead of 6.
+            self.assertEqual(len(voice.spoken), 5)
             authored = json.loads((output / "script.json").read_text())["sections"]
             self.assertEqual(" ".join(text for text, _ in voice.spoken),
                              " ".join(s["narration"] for s in authored))
