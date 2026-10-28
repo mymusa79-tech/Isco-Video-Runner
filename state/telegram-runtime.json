@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "هل نصلح الأشياء أم نشتري غيرها؟",
-  "stage": "🎙️ خارج النص · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40681269916",
-  "result": "",
-  "updated_at": 1793189145
+  "result": "success",
+  "updated_at": 1793189396
 }
