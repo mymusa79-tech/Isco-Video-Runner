@@ -29136,9 +29136,9 @@
           "assets/short_3_cover.png": "fd193cccabdd6ae17467136b16b3c6692b5d0535e1a64dde54a6cc2fdce0dde5"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-28T11:36:25Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-28T11:36:28Z",
       "request_sha256": "68e9f06d0a3105006f27231b4d5b186106a970932dff3a4866a0f7c825d28783",
       "owner_art": {
         "zip": {
@@ -29780,6 +29780,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-28T11:36:25Z",
+  "updated_at": "2026-10-28T11:36:28Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
