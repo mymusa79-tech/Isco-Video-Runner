@@ -29616,8 +29616,8 @@
           "assets/episode_scene_2d_16x9.png": "b127781dd3a461d940b90c56f6b164a11c652cd1afd93e78068f39af451f639f"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-28T12:12:19Z",
       "dispatched_at": null,
       "request_sha256": "4dc19fa5e7878259111d043da2b7764efaf62699926e9163a0d2cb99f1907c5c",
       "owner_art": {
@@ -29625,7 +29625,8 @@
           "file_id": "BQACAgQAAxkBAAIPwGrh5igRPqXNbevkC9tGcvOPG8MRAAL3JQACJNkRU3D0ybmR9VkWPQQ",
           "sha256": "3f5d67860ab59002ddf33a6acf940bb2ed732ef10a8130e43b3b6dfe43d6af3f"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-3fabca9fa0ee",
@@ -30259,6 +30260,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-28T12:10:37Z",
+  "updated_at": "2026-10-28T12:12:19Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
