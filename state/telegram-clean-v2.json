@@ -29616,9 +29616,9 @@
           "assets/episode_scene_2d_16x9.png": "b127781dd3a461d940b90c56f6b164a11c652cd1afd93e78068f39af451f639f"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-10-28T12:12:19Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-10-28T12:12:23Z",
       "request_sha256": "4dc19fa5e7878259111d043da2b7764efaf62699926e9163a0d2cb99f1907c5c",
       "owner_art": {
         "zip": {
@@ -30260,6 +30260,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-28T12:12:19Z",
+  "updated_at": "2026-10-28T12:12:23Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
