@@ -8870,6 +8870,21 @@
       "selected_at": "2026-10-28T12:10:37Z",
       "created_at": "2026-10-28T12:10:37Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-4622e5039d",
+      "title": "لماذا تشعر بالذنب عندما ترتاح؟",
+      "normalized_title": "لماذا تشعر بالذنب عندما ترتاح؟",
+      "market_query": "لماذا تشعر بالذنب عندما ترتاح؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-28T16:26:02Z",
+      "created_at": "2026-10-28T16:26:02Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -29643,9 +29658,272 @@
         "started_at": "2026-10-28T12:12:38Z",
         "finished_at": "2026-10-28T12:35:43Z"
       }
+    },
+    "req-df53165d284e": {
+      "schema_version": 1,
+      "request_id": "req-df53165d284e",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تشعر بالذنب عندما ترتاح؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-4622e5039d",
+      "selected_at": "2026-10-28T16:26:02Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "لماذا تشعر بالذنب عندما ترتاح؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "لماذا تشعر بالذنب عندما ترتاح؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "أنهيت ما عليك وجلست لترتاح، فبدأ عقلك يُحصي ما لم تُنجزه.\n\nلماذا تبدو الاستراحة وكأنها خطأ يستحق التبرير؟"
+              },
+              {
+                "id": "s2",
+                "text": "وضعت كوب الشاي على الطاولة، لكن قبل الرشفة الأولى تذكرت مهمة يمكن تأجيلها. فتحت دفتر الملاحظات وأضفت سطرًا جديدًا. ثم عدت إليه تبحث عن عمل آخر.\n\nقد يحدث هذا حين تقيس قيمة يومك بعدد المهام المكتملة. عندها يصبح وقت الراحة بندًا يحتاج إلى مبرر، حتى بعد انتهاء التزاماتك الضرورية.\n\nوكلما سألت نفسك: «ماذا كان يمكنني إنجازه الآن؟» صار أصعب أن تستمتع بالدقائق التي خصصتها لنفسك."
+              },
+              {
+                "id": "s3",
+                "text": "بعد إنجاز الضروري اليوم، اترك قائمة المهام بعيدًا عشر دقائق. وإذا خطرت لك مهمة، دوّنها لوقت لاحق، ثم عُد إلى كوبك.\n\nجرّب ذلك اليوم، ولاحظ هل يتغيّر طعم الشاي."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "ابدأ بتوتر واقعي مكتوم ثم تسارع طفيف عند العودة إلى قائمة المهام. أبطئ عند تفسير القياس بالإنجاز، واختم بجملة كوب الشاي بصوت فضولي طبيعي دون وعد بنتيجة. الصوت المعتمد يضيفه العميل؛ لا تنطق عناوين الأقسام أو الهوية أو الصلاة."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/stock_frame_01.jpg",
+              "start_text": "أنهيت ما عليك وجلست لترتاح،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "person completing notes at desk",
+                "query_alt_en": "hand writing notebook work",
+                "must_show": "work just finished; no readable face",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-writing-in-the-notebook-8824734/",
+                  "https://www.pexels.com/video/person-writing-on-notebook-8141345/",
+                  "https://www.pexels.com/video/man-taking-notes-while-using-a-laptop-6860433/"
+                ]
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/stock_frame_02.jpg",
+              "start_text": "لماذا تبدو الاستراحة وكأنها خطأ يستحق التبرير؟",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands pause near cup on table",
+                "query_alt_en": "relaxing with tea at home",
+                "must_show": "person pauses instead of working; no clear face",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-is-sitting-at-a-table-with-a-cup-of-tea-16715114/",
+                  "https://www.pexels.com/video/a-person-reading-a-book-10121926/",
+                  "https://www.pexels.com/video/a-person-sitting-on-a-couch-while-drinking-a-cup-of-coffee-6771505/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/stock_frame_03.jpg",
+              "start_text": "وضعت كوب الشاي على الطاولة،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands serving tea on indoor table",
+                "query_alt_en": "tea glass placed on wooden table",
+                "must_show": "tea served on table, glass and hands close up; no face",
+                "urls": [
+                  "https://www.pexels.com/video/serving-traditional-tea-indoors-35217401/",
+                  "https://www.pexels.com/video/person-pouring-tea-on-a-glass-6825864/",
+                  "https://www.pexels.com/video/person-putting-tea-in-tea-cup-7117429/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/stock_frame_04.jpg",
+              "start_text": "فتحت دفتر الملاحظات وأضفت سطرًا جديدًا.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "pen adding line in notebook",
+                "query_alt_en": "handwriting new task in planner",
+                "must_show": "new handwritten line is added",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-9306139/",
+                  "https://www.pexels.com/video/writing-on-a-blank-page-of-a-notebook-a-to-do-list-reminder-3832195/",
+                  "https://www.pexels.com/video/person-writing-in-notebook-at-desk-33350918/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/stock_frame_05.jpg",
+              "start_text": "ثم عدت إليه تبحث عن عمل آخر.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "person working with notebook and laptop",
+                "query_alt_en": "returning to desk work hands",
+                "must_show": "person resumes notes or work",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-view-of-a-person-writing-while-using-a-laptop-7660058/",
+                  "https://www.pexels.com/video/person-taking-notes-while-looking-at-the-laptop-7392954/",
+                  "https://www.pexels.com/video/using-a-laptop-while-taking-notes-2795165/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/stock_frame_06.jpg",
+              "start_text": "قد يحدث هذا حين تقيس قيمة يومك بعدد المهام المكتملة.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand checking task list notebook",
+                "query_alt_en": "reviewing completed notebook checklist",
+                "must_show": "several task items on list",
+                "urls": [
+                  "https://www.pexels.com/video/efficient-workspace-productivity-checklist-32276633/",
+                  "https://www.pexels.com/video/efficient-business-planning-with-checklists-36628032/",
+                  "https://www.pexels.com/video/a-pen-on-to-do-list-paper-8580886/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/stock_frame_07.jpg",
+              "start_text": "وكلما سألت نفسك:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand returning to task list",
+                "query_alt_en": "writing another item to do list",
+                "must_show": "preoccupation with more unfinished tasks",
+                "urls": [
+                  "https://www.pexels.com/video/writing-to-do-list-on-a-notebook-for-reminders-3832194/",
+                  "https://www.pexels.com/video/hand-writing-checklist-at-work-desk-29568794/",
+                  "https://www.pexels.com/video/organizing-tasks-with-sticky-notes-in-office-setting-29018243/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/stock_frame_08.jpg",
+              "start_text": "بعد إنجاز الضروري اليوم،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands putting away completed work materials",
+                "query_alt_en": "closing laptop filing papers writing reminder",
+                "must_show": "close work, put papers away, note task for later; no face",
+                "urls": [
+                  "https://www.pexels.com/video/person-closing-a-laptop-and-taking-a-cup-of-coffee-8472300/",
+                  "https://www.pexels.com/video/organized-person-putting-her-paperworks-in-a-folder-orderly-8135783/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-a-notepad-9429713/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/stock_frame_09.jpg",
+              "start_text": "جرّب ذلك اليوم،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands holding tea cup indoors",
+                "query_alt_en": "person enjoying warm tea closeup",
+                "must_show": "cup held in hands; no visible face",
+                "urls": [
+                  "https://www.pexels.com/video/a-woman-holding-a-cup-8508060/",
+                  "https://www.pexels.com/video/a-person-holding-a-cup-of-tea-9968979/",
+                  "https://www.pexels.com/video/a-person-holding-a-cup-of-tea-5422552/"
+                ]
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "سطر جديد قبل الرشفة؟"
+          },
+          "publishing": {
+            "title": "لماذا تشعر بالذنب عندما ترتاح؟ | عندما يصبح الإنجاز عبئًا",
+            "description": "قد تجلس لتستمتع بكوب الشاي، ثم تعود إلى دفتر المهام قبل الرشفة الأولى. لماذا يحدث هذا أحيانًا؟\n\nشورت من نداء اليقظة عن الشعور بالذنب أثناء الراحة، وكيف يمكن أن يؤثر ربط قيمة اليوم بالإنجاز وحده في قدرتنا على الاستمتاع بالوقت. جرّب عشر دقائق دون مراجعة القائمة، ولاحظ تجربتك دون انتظار نتيجة محددة.\n\n#نداء_اليقظة #الشعور_بالذنب #الراحة #الإنتاجية",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الشعور_بالذنب",
+              "#الراحة",
+              "#الإنتاجية"
+            ]
+          },
+          "stock_policy": "three_urls_per_scene"
+        },
+        "zip_sha256": "1ad1026431caccdb01c94739935c91df26b61b8012541dec7133391ebb650659",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "c489902c16ba0eff2003b5d4593cb387073d347bbcb0eee1c0a9399d7128f999",
+          "assets/stock_frame_01.jpg": "b43ac00a2a879f2ef1a4e575e21e4a9f06690854e84d931bf4fa6ea972af99fb",
+          "assets/stock_frame_02.jpg": "f7bb3e4d6b47e30f0dfdde4dd2fd7ccd700f7f8bb47ba2d642eb8944e14b88be",
+          "assets/stock_frame_03.jpg": "19bd6dd13d96b8dd6d56cded2931a3ad8ad271f29ffdd745156bafa01bbcfaaf",
+          "assets/stock_frame_04.jpg": "01ff4d39eb4c0c5416e23178e734f4cfbf06b7ba9bddc722a3a7d93d482ba67b",
+          "assets/stock_frame_05.jpg": "b0febead124b0dc0ce4e0324e5411f0085a6b5ff17702011f5fd4cb450b95bc1",
+          "assets/stock_frame_06.jpg": "89eefcf33d8a446c5d4386cbb50ddb73f26fd4ed72a32893967d6fc6bcfa74d8",
+          "assets/stock_frame_07.jpg": "36f4fb96a7adfea970c90c6b7851cf5acea3a9ef1feae4370d3e6fc70a0efda8",
+          "assets/stock_frame_08.jpg": "bab8ff9c000161a2308a2a224292e4586ca54988213b020daba38ef528681fbb",
+          "assets/stock_frame_09.jpg": "44e9c8c4a1f925e25e43b18cf6b84c9591cf5bd1e6867c7d6824621bda7ae6a9"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "1c47521e4aa820807041fd8c8fc708fc23af11bd711a5909be29e8e3d6348f83",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIP1GriIQEP4Kwe5wnBvM8gmAwaKRrmAAJ_JgACJNkRU1HL_3tvAWDfPQQ",
+          "sha256": "1ad1026431caccdb01c94739935c91df26b61b8012541dec7133391ebb650659"
+        }
+      }
     }
   },
-  "current_request_id": "req-3fabca9fa0ee",
+  "current_request_id": "req-df53165d284e",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -30276,6 +30554,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-28T16:20:44Z",
+  "updated_at": "2026-10-28T16:26:03Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
