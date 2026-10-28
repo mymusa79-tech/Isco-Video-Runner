@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "podcast",
   "kind": "",
-  "topic": "لماذا نعيد مواقف الإحراج القديمة كل ليلة؟ | خارج النص",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40317116469",
-  "result": "success",
-  "updated_at": 1793018524
+  "topic": "هل نصلح الأشياء أم نشتري غيرها؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40681269916",
+  "result": "",
+  "updated_at": 1793187417
 }
