@@ -223,14 +223,14 @@ def _rounded_card(left: int, top: int, right: int, bottom: int, radius: int) -> 
 
 
 def build_ass(events: Sequence[Mapping[str, Any]], *, fmt: str = "podcast") -> str:
-    """Podcast uses the unboxed outlined design (the one Film used to wear); Short keeps its thick outline.
+    """Podcast uses the navy card with a gold hairline and speaker colours; Short keeps its thick outline.
 
-    The navy card design now belongs to Film: see build_card_ass.
+    The unboxed outlined design belongs to Film: see film_captions.build_plain_ass.
     """
     if fmt != "short":
-        from .film_captions import PODCAST_FONT_SIZE, build_plain_ass
+        from .film_captions import CARD_FONT_SIZE
 
-        return build_plain_ass(events, speaker_colours=True, font_size=PODCAST_FONT_SIZE, fmt="podcast_plain")
+        return build_card_ass(events, font_size=CARD_FONT_SIZE, speaker_colours=True)
     return _build_short_ass(events)
 
 
