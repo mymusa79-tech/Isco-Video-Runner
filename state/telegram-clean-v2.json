@@ -29911,8 +29911,8 @@
           "assets/stock_frame_09.jpg": "44e9c8c4a1f925e25e43b18cf6b84c9591cf5bd1e6867c7d6824621bda7ae6a9"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-28T16:30:51Z",
       "dispatched_at": null,
       "request_sha256": "1c47521e4aa820807041fd8c8fc708fc23af11bd711a5909be29e8e3d6348f83",
       "owner_art": {
@@ -29920,7 +29920,8 @@
           "file_id": "BQACAgQAAxkBAAIP1GriIQEP4Kwe5wnBvM8gmAwaKRrmAAJ_JgACJNkRU1HL_3tvAWDfPQQ",
           "sha256": "1ad1026431caccdb01c94739935c91df26b61b8012541dec7133391ebb650659"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-df53165d284e",
@@ -30554,6 +30555,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-28T16:26:03Z",
+  "updated_at": "2026-10-28T16:30:51Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
