@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40858751793",
-  "result": "success",
-  "updated_at": 1793273417
+  "topic": "الموقف انتهى… فلماذا تعيده؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40955403658",
+  "result": "",
+  "updated_at": 1793308219
 }
