@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "long",
-  "kind": "long",
+  "kind": "",
   "topic": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
-  "stage": "🎬 الطويل · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/40858751793",
-  "result": "",
-  "updated_at": 1793273124
+  "result": "success",
+  "updated_at": 1793273417
 }
