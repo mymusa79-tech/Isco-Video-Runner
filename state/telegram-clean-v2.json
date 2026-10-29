@@ -31486,8 +31486,43 @@
         "likes": 30,
         "comments": 2
       }
+    },
+    {
+      "captured_at": "2026-10-29T02:54:33Z",
+      "channel_id": "UC_fmWGRen6QUQNd4Dj80MgA",
+      "subscribers": 78,
+      "hidden_subscribers": false,
+      "total_views": 45007,
+      "video_count": 164,
+      "last_long": {
+        "video_id": "rL-8-iR9byc",
+        "title": "هل التوقف المبكر خسارة؟ ومتى تستحق المثابرة؟",
+        "published_at": "2026-10-26T13:30:09Z",
+        "duration_seconds": 521,
+        "views": 1,
+        "likes": 0,
+        "comments": 0
+      },
+      "last_podcast": {
+        "video_id": "buTHl9uZkMU",
+        "title": "لماذا نؤجل النوم رغم التعب؟ | أسباب السهر وتأجيل النوم | خارج النص",
+        "published_at": "2026-10-24T13:30:10Z",
+        "duration_seconds": 1007,
+        "views": 2,
+        "likes": 0,
+        "comments": 0
+      },
+      "last_short": {
+        "video_id": "lxwE1JEH4GI",
+        "title": "لماذا تشعر بالذنب عندما ترتاح؟ | الراحة المتعبة",
+        "published_at": "2026-10-28T16:56:07Z",
+        "duration_seconds": 65,
+        "views": 36,
+        "likes": 5,
+        "comments": 0
+      }
     }
   ],
-  "updated_at": "2026-10-29T02:54:05Z",
+  "updated_at": "2026-10-29T02:54:34Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
