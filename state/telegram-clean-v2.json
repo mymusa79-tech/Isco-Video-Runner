@@ -8885,6 +8885,21 @@
       "selected_at": "2026-10-28T16:26:02Z",
       "created_at": "2026-10-28T16:26:02Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-9f5b8b749c",
+      "title": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
+      "normalized_title": "لماذا لا يهدا عقلك بعد انتهاء يومك؟",
+      "market_query": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-29T02:52:49Z",
+      "created_at": "2026-10-29T02:52:49Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -29938,9 +29953,910 @@
         "started_at": "2026-10-28T16:31:42Z",
         "finished_at": "2026-10-28T16:45:16Z"
       }
+    },
+    "req-3338d4456698": {
+      "schema_version": 1,
+      "request_id": "req-3338d4456698",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-9f5b8b749c",
+      "selected_at": "2026-10-29T02:52:49Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "hypothesis_test",
+          "title": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "أنهيت عملك وأغلقت الباب خلفك، ثم عدت في رأسك إلى محادثة حدثت قبل ساعات. فرضيتنا اليوم أن العمل لا يلاحقك لأنه كثير، بل لأن شيئًا فيه بقي بلا خطوة تالية. سنجرّبها على قصة موظف، ثم نعرض ما تقوله الأبحاث، ونذكر متى لا تنطبق. وفي النهاية تخرج بتجربة من خمس دقائق تقيس بها الفرضية على مساءاتك.\n\nتخيّل موظفًا خرج من مكتبه قبل السادسة بعشر دقائق. على مكتبه تقرير يحتاج مراجعة، وفي بريده رسالة لم يعرف كيف يجيب عنها. وقبل خروجه سأله مديره عن أحد الأرقام، فأجاب بأنه سيتأكد منه صباحًا. لم يبقَ وقت كافٍ لإنهائهما، فأغلق الحاسوب وعاد إلى بيته.\n\nجلس إلى العشاء، وبدأ يسمع حديث من حوله. ثم تذكّر جملة في التقرير. هل كتبها بدقة؟ وبعد دقائق عاد إليه سؤال آخر: ماذا لو طلب المدير التعديل صباحًا؟ لم يفتح الحاسوب، لكنه ظل يناقش المهمة في رأسه. وعندما انتبه، كان الحديث حول المائدة قد انتقل إلى موضوع آخر.\n\nهذا مثال افتراضي، لكنه يصوّر مفارقة مألوفة: يمكن لجسدك أن يغادر العمل بينما يبقى انتباهك مشغولًا به.\n\nلن نفترض أن المشكلة ضعف إرادة، أو أن كل تفكير بعد الدوام ضار. سنضع تفسيرين أمامنا: ربما تعود الأفكار لأن المهمة لم تكتمل، وربما لأنك لا تعرف متى وكيف ستتعامل معها. وهناك احتمال ثالث سنواجهه لاحقًا: أن العمل نفسه لا يسمح لك بالتوقف."
+              },
+              {
+                "id": "s2",
+                "text": "في اليوم التالي اتضح أن التقرير يحتاج مراجعة فقرة واحدة، وأن الرسالة تحتاج سؤالًا لزميله. لكن الموظف ترك الخطوتين بلا ترتيب، فعاد إلى المنزل مساءً وهو لا يعرف من أين سيبدأ.\n\nغيّر تفصيلًا واحدًا: قبل خروجه، يكتب على ورقة: صباح الغد، أراجع الفقرة الثالثة من التقرير، ثم أسأل زميلي عن الرقم المختلف. لم يُنهِ المهمتين، لكنه أصبح يعرف أول خطوة، وموعد العودة إليها.\n\nهل سيكفي هذا ليهدأ؟ ليس بالضرورة. لكن المهمة الغامضة تترك أسئلة أكثر من مهمة حُددت لها خطوة تالية.\n\nهناك فرق بين ثلاثة مواقف. مهمة ناقصة تعرف كيف ستستأنفها. ومهمة ناقصة لا تعرف أصلًا ما المطلوب فيها. ومهمة أنهيتها فعلًا، لكن بيئة العمل نفسها لا تتركك تغلق الباب. هذه سنتركها للقسم الرابع.\n\nلاحظ أيضًا الفرق بين تذكّر المهمة والتورط فيها. قد تتذكرها لدقيقة، فتلتقط فكرة مفيدة ثم تمضي. وقد تعود إليها عشر مرات، وكل مرة تسأل السؤال نفسه من دون معلومة جديدة أو قرار جديد. هنا لم تعد تفحص العمل فقط؛ أصبحت تعيد القلق المرتبط به.\n\nاسأل نفسك عن آخر مساء لم تستطع الاستمتاع به: هل كانت لديك خطوة واضحة مؤجلة إلى وقت محدد؟ أم بقيت تراجع احتمالًا لا تستطيع حسمه؟ الإجابة تساعدك على اختيار الاختبار المناسب."
+              },
+              {
+                "id": "s3",
+                "text": "في يناير من عام ألفين وستة وعشرين، نُشر تحليل جمع نتائج دراسات عن المهام المهنية غير المكتملة والتفكير في العمل خارج أوقاته. وجد الباحثون ارتباطًا واضحًا بين الأمرين، وكان أقوى عندما اتخذ التفكير صورة اجترار مزعج، كإعادة المواقف المشحونة بالقلق أو الغضب.\n\nهذه نتيجة مهمة، لكن علينا قراءة حدودها. الارتباط لا يعني أن كل مهمة ناقصة تسبّب القلق مباشرة. قد يكون ضغط العمل العالي وراء الأمرين معًا. وقد تختلف التجربة باختلاف الأشخاص.\n\nولهذا يفرّق الباحثون في هذا المجال بين التفكير في حل مشكلة، والاجترار الانفعالي. الأول قد يقود إلى فكرة قابلة للتنفيذ. والثاني يعيد الشعور المزعج مع أنه لا يضيف معلومات جديدة. ليس مجرد ظهور فكرة العمل دليلًا على أنك فشلت في الراحة. السؤال هو: ماذا تفعل هذه الفكرة بك، وإلى أين تأخذك؟\n\nدعنا نعود إلى الموظف. عندما يفكر: سأراجع الفقرة الثالثة صباحًا، فقد اتخذ قرارًا. وعندما يفكر: لا بد أنني أفسدت كل شيء، ثم يعيد الجملة نفسها طوال الليل، فهو لا يراجع الفقرة ولا يتلقى معلومة جديدة. ما تغيّر هنا هو مسار التفكير.\n\nوهناك دليل آخر يستحق الاهتمام. في دراسة على موظفين وأهدافهم المهنية، وُجد أن الأهداف غير المكتملة ترتبط بصعوبة ترك العمل ذهنيًا. وعندما وضع بعض المشاركين خططًا محددة للأهداف العالقة، تحسّن الانفصال الذهني لدى الأكثر ارتباطًا بوظائفهم. ولم يستفد الجميع بالقدر نفسه.\n\nثم جاءت تجربة ميدانية على التخطيط الأسبوعي، ووجدت انخفاضًا في المهام غير المكتملة والاجترار خلال الأسابيع التي طُبق فيها التدخل. التنظيم قد يساعد، لكن قائمة سريعة لا تزيل كل قلق.\n\nإذن الفرضية الأولى صمدت جزئيًا: ما لم ننهه قد يرافقنا إلى البيت. لكننا اكتشفنا شيئًا أدق. حجم المهمة وحده ليس القصة كلها؛ وضوح الخطوة التالية، وطبيعة التفكير، والضغط الذي نعمل تحته، كلها أمور قد تغيّر التجربة."
+              },
+              {
+                "id": "s4",
+                "text": "لكن ماذا لو كانت المشكلة خارج قدرتك أصلًا؟ تخيّل شخصًا يعرف بالضبط ما سيفعله غدًا، ومع ذلك تصله تعليمات متأخرة كل مساء. أو موظفًا يطلب منه المسؤول أن يرد فورًا، حتى في يوم راحته. هل نقول له فقط: أغلق دفتر مهامك، وسترتاح؟ سيكون ذلك تجاهلًا للمشكلة الحقيقية.\n\nفي بعض الأعمال، لا تكون المهمة وحدها مفتوحة؛ تكون الحدود بين وقت العمل ووقت الراحة غير واضحة. وقد يخشى الموظف عواقب التأخر في الرد. أحيانًا يكون هذا الخوف مبنيًا على واقع.\n\nولهذا يجب أن نكون دقيقين. تنظيم اليوم يساعدك في التعامل مع جزء من المشكلة، لكنه لا يعوّض عبء عمل غير معقول، ولا يغيّر توقعات مديرك وحده. أحيانًا تكون الخطوة الضرورية هي توضيح وقت الاستجابة، أو التفاوض على الأولويات، أو طلب مساندة مناسبة. وإذا كانت طبيعة العمل تتضمن طوارئ حقيقية، فالحدود تحتاج إلى اتفاق عملي، لا تجاهل للنداءات الضرورية.\n\nوهناك اعتراض آخر: أليس التفكير بعد الدوام مفيدًا أحيانًا؟ نعم. قد تتذكر حلًا أثناء المشي، أو ترى موقفًا من زاوية جديدة عندما يهدأ المكان. لذلك لن نجعل هدفنا منع كل فكرة عن العمل. ولا ينبغي أن تتحول الراحة نفسها إلى امتحان.\n\nالأجدى أن تميّز بين فكرة تفتح لك خيارًا، ودائرة تعيدك إلى الخوف نفسه. إن ظهرت فكرة مفيدة، يمكنك تسجيلها والعودة إلى وقتك. وإن كان هناك أمر عاجل فعلًا، تعامل معه بحسب الحاجة. أما ما لا تستطيع فعله الليلة، فلا يصبح أكثر قابلية للحل لمجرد أنك كررت التفكير فيه عشرين مرة.\n\nبهذا يسقط التفسير السهل الذي يقول إن كل المشكلة في رأسك. أحيانًا تحتاج إلى خطة. وأحيانًا تحتاج إلى حدود. وأحيانًا تحتاج إلى تغيير واقعي في ظروف العمل، لا مجرد تقنية تهدئة."
+              },
+              {
+                "id": "s5",
+                "text": "الآن نصل إلى الاختبار الذي وعدتك به. سنجرّب إغلاقًا مؤقتًا للمهمة، لا ادعاء أنها انتهت. خصص خمس دقائق قبل مغادرتك العمل، إن كانت ظروفك تسمح.\n\nأولًا، اختر مهمة واحدة عالقة تكثر عودتها إلى ذهنك. اكتبها بجملة محددة. بدل عبارة «التقرير متأخر»، اكتب «بقي تدقيق الرقم الموجود في الفقرة الثالثة». التحديد هنا يمنع تحوّل المهمة إلى كتلة غامضة من القلق.\n\nثانيًا، اكتب أول خطوة قابلة للتنفيذ، والوقت الذي ستعود فيه إليها. مثلًا: «غدًا، بعد بدء الدوام بنصف ساعة، أراجع الرقم مع المصدر». إذا احتجت إلى زميل، حدّد السؤال الذي ستطرحه عليه. واختر موعدًا واقعيًا.\n\nثالثًا، حدّد ما لا تستطيع حسمه الليلة. ربما تنتظر ردًا، أو قرارًا من المسؤول، أو معلومة ستصل صباحًا. اكتب ذلك بوضوح، وحدد إن كان يتطلب متابعة في موعد معين. لا توجد فائدة من مطالبة نفسك بحل أمر لم تتوفر شروط حله بعد.\n\nبعد ذلك أغلق أدوات العمل وفق حدود مسؤولياتك المتفق عليها. اختر فعلًا بسيطًا يعلن انتقالك: ترتيب المكتب، أو مغادرة المكان، أو مشيًا قصيرًا قبل العودة إلى البيت. الفعل ليس علاجًا سحريًا؛ هو علامة عملية على أنك أنهيت الجزء الذي تستطيع إنجازه اليوم.\n\nجرّب هذه الخطوات خلال خمسة أيام عمل. وفي كل مساء، اسأل نفسك سؤالين: كم مرة عادت المهمة إلى ذهني؟ وعندما عادت، هل قادتني إلى فعل مفيد، أم أعادت القلق نفسه؟ ملاحظة قصيرة تكفي.\n\nإن تحسن الأمر، فقد اكتشفت وسيلة تناسبك. وإن لم يتحسن، فلا تستنتج أنك غير قادر على الراحة. راجع طبيعة الضغط: هل هناك رسائل مستمرة؟ توقعات غير واضحة؟ مسؤولية أكبر من الوقت المتاح؟ عندها تكون الخطوة التالية في تنظيم العمل وحدوده، لا في زيادة لوم النفس. وإذا صار القلق أو اضطراب النوم مستمرًا ويؤثر في حياتك، فطلب مساعدة مختصة خيار معقول.\n\nتذكر الموظف الذي خرج من مكتبه وبقي التقرير معه في أفكاره. ربما كان يحتاج إلى خطوة واضحة للغد، وحدود واقعية لما لا يستطيع حسمه الليلة.\n\nقد لا تملك يومًا يخلو من المهام العالقة. لكن يمكنك أن تتعلم متى تحمل مسؤولية العمل، ومتى تترك لها مكانًا محددًا تعود إليه. فالراحة لا تبدأ دائمًا عندما يكتمل كل شيء؛ أحيانًا تبدأ حين يصبح لما لم يكتمل موعد واضح وحدود واقعية."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "اجعل الأداء فضوليًا ومتحركًا: الهوك مباشر خلال نحو عشرين ثانية؛ ارفع التوتر مع مثال الموظف، واجعل المقارنة واضحة في القسم الثاني. في الدليل الثالث فرّق بين ارتباط وسبب وأبطئ عند حدود البحث. في الاعتراض الرابع لهجة حاسمة دون توبيخ، مع وقفة قصيرة قبل الاعتراض الواقعي. في القسم الخامس أداء عملي متدرج، نهاية إنسانية غير وعظية. لا تضف كلامًا إلى النص المقفل ولا تغيّر الهوية أو الدعاء."
+          },
+          "scenes": [
+            {
+              "id": "s1_g1",
+              "section_id": "s1",
+              "asset": "assets/s1_g1.jpg",
+              "start_text": "أنهيت عملك وأغلقت الباب خلفك، ثم عدت",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "closing office laptop after work",
+                "query_alt_en": "hands shutting laptop office desk",
+                "must_show": "A hand closes the work laptop to mark the end of duty",
+                "urls": [
+                  "https://www.pexels.com/video/person-closing-a-laptop-6889425/",
+                  "https://www.pexels.com/video/crop-person-closing-a-laptop-computer-7983123/",
+                  "https://www.pexels.com/video/a-person-closing-a-laptop-on-a-desk-7431863/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_g2",
+              "section_id": "s1",
+              "asset": "assets/s1_g2.jpg",
+              "start_text": "وفي النهاية تخرج بتجربة من خمس دقائق",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "reviewing unfinished business report papers",
+                "query_alt_en": "checking loose report pages",
+                "must_show": "Hands pause over a partially reviewed business report",
+                "urls": [
+                  "https://www.pexels.com/video/writing-on-a-blank-page-of-a-notebook-a-to-do-list-reminder-3832195/",
+                  "https://www.pexels.com/video/a-person-writing-in-the-notebook-9305503/",
+                  "https://www.pexels.com/video/person-writing-notes-6781562/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_g3",
+              "section_id": "s1",
+              "asset": "assets/s1_g3.jpg",
+              "start_text": "لم يبقَ وقت كافٍ لإنهائهما، فأغلق الحاسوب",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "filing papers into work folder",
+                "query_alt_en": "packing office documents in folder",
+                "must_show": "Hands file or pack unfinished papers into a folder or briefcase",
+                "urls": [
+                  "https://www.pexels.com/video/lawyer-putting-documents-in-briefcase-8135728/",
+                  "https://www.pexels.com/video/woman-placing-papers-into-a-folder-8135727/",
+                  "https://www.pexels.com/video/a-person-putting-a-document-in-a-binder-7710489/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_g4",
+              "section_id": "s1",
+              "asset": "assets/s1_g4.jpg",
+              "start_text": "لم يفتح الحاسوب، لكنه ظل يناقش المهمة",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "dinner table distracted work thoughts",
+                "query_alt_en": "hands pausing during dinner",
+                "must_show": "A person pauses at dinner; no face, no work screen visible",
+                "urls": [
+                  "https://www.pexels.com/video/cozy-dinner-table-setup-in-minimalist-room-37635028/",
+                  "https://www.pexels.com/video/preparing-the-dining-table-foe-dinner-7606651/",
+                  "https://www.pexels.com/video/preparing-food-on-the-dining-table-5740028/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_g5",
+              "section_id": "s1",
+              "asset": "assets/s1_g5.jpg",
+              "start_text": "لن نفترض أن المشكلة ضعف إرادة، أو",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "uncompleted documents on office desk",
+                "query_alt_en": "work documents left unfinished",
+                "must_show": "Two unfinished office documents rest beside a pen; hands hesitate",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-finding-a-document-7710452/",
+                  "https://www.pexels.com/video/a-person-typing-on-calculator-while-writing-on-a-paper-9056542/",
+                  "https://www.pexels.com/video/close-up-video-of-paper-on-a-table-7947398/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_g1",
+              "section_id": "s2",
+              "asset": "assets/s2_g1.jpg",
+              "start_text": "في اليوم التالي اتضح أن التقرير يحتاج",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "checking report page for correction",
+                "query_alt_en": "reviewing figures on printed report",
+                "must_show": "Hands compare a report page with another document",
+                "urls": [
+                  "https://www.pexels.com/video/person-reading-a-papers-8061377/",
+                  "https://www.pexels.com/video/a-person-placing-documents-in-a-plastic-envelope-10567300/",
+                  "https://www.pexels.com/video/papers-and-colored-pencils-on-the-table-9655663/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_g2",
+              "section_id": "s2",
+              "asset": "assets/s2_g2.jpg",
+              "start_text": "غيّر تفصيلًا واحدًا: قبل خروجه، يكتب على",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "writing tomorrow task in notebook",
+                "query_alt_en": "hand writing next work step",
+                "must_show": "A hand writes a short next action in a notebook, text unreadable",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-writing-on-a-sticky-note-7844870/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-sticky-notes-7392969/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-sticky-note-5569196/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_g3",
+              "section_id": "s2",
+              "asset": "assets/s2_g3.jpg",
+              "start_text": "هل سيكفي هذا ليهدأ؟ ليس بالضرورة. لكن",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "planning one next action work",
+                "query_alt_en": "notebook task planning close up",
+                "must_show": "Pen marks one planned action instead of rearranging many papers",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-notebook-8731583/",
+                  "https://www.pexels.com/video/a-person-writing-in-the-notebook-5904567/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-notebook-with-a-pen-17136728/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_g4",
+              "section_id": "s2",
+              "asset": "assets/s2_g4.jpg",
+              "start_text": "ومهمة أنهيتها فعلًا، لكن بيئة العمل نفسها",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unclear work priorities planner note",
+                "query_alt_en": "turning pages in work planner",
+                "must_show": "Hands turn a planner page, still searching for the next step",
+                "urls": [
+                  "https://www.pexels.com/video/female-hands-flipping-through-notebook-pages-6245838/",
+                  "https://www.pexels.com/video/hand-flipping-through-empty-notebook-pages-6177794/",
+                  "https://www.pexels.com/video/a-person-reading-and-flipping-pages-of-a-document-5646341/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_g5",
+              "section_id": "s2",
+              "asset": "assets/s2_g5.jpg",
+              "start_text": "هنا لم تعد تفحص العمل فقط؛ أصبحت",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "rechecking work document repeatedly",
+                "query_alt_en": "close up sorting same report pages",
+                "must_show": "Hands reopen a document without making a new decision",
+                "urls": [
+                  "https://www.pexels.com/video/woman-holding-a-folder-with-documents-8298189/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-holding-documents-8512858/",
+                  "https://www.pexels.com/video/a-man-signing-a-document-9365453/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g1",
+              "section_id": "s3",
+              "asset": "assets/s3_g1.jpg",
+              "start_text": "في يناير من عام ألفين وستة وعشرين،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "reviewing printed research report sheets",
+                "query_alt_en": "hands analyzing office document figures",
+                "must_show": "Hands inspect research-style printed charts, no readable detail",
+                "urls": [
+                  "https://www.pexels.com/video/paper-reports-on-the-table-9464655/",
+                  "https://www.pexels.com/video/a-person-pointing-to-a-paperwork-7687760/",
+                  "https://www.pexels.com/video/person-using-calculator-while-writing-on-paper-5923592/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g2",
+              "section_id": "s3",
+              "asset": "assets/s3_g2.jpg",
+              "start_text": "وجد الباحثون ارتباطًا واضحًا بين الأمرين، وكان",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "sorting unfinished tasks printed papers",
+                "query_alt_en": "comparing business pages on desk",
+                "must_show": "Two sets of task papers are compared physically, no written conclusions",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-documents-6285657/",
+                  "https://www.pexels.com/video/a-man-checking-the-documents-6814544/",
+                  "https://www.pexels.com/video/woman-filling-a-form-at-office-desk-5637948/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g3",
+              "section_id": "s3",
+              "asset": "assets/s3_g3.jpg",
+              "start_text": "الارتباط لا يعني أن كل مهمة ناقصة",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "verifying report figures with documents",
+                "query_alt_en": "hands checking business calculations papers",
+                "must_show": "Fingers track numbers on a document without readable text",
+                "urls": [
+                  "https://www.pexels.com/video/top-view-of-an-office-desk-5637269/",
+                  "https://www.pexels.com/video/a-person-checking-the-documents-8371858/",
+                  "https://www.pexels.com/video/close-up-on-mans-hands-holding-documents-on-table-9869820/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g4",
+              "section_id": "s3",
+              "asset": "assets/s3_g4.jpg",
+              "start_text": "ولهذا يفرّق الباحثون في هذا المجال بين",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "writing practical solution in notebook",
+                "query_alt_en": "pen makes action list",
+                "must_show": "A pen writes a concrete step, showing solution-directed thinking",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-writing-in-the-notebook-8824734/",
+                  "https://www.pexels.com/video/a-person-writing-on-notebook-10474629/",
+                  "https://www.pexels.com/video/a-woman-writing-on-a-notebook-8136035/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g5",
+              "section_id": "s3",
+              "asset": "assets/s3_g5.jpg",
+              "start_text": "ليس مجرد ظهور فكرة العمل دليلًا على",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hesitating over unfinished office papers",
+                "query_alt_en": "turning same document pages",
+                "must_show": "Hands turn report pages while a closed folder stays untouched",
+                "urls": [
+                  "https://www.pexels.com/video/person-holding-documents-7841618/",
+                  "https://www.pexels.com/video/a-person-handing-the-documents-to-a-client-5971457/",
+                  "https://www.pexels.com/video/close-up-view-of-people-reading-a-document-7646681/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g6",
+              "section_id": "s3",
+              "asset": "assets/s3_g6.jpg",
+              "start_text": "دعنا نعود إلى الموظف. عندما يفكر: سأراجع",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "planning report review next morning",
+                "query_alt_en": "hands write reminder in notepad",
+                "must_show": "A single report-review reminder is written in a planner",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-writing-on-a-sticky-note-7845433/",
+                  "https://www.pexels.com/video/hand-writing-on-the-sticky-notes-5537000/",
+                  "https://www.pexels.com/video/a-person-tearing-a-piace-of-weekly-planner-from-a-surface-7744341/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g7",
+              "section_id": "s3",
+              "asset": "assets/s3_g7.jpg",
+              "start_text": "في دراسة على موظفين وأهدافهم المهنية، وُجد",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "examining employee task goals documents",
+                "query_alt_en": "office paperwork goals planning closeup",
+                "must_show": "Hands inspect work goals and objectives papers, no face",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-view-of-a-person-looking-at-documents-7710454/",
+                  "https://www.pexels.com/video/person-signing-on-the-documents-7685212/",
+                  "https://www.pexels.com/video/person-signing-the-documents-7581281/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g8",
+              "section_id": "s3",
+              "asset": "assets/s3_g8.jpg",
+              "start_text": "ثم جاءت تجربة ميدانية",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "typing then checking weekly work notes",
+                "query_alt_en": "hands keyboard weekly planning",
+                "must_show": "Hands switch from laptop typing to checking a work note",
+                "urls": [
+                  "https://www.pexels.com/video/a-woman-typing-on-a-laptop-keyboard-5716896/",
+                  "https://www.pexels.com/video/a-person-typing-using-a-computer-keyboard-8124013/",
+                  "https://www.pexels.com/video/close-up-of-hands-typing-on-laptop-keyboard-31183719/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_g9",
+              "section_id": "s3",
+              "asset": "assets/s3_g9.jpg",
+              "start_text": "لكننا اكتشفنا شيئًا أدق. حجم المهمة وحده",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "sorting papers into clear task groups",
+                "query_alt_en": "arranging business reports by priority",
+                "must_show": "Hands separate tasks into orderly groups on an office desk",
+                "urls": [
+                  "https://www.pexels.com/video/faceless-person-organizing-paperwork-7710493/",
+                  "https://www.pexels.com/video/people-organizing-paperwork-7710497/",
+                  "https://www.pexels.com/video/a-woman-putting-a-document-in-a-binder-7710492/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g1",
+              "section_id": "s4",
+              "asset": "assets/s4_g1.jpg",
+              "start_text": "لكن ماذا لو كانت المشكلة خارج قدرتك",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "working overtime computer office closeup",
+                "query_alt_en": "night office keyboard typing hands",
+                "must_show": "Tight frame shows ongoing late work, no identifiable worker face",
+                "urls": [
+                  "https://www.pexels.com/video/person-using-laptop-6324549/",
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-typing-on-the-computer-keyboard-4450059/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-using-laptop-at-the-office-7593778/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g2",
+              "section_id": "s4",
+              "asset": "assets/s4_g2.jpg",
+              "start_text": "في بعض الأعمال، لا تكون المهمة وحدها مفتوحة؛",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "ringing phone on office desk",
+                "query_alt_en": "hand picks up work phone",
+                "must_show": "An office phone interrupts a paused task, screen unreadable",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-footage-of-a-cellphone-ringing-8060394/",
+                  "https://www.pexels.com/video/a-smartphone-on-the-table-6374207/",
+                  "https://www.pexels.com/video/a-person-picking-a-smartphone-6719357/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g3",
+              "section_id": "s4",
+              "asset": "assets/s4_g3.jpg",
+              "start_text": "تنظيم اليوم يساعدك في التعامل مع جزء",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "large pile unfinished office documents",
+                "query_alt_en": "papers work overload desktop closeup",
+                "must_show": "A desk overloaded with unfinished folders and files, no person identifiable",
+                "urls": [
+                  "https://www.pexels.com/video/stack-of-paperwork-on-the-desk-7054942/",
+                  "https://www.pexels.com/video/an-overhead-shot-of-a-person-looking-at-documents-on-a-messy-table-8256124/",
+                  "https://www.pexels.com/video/a-woman-working-hard-with-financial-documents-7593892/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g4",
+              "section_id": "s4",
+              "asset": "assets/s4_g4.jpg",
+              "start_text": "وإذا كانت طبيعة العمل تتضمن طوارئ حقيقية،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "smartphone demands attention at work",
+                "query_alt_en": "work phone beside office laptop",
+                "must_show": "A phone lights or is picked up beside work documents, no readable UI",
+                "urls": [
+                  "https://www.pexels.com/video/cellphone-on-a-table-8473801/",
+                  "https://www.pexels.com/video/smartphone-and-laptop-on-table-3976881/",
+                  "https://www.pexels.com/video/man-touch-typing-on-phone-6257825/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g5",
+              "section_id": "s4",
+              "asset": "assets/s4_g5.jpg",
+              "start_text": "قد تتذكر حلًا أثناء المشي، أو ترى",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "walking outside after office work",
+                "query_alt_en": "back view walking in park",
+                "must_show": "A person walks away from work viewed only from the back",
+                "urls": [
+                  "https://www.pexels.com/video/back-view-footage-of-a-person-walking-on-a-park-9968175/",
+                  "https://www.pexels.com/video/back-view-young-woman-and-man-walking-in-park-5940883/",
+                  "https://www.pexels.com/video/evening-stroll-on-busy-city-sidewalk-36134364/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g6",
+              "section_id": "s4",
+              "asset": "assets/s4_g6.jpg",
+              "start_text": "إن ظهرت فكرة مفيدة، يمكنك تسجيلها والعودة",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "writing useful idea short note",
+                "query_alt_en": "notebook quick idea capture",
+                "must_show": "A hand quickly jots down an idea before closing notebook",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-woman-writing-on-a-notebook-8126006/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-a-notebook-8478113/",
+                  "https://www.pexels.com/video/hands-writing-in-notebook-6177734/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_g7",
+              "section_id": "s4",
+              "asset": "assets/s4_g7.jpg",
+              "start_text": "أحيانًا تحتاج إلى خطة. وأحيانًا تحتاج إلى",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "organizing office responsibility documents",
+                "query_alt_en": "filing tasks into labeled folders",
+                "must_show": "Hands arrange folders by responsibility, labels not legible",
+                "urls": [
+                  "https://www.pexels.com/video/organized-person-putting-her-paperworks-in-a-folder-orderly-8135783/",
+                  "https://www.pexels.com/video/man-looking-for-a-file-folder-in-a-box-7062984/",
+                  "https://www.pexels.com/video/person-looking-at-files-inside-a-cardboard-box-8371852/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g1",
+              "section_id": "s5",
+              "asset": "assets/s5_g1.jpg",
+              "start_text": "الآن نصل إلى الاختبار الذي وعدتك به.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "notebook open before leaving office",
+                "query_alt_en": "writing closing workday note",
+                "must_show": "A hand opens a small task notebook at the end of work",
+                "urls": [
+                  "https://www.pexels.com/video/hand-writing-checklist-at-work-desk-29568794/",
+                  "https://www.pexels.com/video/focused-planning-with-checklist-in-office-setting-36410752/",
+                  "https://www.pexels.com/video/man-writing-a-checklist-in-notebook-on-desk-29031537/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g2",
+              "section_id": "s5",
+              "asset": "assets/s5_g2.jpg",
+              "start_text": "أولًا، اختر مهمة واحدة عالقة تكثر عودتها",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "writing one unfinished task precisely",
+                "query_alt_en": "pen documenting remaining work task",
+                "must_show": "A hand isolates one unfinished action in a notebook",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-notebook-8731581/",
+                  "https://www.pexels.com/video/person-writing-on-a-paper-9903485/",
+                  "https://www.pexels.com/video/a-person-writing-on-the-notebook-4352279/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g3",
+              "section_id": "s5",
+              "asset": "assets/s5_g3.jpg",
+              "start_text": "مثلًا: «غدًا، بعد بدء الدوام بنصف ساعة،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "scheduling tomorrow action in planner",
+                "query_alt_en": "writing next morning task time",
+                "must_show": "A hand assigns a specific next action to a planner slot",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-6860424/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-7082856/",
+                  "https://www.pexels.com/video/man-writing-on-a-notebook-5708394/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g4",
+              "section_id": "s5",
+              "asset": "assets/s5_g4.jpg",
+              "start_text": "اكتب ذلك بوضوح، وحدد إن كان يتطلب",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "noting pending response in planner",
+                "query_alt_en": "writing follow up reminder notebook",
+                "must_show": "A pen records a pending response that cannot be solved tonight",
+                "urls": [
+                  "https://www.pexels.com/video/female-hands-writing-in-notebook-12908963/",
+                  "https://www.pexels.com/video/person-writing-on-the-notebook-5191393/",
+                  "https://www.pexels.com/video/close-up-view-of-a-person-writing-on-notebook-5190601/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g5",
+              "section_id": "s5",
+              "asset": "assets/s5_g5.jpg",
+              "start_text": "اختر فعلًا بسيطًا يعلن انتقالك: ترتيب المكتب،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "closing work laptop at desk",
+                "query_alt_en": "hand shuts computer for evening",
+                "must_show": "Laptop is physically closed after work, with no visible face",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-closing-his-book-and-laptop-after-working-9568957/",
+                  "https://www.pexels.com/video/closing-a-laptop-on-a-wooden-desk-29624964/",
+                  "https://www.pexels.com/video/typing-then-closing-a-laptop-8472460/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g6",
+              "section_id": "s5",
+              "asset": "assets/s5_g6.jpg",
+              "start_text": "وفي كل مساء، اسأل نفسك سؤالين: كم",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "recording evening notes for five days",
+                "query_alt_en": "weekly notebook review entries",
+                "must_show": "Hand marks a weekly review on paper, no readable writing",
+                "urls": [
+                  "https://www.pexels.com/video/efficient-workspace-writing-with-pen-and-notebook-34616248/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-notebook-4872859/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-4874295/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g7",
+              "section_id": "s5",
+              "asset": "assets/s5_g7.jpg",
+              "start_text": "وإن لم يتحسن، فلا تستنتج أنك غير",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "sorting workload folders at office",
+                "query_alt_en": "revisiting priorities document stack",
+                "must_show": "Hands review folders and priorities before deciding boundaries",
+                "urls": [
+                  "https://www.pexels.com/video/a-woman-looking-at-the-documents-8257213/",
+                  "https://www.pexels.com/video/person-arranging-documents-at-office-desk-6177732/",
+                  "https://www.pexels.com/video/a-person-finding-a-document-7710451/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g8",
+              "section_id": "s5",
+              "asset": "assets/s5_g8.jpg",
+              "start_text": "وإذا صار القلق أو اضطراب النوم مستمرًا",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "typing final work message on laptop",
+                "query_alt_en": "hands stop after keyboard typing",
+                "must_show": "Hands finish typing and lift from keyboard at end of work",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-footage-of-a-person-typing-on-a-keyboard-of-a-laptop-8946455/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-and-writing-in-a-notebook-9056443/",
+                  "https://www.pexels.com/video/a-woman-typing-on-a-laptop-keyboard-4053219/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g9",
+              "section_id": "s5",
+              "asset": "assets/s5_g9.jpg",
+              "start_text": "ربما كان يحتاج إلى خطوة واضحة للغد،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "reviewing tomorrow task reminder notebook",
+                "query_alt_en": "checklist review closeup writing hand",
+                "must_show": "Hand checks a single next-day task note before leaving",
+                "urls": [
+                  "https://www.pexels.com/video/hand-writing-checklist-in-notebook-for-task-management-36343656/",
+                  "https://www.pexels.com/video/efficient-task-management-with-checklist-completion-35546039/",
+                  "https://www.pexels.com/video/a-woman-getting-documents-out-of-an-envelope-8255721/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_g10",
+              "section_id": "s5",
+              "asset": "assets/s5_g10.jpg",
+              "start_text": "فالراحة لا تبدأ دائمًا عندما يكتمل كل",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "filing unfinished work documents away",
+                "query_alt_en": "closing folder of office paperwork",
+                "must_show": "Hands gather business papers into a folder, without readable text",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-checking-the-documents-8529094/",
+                  "https://www.pexels.com/video/person-looking-through-papers-on-work-desk-7710457/",
+                  "https://www.pexels.com/video/woman-sorting-papers-in-front-of-a-laptop-8256630/"
+                ],
+                "mode": "sequence"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "عمل بلا خطوة تالية"
+          },
+          "publishing": {
+            "title": "لماذا لا يهدأ عقلك بعد انتهاء يومك؟ | تفسير علمي وتجربة عملية",
+            "description": "لماذا يستمر التفكير في العمل بعد انتهائه؟ نتابع قصة موظف، ونراجع ما تقوله الدراسات عن المهام غير المكتملة والاجترار الذهني، ثم نختبر خطة من خمس دقائق لإغلاق يوم العمل دون تجاهل مسؤولياتنا.\n\nهذه معلومات عامة وليست تشخيصًا طبيًا.\n\n#نداء_اليقظة #التفكير_المفرط #ضغوط_العمل #الراحة",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التفكير_المفرط",
+              "#ضغوط_العمل",
+              "#الراحة"
+            ],
+            "tags": [
+              "العمل بعد الدوام",
+              "المهام غير المكتملة",
+              "التفكير المفرط",
+              "الراحة النفسية"
+            ]
+          },
+          "derivative": {
+            "start_text": "لاحظ أيضًا الفرق بين تذكّر المهمة والتورط فيها.",
+            "end_text": "الإجابة تساعدك على اختيار الاختبار المناسب.",
+            "hook": "القلق يعود في دائرة",
+            "cover": {
+              "asset": "assets/derivative_1.jpg",
+              "text": "القلق يعود في دائرة"
+            },
+            "publishing": {
+              "title": "لماذا تعيد التفكير في العمل بعد انتهائه؟",
+              "description": "مقتطف أصلي من فيلم «لماذا لا يهدأ عقلك بعد انتهاء يومك؟». نميّز فيه بين ما يستحق التفكير، وما يعيدك إلى دائرة القلق.\n\nالفيلم كاملًا:",
+              "hashtags": [
+                "#نداء_اليقظة",
+                "#العمل",
+                "#الوعي",
+                "#التفكير"
+              ],
+              "tags": [
+                "العمل بعد الدوام",
+                "التفكير",
+                "نداء اليقظة"
+              ]
+            }
+          },
+          "extra_derivatives": [
+            {
+              "start_text": "لكن ماذا لو كانت المشكلة خارج قدرتك أصلًا؟",
+              "end_text": "أحيانًا يكون هذا الخوف مبنيًا على واقع.",
+              "hook": "هل المشكلة فعلًا فيك؟",
+              "cover": {
+                "asset": "assets/derivative_2.jpg",
+                "text": "هل المشكلة فعلًا فيك؟"
+              },
+              "publishing": {
+                "title": "حين يكون ضغط العمل خارج سيطرتك",
+                "description": "مقتطف أصلي من فيلم «لماذا لا يهدأ عقلك بعد انتهاء يومك؟». نميّز فيه بين ما يستحق التفكير، وما يعيدك إلى دائرة القلق.\n\nالفيلم كاملًا:",
+                "hashtags": [
+                  "#نداء_اليقظة",
+                  "#العمل",
+                  "#الوعي",
+                  "#التفكير"
+                ],
+                "tags": [
+                  "العمل بعد الدوام",
+                  "التفكير",
+                  "نداء اليقظة"
+                ]
+              }
+            },
+            {
+              "start_text": "وهناك اعتراض آخر: أليس التفكير بعد الدوام مفيدًا أحيانًا؟",
+              "end_text": "إن ظهرت فكرة مفيدة، يمكنك تسجيلها والعودة إلى وقتك.",
+              "hook": "متى يصبح التفكير مفيدًا؟",
+              "cover": {
+                "asset": "assets/derivative_3.jpg",
+                "text": "متى يصبح التفكير مفيدًا؟"
+              },
+              "publishing": {
+                "title": "هل التفكير في العمل بعد الدوام مفيد؟",
+                "description": "مقتطف أصلي من فيلم «لماذا لا يهدأ عقلك بعد انتهاء يومك؟». نميّز فيه بين ما يستحق التفكير، وما يعيدك إلى دائرة القلق.\n\nالفيلم كاملًا:",
+                "hashtags": [
+                  "#نداء_اليقظة",
+                  "#العمل",
+                  "#الوعي",
+                  "#التفكير"
+                ],
+                "tags": [
+                  "العمل بعد الدوام",
+                  "التفكير",
+                  "نداء اليقظة"
+                ]
+              }
+            }
+          ],
+          "stock_policy": "three_urls_per_scene"
+        },
+        "zip_sha256": "6a53c1000a1c5c5d15609b17ef28dcf905e63fe0e0180cf6bc071898e437794c",
+        "asset_sha256": {
+          "assets/s5_g3.jpg": "51f30b876086b0682b4711ff76ee29704ce14732bb7c2e6d52ab5c2d9d9a6219",
+          "assets/s4_g7.jpg": "f240f4d624f9a70a87a9df7ac1bb0be740c6f2bc0988cd59a20c7e6cc01da23c",
+          "assets/s5_g1.jpg": "f240f4d624f9a70a87a9df7ac1bb0be740c6f2bc0988cd59a20c7e6cc01da23c",
+          "assets/s5_g10.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s4_g2.jpg": "44fcc6f66f2645aa635cf40123c081c6c7d951f0e15646c577746bed808f59be",
+          "assets/s3_g3.jpg": "bdf3c90842fb713b86551dbb0c40c70db84168411736182860d4616d484284eb",
+          "assets/derivative_2.jpg": "a19a4841791efea52642f4a3fc6c01463f773e3380ea81fc326527f00ee7745c",
+          "assets/s5_g9.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s4_g5.jpg": "a42115c33bf61a9a313e1cdbb702f031c634ae25697703e3421729873beccb92",
+          "assets/cover_main.jpg": "e7d5d68d32df63a2875db4ae6844ff5459864fc6bd3ee559968ef490a9afd3b7",
+          "assets/s4_g4.jpg": "44fcc6f66f2645aa635cf40123c081c6c7d951f0e15646c577746bed808f59be",
+          "assets/s2_g4.jpg": "44fcc6f66f2645aa635cf40123c081c6c7d951f0e15646c577746bed808f59be",
+          "assets/s4_g1.jpg": "396a31d6af8a823b5c3b6213b7f679da72947824e5fea4ab21b59fa61758109a",
+          "assets/s5_g6.jpg": "2715fb707ab09b8d107d75a82fb1d585e791bf8f4c41fde3f5f36caf933112a3",
+          "assets/derivative_3.jpg": "fbec22e50fc2d6c46b03d1f30cbec3633032492f206d6d7510db8e0c6e6a87ef",
+          "assets/s3_g6.jpg": "384a6398153c87302efb2ad1b0870948cf87be835851cedc31c149c2337f2823",
+          "assets/s2_g5.jpg": "a2cc7b18a87f6722957dbb2ad5606e00d0de34a37e1266d394107426a73a97cf",
+          "assets/s1_g1.jpg": "c23d3b1dcf59ab2d51dcc40e889b97945f771cbe689b53bf4aa2293cb2522cb3",
+          "assets/s3_g5.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s2_g1.jpg": "f240f4d624f9a70a87a9df7ac1bb0be740c6f2bc0988cd59a20c7e6cc01da23c",
+          "assets/s1_g2.jpg": "2715fb707ab09b8d107d75a82fb1d585e791bf8f4c41fde3f5f36caf933112a3",
+          "assets/s1_g4.jpg": "a367050d9e498b92c5ed854dd6b25c6f63e4c8fc98ce3c40c8d75cea0f18089f",
+          "assets/s1_g3.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s5_g7.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s5_g5.jpg": "88d78ea9e2c47df9858138a4fb5fdedc15b36fc3e81095149a88a52177bd7187",
+          "assets/s3_g9.jpg": "4af0d0bfb6e617ef139bd5525e61e7091ead4accb42e3cf296f8070081d26a7c",
+          "assets/s4_g6.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s5_g4.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s2_g2.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s5_g8.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s4_g3.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s2_g3.jpg": "2953b0020d14be5a110d454f55eee2ea83326c3e95acbf05727f95db52fc5f7d",
+          "assets/s1_g5.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s3_g4.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s3_g7.jpg": "2953b0020d14be5a110d454f55eee2ea83326c3e95acbf05727f95db52fc5f7d",
+          "assets/s3_g2.jpg": "384a6398153c87302efb2ad1b0870948cf87be835851cedc31c149c2337f2823",
+          "assets/derivative_1.jpg": "ead622a8e281b9ef124eb1ba9ac6eb345d1c987117a721ccc8b5587309ba3364",
+          "assets/s3_g8.jpg": "c23d3b1dcf59ab2d51dcc40e889b97945f771cbe689b53bf4aa2293cb2522cb3",
+          "assets/s3_g1.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812",
+          "assets/s5_g2.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "d7766ee991a8b80579419fdf0b1572025c424390a231bccc731372d99b8a80b3",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIP5WritOVtUVyExCfYclJQg1ZgqDE4AAInHgACJNkZU3xMH375jxHRPQQ",
+          "sha256": "6a53c1000a1c5c5d15609b17ef28dcf905e63fe0e0180cf6bc071898e437794c"
+        }
+      }
     }
   },
-  "current_request_id": "req-df53165d284e",
+  "current_request_id": "req-3338d4456698",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -30571,6 +31487,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-29T02:50:30Z",
+  "updated_at": "2026-10-29T02:52:49Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
