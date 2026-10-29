@@ -1,4 +1,4 @@
-"""Long film gets a longer Produce budget; short/podcast keep 85 minutes."""
+"""Long film gets a longer Produce budget; short/podcast get 110 minutes."""
 import re
 import unittest
 from pathlib import Path
@@ -15,7 +15,7 @@ class ProductionTimeoutByScope(unittest.TestCase):
         block = TEXT.split("- name: Produce exact approved Telegram scope", 1)[1].split("env:", 1)[0]
         self.assertIn("env.TELEGRAM_REQUEST_SCOPE == 'long'", block)
         self.assertIn("env.TELEGRAM_REQUEST_SCOPE == 'bundle'", block)
-        self.assertIn("&& 160 || 85", block)
+        self.assertIn("&& 160 || 110", block)
 
     def test_scope_is_exported_before_produce_step(self):
         self.assertLess(TEXT.index('echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"'),
