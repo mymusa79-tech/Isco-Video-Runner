@@ -31777,8 +31777,8 @@
           "assets/s5_g2.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-29T10:35:18Z",
       "dispatched_at": null,
       "request_sha256": "3174f79bb29a45bf2915025a17fa946c1accb057aec629a0856ba1433ff2509e",
       "owner_art": {
@@ -31786,7 +31786,8 @@
           "file_id": "BQACAgQAAxkBAAIQCGrjITYxm8ldwrn_A2xby0Ww0SuLAAKYHQACTucYU_hdDZCMuuouPQQ",
           "sha256": "acedd0ab41f14aa352bb881b25ff409b24cf3b9c13cd9eec64b0826539f47a92"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-66baa6166618",
@@ -32455,6 +32456,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-29T10:34:53Z",
+  "updated_at": "2026-10-29T10:35:19Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
