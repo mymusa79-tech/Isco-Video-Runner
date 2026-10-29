@@ -322,8 +322,8 @@ jobs:
           python -m pip install --disable-pip-version-check --no-deps -e engine
 
       - name: Produce exact approved Telegram scope
-        # Long film (and bundle) get 160 minutes; short and podcast get 110.
-        timeout-minutes: ${{ (env.TELEGRAM_REQUEST_SCOPE == 'long' || env.TELEGRAM_REQUEST_SCOPE == 'bundle') && 160 || 110 }}
+        # Long film (and bundle) get 160 minutes; short and podcast get 120.
+        timeout-minutes: ${{ (env.TELEGRAM_REQUEST_SCOPE == 'long' || env.TELEGRAM_REQUEST_SCOPE == 'bundle') && 160 || 120 }}
         env:
           PYTHONUNBUFFERED: "1"
           REQUEST_ID: ${{ inputs.request_id }}
