@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Job ceiling leaves room for the always() checkpoint/cache/upload steps after a
     # cancelled Produce step. The real per-scope budget is on the Produce step below.
-    timeout-minutes: 180
+    timeout-minutes: 210
     env:
       ISCO_ENGINE_SHA: 305d7af14afdd53b862087395110db78ddb882f7
       GEMINI_CONTENT_MODEL: gemini-3.7-flash

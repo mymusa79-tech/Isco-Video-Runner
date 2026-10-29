@@ -9,7 +9,7 @@ TEXT = Path(".github/workflows/clean-v2-telegram-production.yml").read_text(enco
 class ProductionTimeoutByScope(unittest.TestCase):
     def test_job_ceiling_covers_long_budget_plus_cleanup(self):
         job = int(re.search(r"^    timeout-minutes: (\d+)$", TEXT, re.M).group(1))
-        self.assertGreaterEqual(job, 180)
+        self.assertGreaterEqual(job, 210)
 
     def test_produce_step_budget_depends_on_scope(self):
         block = TEXT.split("- name: Produce exact approved Telegram scope", 1)[1].split("env:", 1)[0]
