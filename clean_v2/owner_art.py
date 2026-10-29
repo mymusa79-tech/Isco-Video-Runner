@@ -704,24 +704,12 @@ class OwnerArtVisualSource:
         validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
         beats = plan["visual_story"]["beats"]
         clips, rights = [], []
-        # Estimate each podcast shot from the actual text span. Using the full
-        # section length for EVERY shot made multi-shot podcasts excessively costly.
+        # Estimate each podcast/film shot from the actual text span. Using the full
+        # section length for EVERY shot made multi-shot episodes excessively costly:
+        # a 36-scene film asked every scene to build a whole section's worth of video.
         podcast_seconds: dict[str, float] = {}
-        if fmt == "podcast":
-            from .production_package import section_text, spoken_text
-            for section in doc["script"]["sections"]:
-                sid = section["id"]
-                group = [b for b in beats if b["section_id"] == sid]
-                if not group:
-                    continue
-                narration = spoken_text(section_text(section))
-                starts = [narration.index(str(b["writer_anchor_ar"])) for b in group]
-                ends = starts[1:] + [len(narration)]
-                weights = [max(1, len(narration[a:b].split())) for a, b in zip(starts, ends)]
-                total = sum(weights)
-                duration = float((estimates or {}).get(sid) or 60)
-                for beat, weight in zip(group, weights):
-                    podcast_seconds[beat["id"]] = max(8.0, duration * weight / total * 1.12 + 2)
+        if fmt in {"podcast", "film"}:
+            podcast_seconds = _span_beat_seconds(doc, beats, estimates)
         output_dir.mkdir(parents=True, exist_ok=True)
         for index, beat in enumerate(beats):
             asset = self._directory / beat["owner_asset"]
@@ -774,6 +762,36 @@ class OwnerArtVisualSource:
                 continue  # explanatory boards keep their own colours
             row["grade"] = grade_clip(clip, look)
         return clips, rights
+
+
+def _span_beat_seconds(doc: Mapping[str, Any], beats: list[Mapping[str, Any]],
+                       estimates: Mapping[str, Any] | None) -> dict[str, float]:
+    """Estimated seconds for each beat from its share of the section's spoken words.
+
+    The renderer still trims to the measured voice slots; this only stops every beat
+    from preparing a clip as long as its whole section. Any beat whose anchor cannot be
+    located keeps the legacy whole-section estimate (the caller's default).
+    """
+    from .production_package import section_text, spoken_text
+
+    seconds: dict[str, float] = {}
+    for section in doc["script"]["sections"]:
+        sid = section["id"]
+        group = [b for b in beats if b["section_id"] == sid]
+        if not group:
+            continue
+        narration = spoken_text(section_text(section))
+        try:
+            starts = [narration.index(str(b["writer_anchor_ar"])) for b in group]
+        except ValueError:
+            continue
+        ends = starts[1:] + [len(narration)]
+        weights = [max(1, len(narration[a:b].split())) for a, b in zip(starts, ends)]
+        total = sum(weights)
+        duration = float((estimates or {}).get(sid) or 60)
+        for beat, weight in zip(group, weights):
+            seconds[beat["id"]] = max(8.0, duration * weight / total * 1.12 + 2)
+    return seconds
 
 
 def grade_profile(template: str, fmt: str) -> str:
