@@ -429,11 +429,38 @@ def _short_opening_hook(text: str) -> str:
     return _first_sentence(compact)
 
 
+FILM_HOOK_MIN_WORDS = 50
+FILM_HOOK_MAX_SENTENCES = 4
+
+
+def _film_opening_hook(text: str) -> str:
+    """Owner order (29 Oct 2026): the film prayer waits for the whole hook.
+
+    NIDAA_FILM_HOOKS_V1 puts the explicit promise (hypothesis, test, when it fails) inside
+    the hook, about 40-60 spoken words, BEFORE the prayer and the channel definition. The
+    hook is therefore whole sentences from the first section until at least
+    FILM_HOOK_MIN_WORDS words are reached, never more than FILM_HOOK_MAX_SENTENCES
+    sentences; a first section with fewer sentences keeps what it has.
+    """
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact:
+        return ""
+    ends = [match.end() for match in _SENTENCE_END_RE.finditer(compact)]
+    if not ends:
+        return compact
+    for count, end in enumerate(ends[:FILM_HOOK_MAX_SENTENCES], start=1):
+        if len(compact[:end].split()) >= FILM_HOOK_MIN_WORDS:
+            return compact[:end].strip()
+    return compact[: ends[min(len(ends), FILM_HOOK_MAX_SENTENCES) - 1]].strip()
+
+
 def _opening_hook_for(fmt: str, text: str) -> str:
     if fmt == "podcast":
         return _podcast_opening_hook(text)
     if fmt == "short":
         return _short_opening_hook(text)
+    if fmt == "film":
+        return _film_opening_hook(text)
     return _first_sentence(text)
 
 
@@ -636,7 +663,17 @@ def assert_spoken_identity(
 
     first = str(sections[0].get("narration") or "")
     # The prayer is host-owned text; the Short hook is measured on the script WITHOUT it.
-    hook = _opening_hook_for(fmt, first.replace(PRAYER_SENTENCE, " ") if fmt == "short" else first)
+    if fmt == "short":
+        hook_source = first.replace(PRAYER_SENTENCE, " ")
+    elif fmt == "film":
+        # A multi-sentence film hook must be measured on the script WITHOUT the
+        # host-owned prayer and channel definition, or they would count as hook sentences.
+        hook_source = first.replace(PRAYER_SENTENCE, " ")
+        if definition:
+            hook_source = hook_source.replace(definition, " ")
+    else:
+        hook_source = first
+    hook = _opening_hook_for(fmt, hook_source)
     prayer_pos = first.find(PRAYER_SENTENCE)
     if not hook or prayer_pos < len(hook):
         raise RuntimeError("identity sequence order must begin hook -> prayer")
