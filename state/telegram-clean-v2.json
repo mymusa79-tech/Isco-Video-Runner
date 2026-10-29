@@ -8915,6 +8915,21 @@
       "selected_at": "2026-10-29T10:34:53Z",
       "created_at": "2026-10-29T10:34:53Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-3af5713b78",
+      "title": "الموقف انتهى… فلماذا تعيده؟",
+      "normalized_title": "الموقف انتهي فلماذا تعيده؟",
+      "market_query": "الموقف انتهى… فلماذا تعيده؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-29T21:09:17Z",
+      "created_at": "2026-10-29T21:09:17Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -31804,9 +31819,279 @@
         "started_at": "2026-10-29T10:35:42Z",
         "finished_at": "2026-10-29T11:30:20Z"
       }
+    },
+    "req-7de844c5a35f": {
+      "schema_version": 1,
+      "request_id": "req-7de844c5a35f",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الموقف انتهى… فلماذا تعيده؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-3af5713b78",
+      "selected_at": "2026-10-29T21:09:17Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الموقف انتهى… فلماذا تعيده؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "inner_dialogue",
+          "title": "الموقف انتهى… فلماذا تعيده؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قلت مزحة في جلسة أصدقاء، ثم قضيت الليل نادمًا. كيف يتحول صمت شخص واحد إلى حكم قاسٍ على نفسك؟"
+              },
+              {
+                "id": "s2",
+                "text": "أحد الحاضرين لم يضحك. وفي طريق العودة، تبدأ الأسئلة: هل أحرجته؟ هل فهم كلامي خطأ؟ هل تغيّرت نظرته إليّ؟ تتذكر أنه أشاح بنظره، فتعدّ ذلك دليلًا آخر على انزعاجه. تفتح الحديث في رأسك مرة ثانية. تغيّر كلماتك، وتتخيّل ردّه، ثم تعيد المشهد من البداية. وفي الصباح، تفكر في تجنّبه، مع أنه لم يقل إن شيئًا أزعجه. انتقلت من ملاحظة بسيطة: «لم يضحك»، إلى تفسير: «هو غاضب مني»، ثم تصرّفت كأن التفسير حقيقة."
+              },
+              {
+                "id": "s3",
+                "text": "قبل أن تعيد المشهد الليلة، اكتب ما حدث فعلًا دون تخمين. إن كنت قد أسأت إليه، يمكنك الاعتذار. أما إن لم تجد سوى افتراضات، فلا تُعاقب نفسك عليها."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "صوت Iapetus المعتمد دون تغيير. يبدأ الهوك بمفارقة قريبة من تجربة المستمع مع نبرة استغراب، ثم ترتفع السرعة قليلًا في الأسئلة المتتابعة دون صراخ. في عبارة «انتقلت من ملاحظة بسيطة» خفّض الإيقاع لتمييز الملاحظة من التفسير، ثم اختم بنبرة عملية واضحة مع تنفس طبيعي. لا جمل منطوقة خارج script. هوية القناة والصلاة والأوترو يضيفها العميل دون تكرار."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "قلت مزحة في جلسة أصدقاء",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "friends chatting at cafe table",
+                "query_alt_en": "people talking at indoor table",
+                "must_show": "Friends seated at a home table; only hands and rear views, no recognizable faces; no waiter",
+                "urls": [
+                  "https://www.pexels.com/video/friends-hanging-out-and-talking-9306253/",
+                  "https://www.pexels.com/video/friends-having-a-conversation-at-a-table-8921926/",
+                  "https://www.pexels.com/video/friends-sitting-on-a-couch-while-talking-to-each-other-8058110/"
+                ]
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "كيف يتحول صمت شخص واحد",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man leaving indoor room",
+                "query_alt_en": "person exiting through glass door",
+                "must_show": "Man leaving gathering, seen from behind through a doorway, no logo or clear face",
+                "urls": [
+                  "https://www.pexels.com/video/man-exiting-room-through-glass-door-35768262/",
+                  "https://www.pexels.com/video/a-footage-of-a-man-walking-away-7866241/",
+                  "https://www.pexels.com/video/men-walking-in-and-out-of-an-open-door-4077522/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "أحد الحاضرين لم يضحك.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "people speaking at table",
+                "query_alt_en": "friends seated in conversation",
+                "must_show": "Man with friends: one restrained quiet reaction; avoid all-women composition and recognizable faces",
+                "urls": [
+                  "https://www.pexels.com/video/friends-talking-while-sitting-together-8111938/",
+                  "https://www.pexels.com/video/friends-talking-while-sitting-on-the-couch-8058268/",
+                  "https://www.pexels.com/video/people-having-conversation-8198540/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "وفي طريق العودة، تبدأ الأسئلة:",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man walking at night street",
+                "query_alt_en": "person walking urban lights",
+                "must_show": "A single man walking outdoors on the return home; back view and consistent light",
+                "urls": [
+                  "https://www.pexels.com/video/man-walking-at-the-park-during-the-night-7251025/",
+                  "https://www.pexels.com/video/man-in-jacket-walking-on-sidewalk-10378648/",
+                  "https://www.pexels.com/video/a-man-walking-in-the-sidewalk-at-night-4122701/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "تتذكر أنه أشاح بنظره",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man looking away by window",
+                "query_alt_en": "thoughtful man side view",
+                "must_show": "Brief glance away; do not imply the bystander was angry; face cropped or obscured",
+                "urls": [
+                  "https://www.pexels.com/video/man-looking-out-of-a-window-6585108/",
+                  "https://www.pexels.com/video/man-looking-through-window-6324540/",
+                  "https://www.pexels.com/video/man-looking-outside-the-window-8275593/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "تفتح الحديث في رأسك مرة ثانية.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man sitting on bed pensive",
+                "query_alt_en": "person contemplating in bedroom",
+                "must_show": "Man revisiting the conversation alone, seated, no visible or recognizable face in chosen frame",
+                "urls": [
+                  "https://www.pexels.com/video/a-frustrated-man-sitting-on-the-bed-7698604/",
+                  "https://www.pexels.com/video/a-man-sitting-on-his-bed-9902443/",
+                  "https://www.pexels.com/video/a-man-sitting-on-the-bed-7670368/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "انتقلت من ملاحظة بسيطة:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/pensive-man-looking-away-6602941/",
+                  "https://www.pexels.com/video/close-up-shot-of-a-man-standing-by-a-window-9902180/",
+                  "https://www.pexels.com/video/a-man-looking-out-the-window-6756337/"
+                ],
+                "must_show": "Quiet solitary pause reflecting uncertain interpretation, DISTINCT from conversation and street scenes",
+                "query_en": "man pausing alone by window",
+                "query_alt_en": "person reflecting quietly indoors"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "قبل أن تعيد المشهد الليلة",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand writing notes notebook",
+                "query_alt_en": "person handwriting close up",
+                "must_show": "Hand writing on blank notebook page; no existing labels or fake interface",
+                "urls": [
+                  "https://www.pexels.com/video/efficient-workspace-writing-with-pen-and-notebook-34616248/",
+                  "https://www.pexels.com/video/person-writing-in-notebook-at-desk-33350918/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-9306139/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "أما إن لم تجد سوى افتراضات",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/man-walking-on-sidewalk-during-sunrise-11253955/",
+                  "https://www.pexels.com/video/a-person-walking-down-a-path-with-the-sun-setting-behind-them-18089050/",
+                  "https://www.pexels.com/video/a-man-walking-through-a-field-with-a-sunset-in-the-background-15308531/"
+                ],
+                "must_show": "Man calmly moving on after reflection; new different location/footage, rear view, no faces",
+                "query_en": "man walking away in morning",
+                "query_alt_en": "person leaving calmly after reflection"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "هل فهموني خطأ؟"
+          },
+          "publishing": {
+            "title": "لماذا تعيد الموقف في رأسك؟ عندما يتحول الصمت إلى حكم عليك",
+            "description": "قلت مزحة عادية في جلسة أصدقاء، ثم بدأت تعيد الحوار في ذهنك طوال الليل. لماذا يتحول صمت شخص واحد إلى حكم قاسٍ على نفسك؟\n\nهذا الشورت يوضح كيف نخلط بين ما حدث فعلًا وبين تفسيرنا له، ولماذا يفيد الفصل بين الملاحظة والافتراض قبل أن نحاسب أنفسنا.\n\n#نداء_اليقظة #التفكير_المفرط #الاجترار_الذهني #الوعي_الذاتي",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التفكير_المفرط",
+              "#الاجترار_الذهني",
+              "#الوعي_الذاتي"
+            ],
+            "tags": [
+              "التفكير المفرط",
+              "الاجترار الذهني",
+              "مواقف محرجة",
+              "القلق الاجتماعي",
+              "نداء اليقظة"
+            ]
+          },
+          "stock_policy": "three_urls_per_scene"
+        },
+        "zip_sha256": "960e53c7a9eb2fde21008dc387da642341221427a624c6f2bb38f7a3cc1e10dd",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "6382b2ead29f97d2b7b25bedddba60d598e52a27afedbd2bbfe5f7252f85cbbf",
+          "assets/scene_01.jpg": "55058be9efd61ce6bdf129865174bdf0ccc41f3116b3653ad278d53cbfed726c",
+          "assets/scene_02.jpg": "1a4b867acb7e37b0906e174761db9a0ede276ceaaecc7e1da48b1d01990e8f8a",
+          "assets/scene_03.jpg": "288b7bfb83507b6358295bb8e00db483ea98d87002609cdd839332e6422ecb21",
+          "assets/scene_04.jpg": "93277e84d0c7cc41a6186f289c0fa5fa74e38283eb01a3167cd8679c6b2d654d",
+          "assets/scene_05.jpg": "e748a6eae896f80a25e9aabbaab07493ab04c3e9863901be1b6899acb54659f0",
+          "assets/scene_06.jpg": "bcb261e181d10885fa9344fbcfc6a427097bc60f41b9c792886758fc57e68154",
+          "assets/scene_07.jpg": "27fa6a9803e8f66b424024b4e8f731382cd9f83d64231a7fdbb7e9b26791a7b5",
+          "assets/scene_08.jpg": "6458245be55093e8ef9c5472ea0dd07fe1b57da4b5c4e6b89156c8000aaa561c",
+          "assets/scene_09.jpg": "6294fc0b0ce1404cae1e21c481c00ec700d26a8fa7c4b00cb990c9853f0954a8"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "51891c54e8da64d85998e61c5c19f421a3325547b5b686b9c3542b8ad68eb683",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQG2rjtXYVAZl4LUp4cgABo4mpAbivmAACECIAAk7nIFPyzYt5uNnYpD0E",
+          "sha256": "960e53c7a9eb2fde21008dc387da642341221427a624c6f2bb38f7a3cc1e10dd"
+        }
+      }
     }
   },
-  "current_request_id": "req-66baa6166618",
+  "current_request_id": "req-7de844c5a35f",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -32472,6 +32757,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-29T21:08:53Z",
+  "updated_at": "2026-10-29T21:09:17Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
