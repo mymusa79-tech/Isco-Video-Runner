@@ -8930,6 +8930,21 @@
       "selected_at": "2026-10-29T21:09:17Z",
       "created_at": "2026-10-29T21:09:17Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-62a53e94e6",
+      "title": "لماذا يسرق القلق نومك؟",
+      "normalized_title": "لماذا يسرق القلق نومك؟",
+      "market_query": "لماذا يسرق القلق نومك؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-30T11:08:12Z",
+      "created_at": "2026-10-30T11:08:12Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -32106,9 +32121,286 @@
         "started_at": "2026-10-29T21:10:12Z",
         "finished_at": "2026-10-29T21:20:23Z"
       }
+    },
+    "req-0dc35a0f09a9": {
+      "schema_version": 1,
+      "request_id": "req-0dc35a0f09a9",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا يسرق القلق نومك؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-62a53e94e6",
+      "selected_at": "2026-10-30T11:08:12Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "لماذا يسرق القلق نومك؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "لماذا يسرق القلق نومك؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "لم يحدث شيء سيئ بعد، ومع ذلك ضاع نومك الليلة. فكيف يحوّل عقلك احتمالًا صغيرًا إلى كارثة كاملة؟"
+              },
+              {
+                "id": "s2",
+                "text": "تخيّل أنك تستعد للنوم، فتتذكر رسالة وصلتك عصرًا: «أريد أن أتحدث معك غدًا». لكن عقلك يبدأ بطرح الأسئلة: هل ارتكبت خطأ؟ هل هناك مشكلة؟ ماذا لو خسرت شيئًا مهمًا؟ تنظر إلى الساعة، فتكتشف أن ساعة مرت. عندما تقل المعلومات، قد يحاول عقلك ملء الفراغ بأسوأ السيناريوهات، وكأن التوقع نوع من الحماية."
+              },
+              {
+                "id": "s3",
+                "text": "في المرة القادمة، خذ ورقة واكتب ثلاثة أشياء: ما الذي أعرفه فعلًا؟ وما الذي أخاف أن يحدث؟ وما الخطوة التي أستطيع اتخاذها؟ إن كانت هناك خطوة مفيدة، حدد موعدها غدًا. وإن لم تكن، فلا تطلب من نفسك حل المجهول. لا تحتاج أن تعرف كل شيء، يكفي أن تعرف ما يمكنك فعله."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "تبدأ الجملة الأولى بتوتر واقعي دون صراخ؛ تتسارع الأسئلة ثم تتباطأ النبرة عند الساعة، وتصبح عملية وواضحة عند كتابة الأسئلة الثلاثة. لا تُنطق تعليمات المشاهد. لا نص إضافيًا، ولا تُكرر الصلاة أو التعريف."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "لم يحدث شيء سيئ بعد، ومع ذلك ضاع نومك الليلة.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-smoothing-a-blanket-10555499/",
+                  "https://www.pexels.com/video/a-person-smoothing-a-blanket-10555498/",
+                  "https://www.pexels.com/video/a-person-covering-the-lap-with-a-blanket-7198961/"
+                ],
+                "mode": "sequence",
+                "query_en": "sleepless hand gripping bedding",
+                "query_alt_en": "close up hand on blanket",
+                "must_show": "يد تمسك الغطاء؛ بدون وجه"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "فكيف يحوّل عقلك احتمالًا صغيرًا إلى كارثة كاملة؟",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-getting-a-smartphone-8946457/",
+                  "https://www.pexels.com/video/notification-on-a-phone-7822022/",
+                  "https://www.pexels.com/video/person-using-smartphone-7534331/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand reaches smartphone at night",
+                "query_alt_en": "hands holding dark phone closeup",
+                "must_show": "تردد اليد عند الهاتف؛ الشاشة بلا نص مقروء"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تخيّل أنك تستعد للنوم، فتتذكر رسالة وصلتك عصرًا:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-texting-using-mobile-phone-6414098/",
+                  "https://www.pexels.com/video/a-person-is-holding-a-phone-on-a-wooden-table-5081435/",
+                  "https://www.pexels.com/video/a-person-tapping-on-his-phone-6278956/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand reaching phone bedside table",
+                "query_alt_en": "hand holding smartphone indoors",
+                "must_show": "يد تصل إلى الهاتف على طاولة؛ بلا شاشة مقروءة"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "لكن عقلك يبدأ بطرح الأسئلة:",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-using-his-phone-and-putting-it-on-the-table-7223986/",
+                  "https://www.pexels.com/video/hands-in-a-notebook-6626475/",
+                  "https://www.pexels.com/video/person-putting-notebook-on-table-6177024/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands hesitating above phone and notebook",
+                "query_alt_en": "phone hand near blank paper",
+                "must_show": "تردد اليد عند الهاتف أو ورقة؛ بلا ملامح"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "تنظر إلى الساعة، فتكتشف أن ساعة مرت.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/clock-is-ticking-7034348/",
+                  "https://www.pexels.com/video/a-ticking-clock-7033786/",
+                  "https://www.pexels.com/video/vintage-alarm-clock-on-wooden-desk-36448548/"
+                ],
+                "mode": "sequence",
+                "query_en": "analog clock ticking close up",
+                "query_alt_en": "bedside clock nighttime closeup",
+                "must_show": "عقارب ساعة حقيقية تتحرك، من دون شاشة مزيفة"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "عندما تقل المعلومات، قد يحاول عقلك ملء الفراغ بأسوأ السيناريوهات",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/alarm-clock-phone-nightstand-4168977/",
+                  "https://www.pexels.com/video/hand-switching-on-a-modern-table-lamp-35999374/",
+                  "https://www.pexels.com/video/living-room-19193293/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand restless near bedside phone",
+                "query_alt_en": "lamp phone nightstand at night",
+                "must_show": "تردد ملموس أمام هاتف أو مصباح وليس ممرًا فارغًا"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "في المرة القادمة، خذ ورقة واكتب ثلاثة أشياء:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-9306139/",
+                  "https://www.pexels.com/video/efficient-workspace-writing-with-pen-and-notebook-34616248/",
+                  "https://www.pexels.com/video/close-up-shot-of-a-person-writing-in-the-notebook-8824734/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand writing in notebook closeup",
+                "query_alt_en": "adult hand notes pen paper",
+                "must_show": "يد تكتب في دفتر دون ظهور نص مقروء"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "إن كانت هناك خطوة مفيدة، حدد موعدها غدًا.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/hands-writing-in-notebook-6177734/",
+                  "https://www.pexels.com/video/close-up-of-a-person-writing-on-a-notepad-9391663/",
+                  "https://www.pexels.com/video/close-up-view-of-handwriting-in-notebook-11995909/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand planning on blank notebook",
+                "query_alt_en": "writing schedule notes closeup",
+                "must_show": "تحديد خطوة أو وضع الدفتر جانبا"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "وإن لم تكن، فلا تطلب من نفسك حل المجهول.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/connecting-smartphone-to-charger-at-night-35999376/",
+                  "https://www.pexels.com/video/nightstand-scene-with-phone-charging-and-hand-interaction-36017452/",
+                  "https://www.pexels.com/video/close-up-view-of-a-person-turning-off-alarm-clock-on-cellphone-6963827/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand placing phone beside bed",
+                "query_alt_en": "hands switching off bedside phone",
+                "must_show": "يد تضع الهاتف جانبًا أو توقف استخدامه في إضاءة مسائية، بلا وجوه واضحة أو شاشة مقروءة"
+              }
+            }
+          ],
+          "stock_policy": "three_urls_per_scene",
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "لماذا لا ينام عقلك؟"
+          },
+          "publishing": {
+            "title": "لماذا يسرق القلق نومك؟ | عندما نصنع أسوأ الاحتمالات",
+            "description": "رسالة غامضة قبل النوم تكفي أحيانًا لتبدأ سلسلة من الأسئلة. لماذا ننتقل إلى أسوأ الاحتمالات؟ وكيف نفرّق بين الحقيقة والخوف ونختار خطوة عملية للغد؟\n\nالمثال افتراضي للتوضيح، والمعلومات عامة ولا تعد علاجًا للأرق أو وعدًا بتحسن النوم.\n\n#القلق #التفكير_الزائد #النوم #نداء_اليقظة",
+            "hashtags": [
+              "#القلق",
+              "#التفكير_الزائد",
+              "#النوم",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "القلق",
+              "قلق قبل النوم",
+              "التفكير الزائد",
+              "الاستغراق في النوم",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "bd93453037f124b3a7c4585d2453f3fe09b6309c6d24ff1f003d63d69665f250",
+        "asset_sha256": {
+          "assets/cover.jpg": "a75b482e2cab0b4edcb07c750abd6a8493f4cd70d492bf83a54ce47b1ca999cc",
+          "assets/scene_09.jpg": "8b23d23d84559f9537ce8f77b7e566d4e01b19242f0d823eaba66ecd4e979b16",
+          "assets/scene_04.jpg": "2273cf6b7059bc919119ba90dcf0399f4df7bfd15252b15c70a7919a5ef3e560",
+          "assets/scene_03.jpg": "1abb7cfedb9d5760b014a8a86e600d21abcb39c0c8a5a1ae629b4c1e7c0048a6",
+          "assets/scene_08.jpg": "f39d57020c1add1e899343b9700cf9d75a538ac381e98927f795afb94d5afac1",
+          "assets/scene_06.jpg": "a6eaa32ece4a97d929f5c0b453c8a68fc71e2f124347748fb7668196147a1c2d",
+          "assets/scene_01.jpg": "dbe0f7daae5c9f7cf2349635b2c75815a0608617f9ed8cfce22e305b365b157f",
+          "assets/scene_07.jpg": "f8bbb312233bb0c9f1a6de91727be133e827d9e8714dfa509f9b6df457c6e8ab",
+          "assets/scene_02.jpg": "1e96157b2db2308c2445983ecfe7ef238dbf48110842cf5ea1374bd0c3d48d89",
+          "assets/scene_05.jpg": "2e3c56ba2990fa07aedb95f88159b81f21cad7a9932a442d4cc45915e60d8141"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "b6147aeefb96062c2ca25748c636dbe0a262056783ec07f867432d4a72de6c10",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQLGrkeoIB5_V6c9kdqa6LpqOx5CGzAAKeIgACTucgU-hiBkR-oL1SPQQ",
+          "sha256": "bd93453037f124b3a7c4585d2453f3fe09b6309c6d24ff1f003d63d69665f250"
+        }
+      }
     }
   },
-  "current_request_id": "req-7de844c5a35f",
+  "current_request_id": "req-0dc35a0f09a9",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -32774,6 +33066,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-30T10:36:35Z",
+  "updated_at": "2026-10-30T11:08:13Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
