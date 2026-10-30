@@ -8,10 +8,10 @@
   ],
   "schema_version": 1,
   "short": [
-    "ala_mahl",
     "micro_story",
     "ala_mahl",
     "why_reframe",
-    "inner_dialogue"
+    "inner_dialogue",
+    "why_reframe"
   ]
 }
