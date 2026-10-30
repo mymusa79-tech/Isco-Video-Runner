@@ -33280,8 +33280,8 @@
           "assets/derivative_cover_medium.jpg": "65a254e3a88a5d7856cd5e6bb6c9ea5ba938dbc2d20d72575db169de63028675"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-10-30T22:06:52Z",
       "dispatched_at": null,
       "request_sha256": "4a50c449d7b7db1fdcd593f9ab70848869b09b298619f892d42dd15240a86381",
       "owner_art": {
@@ -33289,7 +33289,8 @@
           "file_id": "BQACAgQAAxkBAAIQTGrlFJltbRFeyl7Zqk1L44Nl-1J0AAJzIQAC3TApUxoAAQX8Oh5dJj0E",
           "sha256": "2e4443fbe889a86748e9372adca7c25938cd46cc3ca7b585f752f4dbf16daaa6"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-a1adaca92c3d",
@@ -33958,6 +33959,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-30T22:05:43Z",
+  "updated_at": "2026-10-30T22:06:53Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
