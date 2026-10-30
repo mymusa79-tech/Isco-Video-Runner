@@ -8945,6 +8945,21 @@
       "selected_at": "2026-10-30T11:08:12Z",
       "created_at": "2026-10-30T11:08:12Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-0b50a5ed30",
+      "title": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+      "normalized_title": "لماذا تسهر رغم انك متعب؟ سببان مختلفان",
+      "market_query": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-30T21:52:26Z",
+      "created_at": "2026-10-30T21:52:26Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -32415,9 +32430,280 @@
         "started_at": "2026-10-30T11:21:58Z",
         "finished_at": "2026-10-30T11:30:57Z"
       }
+    },
+    "req-2ad7a43dee95": {
+      "schema_version": 1,
+      "request_id": "req-2ad7a43dee95",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-0b50a5ed30",
+      "selected_at": "2026-10-30T21:52:26Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "stock_policy": "three_urls_per_scene",
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "تطفئ الضوء وأنت منهك، ثم تعود إلى هاتفك مرة أخرى. لماذا تقاوم النوم، وأنت تعرف أنك ستدفع ثمن السهر صباحًا؟"
+              },
+              {
+                "id": "s2",
+                "text": "تجاوزت الساعة منتصف الليل. تقول لنفسك: خمس دقائق فقط، ثم أنام. لكنها تصير ساعة، وفي الصباح تستيقظ منهكًا. أحيانًا تسهر لأن يومك كله كان للعمل والمسؤوليات، وهذه الساعات الأخيرة هي الوحيدة التي تشعر أنها لك. وأحيانًا تسهر لأن ذهنك لا يهدأ، فتراجع يومك وتخاف من غدك. الأولى تأجيل بقرارك، والثانية صعوبة في النوم، ولكل منهما مدخل مختلف."
+              },
+              {
+                "id": "s3",
+                "text": "الليلة، قبل أن تسهر، اسأل نفسك: هل أريد وقتًا لنفسي، أم لا أستطيع النوم أصلًا؟ إن كان الأول، فاحجز نصف ساعة لنفسك في المساء قبل موعد النوم. وإن كان الثاني، فاكتب ما يشغلك على ورقة وأبعد الهاتف."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "حافظ تمامًا على الصوت والهوية والصلاة والأوترو الحاليين. الهوك بمفارقة واضحة وتردد قصير؛ ثم كشف السببين بنبرة مفسّرة غير تشخيصية؛ الخاتمة عملية دون وعد بالشفاء. لا تُنطق عناوين الأقسام أو تعليمات الأداء."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "تطفئ الضوء",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "turning off bedroom bedside light",
+                "query_alt_en": "hand switching off a lamp",
+                "must_show": "يد تتجه إلى المصباح لإطفائه قبل النوم",
+                "urls": [
+                  "https://www.pexels.com/video/woman-girl-bed-bedroom-4058898/",
+                  "https://www.pexels.com/video/a-lamp-turning-off-while-a-woman-is-working-4742128/",
+                  "https://www.pexels.com/video/bedside-table-and-lamp-in-the-bedroom-7749078/"
+                ]
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "لماذا تقاوم النوم",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand using phone on bed at night",
+                "query_alt_en": "person reaching phone in bedroom",
+                "must_show": "يد تعود إلى الهاتف في السرير بعد محاولة النوم",
+                "urls": [
+                  "https://www.pexels.com/video/man-in-bed-looking-at-phone-and-alarm-clock-6943542/",
+                  "https://www.pexels.com/video/man-using-his-smartphone-6943539/",
+                  "https://www.pexels.com/video/a-man-using-his-phone-in-bed-6943544/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تجاوزت الساعة منتصف الليل.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "clock ticking after midnight",
+                "query_alt_en": "clock in a dark bedroom",
+                "must_show": "ساعة يمر عقربها في غرفة مظلمة دون أشخاص",
+                "urls": [
+                  "https://www.pexels.com/video/dramatic-clock-ticking-in-dark-room-29862379/",
+                  "https://www.pexels.com/video/a-ticking-clock-7033607/",
+                  "https://www.pexels.com/video/video-of-a-wall-clock-9945032/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "لكنها تصير ساعة،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand turning off morning alarm clock",
+                "query_alt_en": "waking up alarm on nightstand",
+                "must_show": "يد تضغط المنبه صباحًا دون وجه مقروء",
+                "urls": [
+                  "https://www.pexels.com/video/woman-turning-off-her-alarm-clock-7593903/",
+                  "https://www.pexels.com/video/a-woman-shutting-the-alarm-clock-7196313/",
+                  "https://www.pexels.com/video/a-woman-turning-off-her-cellphone-alarm-8810535/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "أحيانًا تسهر لأن يومك كله كان للعمل والمسؤوليات،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "closing laptop after work",
+                "query_alt_en": "hands finishing computer work",
+                "must_show": "يد تغلق الحاسوب بعد يوم عمل",
+                "urls": [
+                  "https://www.pexels.com/video/closing-a-laptop-on-a-wooden-desk-29624964/",
+                  "https://www.pexels.com/video/crop-person-closing-a-laptop-computer-7983123/",
+                  "https://www.pexels.com/video/typing-then-closing-a-laptop-8472460/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "وهذه الساعات الأخيرة هي الوحيدة التي تشعر أنها لك.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands turning book pages indoors",
+                "query_alt_en": "closeup reading book hands at home",
+                "must_show": "يدان تقلبان صفحات كتاب في لحظات هدوء شخصية؛ دون وجه ظاهر",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-view-of-a-person-reading-a-book-6243989/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-reading-a-book-9242131/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-turning-pages-of-a-book-8472586/"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وأحيانًا تسهر لأن ذهنك لا يهدأ،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "restless person turning in bed",
+                "query_alt_en": "insomnia moving in bed at night",
+                "must_show": "شخص يتقلب في فراشه وتوتره ظاهر من جسده فقط",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-lying-down-on-the-bed-6944069/",
+                  "https://www.pexels.com/video/a-young-woman-having-a-hard-time-sleeping-in-bed-8486619/",
+                  "https://www.pexels.com/video/a-man-lying-down-in-bed-8376628/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "الليلة، قبل أن تسهر،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "phone and open notebook on desk",
+                "query_alt_en": "hands writing journal with phone",
+                "must_show": "يد مترددة بين هاتف مغلق ودفتر فارغ للتفكير في السبب",
+                "urls": [
+                  "https://www.pexels.com/video/person-writing-a-diary-6771504/",
+                  "https://www.pexels.com/video/person-holding-smartphone-while-writing-7657522/",
+                  "https://www.pexels.com/video/person-holding-mobile-phone-while-write-on-notebook-6278836/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "إن كان الأول، فاحجز نصف ساعة",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "handwriting notes in dark room",
+                "query_alt_en": "put phone aside and write diary",
+                "must_show": "يد تكتب ما يشغلها في دفتر ثم تبعد الهاتف",
+                "urls": [
+                  "https://www.pexels.com/video/hand-writing-in-notebook-6734222/",
+                  "https://www.pexels.com/video/close-up-of-hand-writing-in-notebook-31948465/",
+                  "https://www.pexels.com/video/putting-cellphone-on-dresser-12803301/"
+                ],
+                "mode": "sequence"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_no_text.jpg",
+            "text": "منهك ومع ذلك تسهر؟"
+          },
+          "publishing": {
+            "title": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
+            "description": "لماذا تسهر رغم أنك متعب؟ قد يؤجل بعضنا النوم بحثًا عن وقت شخصي، وأحيانًا يصعب النوم بسبب الأفكار والقلق. شورت يوضح الفرق بين تأجيل النوم وصعوبة النوم، مع خطوتين صغيرتين لفهم ما يحدث دون وعد بنتيجة مضمونة.\n\n#السهر #النوم #عادات_النوم #نداء_اليقظة",
+            "hashtags": [
+              "#السهر",
+              "#النوم",
+              "#عادات_النوم",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "أسباب السهر",
+              "تأجيل النوم",
+              "صعوبة النوم",
+              "لماذا نسهر",
+              "النوم والقلق",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "402ada2ec2a5fae143ff663c2bb62e7aeb0460b67408c7ef140ae7a27cd5c5f5",
+        "asset_sha256": {
+          "assets/cover_no_text.jpg": "58c9446a11f2db345cb973971fc8a8d380c2cfff315f41a2ba60cc72cd619a06",
+          "assets/scene_09.jpg": "020018ec66602ac4290d9d70686a539243d27221a25c6cac95e2cee2c36a1ddc",
+          "assets/scene_04.jpg": "5920a777f069bcedf186b919a4c780eb6acf8d9645a8148b0227dbc008896bb7",
+          "assets/scene_03.jpg": "bc7d504686b87d9f1aca05f4e605e7c918bbd6ca640230705c675fc5b03b0308",
+          "assets/scene_08.jpg": "c690aa578761cdf39dda21f6cbde5e61a46ff98857ee4fa8dba10a45fd4582fb",
+          "assets/scene_06.jpg": "ce2e9073ab23e96529f8c523227123b47303234f1b9b69279cc11d620e029fcb",
+          "assets/scene_01.jpg": "5aa199df68d3a42fc40228aba8f14eddb92a526b02e6ec2f0375e32add9a40b9",
+          "assets/scene_07.jpg": "258745a59c11febc107cf3b32e431dab6775a99d021222cbe2c17b275aaf6e65",
+          "assets/scene_02.jpg": "721f9e4aa0441b00a18d1879e48f53c1463632210d90109a1e49e7e854ef5aaf",
+          "assets/scene_05.jpg": "8f542270e6d797285f7d6be07a5a23b85e90efb885cf5d4e4f5db64b6be75f89"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "5b2f5d363bd0933c161da6628c055ea0bb2db0cbdeb5b1e82857b4fadbc6f7d1",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQPWrlEXiHudeAPywcvqPheOCAaLAzAAJyIQAC3TApUx3AITsvZeGaPQQ",
+          "sha256": "402ada2ec2a5fae143ff663c2bb62e7aeb0460b67408c7ef140ae7a27cd5c5f5"
+        }
+      }
     }
   },
-  "current_request_id": "req-0dc35a0f09a9",
+  "current_request_id": "req-2ad7a43dee95",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -33083,6 +33369,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-30T21:51:10Z",
+  "updated_at": "2026-10-30T21:52:26Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
