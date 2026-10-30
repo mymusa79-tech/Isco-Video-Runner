@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41134272066",
-  "result": "",
-  "updated_at": 1793397798
+  "result": "success",
+  "updated_at": 1793397866
 }
