@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "short",
-  "kind": "short",
+  "kind": "",
   "topic": "لماذا يسرق القلق نومك؟",
-  "stage": "⚡ الشورت · 5/6 المونتاج ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41047525571",
-  "result": "",
-  "updated_at": 1793359781
+  "result": "success",
+  "updated_at": 1793359855
 }
