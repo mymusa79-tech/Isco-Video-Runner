@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "لماذا تسهر رغم أنك متعب؟ سببان مختلفان",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41134272066",
-  "result": "success",
-  "updated_at": 1793397866
+  "topic": "لماذا تعيد محادثة انتهت منذ ساعات؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41135907995",
+  "result": "",
+  "updated_at": 1793398041
 }
