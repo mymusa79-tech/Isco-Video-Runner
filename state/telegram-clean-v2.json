@@ -8975,6 +8975,21 @@
       "selected_at": "2026-10-30T22:05:43Z",
       "created_at": "2026-10-30T22:05:43Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-22cdbd8ad2",
+      "title": "لماذا تتمسك بشيء يخسّرك؟",
+      "normalized_title": "لماذا تتمسك بشيء يخسّرك؟",
+      "market_query": "لماذا تتمسك بشيء يخسّرك؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-31T16:49:19Z",
+      "created_at": "2026-10-31T16:49:19Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -33307,9 +33322,212 @@
         "started_at": "2026-10-30T22:07:14Z",
         "finished_at": "2026-10-30T23:21:52Z"
       }
+    },
+    "req-b03f8cfadbad": {
+      "schema_version": 1,
+      "request_id": "req-b03f8cfadbad",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تتمسك بشيء يخسّرك؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-22cdbd8ad2",
+      "selected_at": "2026-10-31T16:49:19Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "لماذا تتمسك بشيء يخسّرك؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "لماذا تتمسك بشيء يخسّرك؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "لماذا تتمسك بشيء يؤذيك، رغم أنك تعرف أنك تخسر نفسك؟\nربما لأن التوقف يبدو كأنك تلغي سنوات من تعبك."
+              },
+              {
+                "id": "s2",
+                "text": "تخيّل أنك في عمل يستنزفك منذ ثلاث سنوات.\nتخرج بلا طاقة، وتَعِدُ نفسك أن الشهر القادم سيكون مختلفًا.\nثم يأتي الشهر التالي، ولا يتغير شيء.\nتفكر في الرحيل، فيهمس داخلك: هل أضيّع كل ما بنيته؟\nهذا قد يكون انحياز التكلفة الغارقة: تستمر لأنك دفعت، لا لأن الاستمرار يفيدك.\nوقد يجعلك نفور الخسارة تخشى فقدان الأمان، رغم تعبك.\nلكن ليس كل تعب سببًا للتوقف؛ أحيانًا توجد فرصة واضحة للإصلاح."
+              },
+              {
+                "id": "s3",
+                "text": "التوقف يصبح معقولًا عندما يستمر الضرر، ولا ترى مؤشرات واقعية للتحسن.\nفاسأل نفسك: لو لم أقضِ تلك السنوات هنا، هل سأختار البقاء؟\nاليوم، اكتب ما ستكسبه وما ستخسره إذا استمررت شهرًا آخر."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "ابدأ الهوك بسؤال مباشر يمسّ الشعور فورًا. النبرة صادقة وقريبة، مع توتر خفيف في S1، ثم شرح هادئ واضح في S2، ثم حسم عملي غير وعظي في S3. اجعل الوقفات قصيرة بعد الجمل المفصلية، وابرز التشكيل في «تَعِدُ». لا تُلقِ النص كحكمة، بل كمصارحة مع شخص عالق بين البقاء والتوقف."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "لماذا تتمسك بشيء يؤذيك، رغم أنك تعرف أنك تخسر نفسك؟",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "overworked office burnout",
+                "query_alt_en": "tired office worker",
+                "must_show": "A tired worker in an office, with fatigue and emotional strain more important than a readable face.",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-resting-on-his-desk-6615306/",
+                  "https://www.pexels.com/video/exhausted-man-working-at-the-office-8731296/",
+                  "https://www.pexels.com/video/an-exhausted-man-working-in-front-of-a-computer-8048330/"
+                ]
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.png",
+              "start_text": "تخيّل أنك في عمل يستنزفك منذ ثلاث سنوات.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "writing plans at desk",
+                "query_alt_en": "notebook desk closeup",
+                "must_show": "Hands or a partial figure writing at a desk, suggesting repeated promises and self-talk.",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-writing-in-the-notebook-5904567/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-notebook-with-a-pen-17136728/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-notebook-4872859/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.png",
+              "start_text": "تفكر في الرحيل، فيهمس داخلك: هل أضيّع كل ما بنيته؟",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "packing office desk",
+                "query_alt_en": "leaving job office",
+                "must_show": "التفكير في الرحيل",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-packing-up-his-things-at-the-office-9365576/",
+                  "https://www.pexels.com/video/man-packing-his-office-stuff-7581335/",
+                  "https://www.pexels.com/video/a-man-putting-his-things-in-a-box-9365581/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.png",
+              "start_text": "وقد يجعلك نفور الخسارة تخشى فقدان الأمان، رغم تعبك.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "hand on office door handle",
+                "query_alt_en": "person pausing office doorway back view",
+                "must_show": "A hand paused on an office-style door handle, or a still figure contemplating at the threshold; no walk-away shot.",
+                "urls": [
+                  "https://www.pexels.com/video/person-opening-and-closing-the-door-2108274/",
+                  "https://www.pexels.com/video/hand-operating-metal-door-lock-close-up-35999369/",
+                  "https://www.pexels.com/video/contemplative-moment-by-a-sunlit-doorway-35847555/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s3",
+              "asset": "assets/scene_05.png",
+              "start_text": "التوقف يصبح معقولًا عندما يستمر الضرر، ولا ترى مؤشرات واقعية للتحسن.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "thinking by window",
+                "query_alt_en": "decision writing notes",
+                "must_show": "A reflective person by a window or hands writing a practical decision note.",
+                "urls": [
+                  "https://www.pexels.com/video/man-gazing-thoughtfully-from-a-window-40261871/",
+                  "https://www.pexels.com/video/hand-writing-in-notebook-on-a-desk-34993447/",
+                  "https://www.pexels.com/video/person-writing-on-notebook-8731583/"
+                ]
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.png",
+            "text": "إلى متى ستكمل؟"
+          },
+          "publishing": {
+            "title": "لماذا تتمسك بشيء يخسّرك؟ | متى يكون التوقف قرارًا سليمًا",
+            "description": "لماذا نكمل أحيانًا في عمل أو علاقة أو دراسة تستنزفنا؟\nهذا الشورت يشرح باختصار كيف قد يدفعنا انحياز التكلفة الغارقة ونفور الخسارة إلى الاستمرار، ومتى يصبح التوقف قرارًا معقولًا.\n\nفي هذا الفيديو:\n- لماذا يبدو التوقف كأنه إلغاء لسنوات التعب\n- كيف يضغط الماضي على قرارك القادم\n- سؤال عملي تستطيع تطبيقه اليوم\n\n#نداء_اليقظة #وعي #قرارات #استنزاف #تغيير",
+            "tags": [
+              "نداء اليقظة",
+              "لماذا نكمل رغم الخسارة",
+              "انحياز التكلفة الغارقة",
+              "نفور الخسارة",
+              "متى أتوقف",
+              "الاستنزاف النفسي",
+              "العمل المستنزف",
+              "العلاقات المؤذية",
+              "اتخاذ القرار"
+            ],
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#وعي",
+              "#قرارات",
+              "#استنزاف",
+              "#تغيير"
+            ]
+          },
+          "stock_policy": "three_urls_per_scene"
+        },
+        "zip_sha256": "31dfc11b69577f266d9be113487672caa570f571b3dbe92ea7b5bb1ade9be800",
+        "asset_sha256": {
+          "assets/cover_main.png": "ea87fd233f123f9070a27f5f496e819aaea45702db6919e9701275b075fff856",
+          "assets/scene_05.png": "1182f0b0b1a00e87ec7fbd98b9d9f30d928e05741bf72370a2097872826147f4",
+          "assets/scene_03.png": "ec20d0f1e8dc9d82c45384dabe001a612fc0008d2a6034bd3733df6551e50056",
+          "assets/scene_04.png": "3eb73e81c82a1cedd40de3247c7344b6e68998e569d2dae0721f41dabe6fe6be",
+          "assets/scene_01.png": "6f54541a8e01cbb12cbacbf1eefe5a45c5ab10afde4a096e26d9c82265fe6533",
+          "assets/cover_alt.png": "e6d13a9fd80e3e5c100b958df706a39e692b142d000b21d90262c83ea8a287f7",
+          "assets/scene_02.png": "ec40a51a5c8623de71b4639b00d5b282ad0746f1e043bba499a190e2c561b1b1"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "330121fa3b1419512efe2620c1e42ca525833a34fdeb9b8980171101d0450963",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQYGrmG_cnxYW3hI4PG2zp_SqEJ-AmAALnIAAC3TAxU8BJo_7DQuJOPQQ",
+          "sha256": "31dfc11b69577f266d9be113487672caa570f571b3dbe92ea7b5bb1ade9be800"
+        }
+      }
     }
   },
-  "current_request_id": "req-a1adaca92c3d",
+  "current_request_id": "req-b03f8cfadbad",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -33975,6 +34193,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-31T16:46:02Z",
+  "updated_at": "2026-10-31T16:49:19Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
