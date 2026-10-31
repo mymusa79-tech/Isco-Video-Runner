@@ -8990,6 +8990,21 @@
       "selected_at": "2026-10-31T16:49:19Z",
       "created_at": "2026-10-31T16:49:19Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-5354b47899",
+      "title": "كيف تحمي نفسك من الانتكاسات؟",
+      "normalized_title": "كيف تحمي نفسك من الانتكاسات؟",
+      "market_query": "كيف تحمي نفسك من الانتكاسات؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-10-31T22:49:17Z",
+      "created_at": "2026-10-31T22:49:17Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -33542,9 +33557,308 @@
         "started_at": "2026-10-31T16:50:43Z",
         "finished_at": "2026-10-31T16:59:34Z"
       }
+    },
+    "req-f53a890fc87d": {
+      "schema_version": 1,
+      "request_id": "req-f53a890fc87d",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "كيف تحمي نفسك من الانتكاسات؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-5354b47899",
+      "selected_at": "2026-10-31T22:49:17Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "كيف تحمي نفسك من الانتكاسات؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "كيف تحمي نفسك من الانتكاسات؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "التزمت أسبوعين، ثم سهرت ليلة، فقلت: انتهى كل شيء.\nكيف تتحول ليلة واحدة إلى أسبوع كامل من التراجع؟"
+              },
+              {
+                "id": "s2",
+                "text": "طوال أسبوعين، كان نومك منتظمًا. ثم امتد مساء واحد حتى الفجر.\nتستيقظ مرهقًا، وتنظر إلى ما حدث وكأنه مسح كل تقدمك.\nتقول: سأبدأ من الأسبوع المقبل. وفي الليلة التالية، تسهر مجددًا؛ لأنك أقنعت نفسك بأن المحاولة انتهت.\nلاحظ ما حدث: التعثر استغرق ليلة، لكن تأجيل العودة هو الذي منحه أيامًا إضافية.\nلهذا تحتاج إلى خطة تسبق الخطأ.\nإذا سهرت، سأعيد ترتيب مساء الغد، وأترك ما يؤخر نومي في موعد محدد.\nقد لا تعود الأمور مثالية فورًا، وهذا طبيعي. المهم ألّا تحوّل يومًا صعبًا إلى سبب للتوقف."
+              },
+              {
+                "id": "s3",
+                "text": "فكّر الآن في عادتك الأصعب، واكتب خطة عودتك في جملة واحدة تبدأ بكلمة: إذا."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "قوس واضح: خيبة صادقة في الجملة الأولى؛ فضول في السؤال؛ سرد واقعي متدرج؛ توقف خفيف بعد خطة تسبق الخطأ؛ خاتمة عملية دون لوم. لا تُنطق الهوية ولا الصلاة."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "التزمت أسبوعين، ثم سهرت ليلة",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/cozy-modern-bedroom-interior-design-34010379/",
+                  "https://www.pexels.com/video/a-man-sitting-in-a-dark-room-with-a-lamp-16835716/",
+                  "https://www.pexels.com/video/person-texting-in-bed-during-late-night-30285725/"
+                ],
+                "query_en": "awake in bedroom night",
+                "query_alt_en": "sleepless bedroom back view",
+                "must_show": "شخص مستيقظ على السرير ليلًا من الخلف، وجهه غير واضح"
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "كيف تتحول ليلة واحدة",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/alarm-clock-25329385/",
+                  "https://www.pexels.com/video/alarm-clock-in-a-nightstand-7164570/",
+                  "https://www.pexels.com/video/an-alarm-clock-in-bed-that-rings-the-alarm-27454114/"
+                ],
+                "query_en": "bedside alarm clock night closeup",
+                "query_alt_en": "dark bedroom clock closeup",
+                "must_show": "ساعة منبه بجوار السرير في الظلام"
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "طوال أسبوعين، كان نومك منتظمًا.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/bed-bedroom-house-apartment-4109487/",
+                  "https://www.pexels.com/video/a-man-making-bed-7641639/",
+                  "https://www.pexels.com/video/woman-making-bed-6793101/"
+                ],
+                "query_en": "tidy bed morning routine",
+                "query_alt_en": "calm bedroom morning light",
+                "must_show": "يدان ترتبان غطاء السرير صباحًا"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "ثم امتد مساء واحد حتى الفجر.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/sunlight-in-room-through-curtains-10756505/",
+                  "https://www.pexels.com/video/a-woman-opening-the-curtain-6446152/",
+                  "https://www.pexels.com/video/woman-opening-curtains-of-her-room-6446332/"
+                ],
+                "query_en": "curtain window sunrise dark room",
+                "query_alt_en": "dawn light through bedroom curtains",
+                "must_show": "ستارة نافذة وضوء الفجر يدخل غرفة مظلمة"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "تستيقظ مرهقًا، وتنظر إلى ما حدث",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/woman-getting-out-of-bed-7572126/",
+                  "https://www.pexels.com/video/a-woman-getting-off-her-bed-6555201/",
+                  "https://www.pexels.com/video/a-woman-getting-out-of-bed-4049556/"
+                ],
+                "query_en": "tired waking in bedroom",
+                "query_alt_en": "slow wake after bad sleep",
+                "must_show": "استيقاظ مرهق وبطء في النهوض دون وجه واضح"
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "تقول: سأبدأ من الأسبوع المقبل.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-flipping-a-page-of-a-2024-planner-19798266/",
+                  "https://www.pexels.com/video/flipping-calendar-pages-in-motion-35332817/",
+                  "https://www.pexels.com/video/female-hand-placing-calendar-page-on-colored-background-5368427/"
+                ],
+                "query_en": "hand turning calendar page",
+                "query_alt_en": "hand flipping desk calendar",
+                "must_show": "يد تقلب صفحة تقويم ملموسة"
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وفي الليلة التالية، تسهر مجددًا",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-footage-of-a-bedroom-7505650/",
+                  "https://www.pexels.com/video/a-lampshade-and-curtain-4623151/",
+                  "https://www.pexels.com/video/lamp-on-a-side-table-in-a-bedroom-9583812/"
+                ],
+                "query_en": "bedroom lamp second night",
+                "query_alt_en": "lit bedroom different angles",
+                "must_show": "غرفة ليلية مضاءة في الليلة الثانية، ثلاثة مقاطع وزوايا مختلفة",
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "لهذا تحتاج إلى خطة تسبق الخطأ.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/woman-turning-pages-of-a-notebook-5124981/",
+                  "https://www.pexels.com/video/a-person-opening-a-notebook-7576284/",
+                  "https://www.pexels.com/video/a-person-opening-a-notebook-7744309/"
+                ],
+                "query_en": "hand opening notebook on desk",
+                "query_alt_en": "blank notebook pen desk",
+                "must_show": "يد تفتح دفترًا دون كتابة"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "إذا سهرت، سأعيد ترتيب مساء الغد، وأترك ما يؤخر نومي في موعد محدد.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-glass-on-the-table-6801658/",
+                  "https://www.pexels.com/video/close-up-view-of-person-putting-tumbler-on-a-tray-6802244/",
+                  "https://www.pexels.com/video/disposable-cup-being-placed-on-table-6343765/"
+                ],
+                "query_en": "hand turning off bedside lamp",
+                "query_alt_en": "phone charging on nightstand",
+                "must_show": "يد تطفئ مصباح السرير استعدادًا للنوم"
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s2",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "قد لا تعود الأمور مثالية فورًا، وهذا طبيعي.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/morning-tea-ritual-in-cozy-sunlit-kitchen-35674423/",
+                  "https://www.pexels.com/video/a-person-pouring-tea-into-a-glass-pitcher-26202140/",
+                  "https://www.pexels.com/video/a-person-placing-the-cup-of-coffee-on-the-table-4377786/"
+                ],
+                "query_en": "hands pouring tea morning kitchen",
+                "query_alt_en": "hand placing cup on table morning",
+                "must_show": "يدان تسكبان الشاي أو تضعان كوبًا على طاولة مطبخ صباحًا، خارج غرفة النوم"
+              }
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s3",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "فكّر الآن في عادتك الأصعب، واكتب خطة عودتك في جملة واحدة تبدأ بكلمة: إذا.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/close-up-footage-of-a-woman-writing-on-a-notebook-9035652/",
+                  "https://www.pexels.com/video/close-up-of-woman-writing-in-notebook-11025392/",
+                  "https://www.pexels.com/video/close-up-of-a-woman-writing-in-a-notebook-8706219/"
+                ],
+                "query_en": "hand writing on paper",
+                "query_alt_en": "closeup pen over blank page",
+                "must_show": "يد تبدأ الكتابة على ورقة؛ تختلف عن فتح الدفتر في المشهد 08"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_a.png",
+            "text": "انتهى كل شيء؟"
+          },
+          "publishing": {
+            "title": "سهرت ليلة واحدة… هل ضاع التزامك؟",
+            "description": "قد يكفي يوم واحد صعب لتشعر أن كل ما بنيته في عادتك قد ضاع. في هذا الشورت نتكلم عن التعثّر في العادات اليومية: كيف يبدأ، وكيف يتحول من ليلة واحدة إلى أيام من التراجع، ولماذا يهم ألا تؤجل العودة. الفكرة هنا ليست مثالية ولا علاجًا طبيًا، بل طريقة عملية تساعدك على استئناف العادة عندما تتعثر.\n\n#التعثر #العادات_اليومية #بناء_العادات #نداء_اليقظة",
+            "hashtags": [
+              "#التعثر",
+              "#العادات_اليومية",
+              "#بناء_العادات",
+              "#نداء_اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "d1a7e9543624bd68a46951b4130f5b1d2ff795e0e58fd164a26d862f4666c3a4",
+        "asset_sha256": {
+          "assets/scene_11.jpg": "85f245bbecca6cc331c4acb948ba962e051a6df9ef8065d92492bc7b1e2fc4d8",
+          "assets/scene_09.jpg": "3e9a2952aeba6b086a7a3bbdc2389160b9645880016f7f0072e4c3898f0461d4",
+          "assets/scene_04.jpg": "d43d5a365632fc9995145bfde8ebb5dc1821f6c00e8ab174137ab800b1d380d1",
+          "assets/scene_03.jpg": "0a23e3f3d421fbca2dc16cf4d2dcaaaa8bf90b04d2e9b3afef7eae77a75dd59f",
+          "assets/scene_08.jpg": "5c86058ea51ea0f03d3cc29ac3bd3b3ceb3771fe51e3eedc29ba33151c7d638d",
+          "assets/scene_06.jpg": "7f77e72aa59cec6547214eaa9acb85cf784ae53672b1a3248a6b082a691a0bba",
+          "assets/scene_01.jpg": "721746dbc03cc552840cac852e697021543b5931f656844365b3b47d426520ec",
+          "assets/cover_a.png": "d62b85adf20207a043841a270a3a4f0993284b5a0f50139d23a5d740429122da",
+          "assets/scene_07.jpg": "ee1dda0e8a5d3619c7986fc53f18a3506a7ef3e006ef4fd3695b4e3736a24928",
+          "assets/scene_02.jpg": "91b08f63be41dd4db8d5903818bd93f7466f1239f44f215c239f6f5d983f6cc7",
+          "assets/scene_10.jpg": "c833eea758b84b55364bf945f4ad9121c6dfd0044b9aefd036d072265716cf54",
+          "assets/scene_05.jpg": "28b9a1008922cf8e2d717c1c0e03dad498ccfd690c37053291b05e15b0235e00"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "fc4704b78f72376b07fd577abdb4f6ce20429c2963cfd8608c0194796676eb51",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQc2rmcFVsG7oiGxCLOqfVFf6OXBj5AAK5HQAC3TA5U9itrMUQmsiaPQQ",
+          "sha256": "d1a7e9543624bd68a46951b4130f5b1d2ff795e0e58fd164a26d862f4666c3a4"
+        }
+      }
     }
   },
-  "current_request_id": "req-b03f8cfadbad",
+  "current_request_id": "req-f53a890fc87d",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -34210,6 +34524,6 @@
       }
     }
   ],
-  "updated_at": "2026-10-31T22:44:32Z",
+  "updated_at": "2026-10-31T22:49:18Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
