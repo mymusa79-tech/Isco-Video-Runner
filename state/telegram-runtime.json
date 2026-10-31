@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "لماذا تعيد محادثة انتهت منذ ساعات؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41135907995",
-  "result": "success",
-  "updated_at": 1793402509
+  "topic": "لماذا تتمسك بشيء يخسّرك؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41221606198",
+  "result": "",
+  "updated_at": 1793465448
 }
