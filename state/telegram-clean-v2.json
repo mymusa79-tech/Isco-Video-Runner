@@ -34779,7 +34779,7 @@
           "assets/s5_g2.jpg": "b2ebe676eabfe5ff5451a390e56341c7a57242ac34c975f57656bf5c4df65812"
         }
       },
-      "status": "awaiting_confirmation",
+      "status": "cancelled",
       "confirmed_at": null,
       "dispatched_at": null,
       "request_sha256": "81471c519626040ecf282d29958bfb423556893a78446bace354877f5dedd9a5",
@@ -34788,10 +34788,11 @@
           "file_id": "BQACAgQAAxkBAAIQhGrniSEGZtu3dWUNpo_zyOR7nv3wAALfJwACmGU5U6rmdVJxcjOcPQQ",
           "sha256": "6a53c1000a1c5c5d15609b17ef28dcf905e63fe0e0180cf6bc071898e437794c"
         }
-      }
+      },
+      "cancelled_at": "2026-11-01T18:49:03Z"
     }
   },
-  "current_request_id": "req-d4b23b6f8270",
+  "current_request_id": null,
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -35457,6 +35458,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-01T18:47:23Z",
+  "updated_at": "2026-11-01T18:49:04Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
