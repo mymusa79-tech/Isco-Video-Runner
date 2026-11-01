@@ -36538,9 +36538,9 @@
           "assets/s5_06.jpg": "265200b4b03b77e6756effaaa6ad7094b591f0b339fd97bda4f235553f7706a6"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-11-01T20:24:40Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-11-01T20:24:44Z",
       "request_sha256": "1042358971044ed3ac693507ba38985a561fbd5b2586f40eb4da3153480df805",
       "owner_art": {
         "zip": {
@@ -37217,6 +37217,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-01T20:24:41Z",
+  "updated_at": "2026-11-01T20:24:44Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
