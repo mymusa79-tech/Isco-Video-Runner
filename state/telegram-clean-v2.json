@@ -9035,6 +9035,21 @@
       "selected_at": "2026-11-01T18:49:35Z",
       "created_at": "2026-11-01T18:49:35Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-f78b48ec57",
+      "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "normalized_title": "لماذا تشعر بالذنب وانت ترتاح؟",
+      "market_query": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-01T20:24:02Z",
+      "created_at": "2026-11-01T20:24:02Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -35707,9 +35722,835 @@
         }
       },
       "cancelled_at": "2026-11-01T20:23:08Z"
+    },
+    "req-e9b07ccccbe3": {
+      "schema_version": 1,
+      "request_id": "req-e9b07ccccbe3",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-f78b48ec57",
+      "selected_at": "2026-11-01T20:24:02Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "story_analysis",
+          "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "تجلس لتستريح قليلًا، ثم تجد نفسك تتهيأ للنهوض. يفعل أحمد الشيء نفسه حين يسمع: «كان ينبغي أن أنجز شيئًا». تتوقف يده عند مسند المقعد، وفي هذه اللحظة يبدأ طريقان محتملان. سنفكّك لماذا ينقلب الجلوس إلى ذنب، وماذا يخبرنا عن قراراتنا. وسنتتبّع ما يحدث حين نستجيب للشعور فورًا، أو نسأل عن سببه أولًا.\n\nنصل أحيانًا إلى لحظة نستطيع فيها الجلوس.\n\nلنسمِّ صاحب هذه اللحظة أحمد. لا نعرف عمله، ولا أين يعيش، ولا كيف قضى يومه. نعرف فقط أنه يريد أن يتوقف قليلًا.\n\nيجلس أحمد، ويسند ظهره، ويترك يديه تستقران على المقعد. لكنه قبل أن يشعر بأنه بدأ يستريح، يسمع جملة مألوفة: «كان ينبغي أن أنجز شيئًا».\n\nلا تخبره الجملة بما عليه فعله، ولا تذكر له موعدًا محددًا. ومع ذلك، قد تكون كافية لتجعله يفكر في النهوض.\n\nنجلس أحيانًا، ثم نبحث عن شيء نفعله لنبرر الوقت الذي سنقضيه دون عمل.\n\nننظر حولنا، فنجد غرضًا يحتاج إلى ترتيب، أو شيئًا تركناه غير مكتمل. وربما نتذكر مهمة يمكن إنجازها اليوم، أو تأجيلها دون عاقبة واضحة.\n\nلكن مجرد تذكر عمل لا يعني بالضرورة أنه يجب إنجازه الآن.\n\nوهنا تظهر العقدة في قصة أحمد. قد نخلط بين مسؤولية واضحة تستحق اهتمامنا، وبين شعور عام بأن الجلوس وحده تقصير.\n\nعندما ننهض استجابةً لهذا الشعور، قد نتجنب سؤالًا أهم من النهوض نفسه: ما الذي نحتاج إلى فعله فعلًا، ولماذا في هذه اللحظة؟\n\nلنتخيل أن أحمد أمام قرارين، دون أن تتغير ظروفه أو تختفي مسؤولياته.\n\nفي الحالتين، يبدأ متعبًا، وتبقى أمامه الأعمال نفسها. لكن الطريقة التي يتعامل بها مع تلك الجملة ستكون مختلفة.\n\nسنتتبّع مسارين محتملين لأحمد خلال ثلاثة أيام، ونفهم أثر كل اختيار."
+              },
+              {
+                "id": "s2",
+                "text": "هذا هو المسار الأول: ننهض لأن الشعور بالذنب أصبح أثقل من الجلوس.\n\nفي اليوم الأول، يستجيب أحمد للجملة قبل أن يفكر فيها. يدفع نفسه بعيدًا عن المقعد، ويتجه إلى أقرب شيء يستطيع إنجازه.\n\nيبدأ بترتيب بعض الأغراض، وينتهي من عمل صغير مؤجل، وهذا إنجاز حقيقي.\n\nلكن بعد انتهائه، يعود الشعور نفسه. كأن العمل الذي أنجزه لم يمنحه الإذن بالتوقف.\n\nفيبحث عن عمل آخر. يبدأ في ترتيب شيء مختلف، ثم يتذكر أمرًا ثالثًا قبل أن ينتهي.\n\nيتنقل بين أعمال متفرقة؛ يكتمل بعضها، ويتوقف بعضها، وبعضها لم يكن عاجلًا.\n\nقد يرتاح لانشغاله، دون أن يحسم سبب اختياره للأعمال.\n\nفي اليوم التالي، يعود الإلحاح نفسه، وقد يبدأ أحمد عملًا جديدًا قبل أن يقرر أيّ الأعمال أولى بوقته.\n\nأما في اليوم الثالث، فنجد حصيلة لا يمكن وصفها بالفشل الكامل. هناك أشياء أنجزها، وأخرى لا تزال تنتظر، ووقت مرّ في محاولات متفرقة.\n\nلا نضمن أنه صار أكثر تعبًا أو أقل إنتاجية.\n\nلكننا نرى شيئًا محددًا في هذا المسار: لم يتعلم أحمد متى يتوقف، ولا لماذا يختار العمل التالي.\n\nوكلما عاد الشعور بالذنب، عاد معه السؤال غير المحسوم: هل نحتاج إلى الإنجاز الآن، أم نحتاج فقط إلى إسكات ذلك الشعور؟"
+              },
+              {
+                "id": "s3",
+                "text": "نعود إلى اللحظة نفسها. هذا هو المسار الثاني: نسمع الجملة ذاتها، لكننا نفحصها قبل أن نتحرك.\n\nيعود الصوت الداخلي: «كان ينبغي أن أنجز شيئًا».\n\nيتهيأ للنهوض، لكنه يتوقف قبل الاستجابة.\n\nيسأل نفسه عن الأمر الذي يخشى تأجيله. هل هناك موعد قريب؟ هل سيترتب على جلوسه الآن ضرر واضح؟\n\nلا يجد أمرًا عاجلًا؛ فمسؤولياته القائمة تستطيع الانتظار قليلًا.\n\nلذلك يختار أن يستريح عشرين دقيقة، ويقرر مسبقًا ما سيعود إليه بعدها. هذه المدة اختياره في قصتنا، وليست قاعدة للجميع.\n\nيترك الأشياء في أماكنها، ويحاول أن يمنح نفسه وقتًا دون عمل. قد يستمر الشعور بالذنب، لكنه لا يلغي قراره لمجرد وجوده.\n\nعندما ينتهي الوقت، لا نفترض أن التعب اختفى أو أن طاقته تجددت فجأة. يراجع ما أمامه ويبدأ مهمة واحدة يستطيع إنجاز جزء منها.\n\nفي اليوم التالي، تتجاوز راحته الوقت الذي حدده، ثم يعود الذنب، فيرجع إلى فحص ما ينتظره وموعده.\n\nأما في اليوم الثالث، فلا نجد جميع الأعمال مكتملة. ينجز أحمد أمرًا محدودًا، وتبقى أشياء أخرى تحتاج إلى وقت.\n\nلقد تعثر أحمد في هذا المسار أيضًا، ومع ذلك عاد ليسأل قبل أن يتحرك.\n\nقد تتغير طريقة اختيارنا بين العمل والراحة، حتى عندما لا تتغير ظروفنا كلها."
+              },
+              {
+                "id": "s4",
+                "text": "لكن ماذا لو كان هناك أمر لا يحتمل التأجيل؟\n\nقد نستخدم الكلام عن الراحة لتبرير تأخير مسؤولية واضحة.\n\nلنتخيل أن أحمد يجلس، ثم يتذكر أمرًا له موعد قريب. قد تكون هناك عاقبة حقيقية إن تركه إلى وقت آخر.\n\nوجود موعد قريب يجعل التأجيل مسألة حقيقية، لا شعورًا غامضًا فحسب. ولا يصبح العمل خطأ لمجرد أننا كنا نريد الراحة.\n\nالمسألة لا تتعلق بالدفاع عن الجلوس في كل الظروف. نحن نحاول أن نعرف لماذا نتحرك، وماذا سيحدث إن انتظرنا.\n\nوقد نجد أنفسنا أمام المشكلة المعاكسة تمامًا. نعرف ما ينبغي إنجازه، لكننا نواصل تأجيله لأن البدء يبدو ثقيلًا.\n\nنجلس قليلًا، ثم نمدد الجلوس دون أن نقرر متى نعود. وبعد ذلك نكرر الأمر، بينما تبقى المسؤولية معلقة.\n\nهنا نحتاج إلى معيار واضح، لا إلى تبرير جديد لكل اختيار.\n\nللراحة وقت محدد وعودة معروفة، وللهروب لا هذا ولا ذاك.\n\nهذا معيارنا في القصة. نستطيع أن نسمي وقت التوقف، وأن نعرف ما سنراجعه عندما ينتهي.\n\nأما عندما نترك الأمر مفتوحًا بلا موعد ولا نية للعودة، فقد يتحول التأجيل إلى وسيلة لتجنب ما ينتظرنا.\n\nلكن هذا المعيار لا يعني أن كل من تأخر في العودة يهرب. فقد تتغير الظروف، أو يكتشف الإنسان أن تعبه أكبر مما توقع.\n\nولا ينبغي أن نستنتج من قصة أحمد أن الراحة تحل جميع أشكال الإرهاق. فقد يستمر التعب لأسباب لا نعرفها، وبعضها يحتاج إلى انتباه أو مساعدة مناسبة.\n\nكما أن مدة الراحة المناسبة قد تختلف بحسب المسؤوليات والحالة والظروف. وهنا تكشف قصة أحمد أهمية وضوح القرار، لا وصفة واحدة للجميع.\n\nويبقى السؤال الذي يستحق أن نحمله معنا: هل نعرف لماذا ننهض، ولماذا نجلس، ومتى سنراجع اختيارنا؟"
+              },
+              {
+                "id": "s5",
+                "text": "لنعد إلى لحظة الجلوس الأولى، ولنطرح سؤالًا واحدًا قبل أن نتحرك.\n\nيجلس أحمد، ثم يتحرك قليلًا كأنه يستعد للنهوض.\n\nنسمع الجملة نفسها مرة أخيرة: «كان ينبغي أن أنجز شيئًا».\n\nلكننا الآن نعرف أن هذه الجملة وحدها لا تكفي لتحديد ما ينبغي فعله.\n\nنسمي ما يشغلنا: هل هي مهمة محددة، أم إحساس بأننا لا نفعل ما يكفي؟\n\nإذا كانت هناك مهمة واضحة، نفحص موعدها وما قد يحدث إن تأخرت.\n\nقد نجد أنها تحتاج إلى اهتمامنا الآن. عندها ننهض لسبب مفهوم، ونعود إلى الراحة عندما تسمح الظروف.\n\nوقد نجد أنها تستطيع الانتظار. عندها نحدد وقتًا للتوقف، ونعرف ما سنعود إليه بعد انتهائه.\n\nيكفي أن يكون قرارنا واضحًا وقابلًا للمراجعة إذا تغيرت الظروف.\n\nقد نجلس ونظل نفكر في الأعمال التي تنتظرنا. وقد لا نشعر بالارتياح الكامل خلال الدقائق الأولى.\n\nهذا لا يعني تلقائيًا أن اختيارنا كان خاطئًا.\n\nنحن نتعلم هنا أن نتوقف عن اتخاذ كل قرار بدافع شعور غير مفحوص.\n\nنحتاج إلى قاعدة حين تعود الجملة القديمة.\n\nللراحة وقت محدد وعودة معروفة، وللهروب لا هذا ولا ذاك.\n\nإذا لم يكن هناك أمر عاجل، وكانت الراحة ما نحتاجه الآن، فلنمنحها وقتًا محددًا، ثم نعود."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "راوٍ بفصحى طبيعية وضمير نحن، يخاطب أنت نادرًا. يتنوع الأداء: توتر ملموس عند جملة الذنب، سرعة معتدلة في اليوم الأول، توقف قصير قبل انتقال المسار الثاني، استيضاح جاد في الاعتراض، وخاتمة واضحة بلا وعظ. لا تُنطق عناوين الأقسام أو توجيهات المشاهد."
+          },
+          "scenes": [
+            {
+              "id": "h01",
+              "section_id": "s1",
+              "asset": "assets/h01.jpg",
+              "start_text": "تجلس لتستريح قليلًا،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "person sitting down seen from rear",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/person-sitting-in-chair-shot-from-behind-7011555/",
+                  "https://www.pexels.com/video/man-sitting-on-sofa-at-home-8907414/",
+                  "https://www.pexels.com/video/relaxing-indoors-man-in-cozy-armchair-34039224/"
+                ]
+              }
+            },
+            {
+              "id": "h02",
+              "section_id": "s1",
+              "asset": "assets/h02.jpg",
+              "start_text": "يفعل أحمد الشيء نفسه حين يسمع:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands resting on chair arm",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-holding-the-chair-6487186/",
+                  "https://www.pexels.com/video/person-sitting-on-a-chair-7571656/",
+                  "https://www.pexels.com/video/a-legs-in-elevated-position-8116540/"
+                ]
+              }
+            },
+            {
+              "id": "h03",
+              "section_id": "s1",
+              "asset": "assets/h03.jpg",
+              "start_text": "سنفكّك لماذا ينقلب الجلوس إلى ذنب،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "person hesitates before getting up",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/man-taking-a-seat-on-a-sofa-8275587/",
+                  "https://www.pexels.com/video/a-man-sitting-on-a-sofa-chair-6765474/",
+                  "https://www.pexels.com/video/a-bearded-man-sitting-on-a-sofa-7926360/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_01",
+              "section_id": "s1",
+              "asset": "assets/s1_01.jpg",
+              "start_text": "نصل أحيانًا إلى لحظة",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person sitting quietly rear view",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/man-sitting-down-on-park-bench-9947046/",
+                  "https://www.pexels.com/video/a-man-sitting-on-a-chair-6602859/",
+                  "https://www.pexels.com/video/man-in-thoughtful-reflection-by-lakeside-36499592/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_02",
+              "section_id": "s1",
+              "asset": "assets/s1_02.jpg",
+              "start_text": "يجلس أحمد، ويسند ظهره",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand and shoulder on armchair",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-sitting-in-a-chair-8217174/",
+                  "https://www.pexels.com/video/close-up-video-of-a-hand-9465639/",
+                  "https://www.pexels.com/video/side-view-of-a-pensive-man-sitting-on-a-sofa-13710388/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_03",
+              "section_id": "s1",
+              "asset": "assets/s1_03.jpg",
+              "start_text": "لا تخبره الجملة بما عليه فعله",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand shifts near chair",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-shot-of-hands-on-the-table-mat-8164628/",
+                  "https://www.pexels.com/video/a-person-putting-on-slippers-5418701/",
+                  "https://www.pexels.com/video/cozy-socks-and-home-slippers-6638499/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_04",
+              "section_id": "s1",
+              "asset": "assets/s1_04.jpg",
+              "start_text": "ننظر حولنا، فنجد غرضًا",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unorganized household objects on table",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-holding-printed-photographs-9218233/",
+                  "https://www.pexels.com/video/a-person-organizing-the-kitchen-countertop-10568458/",
+                  "https://www.pexels.com/video/a-man-nodding-while-sitting-on-an-armchair-7652150/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_05",
+              "section_id": "s1",
+              "asset": "assets/s1_05.jpg",
+              "start_text": "وهنا تظهر العقدة في قصة أحمد.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man hesitating before household tasks",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/back-view-of-a-man-stretching-7595013/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-returning-tools-in-toolbox-9606782/",
+                  "https://www.pexels.com/video/man-quietly-sitting-and-thinking-5698815/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_06",
+              "section_id": "s1",
+              "asset": "assets/s1_06.jpg",
+              "start_text": "عندما ننهض استجابةً لهذا الشعور",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand reaching toward unfinished object",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-a-person-getting-a-book-on-a-table-7968378/",
+                  "https://www.pexels.com/video/a-person-picking-up-a-cup-of-coffee-on-a-table-7658235/",
+                  "https://www.pexels.com/video/a-person-writing-notes-on-a-planner-5717288/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s1_07",
+              "section_id": "s1",
+              "asset": "assets/s1_07.jpg",
+              "start_text": "لنتخيل أن أحمد أمام قرارين",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person seated considering standing",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/cozy-morning-routine-with-indoor-slippers-31754015/",
+                  "https://www.pexels.com/video/a-man-receiving-a-phone-call-while-sitting-on-a-sofa-11957096/",
+                  "https://www.pexels.com/video/man-stretching-his-arms-9710766/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_01",
+              "section_id": "s2",
+              "asset": "assets/s2_01.jpg",
+              "start_text": "هذا هو المسار الأول:",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man stands and tidies living room",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-cleaning-a-table-9462914/",
+                  "https://www.pexels.com/video/person-wiping-a-table-8638173/",
+                  "https://www.pexels.com/video/man-busy-at-work-5104293/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_02",
+              "section_id": "s2",
+              "asset": "assets/s2_02.jpg",
+              "start_text": "يبدأ بترتيب بعض الأغراض",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands arranging household items",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-fixing-his-things-on-the-table-6324862/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-7278330/",
+                  "https://www.pexels.com/video/using-books-as-step-board-6334048/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_03",
+              "section_id": "s2",
+              "asset": "assets/s2_03.jpg",
+              "start_text": "فيبحث عن عمل آخر.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person switching between household chores",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-wiping-the-table-with-a-cloth-4440696/",
+                  "https://www.pexels.com/video/close-up-footage-of-a-person-putting-the-folded-clothes-on-a-cardboard-box-6654095/",
+                  "https://www.pexels.com/video/close-up-view-of-a-person-folding-a-bath-towel-by-the-window-7593099/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_04",
+              "section_id": "s2",
+              "asset": "assets/s2_04.jpg",
+              "start_text": "في اليوم التالي، يعود الإلحاح نفسه",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands sorting objects table",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/person-putting-a-book-on-the-table-6956531/",
+                  "https://www.pexels.com/video/a-person-arranging-the-letter-papers-7104084/",
+                  "https://www.pexels.com/video/professional-office-desk-with-organizers-37450986/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_05",
+              "section_id": "s2",
+              "asset": "assets/s2_05.jpg",
+              "start_text": "أما في اليوم الثالث، فنجد حصيلة",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unfinished objects organized on table",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/hand-picking-vintage-coffee-cup-from-table-34734762/",
+                  "https://www.pexels.com/video/a-person-putting-a-vase-on-top-of-a-wooden-table-6632888/",
+                  "https://www.pexels.com/video/close-up-of-person-writing-on-paper-7535005/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s2_05b",
+              "section_id": "s2",
+              "asset": "assets/s2_05b.jpg",
+              "start_text": "لا نضمن أنه صار أكثر تعبًا أو أقل إنتاجية.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "faceless hands arranging personal belongings",
+                "query_alt_en": "calm anonymous person closeup home interior",
+                "must_show": "رجل دون ملامح واضحة، بلا نساء أو سرير أو تدخين، فعل محدد",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-lighting-candles-on-a-table-7303657/",
+                  "https://www.pexels.com/video/pouring-coffee-into-a-ceramic-cup-on-wooden-table-31543646/",
+                  "https://www.pexels.com/video/hands-putting-laptop-into-leather-case-9768544/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_01",
+              "section_id": "s3",
+              "asset": "assets/s3_01.jpg",
+              "start_text": "نعود إلى اللحظة نفسها.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person sitting from behind slight movement",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-sitting-on-a-chair-with-his-hands-on-his-knees-17808492/",
+                  "https://www.pexels.com/video/man-resting-on-a-couch-5592550/",
+                  "https://www.pexels.com/video/pensive-man-resting-on-couch-in-dim-light-29679977/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_02",
+              "section_id": "s3",
+              "asset": "assets/s3_02.jpg",
+              "start_text": "يسأل نفسه عن الأمر الذي يخشى تأجيله.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand examining ordinary object",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-shot-of-the-oven-timer-6269007/",
+                  "https://www.pexels.com/video/a-person-adjusting-the-time-of-the-clock-8086296/",
+                  "https://www.pexels.com/video/hands-holding-a-clock-8543794/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_03",
+              "section_id": "s3",
+              "asset": "assets/s3_03.jpg",
+              "start_text": "يترك الأشياء في أماكنها",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person relaxing in chair feet motion",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/video-of-a-man-drinking-7118142/",
+                  "https://www.pexels.com/video/a-person-putting-a-cup-of-coffee-on-the-table-4201321/",
+                  "https://www.pexels.com/video/man-cleaning-at-home-8287119/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_04",
+              "section_id": "s3",
+              "asset": "assets/s3_04.jpg",
+              "start_text": "في اليوم التالي، تتجاوز راحته الوقت",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands adjusting analog timer",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-winding-a-clock-8322331/",
+                  "https://www.pexels.com/video/close-up-of-a-person-s-hands-while-writing-4105989/",
+                  "https://www.pexels.com/video/close-up-on-clock-hands-moving-11267667/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s3_05",
+              "section_id": "s3",
+              "asset": "assets/s3_05.jpg",
+              "start_text": "أما في اليوم الثالث، فلا نجد جميع الأعمال",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "partly arranged home objects",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/potted-plant-on-wooden-shelf-in-modern-home-37025803/",
+                  "https://www.pexels.com/video/person-writing-on-a-notebook-6386551/",
+                  "https://www.pexels.com/video/a-person-choosing-a-book-in-a-bookshelf-9197971/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_01",
+              "section_id": "s4",
+              "asset": "assets/s4_01.jpg",
+              "start_text": "لكن ماذا لو كان هناك أمر",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "sitting person turns toward table object",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-placing-an-assortment-of-items-on-a-table-6088887/",
+                  "https://www.pexels.com/video/hand-placing-printed-pictures-on-top-of-the-table-9155432/",
+                  "https://www.pexels.com/video/person-putting-a-bowl-of-fruits-on-the-table-6989167/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_02",
+              "section_id": "s4",
+              "asset": "assets/s4_02.jpg",
+              "start_text": "لنتخيل أن أحمد يجلس، ثم يتذكر",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "ordinary unfinished object on table",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-opening-a-drawer-9130348/",
+                  "https://www.pexels.com/video/person-placing-book-on-shelf-6390050/",
+                  "https://www.pexels.com/video/person-opening-a-book-then-putting-it-in-the-book-shelf-5137844/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_02b",
+              "section_id": "s4",
+              "asset": "assets/s4_02b.jpg",
+              "start_text": "المسألة لا تتعلق بالدفاع عن الجلوس في كل الظروف.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man leaving living room from behind",
+                "query_alt_en": "calm anonymous person closeup home interior",
+                "must_show": "رجل دون ملامح واضحة، بلا نساء أو سرير أو تدخين، فعل محدد",
+                "urls": [
+                  "https://www.pexels.com/video/person-opening-a-door-9161794/",
+                  "https://www.pexels.com/video/a-person-placing-assorted-vegetables-on-the-kitchen-countertop-12691772/",
+                  "https://www.pexels.com/video/elegant-tea-set-presentation-on-wooden-tray-33418513/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_03",
+              "section_id": "s4",
+              "asset": "assets/s4_03.jpg",
+              "start_text": "وقد نجد أنفسنا أمام المشكلة المعاكسة تمامًا.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person avoids looking at object on table",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-arranging-objects-on-a-miniature-zen-garden-8347921/",
+                  "https://www.pexels.com/video/a-man-closing-his-laptop-4333082/",
+                  "https://www.pexels.com/video/a-man-sitting-on-a-chair-8136375/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_03b",
+              "section_id": "s4",
+              "asset": "assets/s4_03b.jpg",
+              "start_text": "هنا نحتاج إلى معيار واضح، لا إلى تبرير جديد لكل اختيار.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands turning hourglass on wooden table",
+                "query_alt_en": "calm anonymous person closeup home interior",
+                "must_show": "رجل دون ملامح واضحة، بلا نساء أو سرير أو تدخين، فعل محدد",
+                "urls": [
+                  "https://www.pexels.com/video/a-close-up-of-a-hand-placing-coasters-on-a-table-8507730/",
+                  "https://www.pexels.com/video/a-young-man-doing-stretching-exercises-at-home-8836738/",
+                  "https://www.pexels.com/video/a-cup-of-hot-beverage-on-the-table-7255749/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_04",
+              "section_id": "s4",
+              "asset": "assets/s4_04.jpg",
+              "start_text": "هذا معيارنا في القصة.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "توقف واضح أم تأجيل مفتوح؟",
+                "items": [
+                  {
+                    "label": "راحة بعودة معروفة",
+                    "at_text": "نستطيع أن نسمي وقت التوقف، وأن نعرف ما سنراجعه عندما ينتهي."
+                  },
+                  {
+                    "label": "تأجيل دون عودة",
+                    "at_text": "أما عندما نترك الأمر مفتوحًا بلا موعد ولا نية للعودة، فقد يتحول التأجيل إلى وسيلة لتجنب ما ينتظرنا."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "s4_05",
+              "section_id": "s4",
+              "asset": "assets/s4_05.jpg",
+              "start_text": "لكن هذا المعيار لا يعني",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person looks at ordinary items",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/man-picking-a-book-in-a-library-7778358/",
+                  "https://www.pexels.com/video/hand-taking-coffee-cup-13543769/",
+                  "https://www.pexels.com/video/close-up-of-person-writing-on-notebook-6328611/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_05b",
+              "section_id": "s4",
+              "asset": "assets/s4_05b.jpg",
+              "start_text": "ولا ينبغي أن نستنتج من قصة أحمد أن الراحة تحل جميع أشكال الإرهاق.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "quiet seated man beside window from behind",
+                "query_alt_en": "calm anonymous person closeup home interior",
+                "must_show": "رجل دون ملامح واضحة، بلا نساء أو سرير أو تدخين، فعل محدد",
+                "urls": [
+                  "https://www.pexels.com/video/hand-reaches-for-a-morning-coffee-cup-32114661/",
+                  "https://www.pexels.com/video/a-person-placing-a-ceramic-cup-on-a-table-9736294/",
+                  "https://www.pexels.com/video/a-man-chilling-and-drinking-at-home-5197680/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s4_06",
+              "section_id": "s4",
+              "asset": "assets/s4_06.jpg",
+              "start_text": "كما أن مدة الراحة المناسبة قد تختلف",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person seated with object in background",
+                "query_alt_en": "hands organizing ordinary objects",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/person-putting-a-cup-of-coffee-beside-the-pumpkin-5678944/",
+                  "https://www.pexels.com/video/a-footage-of-books-and-a-laptop-on-a-table-5709382/",
+                  "https://www.pexels.com/video/a-man-smelling-a-candle-6754315/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_01",
+              "section_id": "s5",
+              "asset": "assets/s5_01.jpg",
+              "start_text": "لنعد إلى لحظة الجلوس الأولى",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "seated person from side slight movement",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/man-pondering-while-sitting-on-the-couch-6981686/",
+                  "https://www.pexels.com/video/man-sitting-on-the-chair-while-thinking-4994032/",
+                  "https://www.pexels.com/video/a-stressed-man-sitting-on-a-sofa-11945234/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_02",
+              "section_id": "s5",
+              "asset": "assets/s5_02.jpg",
+              "start_text": "لكننا الآن نعرف أن هذه الجملة",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person considers ordinary household item",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-holding-a-book-in-front-of-a-shelf-4860894/",
+                  "https://www.pexels.com/video/hands-browsing-books-on-a-library-shelf-34286869/",
+                  "https://www.pexels.com/video/a-man-writing-in-a-notebook-while-sitting-at-a-table-4864926/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_03",
+              "section_id": "s5",
+              "asset": "assets/s5_03.jpg",
+              "start_text": "إذا كانت هناك مهمة واضحة",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person stands to handle a task",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/laptop-closing-17731158/",
+                  "https://www.pexels.com/video/person-leaving-the-room-7614403/",
+                  "https://www.pexels.com/video/a-person-setting-up-a-table-6205809/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_04",
+              "section_id": "s5",
+              "asset": "assets/s5_04.jpg",
+              "start_text": "وقد نجد أنها تستطيع الانتظار",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands set timer and set item aside",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/person-putting-a-timer-on-a-phone-4122379/",
+                  "https://www.pexels.com/video/a-video-of-a-person-flipping-a-hourglass-on-top-of-a-wooden-table-6634798/",
+                  "https://www.pexels.com/video/hands-of-watch-moving-13046891/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_05",
+              "section_id": "s5",
+              "asset": "assets/s5_05.jpg",
+              "start_text": "قد نجلس ونظل نفكر في الأعمال",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person sitting without movement",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/man-wearing-sweater-sitting-on-the-floor-8496758/",
+                  "https://www.pexels.com/video/back-view-of-a-man-sitting-on-a-pebble-beach-11319513/",
+                  "https://www.pexels.com/video/a-man-peeking-through-a-window-6756339/"
+                ],
+                "mode": "sequence"
+              }
+            },
+            {
+              "id": "s5_06",
+              "section_id": "s5",
+              "asset": "assets/s5_06.jpg",
+              "start_text": "نحتاج إلى قاعدة حين تعود الجملة القديمة.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "anonymous person seated from behind",
+                "query_alt_en": "person seated indoors",
+                "must_show": "من الخلف أو دون وجه، فعل يومي ملموس؛ دون علامات تجارية أو نص",
+                "urls": [
+                  "https://www.pexels.com/video/a-silhouette-of-a-man-sitting-alone-beside-a-window-8860242/",
+                  "https://www.pexels.com/video/a-man-is-sitting-in-front-of-a-window-17107115/",
+                  "https://www.pexels.com/video/silhouette-of-man-looking-out-window-31252867/"
+                ],
+                "mode": "sequence"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "حتى الجلوس يؤنبني"
+          },
+          "publishing": {
+            "title": "لماذا تشعر بالذنب وأنت ترتاح؟ | الفرق بين الراحة والهروب",
+            "description": "لماذا نشعر بالذنب حين نجلس للراحة؟ نتتبع قرارًا واحدًا عبر مسارين افتراضيين: الانشغال لإسكات الذنب، والراحة بوقت محدد وعودة معروفة. نتوقف كذلك عند السؤال الأصعب: متى تتحول الراحة إلى تأجيل؟\n\nهذا الفيلم قصة فكرية، لا يقدم علاجًا أو وعدًا بنتيجة.\n\n#نداء_اليقظة #الشعور_بالذنب #الراحة #التأجيل",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الشعور_بالذنب",
+              "#الراحة",
+              "#التأجيل"
+            ],
+            "tags": [
+              "الراحة",
+              "الشعور بالذنب",
+              "التسويف",
+              "نداء اليقظة",
+              "الضغط النفسي"
+            ]
+          }
+        },
+        "zip_sha256": "10217789fa1ed543aab87c10f1a6dcc981c707b28d2d96805b20ce1cb77037e1",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "f1ea88f592621a0a1355666dc1d9734eacbe6a49f9b1ef4462a4e9ac01b9911d",
+          "assets/h01.jpg": "5f609e051a3b5e5fb11dda276502044681238525e5c919b3cb668f9b05a99e2a",
+          "assets/h02.jpg": "e1a8a1c22cae1e1df5ae9d50309076fae9f7e3d26a8c16e5e411a8e96c029e69",
+          "assets/h03.jpg": "7f56f40d1f96e51f238286e442c5d32c128a662b72c51beccf4de11079b14b01",
+          "assets/s1_01.jpg": "f68a6a5e7c83156876146916623a1555867934c395f48a0e26711fe39cddd5bb",
+          "assets/s1_02.jpg": "c1f6551271c55bd27830a35aeb9ec8411ce36f368202edf4bf1366ef8e0b32c3",
+          "assets/s1_03.jpg": "427c5c96e6647e92c7e417188b30af9c42b34b921486fd6876c36c2c0ecb4ba7",
+          "assets/s1_04.jpg": "bfc0c8589d6990a043579c01b16504d54d2149c5f1ada9b3061f939268ea7282",
+          "assets/s1_05.jpg": "0ce152e3272cb65204677a927c83f147fa54273a02b21ddf82f4d4cb9766f284",
+          "assets/s1_06.jpg": "76588707a08b82b3166751fe3d3a30c5b9eaad717a4ee0ed3f219b0dd3a4c537",
+          "assets/s1_07.jpg": "5ccec4abf2426778f473e73bd14c7e2a04d3ada37856ae26306456f87055a685",
+          "assets/s2_01.jpg": "c60d83ceb2bcde4bd380980a3895e98bcfd57daed7ce22488bfe40ac80151b93",
+          "assets/s2_02.jpg": "d199861f67d5e8c0c82ce571280f1e61539543c1cfb5ca25a3e73cf692ad26c6",
+          "assets/s2_03.jpg": "9a9d7746113956d6a745b7be3a18631702c78acb3e06c230f334177594b2f84d",
+          "assets/s2_04.jpg": "3253050176a03fd67591310f132a11000a58da0f3eda6ba68c7ae6f496ac75d2",
+          "assets/s2_05.jpg": "d26e73d7cb17bbc20bcec4ae802be2a11d8ce9790c3abbd45367d681143ad37d",
+          "assets/s2_05b.jpg": "d26e73d7cb17bbc20bcec4ae802be2a11d8ce9790c3abbd45367d681143ad37d",
+          "assets/s3_01.jpg": "9dae009917467979777a1bebf7d40e6e0b92bfc72821716243e70d3f4a8883fc",
+          "assets/s3_02.jpg": "dab23673afd68e5238ca912a5ad5737487fb2296cd33d1070281ff2880f4d6dd",
+          "assets/s3_03.jpg": "423c28e9b49cfe80e2c7e54d715d611aa3cf2e54f66b17f65d02454000eff5ae",
+          "assets/s3_04.jpg": "5ee50343513e1d1a8b5dc80c02194e1226cdec0f9c35d9a58330b2784714d6f6",
+          "assets/s3_05.jpg": "8fc7cce4fdc40ee8c0a74bd9b2fb0bf078fd6c8ee053e2cccdcd6b26245fb48c",
+          "assets/s4_01.jpg": "669588b729f4a2b6236a24551f37638ce75219f30e86f72ee7abf4d20fbc7e37",
+          "assets/s4_02.jpg": "3865a029ff169e674d28256f9dfcfc9416714f73c1158f0b89eb17a860a05bbe",
+          "assets/s4_02b.jpg": "3865a029ff169e674d28256f9dfcfc9416714f73c1158f0b89eb17a860a05bbe",
+          "assets/s4_03.jpg": "adf9eb0afe0ad3b408f86230c0a698b829b6aaff8dbad713d03c9a8db15c875e",
+          "assets/s4_03b.jpg": "adf9eb0afe0ad3b408f86230c0a698b829b6aaff8dbad713d03c9a8db15c875e",
+          "assets/s4_04.jpg": "d123dcd8ace960920c91c35617e3838b04a3888a91742c0ddfeb74ec3d21081a",
+          "assets/s4_05.jpg": "f194141a3c79c3da7f7af5f9bd011ccd9907c63203cf45a8ee8563867154ab6b",
+          "assets/s4_05b.jpg": "f194141a3c79c3da7f7af5f9bd011ccd9907c63203cf45a8ee8563867154ab6b",
+          "assets/s4_06.jpg": "02f154a756094d29f853e0bf2a6df7e3f148b79858b9e2f13e8ea4d4bd713766",
+          "assets/s5_01.jpg": "196da672aaa1d4786f476ac382baebdf4f7bf7b20c16528195293285be1ca1a6",
+          "assets/s5_02.jpg": "b2d6d60fecc435b2924e5e269b77c9c21b22417b11a6ea3c3b441c22392061c1",
+          "assets/s5_03.jpg": "a3c77e866e689f970f1d92a3cf487ee5d7ef6f7661367835290898b47ea1c54c",
+          "assets/s5_04.jpg": "f3a39f80e52b0e99d68f810fe4e31de054e5b0a9e650a96d7f6347fcf24406e9",
+          "assets/s5_05.jpg": "1fdfbf0ccc603497fe8637ab76b943061e81916b7868b9f2221b65c8b101dcfe",
+          "assets/s5_06.jpg": "265200b4b03b77e6756effaaa6ad7094b591f0b339fd97bda4f235553f7706a6"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "1042358971044ed3ac693507ba38985a561fbd5b2586f40eb4da3153480df805",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQjWrnn7Re7lGqb8ncsX6AQbxFFD7UAAIFKAACmGU5U-LU9tVzsnfEPQQ",
+          "sha256": "10217789fa1ed543aab87c10f1a6dcc981c707b28d2d96805b20ce1cb77037e1"
+        }
+      }
     }
   },
-  "current_request_id": null,
+  "current_request_id": "req-e9b07ccccbe3",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -36375,6 +37216,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-01T20:23:35Z",
+  "updated_at": "2026-11-01T20:24:02Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
