@@ -93,6 +93,23 @@ def imported_pack(doc=None):
 
 
 class ImportTests(unittest.TestCase):
+    def test_sequence_mode_accepts_coverr_videos_and_still_rejects_other_hosts(self):
+        base = {"mode": "sequence", "urls": [
+            "https://www.pexels.com/video/hand-typing-on-phone-1234567/",
+            "https://coverr.co/videos/hand-writing-in-notebook-a1b2c3d4e5",
+            "https://pixabay.com/videos/smartphone-typing-message-169446/",
+        ]}
+        for fmt, template in (("short", "micro_story"), ("film", "direct_cinematic")):
+            self.assertEqual(package._stock(copy.deepcopy(base), fmt, template)["mode"], "sequence")
+        other = copy.deepcopy(base)
+        other["urls"][1] = "https://example.com/videos/hand-writing-in-notebook-a1b2c3d4e5"
+        with self.assertRaises(Exception):
+            package._stock(other, "short", "micro_story")
+        dup = copy.deepcopy(base)
+        dup["urls"][2] = dup["urls"][1]
+        with self.assertRaises(Exception):
+            package._stock(dup, "short", "micro_story")
+
     def test_podcast_multiple_approved_images_and_optional_stock(self):
         doc = manifest("podcast")
         doc["scenes"][1]["asset"] = "assets/scene_02.png"
