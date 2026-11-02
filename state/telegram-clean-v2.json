@@ -9080,6 +9080,21 @@
       "selected_at": "2026-11-02T19:52:57Z",
       "created_at": "2026-11-02T19:52:57Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-f58f65e7ec",
+      "title": "رسالة كتبتها ولم ترسلها",
+      "normalized_title": "رسالة كتبتها ولم ترسلها",
+      "market_query": "رسالة كتبتها ولم ترسلها",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-02T20:20:42Z",
+      "created_at": "2026-11-02T20:20:42Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -37545,9 +37560,300 @@
         "started_at": "2026-11-02T19:54:27Z",
         "finished_at": "2026-11-02T20:19:56Z"
       }
+    },
+    "req-0c89fd2da4e8": {
+      "schema_version": 1,
+      "request_id": "req-0c89fd2da4e8",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "رسالة كتبتها ولم ترسلها",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-f58f65e7ec",
+      "selected_at": "2026-11-02T20:20:42Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "رسالة كتبتها ولم ترسلها",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "رسالة كتبتها ولم ترسلها",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "ظلّ إصبعه فوق زر الإرسال، ثم تراجع للمرة الثالثة.\nستعرف سؤالًا واحدًا يفرّق بين رغبتك في الإرسال وحاجتك إلى الكتابة."
+              },
+              {
+                "id": "s2",
+                "text": "قبل دقائق، مساءً عند طاولة المطبخ، كتب لصديقٍ عن تعليقٍ أحرجه.\nظلّ المؤشر يومض، وإصبعه يتراجع كلما اقترب من الإرسال.\nخشي أن تُفهم كلماته اتهامًا، فيزداد الخلاف.\nعدّل آخر سطر، ثم حذف الرسالة كلها."
+              },
+              {
+                "id": "s3",
+                "text": "ترك الهاتف جانبًا.\nفي مقابلاتٍ نوعية مع عشرين شخصًا، قال بعض المشاركين إنهم خشوا إيذاء المتلقي أو خيبة الرد.\nوأحيانًا كفتهم الكتابة.\nوعند ترددك، اسأل: هل أريد أن تصل كلماتي، أم أريد كتابتها فقط؟"
+              }
+            ]
+          },
+          "performance": {
+            "direction": "أداء هادئ مشدود لا بطيء. الجملة الأولى تُقال كحدث وقع الآن. الجملة الثانية وعد عملي واضح. في s2 يرتفع التوتر قليلًا عند الاقتراب من الإرسال ثم يهبط بعد الحذف. في s3 تُقال الإشارة البحثية باقتصاد ووضوح دون تضخيم، ثم تُترك الجملة الأخيرة كسؤال عملي مباشر. لا صلاة ولا تعريف ولا CTA داخل المنطوق."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "ظلّ إصبعه فوق زر الإرسال، ثم تراجع للمرة الثالثة.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "phone hesitation",
+                "query_alt_en": "close up texting hands",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد أو يدان تترددان فوق زر الإرسال ثم تتراجعان في أول 3 ثوانٍ.",
+                "urls": [
+                  "https://www.pexels.com/video/person-typing-on-a-phone-7560581/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-using-a-cellphone-8275082/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-using-cellphone-8165702/"
+                ]
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.png",
+              "start_text": "ستعرف سؤالًا واحدًا يفرّق بين رغبتك في الإرسال وحاجتك إلى الكتابة.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "hand holding smartphone pause",
+                "query_alt_en": "phone in hand close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد تمسك الهاتف في وقفة تفكير، لا تمرير مشتت.",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-hands-using-smartphone-in-dark-33942937/",
+                  "https://www.pexels.com/video/close-up-video-of-a-person-using-cellphone-9113598/",
+                  "https://www.pexels.com/video/a-person-using-a-smartphone-7277940/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.png",
+              "start_text": "قبل دقائق، مساءً عند طاولة المطبخ، كتب لصديقٍ عن تعليقٍ أحرجه.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "hand notebook keys kitchen table",
+                "query_alt_en": "hand opening notebook or curtain",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد على دفتر أو مفتاح أو ستارة نافذة؛ دون كوب أو شخص ظاهر.",
+                "urls": [
+                  "https://www.pexels.com/video/person-turning-notepad-on-the-desk-6186635/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-paper-6046366/",
+                  "https://www.pexels.com/video/a-person-flipping-pages-of-a-notebook-8705271/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.png",
+              "start_text": "ظلّ المؤشر يومض، وإصبعه يتراجع كلما اقترب من الإرسال.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "finger near phone screen",
+                "query_alt_en": "smartphone hesitation close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ لقطة قريبة جدًا ليد قرب الشاشة توحي بالتردد قبل الإرسال.",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-a-hand-using-a-cellphone-5545116/",
+                  "https://www.pexels.com/video/hands-typing-on-a-smartphone-8829016/",
+                  "https://www.pexels.com/video/a-person-using-smartphone-6968276/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.png",
+              "start_text": "خشي أن تُفهم كلماته اتهامًا، فيزداد الخلاف.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "texting phone tension",
+                "query_alt_en": "hands with smartphone close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد على الهاتف في توتر صامت، من دون ظهور شخص ثانٍ.",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-view-of-a-person-using-a-smartphone-15689201/",
+                  "https://www.pexels.com/video/person-typing-on-a-mobile-phone-4671883/",
+                  "https://www.pexels.com/video/a-person-typing-on-a-laptop-while-holding-a-phone-5925287/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.png",
+              "start_text": "عدّل آخر سطر، ثم حذف الرسالة كلها.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "typing on smartphone",
+                "query_alt_en": "editing message close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد تكتب وتراجع ثم توحي بالحذف على الهاتف.",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-typing-on-a-cellphone-6962433/",
+                  "https://www.pexels.com/video/person-using-a-cellphone-6974194/",
+                  "https://www.pexels.com/video/person-using-a-smartphone-to-text-9898435/"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.png",
+              "start_text": "ترك الهاتف جانبًا.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "phone placed on table",
+                "query_alt_en": "smartphone on table close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ الهاتف يُوضَع أو يستقر على الطاولة ثم يهدأ المشهد.",
+                "urls": [
+                  "https://www.pexels.com/video/person-using-smartphone-on-desk-for-work-35144736/",
+                  "https://www.pexels.com/video/coffee-mug-apple-iphone-4065944/",
+                  "https://www.pexels.com/video/a-person-putting-down-a-smartphone-7430220/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.png",
+              "start_text": "في مقابلاتٍ نوعية مع عشرين شخصًا، قال بعض المشاركين إنهم خشوا إيذاء المتلقي أو خيبة الرد.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "writing on paper",
+                "query_alt_en": "hand writing close up",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ يد تكتب أو تراجع ورقة، باعتبارها بديلًا بصريًا للكتابة نفسها.",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-a-paper-9573567/",
+                  "https://www.pexels.com/video/person-writing-on-a-paper-8872970/",
+                  "https://www.pexels.com/video/close-up-of-a-person-writing-on-paper-27860328/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.png",
+              "start_text": "وأحيانًا كفتهم الكتابة.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "fold paper envelope",
+                "query_alt_en": "envelope and folded paper",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ ورقة تُطوى أو تُدخَل في ظرف أو تُكرمَش، بلا نص مقروء.",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-inserting-a-blank-paper-on-an-envelope-7316359/",
+                  "https://www.pexels.com/video/a-person-is-folding-a-piece-of-paper-28405807/",
+                  "https://www.pexels.com/video/person-reading-a-book-and-throwing-a-crumpled-paper-7396450/"
+                ]
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s3",
+              "asset": "assets/scene_10.png",
+              "start_text": "وعند ترددك، اسأل: هل أريد أن تصل كلماتي، أم أريد كتابتها فقط؟",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "mode": "sequence",
+                "query_en": "hand notebook desk window",
+                "query_alt_en": "hands opening notebook window",
+                "must_show": "بلا وجه ظاهر، محتشم، بلا سرير؛ دفتر يُوضَع أو يُفتح، أو يد تفتح نافذة؛ دون كوب.",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-a-notebook-8553956/",
+                  "https://www.pexels.com/video/video-of-a-person-opening-the-window-8492726/",
+                  "https://www.pexels.com/video/a-white-notebook-on-the-table-6376122/"
+                ]
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_primary.png",
+            "text": "أخافني\nردٌّ لم يصل"
+          },
+          "publishing": {
+            "title": "لماذا نكتب رسالة ثم لا نرسلها؟ | رسالة كتبتها ولم ترسلها",
+            "description": "نكتب أحيانًا رسالة كاملة، ثم نتراجع قبل الإرسال. في هذا الشورت من نداء اليقظة، لحظة يومية واحدة تكشف سؤالًا عمليًا بسيطًا: هل أريد أن تصل كلماتي، أم أريد كتابتها فقط؟\n\nالموضوع مبني على دراسة نوعية صغيرة عن الرسائل غير المرسلة: The Words That Can't Be Shared (CHI 2026) لـ Michael Yin وRobert Xiao.\n\n#نداء_اليقظة #رسائل #تردد #وعي_نفسي #شورت",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#رسائل",
+              "#تردد",
+              "#وعي_نفسي",
+              "#شورت"
+            ]
+          }
+        },
+        "zip_sha256": "756f81d175a772bc0e89ad1e1575514dee1b77cfcf5eb24ecc60dd4b2f9ead36",
+        "asset_sha256": {
+          "assets/cover_alternate.png": "303a05767a698082f33777be97a3778771eaed70d7c251e2174822a2c35d78b0",
+          "assets/cover_primary.png": "3e5abece00bd69a49c9ba7be4a74fc84e8cfeef021f5cff203c1be7d3b408614",
+          "assets/scene_01.png": "4208311407b3e157430a490ccda9ee7cafbe4f49fc0024af4c540101a9fc75a2",
+          "assets/scene_02.png": "09d4b504f8ec1445573b8ff6cb75750231af413179b4e2e0445509e8ecf9bebf",
+          "assets/scene_03.png": "d74d21dc5854fa9a393430b21eaf87b0be533e23421db29a1fe6b806039c81f1",
+          "assets/scene_04.png": "ce5b9870cedb1c654044d8396549ddae606eee5452fdfd27bf590dfe8d1f6bbf",
+          "assets/scene_05.png": "0ee2ac8cec901d9471e0e4683ad60a496865cbf309907d8c0118baf5503c3b35",
+          "assets/scene_06.png": "1bca34854c29fb905e834fedd7efe7c98112e449b244bc4ca63ca1134fded6a5",
+          "assets/scene_07.png": "3581d66ead8deb23055fa5e3f0b6fb2f7af8d8e7c94cbbfa0a78368d1ce7551f",
+          "assets/scene_08.png": "c5ff307cff99aaa5aa28c83662c639294920de3a18227408a67cc79de9a36f37",
+          "assets/scene_09.png": "8729ab5a4aab9ba31d7c3678ba8aaad1a028f0fa75d1148837e86b6c62c881c1",
+          "assets/scene_10.png": "ba6fd990937129cfd452969aa02ab98e931897119e7a6451b3616c66c3693eaa"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "2066a022fe1fd2f0c493cbbd9aef42c7ee4f005765bda66625df68bb5dd7c3f9",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQvGro8H2S6qLABWihWklqU38i-9rcAAI7OQEAAQLZSVPjPIayypUyij0E",
+          "sha256": "756f81d175a772bc0e89ad1e1575514dee1b77cfcf5eb24ecc60dd4b2f9ead36"
+        }
+      }
     }
   },
-  "current_request_id": "req-7b4ede211f4b",
+  "current_request_id": "req-0c89fd2da4e8",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -38213,6 +38519,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-02T20:19:56Z",
+  "updated_at": "2026-11-02T20:20:42Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
