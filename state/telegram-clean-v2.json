@@ -37518,8 +37518,8 @@
           "assets/episode_scene.png": "323ad1a1821519be9bee1e27726af3078491e31aa417b6091de55076f6fd84db"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-11-02T19:54:03Z",
       "dispatched_at": null,
       "request_sha256": "0151e03c05f0f8c18762a9936470d82aab72de8682db16da3f7d005c0741f9ae",
       "owner_art": {
@@ -37527,7 +37527,8 @@
           "file_id": "BQACAgQAAxkBAAIQrGro6fY7IATWYfunfYjawX-G5GBRAAItOQEAAQLZSVNQg37x5YPoVD0E",
           "sha256": "367a05604d6ee1bfc5fc93d45f812d0e60a10b42cdbed94033bd157e38d2a42c"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-7b4ede211f4b",
@@ -38196,6 +38197,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-02T19:52:58Z",
+  "updated_at": "2026-11-02T19:54:04Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
