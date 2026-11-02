@@ -9050,6 +9050,21 @@
       "selected_at": "2026-11-01T20:24:02Z",
       "created_at": "2026-11-01T20:24:02Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-ae1d7b9d68",
+      "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "normalized_title": "لماذا تشعر بالذنب وانت ترتاح؟",
+      "market_query": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-02T17:38:46Z",
+      "created_at": "2026-11-02T17:38:46Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -36565,9 +36580,570 @@
         "started_at": "2026-11-01T20:25:03Z",
         "finished_at": "2026-11-01T21:25:51Z"
       }
+    },
+    "req-9c88d51aabe3": {
+      "schema_version": 1,
+      "request_id": "req-9c88d51aabe3",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تشعر بالذنب وأنت ترتاح؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-ae1d7b9d68",
+      "selected_at": "2026-11-02T17:38:46Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "paradox",
+          "title": "لماذا تشعر بالذنب وأنت ترتاح؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "تقول: «أنا متعب وأحتاج الراحة»، ثم تجلس كأنك ارتكبت خطأ. وتقول أيضًا: «الجلوس يؤنبني»، فتبدو العبارتان صادقتين في اللحظة نفسها. كيف تحتاج إلى شيء، ثم تشعر بالذنب عندما تمنحه لنفسك؟ سنحلّ التناقض ونرى أيهما كان يضللنا، وسنفحص اعتراضًا مهمًا: متى تصبح الراحة تأجيلًا لما يجب فعله؟\n\nتخيّل ثلاث لحظات يومية؛ إنها أمثلة افتراضية، ولا نتتبع فيها شخصًا بعينه. في مدخل منزل، تُوضع أكياس ثقيلة قرب الباب، وتستقر يد على الحائط. يتجه صاحبها إلى المقعد، ثم يتردد قبل أن يصل إليه. ما زالت هناك أشياء لم تُرتَّب، فهل يُسمح له بالتوقف؟ في مطبخ، تُغلق المياه بعد تنظيف الأواني، وتُعلَّق منشفة رطبة بعناية. ترتاح اليدان على حافة الطاولة لحظة، ثم تمتد إحداهما نحو طبق منفرد. وفي ممر مبنى، يصل شخص إلى أعلى الدرج، ويضع ما يحمله جانبًا ليسترد أنفاسه. يتذكر مهمة مؤجلة، فيلتفت إلى الطريق الذي صعده، كأن عليه النزول فورًا. لا يجمع هؤلاء مكان أو عمر أو مهنة. الذي يجمع اللحظات سؤال يحدث قبل أي قرار: هل ما أشعر به دليل على أنني مقصّر؟ قد تكون الحاجة إلى الراحة حقيقية، وقد يكون هناك عمل لم يكتمل أيضًا. لكن وجود العمل لا يخبرنا وحده إن كان يجب إنجازه الآن. وفي هذه الفجوة الصغيرة ينشأ التناقض. لنفصل بين أمرين اختلطا: ما يحتاجه الإنسان بالفعل، وما يقوله له التأنيب عن قيمته وهو متوقف."
+              },
+              {
+                "id": "s2",
+                "text": "لنأخذ العبارة الأولى بجدية: «أنا متعب وأحتاج الراحة». في المشهد الأول، لم تختفِ الأكياس الثقيلة بمجرد الوصول إلى الباب. حملها استهلك جهدًا، والجلوس دقائق قد يكون استجابة معقولة لهذا الجهد. لا نحتاج إلى اختراع عذر أكبر كي نفهم ذلك. وفي المطبخ، انتهى عمل واضح بالفعل؛ تنظيف الأواني، وإغلاق الماء، وترك المكان مرتبًا. وجود طبق آخر لا يمحو ما أُنجز، ولا يجعل التوقف بين مهمتين خطأ. أما عند الدرج، فاستعادة الأنفاس قبل متابعة الحركة ليست وعدًا بالتكاسل. إنها ملاحظة بسيطة عمّا يحدث في تلك اللحظة. ولا تقتصر الحاجة إلى الراحة على العضلات. قد تنتهي من سلسلة قرارات ومقاطعات ومهام صغيرة، ثم تجد أنك تحتاج إلى هدوء قبل أن تختار الخطوة التالية. هذا الوصف لا يشخّص حالة، ولا يحدد لكل شخص مدة مناسبة. لكنه يذكرنا بأن قدرتنا ليست زرًا نضغط عليه إلى ما لا نهاية. بعض الناس يحتاجون دقائق، وبعضهم يحتاجون نومًا كافيًا أو توقفًا أطول بحسب ظروفهم. المهم هنا أن الشعور بالتعب معلومة ينبغي النظر إليها، لا تهمة ينبغي إسكاتها. وهذا لا يجعل كل طلب للراحة صحيح التوقيت. فقد يكون هناك أمر آمن لا يحتمل التأخير، مثل إطفاء مصدر حرارة أو إكمال التزام وشيك. نستطيع تلبية العاجل ثم التوقف. أمّا تحويل كل مهمة غير منتهية إلى حالة طوارئ، فيجعل الراحة مؤجلة دائمًا. عندئذ، لا يعود السؤال: هل أملك ما أفعله؟ بل: هل يوجد سبب حقيقي يمنعني من التوقف الآن؟"
+              },
+              {
+                "id": "s3",
+                "text": "والآن إلى العبارة الثانية: «الجلوس يؤنبني». هي أيضًا صادقة، لكن بمعنى مختلف. صاحبها لا يخترع شعوره؛ قد يشعر فعلًا بانقباض حين يتوقف. ما يحتاج إلى فحص هو التفسير الذي يلصقه بذلك الشعور. في مدخل المنزل، قد يذكّره منظر الأكياس بأن العمل لم ينتهِ. في المطبخ، يصبح الطبق المنفرد ظاهرًا أكثر من كل ما نُظِّف. وعند الدرج، تتقدم المهمة المؤجلة إلى الذاكرة لحظة الصمت. هنا يظهر مصدر قريب للتأنيب: شيء ينتظر، وذهن يذكّرنا به. أحيانًا يكون هذا التذكير نافعًا. فهناك وعود لآخرين، ومواعيد محددة، وأمور نتحمل مسؤوليتها. لكن التأنيب قد يأتي أيضًا من قاعدة أوسع تعودنا ترديدها: كل دقيقة بلا حركة دقيقة ضائعة. وربما تعلم بعضنا هذه القاعدة من مديح الانشغال، أو من مقارنة مستمرة بما ينجزه الآخرون. وربما جاءت من تجربة سابقة تأخر فيها عن التزام مهم. هذه تفسيرات محتملة، وليست حكمًا على ماضي كل من يشعر بالذنب. والمشكلة أن الإحساس نفسه يظهر في حالتين مختلفتين. قد يظهر حين نهمل أمرًا يستحق الانتباه، أو حين نحتاج إلى الراحة دون أن يكون هناك ما يستدعي النهوض فورًا. لذلك، لا يكفي أن يكون التأنيب قويًا كي يكون دقيقًا. الشعور يصف ما يجري داخلك، لكنه لا يملك وحده جدول مواعيدك ولا يعرف حدود طاقتك. إنه يرفع السؤال؛ ولا يستطيع الإجابة عنه دون النظر إلى الواقع. إذا فهمنا ذلك، لا نحتاج إلى محاربة الشعور أو طاعته بصورة آلية. يمكن أن نسمعه، ثم نسأله: إلى أي التزام محدد تشير؟"
+              },
+              {
+                "id": "s4",
+                "text": "الآن يمكن حل التناقض من دون إنكار أي عبارة. «أنا متعب وأحتاج الراحة» تصف حاجة محتملة يجب أخذها بجدية. و«الجلوس يؤنبني» تصف شعورًا حقيقيًا، لكنها لا تثبت أن الجلوس قرار خاطئ. العبارة التي كانت تضللنا هي الثانية، حين تحولت من وصف للتأنيب إلى حكم نهائي بالتقصير. انظر مجددًا إلى الطبق الوحيد في المطبخ. إذا لم يكن هناك ما يفسد أو يعرّض أحدًا للخطر، فمن الممكن تركه قليلًا. سيظل الطبق موجودًا بعد الاستراحة، كما سيظل العمل قابلًا للإنجاز. لكن إن كانت المياه تتسرب، أو كان على الموقد شيء يحتاج مراقبة، فالتوقف قبل معالجة الأمر ليس القرار المناسب. ليس السبب أن التأنيب أعلى صوتًا في الحالة الثانية، بل أن الوقائع مختلفة. هنا يصل الاعتراض الحقيقي: أليست الراحة أحيانًا وسيلة للهروب؟ نعم، قد تكون كذلك. قد يعرف الإنسان المهمة الضرورية وموعدها، ثم يكرر تأجيلها تحت اسم الراحة. وقد يختار استراحة غير محددة، ويترك شخصًا آخر يتحمل نتيجة إهماله. عندئذ، لا تكفي عبارة «أنا متعب» لتبرير كل تأخير. وفي المقابل، لا يكفي شعور الذنب لإلغاء كل توقف. لنضع الحالتين جنبًا إلى جنب: في الأولى، حاجة ظاهرة إلى الراحة، ولا أمر عاجل يمنعها، وخطوة عودة يمكن تسميتها. وفي الثانية، التزام محدد يقترب أو يتضرر بالتأجيل، ولا توجد خطة واقعية للتعامل معه. هذه مقارنة للظروف، لا محكمة للأشخاص. وقد يحتاج المرء إلى مساعدة أو تعديل التزاماته حين يتجاوز التعب قدرته المعتادة. لا يصح اختزال كل عجز في كلمة هروب. لذلك يصبح السؤال الأفضل: ما الشيء العاجل الآن، وما الذي يمكن أن ينتظر دون ضرر؟ حين تجيب من الواقع، يذوب التناقض؛ تستطيع أن تحتاج الراحة وتشعر بالذنب، ثم تختار قرارًا لا يمليه الشعور وحده."
+              },
+              {
+                "id": "s5",
+                "text": "في المرة القادمة التي يتردد فيها جسدك بين الجلوس والنهوض، لا تبدأ بمحاكمة نفسك. ابدأ بجملة واضحة: «أنا متعب، فما الذي أحتاجه الآن؟». قد تكون الإجابة استراحة قصيرة، أو نومًا، أو طعامًا، أو طلب مساعدة. لا تفترض أن كل تعب يُحل بالطريقة نفسها. بعد ذلك، اسأل سؤالًا آخر أكثر تحديدًا: «هل هناك عمل عاجل يتضرر أحد إن أخّرته؟». إذا كانت الإجابة نعم، حدّد أصغر خطوة ضرورية لإنجازه بأمان، ثم عُد إلى حاجتك للراحة. أما إن لم يكن هناك أمر عاجل، فاترك لنفسك مساحة للتوقف من غير أن تشرح لكل فكرة عابرة سبب جلوسك. سمِّ المهمة التي ستعود إليها بعد الاستراحة؛ تحديدها أرحم من تركها تدور في رأسك بلا نهاية. وقد لا تستطيع قياس الراحة بالدقائق في يوم تحتاج فيه إلى تعافٍ أطول. لهذا، اختر موعدًا مناسبًا أو علامة واضحة للعودة، بحسب حالتك، دون أن تجعل متابعة الوقت سببًا جديدًا للتوتر. وإذا عاد التأنيب، فلا تحتاج إلى إسكات صوته بالقوة. لاحظ وجوده، ثم ارجع إلى الأسئلة التي تملك جوابًا عنها: ما الذي حدث فعلًا؟ ما المطلوب الآن؟ وما الذي أستطيع تركه لوقت لاحق؟ في لحظاتنا الثلاث، لن تختفي الأكياس والطبق والمهمة المؤجلة بالسحر. لكن الشخص الذي توقف يستطيع أن يرى كل شيء بحجمه الحقيقي. ولن يصبح النهوض فضيلة تلقائيًا، كما لن يصبح الجلوس خطيئة تلقائيًا. إذا كنت متعبًا، ولا ينتظرك التزام عاجل، فاسترح ثم عُد إلى أول ما يستحق فعلك؛ لا إلى أول ما يثير ذنبك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "فصحى طبيعية متغيرة؛ ارفع درجة التوتر عند المفارقة ثم اهدأ في التحليل. وقفات قصيرة قبل الاعتراض والخلاصة. لا تنطق العناوين أو تعليمات المشاهد."
+          },
+          "scenes": [
+            {
+              "id": "h01",
+              "section_id": "s1",
+              "asset": "assets/h01.jpg",
+              "start_text": "تقول: «أنا متعب وأحتاج الراحة»",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-placing-black-paper-bag-on-table-7292451/",
+                  "https://www.pexels.com/video/man-carrying-bags-11960824/",
+                  "https://www.pexels.com/video/a-person-holding-a-bag-9603562/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand placing shopping bag indoors",
+                "query_alt_en": "hand setting bag near door",
+                "must_show": "كفّ رجل بكمّ تضع حقيبة وتترك المقبض في أول ثلاث ثوانٍ؛ بلا وجه"
+              }
+            },
+            {
+              "id": "h02",
+              "section_id": "s1",
+              "asset": "assets/h02.jpg",
+              "start_text": "وتقول أيضًا: «الجلوس يؤنبني»",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-closing-a-paper-bag-9595331/",
+                  "https://www.pexels.com/video/male-hands-preparing-order-in-paper-bag-5332647/",
+                  "https://www.pexels.com/video/a-person-getting-things-inside-a-bag-5612365/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands packing bag closeup",
+                "query_alt_en": "person closing bag indoors",
+                "must_show": "يدان ترتبان حقيبة أو تغلقانها؛ توقف بعد فعل واضح وبلا وجه"
+              }
+            },
+            {
+              "id": "h03",
+              "section_id": "s1",
+              "asset": "assets/h03.jpg",
+              "start_text": "كيف تحتاج إلى شيء",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/person-holding-keys-7986204/",
+                  "https://www.pexels.com/video/a-person-opening-a-door-4376879/",
+                  "https://www.pexels.com/video/a-person-carrying-shopping-bags-5890239/"
+                ],
+                "mode": "sequence",
+                "query_en": "closeup hand holding house keys",
+                "query_alt_en": "hand turning door handle",
+                "must_show": "يد تمسك مفتاحًا أو مقبض باب؛ لا وجه ظاهر"
+              }
+            },
+            {
+              "id": "s1_02",
+              "section_id": "s1",
+              "asset": "assets/s1_02.jpg",
+              "start_text": "في مدخل منزل",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-delivery-man-placing-a-parcel-on-a-home-delivery-box-7362807/",
+                  "https://www.pexels.com/video/a-delivery-man-placing-a-box-inside-his-delivery-bag-4266807/",
+                  "https://www.pexels.com/video/a-person-wrapping-a-piece-of-clothing-7855151/"
+                ],
+                "mode": "sequence",
+                "query_en": "man putting down parcel",
+                "query_alt_en": "hands handling home delivery bag",
+                "must_show": "يدان أو ظهر رجل يضع حمولة قرب المدخل، ثم يتوقف"
+              }
+            },
+            {
+              "id": "s1_04",
+              "section_id": "s1",
+              "asset": "assets/s1_04.jpg",
+              "start_text": "وفي ممر مبنى",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-walking-up-the-stairs-8558503/",
+                  "https://www.pexels.com/video/a-back-view-of-a-person-walking-in-the-dark-9943158/",
+                  "https://www.pexels.com/video/person-walking-on-stairs-8550879/"
+                ],
+                "mode": "sequence",
+                "query_en": "man walking stairs from behind",
+                "query_alt_en": "faceless silhouette corridor walk",
+                "must_show": "ظهر رجل يصعد درجًا أو يمرّ بممر؛ بلا ملامح"
+              }
+            },
+            {
+              "id": "s1_04b",
+              "section_id": "s1",
+              "asset": "assets/s1_04b.jpg",
+              "start_text": "قد تكون الحاجة إلى الراحة حقيقية",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-opening-a-window-5835695/",
+                  "https://www.pexels.com/video/a-person-putting-a-mug-on-the-table-6755229/",
+                  "https://www.pexels.com/video/a-person-holding-a-notebook-with-stamp-message-9829558/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands pausing work window mug notebook",
+                "query_alt_en": "quiet indoor pause hands closeup",
+                "must_show": "يد تفتح نافذة أو تضع كوبًا أو توقف تقليب دفتر، دون وجه أو امرأة أو سرير؛ انتقال من الجهد إلى وقفة للتقدير"
+              }
+            },
+            {
+              "id": "s2_01",
+              "section_id": "s2",
+              "asset": "assets/s2_01.jpg",
+              "start_text": "لنأخذ العبارة الأولى بجدية: «أنا متعب وأحتاج الراحة»",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/man-getting-cup-from-table-6626949/",
+                  "https://www.pexels.com/video/hand-rotating-coffee-cup-13863531/",
+                  "https://www.pexels.com/video/a-person-holding-coffee-cups-7317025/"
+                ],
+                "mode": "sequence",
+                "query_en": "male hand setting down coffee cup",
+                "query_alt_en": "hand holding warm drink indoors",
+                "must_show": "يد تمسك كوبًا ثم تضعه على طاولة؛ بلا وجه"
+              }
+            },
+            {
+              "id": "s2_03",
+              "section_id": "s2",
+              "asset": "assets/s2_03.jpg",
+              "start_text": "أما عند الدرج",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-opening-the-window-7331407/",
+                  "https://www.pexels.com/video/person-open-a-window-5098240/",
+                  "https://www.pexels.com/video/faceless-person-opening-a-window-curtain-5854057/"
+                ],
+                "mode": "sequence",
+                "query_en": "man opening window from back",
+                "query_alt_en": "faceless person opening curtain",
+                "must_show": "ظهر رجل يفتح نافذة أو ستارة ويستعيد هدوءه"
+              }
+            },
+            {
+              "id": "s2_05",
+              "section_id": "s2",
+              "asset": "assets/s2_05.jpg",
+              "start_text": "لكنه يذكرنا بأن قدرتنا ليست زرًا نضغط عليه إلى ما لا نهاية",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-pouring-water-into-a-glass-on-a-table-28086672/",
+                  "https://www.pexels.com/video/close-up-view-of-a-person-pouring-water-into-a-glass-5102941/",
+                  "https://www.pexels.com/video/a-person-pouring-water-into-a-glass-4747237/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands pouring drinking water",
+                "query_alt_en": "closeup water glass pouring",
+                "must_show": "ماء يُصب في كوب بأيدٍ لا تُظهر صاحبها"
+              }
+            },
+            {
+              "id": "s2_07",
+              "section_id": "s2",
+              "asset": "assets/s2_07.jpg",
+              "start_text": "أمّا تحويل كل مهمة غير منتهية إلى حالة طوارئ",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-walking-down-a-hallway-in-a-building-4605503/",
+                  "https://www.pexels.com/video/man-closing-a-laptop-at-home-7226983/",
+                  "https://www.pexels.com/video/a-person-closing-a-laptop-screen-4113236/"
+                ],
+                "mode": "sequence",
+                "query_en": "man closing laptop and leaving",
+                "query_alt_en": "hands closing laptop at desk",
+                "must_show": "يد تغلق حاسوبًا أو شخص يبتعد عن ممر العمل"
+              }
+            },
+            {
+              "id": "s3_01",
+              "section_id": "s3",
+              "asset": "assets/s3_01.jpg",
+              "start_text": "والآن إلى العبارة الثانية: «الجلوس يؤنبني»",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/man-removing-his-shoes-before-entering-the-room-4203183/",
+                  "https://www.pexels.com/video/man-removing-his-shoes-5740689/",
+                  "https://www.pexels.com/video/person-locking-the-door-with-a-key-2070044/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands locking doorway male",
+                "query_alt_en": "man shoes at door closeup",
+                "must_show": "رجل يرتّب حذاءه أو يد تغلق باب المنزل؛ بلا وجه"
+              }
+            },
+            {
+              "id": "s3_02",
+              "section_id": "s3",
+              "asset": "assets/s3_02.jpg",
+              "start_text": "في مدخل المنزل",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/opening-a-faucet-5588610/",
+                  "https://www.pexels.com/video/a-person-turning-the-faucet-on-and-off-4061892/",
+                  "https://www.pexels.com/video/a-person-turning-on-a-faucet-7191227/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand turning kitchen faucet",
+                "query_alt_en": "male hands kitchen sink closeup",
+                "must_show": "مطبخ واحد: يد رجل بكمّ تُغلق الماء؛ بلا وجه أو امرأة"
+              }
+            },
+            {
+              "id": "s3_04",
+              "section_id": "s3",
+              "asset": "assets/s3_04.jpg",
+              "start_text": "وربما تعلم بعضنا هذه القاعدة من مديح الانشغال",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-turning-the-pages-of-a-book-6666444/",
+                  "https://www.pexels.com/video/person-browsing-a-book-6219901/",
+                  "https://www.pexels.com/video/a-person-touching-the-page-of-the-book-6279700/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands working notebook pages",
+                "query_alt_en": "closeup hand writing or pages",
+                "must_show": "يدان تكتب أو تقلب صفحة على طاولة؛ بلا وجه"
+              }
+            },
+            {
+              "id": "s3_06",
+              "section_id": "s3",
+              "asset": "assets/s3_06.jpg",
+              "start_text": "لذلك، لا يكفي أن يكون التأنيب قويًا كي يكون دقيقًا.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/video-of-person-choosing-a-book-6344082/",
+                  "https://www.pexels.com/video/a-person-placing-a-book-on-a-shelf-9613583/",
+                  "https://www.pexels.com/video/a-man-walking-down-a-long-hallway-in-a-library-19231459/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand selecting book bookshelf",
+                "query_alt_en": "faceless library hallway shelves",
+                "must_show": "يد تختار كتابًا أو تعيده إلى رف، أو ممر مكتبة"
+              }
+            },
+            {
+              "id": "s4_01",
+              "section_id": "s4",
+              "asset": "assets/s4_01.jpg",
+              "start_text": "الآن يمكن حل التناقض",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/setting-the-oven-for-baking-5515634/",
+                  "https://www.pexels.com/video/overhead-shot-of-a-person-placing-a-tea-kettle-on-a-counter-top-8255170/",
+                  "https://www.pexels.com/video/hand-placing-plates-on-a-table-12553714/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand checking kitchen safety",
+                "query_alt_en": "hand oven knob closeup",
+                "must_show": "يد تتحقق من عمل المطبخ والموقد أو تضع إناءً"
+              }
+            },
+            {
+              "id": "s4_02",
+              "section_id": "s4",
+              "asset": "assets/s4_02.jpg",
+              "start_text": "انظر مجددًا إلى الطبق",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/cleaning-and-sanitizing-a-glass-countertop-29795776/",
+                  "https://www.pexels.com/video/a-person-removing-a-mug-lid-from-a-set-table-14900572/",
+                  "https://www.pexels.com/video/a-beautiful-table-setting-6443860/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands wiping kitchen counter",
+                "query_alt_en": "placing single plate tabletop",
+                "must_show": "يد تمسح سطحًا أو تضع طبقًا بعد العمل، بلا حنفية"
+              }
+            },
+            {
+              "id": "s4_03",
+              "section_id": "s4",
+              "asset": "assets/s4_03.jpg",
+              "start_text": "هنا يصل الاعتراض الحقيقي",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-pouring-water-in-a-glasses-8777861/",
+                  "https://www.pexels.com/video/person-pouring-water-into-a-drinking-glass-6932736/",
+                  "https://www.pexels.com/video/a-person-filling-the-glass-from-the-water-dispenser-4111048/"
+                ],
+                "mode": "sequence",
+                "query_en": "hands pouring water glass",
+                "query_alt_en": "water dispenser closeup hands",
+                "must_show": "يد تملأ كوب ماء لتوضيح احتياج واقعي لا تأنيب مبهم"
+              }
+            },
+            {
+              "id": "s4_04",
+              "section_id": "s4",
+              "asset": "assets/s4_04.jpg",
+              "start_text": "لنضع الحالتين جنبًا إلى جنب",
+              "motion": "hold",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "حاجة أم تأجيل؟",
+                "items": [
+                  {
+                    "label": "راحة بخطوة عودة",
+                    "at_text": "في الأولى، حاجة ظاهرة إلى الراحة"
+                  },
+                  {
+                    "label": "تأجيل التزام محدد",
+                    "at_text": "وفي الثانية، التزام محدد يقترب"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "s4_05",
+              "section_id": "s4",
+              "asset": "assets/s4_05.jpg",
+              "start_text": "هذه مقارنة للظروف",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-a-person-holding-a-cup-of-coffee-6234912/",
+                  "https://www.pexels.com/video/a-person-holding-a-portable-cup-7250694/",
+                  "https://www.pexels.com/video/overhead-shot-of-a-man-putting-coffee-in-the-table-5827793/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand holding cup on table",
+                "query_alt_en": "coffee cup placed on table",
+                "must_show": "كوب يُمسك أو يوضع قرب طاولة مع فعل توقف واضح"
+              }
+            },
+            {
+              "id": "s5_01",
+              "section_id": "s5",
+              "asset": "assets/s5_01.jpg",
+              "start_text": "في المرة القادمة التي يتردد فيها جسدك بين الجلوس والنهوض",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/leaving-keys-on-the-table-4513069/",
+                  "https://www.pexels.com/video/clear-glass-being-filled-with-water-4481885/",
+                  "https://www.pexels.com/video/handing-over-the-keys-10375432/"
+                ],
+                "mode": "sequence",
+                "query_en": "hand retrieving towel and keys",
+                "query_alt_en": "person setting aside small object",
+                "must_show": "يد تختار فعلًا بسيطًا واضحًا: كوب أو مفتاح أو منشفة"
+              }
+            },
+            {
+              "id": "s5_03",
+              "section_id": "s5",
+              "asset": "assets/s5_03.jpg",
+              "start_text": "أما إن لم يكن هناك أمر عاجل",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-walking-though-office-workspace-5483082/",
+                  "https://www.pexels.com/video/man-walking-in-historical-arched-corridor-36893300/",
+                  "https://www.pexels.com/video/a-person-walking-while-carrying-a-briefcase-7952182/"
+                ],
+                "mode": "sequence",
+                "query_en": "man walking hallway back view",
+                "query_alt_en": "faceless man carrying briefcase corridor",
+                "must_show": "شخص يمشي في ممر من الخلف بعد توقف، بلا وجه"
+              }
+            },
+            {
+              "id": "s5_04",
+              "section_id": "s5",
+              "asset": "assets/s5_04.jpg",
+              "start_text": "وقد لا تستطيع قياس الراحة بالدقائق في يوم تحتاج فيه إلى تعافٍ أطو",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-man-putting-laptop-on-his-bag-5528721/",
+                  "https://www.pexels.com/video/a-hand-turning-over-an-hourglass-7955150/",
+                  "https://www.pexels.com/video/a-person-pouring-coffee-into-a-cup-on-a-table-19139698/"
+                ],
+                "mode": "sequence",
+                "query_en": "hourglass hand closeup coffee",
+                "query_alt_en": "hands packing laptop after break",
+                "must_show": "يد تضع مؤشرًا للعودة أو تغلق غرضًا وتنتقل إلى فعل محدد"
+              }
+            },
+            {
+              "id": "s5_04b",
+              "section_id": "s5",
+              "asset": "assets/s5_04b.jpg",
+              "start_text": "في لحظاتنا الثلاث، لن تختفي الأكياس",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-is-placing-a-plate-on-a-table-20714564/",
+                  "https://www.pexels.com/video/a-person-climbing-stairs-7239149/",
+                  "https://www.pexels.com/video/a-person-sticking-a-key-in-a-doorknob-8292925/"
+                ],
+                "mode": "sequence",
+                "query_en": "placing plate stairs hand door key",
+                "query_alt_en": "hands finishing daily tasks indoor",
+                "must_show": "يد تضع طبقًا، أو شخص من الخلف على درج، أو كفّ تدير مفتاحًا؛ استحضار أمثلة اليوم الثلاثة بلا وجه"
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "ذنب بلا دليل"
+          },
+          "publishing": {
+            "title": "لماذا تشعر بالذنب وأنت ترتاح؟ | متى يخدعك التأنيب؟",
+            "description": "قد تحتاج إلى الراحة فعلًا، ومع ذلك تشعر بالذنب عندما تجلس. نفكك المفارقة بين الحاجة والتأنيب من ثلاث لحظات يومية، ونشرح متى يكون التوقف مناسبًا ومتى يصبح تأجيلًا لالتزام عاجل.",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الراحة",
+              "#الشعور_بالذنب",
+              "#التوازن"
+            ]
+          }
+        },
+        "zip_sha256": "c64945a2f3d404d00bc35e1a2376d70cf177689516c1dc77ae8c4815f332a367",
+        "asset_sha256": {
+          "assets/cover_main.jpg": "1d7f25e28ac6a985a6016b7950b9aab01763105fd00c941c25fdca633dba11b5",
+          "assets/h01.jpg": "96086d0327688f99b41edb4ae7e8eaf28985e3bbcd1371f4f7b472419c3abadc",
+          "assets/h02.jpg": "ce75bf63641b916e033395caf70d6a65adacce0a10e936b22184ac93d2aa3199",
+          "assets/h03.jpg": "a5b876c2af3b9311d6cab6c107479f422c24b92fb080144884a0f91732a2ef6c",
+          "assets/s1_02.jpg": "1e4523519bcd08992b64960661103ad16dbea52a438102e1cdd1b4450a50efa1",
+          "assets/s1_04.jpg": "a53953724095160e790c2c4b98ce8beb4f1c34bcc9c025e368aaebdc224ad0c8",
+          "assets/s1_04b.jpg": "0c9d7558b46ed91528ba905a865ca82838679249341c9a7da53e808976a9829b",
+          "assets/s2_01.jpg": "a53953724095160e790c2c4b98ce8beb4f1c34bcc9c025e368aaebdc224ad0c8",
+          "assets/s2_03.jpg": "4e16f736414370fa0b1983be752deb66fb1bb177ec902eed091268da4f36f32f",
+          "assets/s2_05.jpg": "96086d0327688f99b41edb4ae7e8eaf28985e3bbcd1371f4f7b472419c3abadc",
+          "assets/s2_07.jpg": "a5b876c2af3b9311d6cab6c107479f422c24b92fb080144884a0f91732a2ef6c",
+          "assets/s3_01.jpg": "3393f56115d54dd1fb55f594e5be65b9a8d897ac58369eb35a6e87788375332d",
+          "assets/s3_02.jpg": "96086d0327688f99b41edb4ae7e8eaf28985e3bbcd1371f4f7b472419c3abadc",
+          "assets/s3_04.jpg": "a5b876c2af3b9311d6cab6c107479f422c24b92fb080144884a0f91732a2ef6c",
+          "assets/s3_06.jpg": "1e4523519bcd08992b64960661103ad16dbea52a438102e1cdd1b4450a50efa1",
+          "assets/s4_01.jpg": "a5b876c2af3b9311d6cab6c107479f422c24b92fb080144884a0f91732a2ef6c",
+          "assets/s4_02.jpg": "d29721844dd1a4ec9e6b960430e2b556cfaae814e5bf7bbe848fe8a6f404ae1a",
+          "assets/s4_03.jpg": "1e4523519bcd08992b64960661103ad16dbea52a438102e1cdd1b4450a50efa1",
+          "assets/s4_04.jpg": "67e896e1aa4f4fb8355844a09ab93e47058063c0b214c04f8dae43d2d8dcb6a4",
+          "assets/s4_05.jpg": "a53953724095160e790c2c4b98ce8beb4f1c34bcc9c025e368aaebdc224ad0c8",
+          "assets/s5_01.jpg": "1e4523519bcd08992b64960661103ad16dbea52a438102e1cdd1b4450a50efa1",
+          "assets/s5_03.jpg": "a53953724095160e790c2c4b98ce8beb4f1c34bcc9c025e368aaebdc224ad0c8",
+          "assets/s5_04.jpg": "68d3b4b856540fe4edd9430f9b69c7d6fcdb3c00b11818b2f6b93e8a430fa7aa",
+          "assets/s5_04b.jpg": "479ac721c0c72164cb9edf9460559f198bc586a30487c06d857aef47f9d64a1b"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "d0839ad93a0fb7db6791c1689bc95f1d37ce2846e834dcd7259bbd7e6c392682",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQn2royo1dEcbhTkeYBRtO9fAxkY3XAAIUIQACmGVJU_KwcI-H0CTuPQQ",
+          "sha256": "c64945a2f3d404d00bc35e1a2376d70cf177689516c1dc77ae8c4815f332a367"
+        }
+      }
     }
   },
-  "current_request_id": "req-e9b07ccccbe3",
+  "current_request_id": "req-9c88d51aabe3",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -37233,6 +37809,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-02T17:38:17Z",
+  "updated_at": "2026-11-02T17:38:47Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
