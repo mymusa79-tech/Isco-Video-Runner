@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "أشياء نحتفظ بها: ربما أحتاجها",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41514215232",
   "result": "",
-  "updated_at": 1793649272
+  "updated_at": 1793649335
 }
