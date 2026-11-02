@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "لماذا تشعر بالذنب وأنت ترتاح؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41493289602",
-  "result": "success",
-  "updated_at": 1793646282
+  "topic": "أشياء نحتفظ بها: ربما أحتاجها",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41514215232",
+  "result": "",
+  "updated_at": 1793649272
 }
