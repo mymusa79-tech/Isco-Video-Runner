@@ -9095,6 +9095,21 @@
       "selected_at": "2026-11-02T20:20:42Z",
       "created_at": "2026-11-02T20:20:42Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-5ff9bc54a0",
+      "title": "حين تقول «أنا بخير» ولا تعنيها",
+      "normalized_title": "حين تقول انا بخير ولا تعنيها",
+      "market_query": "حين تقول «أنا بخير» ولا تعنيها",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-03T10:25:58Z",
+      "created_at": "2026-11-03T10:25:58Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -37868,9 +37883,246 @@
         "started_at": "2026-11-02T20:29:45Z",
         "finished_at": "2026-11-02T20:38:46Z"
       }
+    },
+    "req-281899110e58": {
+      "schema_version": 1,
+      "request_id": "req-281899110e58",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "حين تقول «أنا بخير» ولا تعنيها",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-5ff9bc54a0",
+      "selected_at": "2026-11-03T10:25:58Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "حين تقول «أنا بخير» ولا تعنيها",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "inner_dialogue",
+          "title": "حين تقول «أنا بخير» ولا تعنيها",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قلتَ: «أنا بخير»، وأغلقتَ الباب بسرعة. لكن لماذا قلتَها قبل أن تسأل نفسك حقًّا؟"
+              },
+              {
+                "id": "s2",
+                "text": "تسأل في داخلك: «لِمَ أخفيتُ تعبي؟» وتجيب: «لأن الشرح طويل، وأخشى أن أكون عبئًا». وتسأل: «وهل خفّ التعب حين أخفيتُه؟» لا؛ مضى يومك كالمعتاد، وبقي ثقله. ومع تكرار «أنا بخير»، لا يعرف المقرّبون أنك تحتاج إنصاتًا، وقد تتجاوز مشاعرك. وأحيانًا لا تجد شخصًا آمنًا للبوح؛ فالصمت حينها مفهوم."
+              },
+              {
+                "id": "s3",
+                "text": "لكن اليوم، إن سألك شخص تثق به: «كيف حالك؟» جرّب إجابة واحدة أصدق: «مررتُ بيوم ثقيل، وأحتاج أن تسمعني قليلًا». هذا يكفي كبداية؛ ليس عليك شرح كل شيء دفعةً واحدة."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "بصوت Iapetus المعتمد نفسه دون تبديل. هوك سريع ومحدد؛ السؤال الداخلي أكثر قربًا وحدّة، والجواب متردد ثم صادق. وقفة قصيرة قبل «لا» ثم نبرة عملية في الجملة الأخيرة. الحوار سؤال وجواب داخل الشخص نفسه، بلا تمثيل صوتين أو أسماء منطوقة. لا تضاف الصلاة أو الهوية أو الأوترو إلى النص؛ يضيفها الرنر. لا مبالغة ولا موسيقى."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "قلتَ: «أنا بخير»",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "لكن لماذا قلتَها",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands fidgeting with sweater sleeve indoors",
+                "query_alt_en": "closeup of tense clenched hands indoors",
+                "must_show": "حركة يد متوترة أو تشد كمّ الثوب، بلا وجه مقروء أو كتابة أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-rubbing-his-hands-8184104/",
+                  "https://www.pexels.com/video/a-close-up-of-a-hand-pulling-a-sleeve-8516983/",
+                  "https://www.pexels.com/video/a-close-up-of-a-clenched-fist-7924518/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تسأل في داخلك:",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand gripping leather bag strap closeup",
+                "query_alt_en": "male hand carrying bag anonymous closeup",
+                "must_show": "يد تمسك حقيبة أو حزامها بلا وجه مقروء أو نص أو علامة تجارية",
+                "urls": [
+                  "https://www.pexels.com/photo/photo-of-a-person-s-hand-holding-the-strap-of-a-bag-8276590/",
+                  "https://www.pexels.com/photo/a-person-holding-a-bag-7742557/",
+                  "https://www.pexels.com/photo/man-holding-bag-at-subway-station-9533062/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "وتسأل:",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "blurred person walking indoor corridor",
+                "query_alt_en": "closeup footsteps crossing empty hallway",
+                "must_show": "حركة قدمين أو شخص ضبابي يمضي في ممر بلا وجه مقروء أو لافتة",
+                "urls": [
+                  "https://www.pexels.com/video/blurred-footage-of-a-person-walking-on-a-hallway-7523663/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "ومع تكرار",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "وقد تتجاوز مشاعرك.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands with blank notebook pages at desk",
+                "query_alt_en": "close up closed notebook hand desk",
+                "must_show": "يدان تتعاملان مع دفتر أو صفحات بيضاء بلا نص مقروء أو وجه أو شعار",
+                "urls": [
+                  "https://www.pexels.com/photo/a-person-s-hands-closing-a-notebook-5710672/",
+                  "https://www.pexels.com/video/woman-turning-pages-of-a-notebook-5124981/",
+                  "https://www.pexels.com/photo/woman-holding-book-with-blank-pages-6373293/"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وأحيانًا لا تجد",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "empty chair beside curtain in warm room",
+                "query_alt_en": "vacant chairs no people calm indoor",
+                "must_show": "مقعد فارغ في مكان هادئ، بلا أشخاص أو كتابات أو لافتات",
+                "urls": [
+                  "https://www.pexels.com/photo/an-empty-chair-near-the-curtain-9352107/",
+                  "https://www.pexels.com/video/view-of-empty-chairs-and-tables-7402582/",
+                  "https://www.pexels.com/video/modern-empty-restaurant-interior-with-sunlight-36183530/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "لكن اليوم، إن سألك",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "two cups on wooden table warm light",
+                "query_alt_en": "empty pair of mugs indoor table",
+                "must_show": "كوبان على طاولة بما يوحي بجلسة إنصات، بلا وجوه أو نص أو شعارات",
+                "urls": [
+                  "https://www.pexels.com/video/artistic-cappuccino-cups-on-wooden-table-36805764/",
+                  "https://www.pexels.com/video/a-person-is-pouring-coffee-into-a-cup-19389080/",
+                  "https://www.pexels.com/photo/cups-of-coffee-on-a-white-table-10996710/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "هذا يكفي كبداية",
+              "motion": "hold",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "لماذا تخفي تعبك؟"
+          },
+          "publishing": {
+            "title": "لماذا نقول «أنا بخير» ونحن متعبون؟ | خطوة واحدة للصدق",
+            "description": "نقول أحيانًا «أنا بخير» قبل أن نسأل أنفسنا كيف نشعر فعلًا. هذا الحوار الداخلي يتتبّع سبب الإجابة التلقائية، وما قد نخسره عندما تصبح عادة، ثم يقدم خطوة صادقة مع شخص نثق به. لا يلزم أن تشرح كل شيء دفعة واحدة.\n\n#نداء_اليقظة #أنا_بخير #الصحة_النفسية #المشاعر #التواصل",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#أنا_بخير",
+              "#الصحة_النفسية",
+              "#المشاعر",
+              "#التواصل"
+            ],
+            "tags": [
+              "أنا بخير",
+              "التعب النفسي",
+              "المشاعر",
+              "كتمان المشاعر",
+              "الصحة النفسية",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "4c8c5f1b82ac3ad1ce1414c7c3dc9a9e940aa6fe3d06b61e310996061f67a0ba",
+        "asset_sha256": {
+          "assets/cover.jpg": "ff5b47d26b35702fcdef44585fa2d687ee2875428fad3bed171de60f8a84fdbe",
+          "assets/scene_01.jpg": "3ea5654f8b5684889c842586443ec76a0b3d5fbe7d25aeade949881591273fe4",
+          "assets/scene_02.jpg": "b66dc841176afd2e55e65b4e8e7274320582b696fce809b7bcbf05df1196a20a",
+          "assets/scene_03.jpg": "7f14c5d14443a72e303303f858c103c74f5a7388cc9d50de4c537248e88f959d",
+          "assets/scene_04.jpg": "dac623474d37b4ba3036538958bcba3093be187d94984c50b723df0204813df5",
+          "assets/scene_05.jpg": "fc32bdea966368d36ef0c78d7d1c5f08ca92a26c839f5ee3fcef78c384f1f045",
+          "assets/scene_06.jpg": "5d622e67069c929d4050786ce8f5d25fd8049671144563d0bffc220a638b7989",
+          "assets/scene_07.jpg": "3947a0e4104d40b03fafbf8784b585e38b6a15f4c571f2b1fe1dc1dd8df7e499",
+          "assets/scene_08.jpg": "5765e4033fbcc438a145f52771dc4f2b9796657e6707617845b043a0f053f372",
+          "assets/scene_09.jpg": "f03ad8647c5308580fa33461b9b3c485ee81562144654718d615597be09c37f5"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6551361508fd70f0441db0a083160d1c543c26d265c305579997d3275d60bd63",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQyGrpckZYGR_is1n0vsyB6BWVUA5_AAKtOQEAAQLZSVMh8LI66pCPfD0E",
+          "sha256": "4c8c5f1b82ac3ad1ce1414c7c3dc9a9e940aa6fe3d06b61e310996061f67a0ba"
+        }
+      }
     }
   },
-  "current_request_id": "req-0c89fd2da4e8",
+  "current_request_id": "req-281899110e58",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -38536,6 +38788,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-03T10:25:27Z",
+  "updated_at": "2026-11-03T10:25:58Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
