@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "long",
   "kind": "",
-  "topic": "حين تقول «أنا بخير» ولا تعنيها",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41619444626",
-  "result": "success",
-  "updated_at": 1793702237
+  "topic": "لماذا تستمر في شيء يخسرك كل يوم؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41683196122",
+  "result": "",
+  "updated_at": 1793726435
 }
