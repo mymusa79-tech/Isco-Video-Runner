@@ -9110,6 +9110,21 @@
       "selected_at": "2026-11-03T10:25:58Z",
       "created_at": "2026-11-03T10:25:58Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-dc0cdc02e3",
+      "title": "لماذا تستمر في شيء يخسرك كل يوم؟",
+      "normalized_title": "لماذا تستمر في شيء يخسرك كل يوم؟",
+      "market_query": "لماذا تستمر في شيء يخسرك كل يوم؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-03T17:13:13Z",
+      "created_at": "2026-11-03T17:13:13Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -38137,9 +38152,833 @@
         "started_at": "2026-11-03T10:27:58Z",
         "finished_at": "2026-11-03T10:37:20Z"
       }
+    },
+    "req-5f8d7bed11a8": {
+      "schema_version": 1,
+      "request_id": "req-5f8d7bed11a8",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تستمر في شيء يخسرك كل يوم؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-dc0cdc02e3",
+      "selected_at": "2026-11-03T17:13:13Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا تستمر في شيء يخسرك كل يوم؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "question_answer",
+          "title": "لماذا تستمر في شيء يخسرك كل يوم؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "تخيّل أنك فتحت رسالة تجديد إيجار متجرك، رغم أن حساباتك تقول إن الخسارة مستمرة. لماذا يصعب عليك إيقاف شيء يستنزفك، حتى عندما تعرف ثمنه؟ سنفكّك ثلاثة تفسيرات، وننظر ماذا يقول البحث عن أحدها، ونواجه اعتراضًا حقيقيًا: ماذا لو كان الاستمرار هو القرار الصحيح؟ ثم سنضع أمامك اختبارًا عمليًا، لتعرف متى تستحق المحاولة فرصة أخرى.\n\nأمامك يومان فقط: إما أن تدفع للشهر القادم، أو تبدأ إجراءات إخلاء المكان. أغلقت الرسالة، ثم عدت إليها بعد دقائق، وكأن الأرقام قد تتغير إذا قرأتها مرة أخرى.\n\nهذا مشهد من قصة افتراضية. افتتح الرجل متجرًا للأدوات المكتبية قرب سوق مزدحم. قارن الأسعار، واشترى دفاتر وأقلامًا، وثبّت الرفوف بنفسه. وفي ليلة الافتتاح، أرسل صورة المتجر إلى أصدقائه، واعتقد أنه بدأ طريقًا جديدًا.\n\nبعد شهر، لم تغطِّ الإيرادات الإيجار والمشتريات. اشترى بضاعة إضافية مستفيدًا من خصم، فبقي بعضها في الصناديق. دفع ثمن إعلان زاد الحركة يومين ثم اختفى أثره. والآن عاد سؤال تجديد الإيجار، بينما تخبره حساباته أن الدفعة الجديدة لن تسترد ما دفعه سابقًا. ومع ذلك يسأل: كيف أترك كل ذلك يضيع؟\n\nربما لا تملك متجرًا. لكن قد تكون لديك دورة تواصلها رغم أنك لم تعد تستفيد منها، أو مشروع تعدّل خطته للمرة العاشرة، أو التزام تعطيه وقتًا لأنك أعطيته سنوات. في كل هذه الحالات يوجد سؤال أصعب من الاعتراف بالخسارة: هل السبب الذي بدأنا من أجله ما زال قائمًا اليوم؟"
+              },
+              {
+                "id": "s2",
+                "text": "لماذا قد يمدد صاحب المتجر عقده؟ هناك ثلاثة تفسيرات تبدو متشابهة عندما ننظر إلى النتيجة، لكنها مختلفة عندما نفحص الأسباب. وفهم الفرق بينها مهم؛ لأن العلاج الذي يصلح لخطأ في الحساب لا يصلح دائمًا لخوف من الاعتراف.\n\nالتفسير الأول هو الأمل في نتيجة لم تظهر بعد. ربما يحتاج المتجر إلى موسم دراسي آخر، وربما يستفيد من معرفة الناس بموقعه، وربما يُحسّن اختيار البضاعة. هذه احتمالات يمكن اختبارها، ولا يوجد ما يجعلها سخيفة لمجرد أن البداية كانت صعبة.\n\nلكن الأمل يصبح ضعيفًا حين لا يحمل معه معلومة جديدة. إذا كررت التجربة بالشروط نفسها، ولم يتغير طلب الزبائن أو مستوى الإنفاق، فماذا تتوقع أن يكون مختلفًا؟ ليس المطلوب أن تضمن النجاح قبل أي محاولة. المطلوب أن تعرف لماذا تستحق المحاولة المقبلة تكلفتها.\n\nالتفسير الثاني يتعلق بالصورة التي كوّنها الرجل عن نفسه. لقد أخبر المقربين أنه سيصبح صاحب مشروع. وبعد أشهر، صار إغلاق المتجر يبدو له كأنه تراجع عن شخصيته، لا تراجع عن خطة تجارية. وربما تخيل الأسئلة قبل أن يسمعها: ألم تكن متأكدًا؟ ماذا حدث لأفكارك الكبيرة؟\n\nهنا يرتفع ثمن القرار في ذهنه. فالإغلاق لا يعني فقط جمع البضاعة وإرجاع المفتاح؛ بل يعني أن يشرح لغيره لماذا غيّر رأيه. وقد يفضّل تحمّل شهر إضافي من الخسارة على تحمّل حديث واحد محرج. هذا تفسير محتمل، وليس حكمًا على كل شخص يتشبث بمشروعه.\n\nأما التفسير الثالث فهو الأكثر ارتباطًا بموضوعنا: الشعور بأن التوقف سيجعل المال والجهد السابقين بلا قيمة. تخيل أنك اشتريت تذكرة لا يمكن استرداد ثمنها. وفي يوم العرض، أصبحت مرهقًا، واكتشفت أن الذهاب لن يمنحك المتعة التي كنت تتوقعها. تقول لنفسك: لا يجوز أن أضيّع ثمن التذكرة. فتذهب وأنت لا تريد الذهاب.\n\nلكن فكّر في السؤال التالي: هل عاد إليك ثمن التذكرة لأنك حضرت؟ لقد دُفع الثمن بالفعل. القرار المتبقي يتعلق بما ستحصل عليه من الحضور، وما ستخسره من وقت وراحة. وأحيانًا يكون الحضور جيدًا لأنك ستستمتع فعلًا. وأحيانًا يكون مجرد محاولة لإثبات أن الدفع القديم لم يكن خطأ.\n\nيسمي الباحثون هذا الميل أثر التكلفة الغارقة. أي أن المال أو الوقت أو الجهد الذي لا يمكن استعادته قد يؤثر في قرارك بالاستمرار، حتى عندما لا يغيّر العائد المتوقع من الخطوة الجديدة. الفكرة دقيقة، ولهذا يسهل إساءة استخدامها.\n\nفليس كل من يواصل طريقًا طويلًا أسيرًا لهذا الأثر. قد يكون تعلم من التجربة، أو حصل على فرصة جديدة، أو اقترب من هدف يستحق الإكمال. السؤال الحاسم هو: هل ننظر إلى الماضي باعتباره معلومة تساعدنا، أم دَينًا يجب أن نسدده بمزيد من المستقبل؟"
+              },
+              {
+                "id": "s3",
+                "text": "لنخرج قليلًا من متجرنا الافتراضي، ونرى كيف يمكن فحص هذه الفكرة بدل الاكتفاء بعبارة جميلة عنها. في عام ألف وتسعمئة وخمسة وثمانين، نشر الباحثان هال أركس وكاثرين بلومر دراسة صارت مرجعًا في موضوع التكلفة الغارقة.\n\nفي أحد أجزائها، اشترى أشخاص اشتراكات لحضور عروض مسرحية. دَفعت مجموعات أسعارًا مختلفة، لأن بعضها حصل على خصومات. وكانت الفكرة أن التذكرة المدفوعة تُتيح الحضور، سواء استُخدمت لاحقًا أم لم تُستخدم. بعد ذلك، قارن الباحثان عدد العروض التي حضرها المشتركون.\n\nخلال النصف الأول من الموسم، حضر الذين دفعوا السعر الكامل عروضًا أكثر من أصحاب الخصومات. واختفى الفرق تقريبًا في النصف الثاني من الموسم. لم يثبت هذا أن كل حاضر كان يريد استرداد ماله، ولا أن النتيجة ستظهر بنفس القوة في كل موقف. لكنه قدّم دليلًا على أن المبلغ المدفوع سابقًا يمكن أن يؤثر في سلوك لاحق، حتى عندما لا يتغير ثمن القرار القادم.\n\nوالأمر لا يقتصر دائمًا على المال. في بحث نُشر عام ألفين وستة وعشرين في مجلة كوجنيشن، اختبر باحثون أثر الجهد الذهني السابق. شارك أشخاص في مهام تطلبت منهم بذل جهد، ثم واجهوا قرارات بشأن مواصلة المسار أو تركه. وفي التجربتين، زادت رغبة المشاركين في مواصلة العمل حين كانت المهمة التالية شاقة؛ ويعترف الباحثون بأن أثر الجهد لم ينفصل تمامًا عن أثر الوقت.\n\nتأمل ما يعنيه ذلك في حياتك. ربما تقضي ليالي في تصميم فكرة، ثم تكتشف أن جمهورها ضعيف، أو أن المشكلة التي تحاول حلها ليست مهمة لأحد. تصبح الساعات التي قضيتها حجة لإكمالها، مع أن الساعات وحدها لا تخبرك إن كانت الخطوة التالية ستثمر.\n\nلكن ينبغي ألا نحوّل هذه الدراسات إلى قانون يفسر جميع قرارات البشر. في دراسة نُشرت عام ألفين واثنين وعشرين، ظهر أثر التكلفة الغارقة المعتاد في سيناريوهات افتراضية. أما في مهمة استثمارية بحوافز حقيقية فظهر أثر معاكس: كلما زاد الاستثمار الأول، قل احتمال الاستمرار. وفي دراسات أخرى عن الوقت والإنجاز، ظهر أن الاقتراب من إكمال المهمة قد يفسر جزءًا من رغبة الشخص في مواصلتها.\n\nهذا الاختلاف مهم. فقد يكون الشخص مقتربًا فعلًا من هدف ذي قيمة، أو قد يرى أن المرحلة الأخيرة أقل تكلفة، أو يستند إلى خبرة اكتسبها أثناء المحاولة. ولهذا، لا يكفي أن نسمع عبارة «لقد تعبت كثيرًا»، فنقرر فورًا أن صاحبها واقع في انحياز نفسي.\n\nما الذي نستطيع قوله، إذن؟ نستطيع القول إن الاستثمارات الماضية قد تغيّر قرارات الحاضر، وإن أثرها يختلف بحسب طبيعة المهمة وما نتوقعه منها. وقد يكون الخطر الأكبر حين لا نلاحظ ذلك أصلًا. نعتقد أننا نفكر في الفرصة المقبلة، بينما نحن نحاول أن نمنح الماضي نهاية مريحة.\n\nلنجرّب اختبارًا صغيرًا. تخيل شخصين أمام فرصة العمل نفسها، وبالشروط نفسها. أحدهما أمضى فيها عامًا، والآخر وصل إليها اليوم لأول مرة. إذا كانت المعلومات المتاحة للمستقبل متطابقة، فما السبب العملي الذي يجعل الأول يدفع أكثر لمجرد أنه دفع سابقًا؟ قد توجد أسباب تتعلق بخبرته أو التزاماته؛ أما الجهد الذي ذهب وحده فلا يصنع عائدًا جديدًا.\n\nالفرق يبدو بسيطًا عندما نتحدث عن شخصين افتراضيين. لكنه يصبح أصعب عندما تكون أنت الشخص الذي تعب، وانتظر، وأخبر الناس، وتعلّق بموعد نجاح ظل يتحرك إلى الأمام. وهنا نصل إلى الاعتراض الذي لا يجوز تجاهله."
+              },
+              {
+                "id": "s4",
+                "text": "ماذا لو كان التوقف الآن هو الخطأ؟ قد تكون المحاولة المقبلة هي التي تغيّر النتيجة. وقد يكون ما تسميه خسارة مرحلة تعلم لا بد منها. إن أخذنا فكرة التكلفة الغارقة بشكل سطحي، فسنحوّلها إلى وصفة لترك كل مشروع عند أول عثرة، وهذا استنتاج لا تدعمه الأدلة.\n\nلنعد إلى المتجر. بعد وصول رسالة التجديد، جلس صاحبه للمرة الأولى مع سجل المبيعات كاملًا. اكتشف أن بعض الأصناف تحقق هامشًا جيدًا، بينما تستهلك أصناف أخرى معظم السيولة دون حركة. كما لاحظ أن جزءًا من الخسارة جاء من شراء كميات كبيرة للحصول على خصم بدا جذابًا وقتها.\n\nهذه المراجعة لا تعني أن المتجر أصبح مربحًا. لكنها تكشف إمكانية مختلفة عن تكرار الخطة نفسها: تخفيض حجم المخزون، وإيقاف الأصناف البطيئة، والتفاوض على إيجار أقصر. وربما لا يوافق صاحب العقار أصلًا. عندئذ تتغير الخيارات مرة أخرى.\n\nولنفترض أنه حصل على طلب مؤكد من مركز تدريبي قريب، بسعر يغطي تكلفته ويترك هامشًا واضحًا. سيكون هذا دليلًا جديدًا يستحق حسابه. أما إذا تلقى مجرد وعد شفهي بأن المركز قد يشتري لاحقًا، فسيكون من الخطأ أن يتعامل مع الوعد كأنه إيراد دخل بالفعل. الفرق بين الإمكانية والعقد الفعلي قد يحدد مصير الشهر المقبل.\n\nهناك حالة أخرى تستحق الانتباه. قد تكون قد قطعت معظم الطريق نحو شهادة معترف بها، ولم يتبق إلا اختبار أخير، وتعرف أن الشهادة ما زالت تخدم هدفك الحالي. هنا يصبح حساب تكلفة الإكمال وفائدته مختلفًا عن حساب السنوات التي مضت. وقد يكون الإكمال منطقيًا، رغم أن بدايتك كانت مليئة بالعثرات.\n\nوفي المقابل، إذا تغيّرت متطلبات المهنة، أو فقدت الشهادة قيمتها بالنسبة إلى هدفك، فإن قرب النهاية وحده لا يكفي. تستطيع أن تحترم ما تعلمته، وأن تعيد الحساب مع ذلك. والمسألة تصبح أكثر تعقيدًا إذا كانت لديك عقود أو أشخاص يعتمدون على قرارك؛ فهذه التزامات حاضرة لا يجوز محوها تحت شعار التوقف.\n\nإذن، ما المعيار؟ الاستمرار يستحق النظر حين توجد قيمة مستقبلية معقولة، ومعلومات جديدة، وتكلفة إضافية يمكن تحمّلها. والتوقف يستحق النظر حين تتكرر الخطة بلا تغير، وتتصاعد التكلفة، ويصبح السبب الأساسي هو الخوف من الاعتراف بما ضاع.\n\nلا تخلط أيضًا بين التوقف عن مشروع، والتوقف عن هدف. قد تغلق متجرًا وتحتفظ بخبرتك في البيع. وقد تنهي مسارًا دراسيًا وتستخدم ما تعلمته في طريق آخر. وربما تغيّر شكل التجربة بدل إنهائها بالكامل. أحيانًا تكون المرونة هي الطريقة التي تحافظ بها على الهدف من أن يبتلعه أسلوب واحد لتحقيقه.\n\nلكن كيف تعرف أي الاحتمالات يصف حالتك؟ إذا تركنا الأمر للمزاج، فسوف يتغير جوابنا كلما شعرنا بالحماس أو الخيبة. لهذا نحتاج إلى أسئلة محددة تُكتب قبل دفع التكلفة التالية."
+              },
+              {
+                "id": "s5",
+                "text": "قبل أي تجديد جديد، اكتب على ورقة ثلاث خانات. لا تكتب فيها عدد السنوات التي تعبتها، أو أسماء الأشخاص الذين وعدتهم بالنجاح. ستعود إلى هذه الأمور حين تناقش التزاماتك، لكن ابدأ أولًا بما تستطيع أن تقرره من الآن.\n\nالخانة الأولى تحمل سؤالًا غير مريح: لو عُرض عليّ هذا الخيار اليوم، بما أعرفه الآن، فهل سأبدأه؟ تخيّل أنك لا تحتاج إلى الدفاع عن قرارك القديم أمام أحد. لا أحد يتذكّر الإعلان الأول، ولا توجد صورة افتتاح معلقة في هاتفك. هل سترى في الفرصة الحالية ما يستحق المال والوقت؟\n\nإذا كانت إجابتك نعم، فحدّد السبب. ربما تملك مهارة تجعل التنفيذ الجديد أقل تكلفة، أو زبائن ثابتين لم يكونوا موجودين عند البداية. هذه معلومات حقيقية من الماضي، ويمكن أن تحسن فرص الغد. أما إذا كانت إجابتك الوحيدة «لا أستطيع التراجع بعد كل ما فعلته»، فقد اكتشفت إشارة تستحق التوقف عندها.\n\nالخانة الثانية تسأل: ما الذي تغيّر منذ آخر مرة اتخذت فيها القرار نفسه؟ لا تكتب شعورك فقط. اكتب دليلًا يمكنك مراجعته: طلبات جديدة، أو انخفاضًا فعليًا في النفقات، أو تحسنًا ثابتًا، أو نتيجة من تجربة صغيرة. وإذا لم يتغير شيء، فاكتب ذلك بوضوح. عدم وجود دليل جديد ليس حكمًا نهائيًا بالفشل، لكنه يمنعك من تقديم الأمل على أنه حقيقة.\n\nالخانة الثالثة تسأل: ما الثمن الإضافي، ومتى سأراجع قراري؟ احسب ما ستدفعه من هذه اللحظة، بما فيه الفرص التي ستؤجلها. ثم حدّد شرطًا واضحًا قبل أن تبدأ. ما النتيجة الدنيا التي تجعل الاستمرار معقولًا؟ وما الحد الذي إن تجاوزته ستتوقف أو تغيّر الخطة؟\n\nعد إلى صاحب المتجر. أمامه الآن خياران أساسيان، وربما خيار ثالث إذا وافق صاحب العقار. يستطيع تجديد العقد بالشروط القديمة، أو إغلاق المتجر مع تسوية التزاماته، أو طلب فترة أقصر لاختبار الخطة المعدّلة. لكنه لن يختار الفترة القصيرة لمجرد أنه يريد أن يؤجل ألم الحسم.\n\nقبلها، يحدد ماذا سيبيع، وكم سيدفع، وما الإيراد الذي يحتاجه، ومتى سيراجع النتائج. وإن لم يسمح له العقد بهذه المرونة، فلن يخترع فرصة غير موجودة. سيحسب تكلفة الخروج، ويقارنها بتكلفة البقاء، ثم يقرر. لا تضمن له هذه الطريقة النجاح، لكنها تمنعه من تسمية تكرار الخسارة تجربة جديدة دون أن يتغير شيء.\n\nقد تكون أصعب لحظة هي تلك التي يقرّ فيها بأن قراره القديم لم يعطِ النتيجة المتوقعة. سيشعر بالأسف على المال، وربما يخجل من شرح ما حدث. هذه مشاعر لا تمحوها ورقة حسابات. وهي أيضًا لا تستطيع إعادة ما دُفع.\n\nهناك سؤال أخير، لا تضعه في خانة مستقلة. ماذا ستقول لصديق جاءك بالقصة نفسها، وبالأرقام نفسها، دون أن تعرفه منذ سنوات؟ هل ستطالبه بمزيد من الصبر فقط لأنك رأيت حجم تعبه؟ أم ستطلب منه أن ينظر إلى ما تبقى، وما يستطيع فعله به؟ أحيانًا نمنح الآخرين وضوحًا نحجبه عن أنفسنا.\n\nفي نهاية قصتنا، لن نعلن أن المتجر أغلق وأن صاحبه عاش سعيدًا، ولن نزعم أن الشهر القادم سيحمل مفاجأة تنقذه. ما حدث أبسط وأهم: لم يعد الرجل يعتبر ما دفعه سابقًا أمرًا يفرض عليه دفع المزيد. صار يعطي الماضي حقه بوصفه خبرة، ويعطي المستقبل حقه بوصفه قرارًا جديدًا.\n\nإذا كنت الآن أمام تجديد يشبه هذا التجديد، فلا تتعجل الانسحاب، ولا توقع لأنك تخاف من الندم. اجمع ما تعرفه، وحدّد ما سيكلفك الاستمرار، واسأل عمّا تغيّر فعلًا. يمكنك احترام السنوات التي مضت، من دون أن تسلّمها حق التصرف في السنوات التي لم تأت بعد."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "إيقاع السؤال والجواب: s1 الهوك مشهد hold ثم dissolve، ثم صوت فضولي متصاعد؛ s2 فحص الحجج بأمثلة؛ s3 دليل مسرحي ثم تجربة وجهد واعتراض بحثي؛ s4 اعتراض حقيقي دون وعظ؛ s5 تنفيذ ثلاث خانات بنبرة عملية تتقدم تدريجيًا. هذا توجيه غير منطوق. النص المقفل لا يتغير."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/c01.jpg",
+              "start_text": "تخيّل أنك فتحت رسالة تجديد إيجار متجرك، رغم أن حساباتك",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "سنفكّك ثلاثة تفسيرات، وننظر ماذا يقول البحث عن أحدها، ونواجه",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "opening two decision folders by lamplight",
+                "query_alt_en": "comparing two blank paper files indoors",
+                "must_show": "ملفان منفصلان يُفتحان على مكتب مع إضاءة جانبية لتقديم حجج القرار",
+                "mode": "sequence",
+                "urls": [
+                  "https://pixabay.com/videos/file-folder-office-business-9772/",
+                  "https://pixabay.com/videos/file-folder-office-business-9771/",
+                  "https://pixabay.com/videos/file-documents-office-paperwork-87146/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "أمامك يومان فقط: إما أن تدفع للشهر القادم، أو تبدأ",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "sealed rent letter beside door key",
+                "query_alt_en": "shop tenancy notice envelope on dark table",
+                "must_show": "ظرف تجديد الإيجار بجوار مفتاح متجر يوضح موعد القرار القريب"
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "قارن الأسعار، واشترى دفاتر وأقلامًا، وثبّت الرفوف بنفسه. وفي ليلة",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "stacking school notebooks onto wooden shelves",
+                "query_alt_en": "stationery shop owner arranging notebooks softly lit",
+                "must_show": "رص دفاتر جديدة على رفوف متجر مستلزمات مدرسية قبل افتتاحه"
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "دفع ثمن إعلان زاد الحركة يومين ثم اختفى أثره. والآن",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "unpaid expenses stacked near old briefcase",
+                "query_alt_en": "shop receipts beside calculator in dim office",
+                "must_show": "فواتير مصروفات متراكمة بجوار آلة الحساب بعد إعلان لم يستمر أثره",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/signing-financial-documents-on-office-desk-34583554/",
+                  "https://www.pexels.com/video/a-man-counting-bank-notes-using-calculator-6700015/",
+                  "https://www.pexels.com/video/a-businessman-signing-papers-7643450/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s1",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "لكن قد تكون لديك دورة تواصلها رغم أنك لم تعد",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unfinished study notebooks left on desk",
+                "query_alt_en": "abandoned learning course notes under desk lamp",
+                "must_show": "دفاتر دراسة تُترك مفتوحة عند الحديث عن التزام فقد جدواه",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-taking-notes-and-using-a-laptop-15198034/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-paper-using-a-pen-5530418/",
+                  "https://coverr.co/videos/writing-notes-in-notebook-xk3iyjqiii"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "لماذا قد يمدد صاحب المتجر عقده؟ هناك ثلاثة تفسيرات تبدو",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "stationery shop shelves with unsold stock",
+                "query_alt_en": "quiet small store loaded with cardboard inventory",
+                "must_show": "رفوف متجر صغير ممتلئة ببضائع لم تُبع عند عرض التفسيرات الثلاثة",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/boxes-and-packages-on-warehouse-shelves-6170316/",
+                  "https://www.pexels.com/video/cardboard-boxes-and-packages-on-warehouse-shelves-6169986/",
+                  "https://www.pexels.com/video/guy-picking-up-delivery-parcel-from-rack-6170318/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "ربما يحتاج المتجر إلى موسم دراسي آخر، وربما يستفيد من",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "new stationery boxes filling school season shelves",
+                "query_alt_en": "retail school supplies ready for next term",
+                "must_show": "بضاعة مدرسية مرتبة تنتظر موسمًا دراسيًا جديدًا محتملًا"
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "إذا كررت التجربة بالشروط نفسها، ولم يتغير طلب الزبائن أو",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unchanged desk calendar facing stocked shelf",
+                "query_alt_en": "closed shop calendar with same old inventory",
+                "must_show": "تقويم متجر ثابت قرب رفوف لم تتغير لتجسيد تكرار الشروط"
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s2",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "لقد أخبر المقربين أنه سيصبح صاحب مشروع. وبعد أشهر، صار",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "faceless proprietor confronting closed store shutter",
+                "query_alt_en": "back view shopkeeper before metal shop door",
+                "must_show": "صاحب متجر من الخلف يقف أمام باب متجر مغلق ويفكر في صورته أمام الناس"
+              }
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s2",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "فالإغلاق لا يعني فقط جمع البضاعة وإرجاع المفتاح؛ بل يعني",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand holding shop keys before shutter",
+                "query_alt_en": "returning commercial unit key to landlord hand",
+                "must_show": "مفتاح المتجر في يد مترددة أمام باب يُعاد إلى المؤجر"
+              }
+            },
+            {
+              "id": "scene_12",
+              "section_id": "s2",
+              "asset": "assets/c02.jpg",
+              "start_text": "أما التفسير الثالث فهو الأكثر ارتباطًا بموضوعنا: الشعور بأن التوقف",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_13",
+              "section_id": "s2",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "فتذهب وأنت لا تريد الذهاب.",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "unused theater ticket resting on table",
+                "query_alt_en": "unredeemed event ticket on wooden desk",
+                "must_show": "تذكرة فعالية غير مستخدمة على طاولة رغم أن ثمنها قد دُفع"
+              }
+            },
+            {
+              "id": "scene_14",
+              "section_id": "s2",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "وأحيانًا يكون مجرد محاولة لإثبات أن الدفع القديم لم يكن",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "sunk receipts lying beside worn cash ledger",
+                "query_alt_en": "old business spending slips on dark wood",
+                "must_show": "إيصالات مصروفات قديمة تتكدس دون أن تضمن عائدًا جديدًا",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/computing-using-a-cellphone-calculator-7735854/",
+                  "https://www.pexels.com/video/calculating-and-taking-notes-7247861/",
+                  "https://coverr.co/videos/masculine-hands-counting-euro-notes-nj7orla7jt"
+                ]
+              }
+            },
+            {
+              "id": "scene_15",
+              "section_id": "s2",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "فليس كل من يواصل طريقًا طويلًا أسيرًا لهذا الأثر. قد",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "shop keeper packing books for new plan",
+                "query_alt_en": "hand moving stocked notebooks into reorganized boxes",
+                "must_show": "ترتيب دفاتر في صناديق للدلالة على أن تعديل المسار قد يكون منطقيًا",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/putting-books-inside-the-box-4520154/",
+                  "https://www.pexels.com/video/a-man-putting-stuff-inside-the-box-7464095/",
+                  "https://www.pexels.com/video/man-putting-the-packages-inside-the-big-box-7287773/"
+                ]
+              }
+            },
+            {
+              "id": "scene_16",
+              "section_id": "s3",
+              "asset": "assets/c03.jpg",
+              "start_text": "لنخرج قليلًا من متجرنا الافتراضي، ونرى كيف يمكن فحص هذه",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_17",
+              "section_id": "s3",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "في أحد أجزائها، اشترى أشخاص اشتراكات لحضور عروض مسرحية. دَفعت",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "empty red theater seats in dark auditorium",
+                "query_alt_en": "vacant stage and warm velvet cinema seating",
+                "must_show": "قاعة عروض مسرحية بمقاعد حمراء خالية حيث جرت تجربة الاشتراكات",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/a-tracking-shot-of-an-empty-theater-7984191/",
+                  "https://www.pexels.com/video/an-empty-movie-theater-7988175/",
+                  "https://www.pexels.com/video/close-up-shots-of-seats-at-movie-theater-7984177/"
+                ]
+              }
+            },
+            {
+              "id": "scene_18",
+              "section_id": "s3",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "خلال النصف الأول من الموسم، حضر الذين دفعوا السعر الكامل",
+              "motion": "hold",
+              "transition": "dissolve",
+              "board": {
+                "layout": "compare",
+                "theme": "editorial",
+                "title": "ماذا حدث عبر الموسم؟",
+                "items": [
+                  {
+                    "label": "النصف الأول: فرق في الحضور",
+                    "at_text": "خلال النصف الأول من الموسم، حضر الذين دفعوا السعر الكامل عروضًا أكثر من أصحاب الخصومات."
+                  },
+                  {
+                    "label": "النصف الثاني: تلاشى الفرق",
+                    "at_text": "واختفى الفرق تقريبًا في النصف الثاني من الموسم."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_19",
+              "section_id": "s3",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "لم يثبت هذا أن كل حاضر كان يريد استرداد ماله،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "theater rows with gaps among empty seats",
+                "query_alt_en": "red upholstered theater chairs under amber lamps",
+                "must_show": "مقاعد المسرح الخالية تُظهر أن فرق الحضور لا يشرح دوافع الأفراد وحده",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/cinema-with-empty-seats-7989640/",
+                  "https://www.pexels.com/video/seats-at-movie-theater-7989390/",
+                  "https://www.pexels.com/video/an-empty-movie-theater-7988642/"
+                ]
+              }
+            },
+            {
+              "id": "scene_20",
+              "section_id": "s3",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "في بحث نُشر عام ألفين وستة وعشرين في مجلة كوجنيشن،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "blank task worksheets and sharpened pencils",
+                "query_alt_en": "mental effort task papers on study table",
+                "must_show": "أوراق مهام ذهنية وأقلام معدة لاختبار أثر الجهد السابق",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-a-paper-8631661/",
+                  "https://www.pexels.com/video/a-person-writing-on-a-piece-of-paper-with-a-pen-20413321/",
+                  "https://coverr.co/videos/writing-in-a-notepad-epmsdgrl3j"
+                ]
+              }
+            },
+            {
+              "id": "scene_21",
+              "section_id": "s3",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "تأمل ما يعنيه ذلك في حياتك. ربما تقضي ليالي في",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "unfinished project plans beside old portfolio",
+                "query_alt_en": "person sorting unsuccessful project drafts in leather case",
+                "must_show": "مسودات مشروع قديمة يراجعها صاحبها بعد ليالٍ من الجهد"
+              }
+            },
+            {
+              "id": "scene_22",
+              "section_id": "s3",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "لكن ينبغي ألا نحوّل هذه الدراسات إلى قانون يفسر جميع",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "blank tickets beside practical investment notebook",
+                "query_alt_en": "mock study ticket and real decision documents contrasted",
+                "must_show": "بطاقة اختبار افتراضي بجوار ملف قرار حقيقي للفصل بين نوعي التجربة"
+              }
+            },
+            {
+              "id": "scene_23",
+              "section_id": "s3",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "وفي دراسات أخرى عن الوقت والإنجاز، ظهر أن الاقتراب من",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "almost completed notebook task with last page",
+                "query_alt_en": "unfinished study project with one blank sheet",
+                "must_show": "دفتر عمل تقترب أوراقه من الاكتمال لشرح أثر قرب الإنجاز",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/efficient-completion-of-tasks-with-notepad-and-calculator-31259979/",
+                  "https://www.pexels.com/video/efficient-office-task-management-with-notes-and-calculator-31485697/",
+                  "https://coverr.co/videos/writing-notes-near-a-laptop-6fidjc9nqq"
+                ]
+              }
+            },
+            {
+              "id": "scene_24",
+              "section_id": "s3",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "ولهذا، لا يكفي أن نسمع عبارة «لقد تعبت كثيرًا»، فنقرر",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "stack of effort notes beside empty table",
+                "query_alt_en": "study notes without proof of future return",
+                "must_show": "أوراق جهد سابق منفصلة عن مكان القرار لإيضاح حدود تفسير الانحياز"
+              }
+            },
+            {
+              "id": "scene_25",
+              "section_id": "s3",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "نعتقد أننا نفكر في الفرصة المقبلة، بينما نحن نحاول أن",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "two neutral envelopes side by side",
+                "query_alt_en": "two identical blank business contract envelopes",
+                "must_show": "ظرفان متشابهان أمام خيارين مختلفين لاختبار حجة السنوات الماضية"
+              }
+            },
+            {
+              "id": "scene_26",
+              "section_id": "s3",
+              "asset": "assets/scene_26.jpg",
+              "start_text": "قد توجد أسباب تتعلق بخبرته أو التزاماته؛ أما الجهد الذي",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "spent receipts next to closed ledger",
+                "query_alt_en": "old expenses laid beside untouched new plans",
+                "must_show": "إيصالات الماضي بجوار ملف جديد لإظهار أن الجهد المفقود لا يصنع عائدًا"
+              }
+            },
+            {
+              "id": "scene_27",
+              "section_id": "s4",
+              "asset": "assets/c04.jpg",
+              "start_text": "ماذا لو كان التوقف الآن هو الخطأ؟ قد تكون المحاولة",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_28",
+              "section_id": "s4",
+              "asset": "assets/scene_28.jpg",
+              "start_text": "لنعد إلى المتجر. بعد وصول رسالة التجديد، جلس صاحبه للمرة",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "reviewing full year sales ledger",
+                "query_alt_en": "shop owner examining inventory and accounts at table",
+                "must_show": "سجل مبيعات متجر مفتوح يعاد فحصه بعد وصول إشعار التجديد"
+              }
+            },
+            {
+              "id": "scene_29",
+              "section_id": "s4",
+              "asset": "assets/scene_29.jpg",
+              "start_text": "هذه المراجعة لا تعني أن المتجر أصبح مربحًا. لكنها تكشف",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "discounted inventory shelves being reorganized",
+                "query_alt_en": "reduced stock boxes replacing overfilled store shelves",
+                "must_show": "نقل البضاعة من رف مزدحم إلى رف أقل امتلاء لتقليل المخزون"
+              }
+            },
+            {
+              "id": "scene_30",
+              "section_id": "s4",
+              "asset": "assets/scene_30.jpg",
+              "start_text": "ولنفترض أنه حصل على طلب مؤكد من مركز تدريبي قريب،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "packing confirmed training center supply order",
+                "query_alt_en": "stationery pens placed into large delivery carton",
+                "must_show": "تجهيز طلب أدوات مكتبية مؤكد داخل صندوق شحن قبل توصيله"
+              }
+            },
+            {
+              "id": "scene_31",
+              "section_id": "s4",
+              "asset": "assets/scene_31.jpg",
+              "start_text": "الفرق بين الإمكانية والعقد الفعلي قد يحدد مصير الشهر المقبل.",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "signed purchase parcel waiting on counter",
+                "query_alt_en": "ordered products packed for verified delivery",
+                "must_show": "صندوق طلب مكتمل ينتظر التسليم بدل الاعتماد على احتمال غير مؤكد",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/a-person-closing-the-box-5968349/",
+                  "https://www.pexels.com/video/a-person-packing-a-box-using-a-red-packing-tape-7463996/",
+                  "https://www.pexels.com/video/man-closing-the-box-7464108/"
+                ]
+              }
+            },
+            {
+              "id": "scene_32",
+              "section_id": "s4",
+              "asset": "assets/scene_32.jpg",
+              "start_text": "هنا يصبح حساب تكلفة الإكمال وفائدته مختلفًا عن حساب السنوات",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "almost finished project folder near desk lamp",
+                "query_alt_en": "nearly completed stationery order with final notebook",
+                "must_show": "ملف عمل شبه مكتمل وجواره دفتر أخير لشرح قيمة تكلفة الإكمال"
+              }
+            },
+            {
+              "id": "scene_33",
+              "section_id": "s4",
+              "asset": "assets/scene_33.jpg",
+              "start_text": "تستطيع أن تحترم ما تعلمته، وأن تعيد الحساب مع ذلك.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "commercial shutter and contract folder nearby",
+                "query_alt_en": "business contract obligations next to locked shop",
+                "must_show": "ملف التزام تعاقدي بجوار مدخل المتجر المغلق لتوضيح مسؤوليات الآخرين"
+              }
+            },
+            {
+              "id": "scene_34",
+              "section_id": "s4",
+              "asset": "assets/scene_34.jpg",
+              "start_text": "والتوقف يستحق النظر حين تتكرر الخطة بلا تغير، وتتصاعد التكلفة،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "closed shutter behind discarded invoices",
+                "query_alt_en": "repeated business losses near locked shop entrance",
+                "must_show": "باب متجر مغلق قرب مصروفات متراكمة دون دليل جديد على التحسن"
+              }
+            },
+            {
+              "id": "scene_35",
+              "section_id": "s4",
+              "asset": "assets/scene_35.jpg",
+              "start_text": "وربما تغيّر شكل التجربة بدل إنهائها بالكامل. أحيانًا تكون المرونة",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "downsized shop interior with fewer shelves",
+                "query_alt_en": "small efficient shop layout after stock reduction",
+                "must_show": "مساحة متجر أعيد ترتيبها برفوف أقل لإظهار تعديل التجربة بدل إنهائها"
+              }
+            },
+            {
+              "id": "scene_36",
+              "section_id": "s5",
+              "asset": "assets/scene_36.jpg",
+              "start_text": "قبل أي تجديد جديد، اكتب على ورقة ثلاث خانات. لا",
+              "motion": "hold",
+              "transition": "dissolve",
+              "board": {
+                "layout": "row",
+                "theme": "editorial",
+                "title": "خطوة أولى قبل التجديد",
+                "items": [
+                  {
+                    "label": "اكتب ثلاث خانات",
+                    "at_text": "قبل أي تجديد جديد، اكتب على ورقة ثلاث خانات."
+                  },
+                  {
+                    "label": "افصل وعود الماضي",
+                    "at_text": "لا تكتب فيها عدد السنوات التي تعبتها، أو أسماء الأشخاص الذين وعدتهم بالنجاح."
+                  },
+                  {
+                    "label": "ابدأ من اليوم",
+                    "at_text": "ستعود إلى هذه الأمور حين تناقش التزاماتك، لكن ابدأ أولًا بما تستطيع أن تقرره من الآن."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_37",
+              "section_id": "s5",
+              "asset": "assets/scene_37.jpg",
+              "start_text": "تخيّل أنك لا تحتاج إلى الدفاع عن قرارك القديم أمام",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "back view shopkeeper at closed shutter alone",
+                "query_alt_en": "solitary proprietor standing behind commercial door",
+                "must_show": "شخص من الخلف أمام باب متجر يتخيل القرار بعيدًا عن آراء الآخرين"
+              }
+            },
+            {
+              "id": "scene_38",
+              "section_id": "s5",
+              "asset": "assets/scene_38.jpg",
+              "start_text": "هذه معلومات حقيقية من الماضي، ويمكن أن تحسن فرص الغد.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "new notebook stock organized after learning",
+                "query_alt_en": "shelving revised stationery selection by hand",
+                "must_show": "يد تنظم دفاتر مختلفة على رف كدليل على التعلم من المبيعات السابقة"
+              }
+            },
+            {
+              "id": "scene_39",
+              "section_id": "s5",
+              "asset": "assets/scene_39.jpg",
+              "start_text": "اكتب دليلًا يمكنك مراجعته: طلبات جديدة، أو انخفاضًا فعليًا في",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "confirmed packed customer orders in cardboard boxes",
+                "query_alt_en": "new orders prepared for verified customer delivery",
+                "must_show": "طرود طلبات جديدة جاهزة للشحن باعتبارها دليلًا يمكن قياسه",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/brown-cargo-boxes-5054870/",
+                  "https://www.pexels.com/video/warehouse-storage-with-stacked-cardboard-boxes-37208839/",
+                  "https://www.pexels.com/video/a-man-taping-a-package-7463914/"
+                ]
+              }
+            },
+            {
+              "id": "scene_40",
+              "section_id": "s5",
+              "asset": "assets/scene_40.jpg",
+              "start_text": "الخانة الثالثة تسأل: ما الثمن الإضافي، ومتى سأراجع قراري؟ احسب",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "calculator near new budget and calendar",
+                "query_alt_en": "estimating future expenses beside empty payment sheet",
+                "must_show": "آلة حساب وتقويم جديد يجسدان تكلفة القرار المقبلة وموعد مراجعته",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/office-work-financial-calculations-and-reporting-26773217/",
+                  "https://www.pexels.com/video/report-analysis-14609097/",
+                  "https://www.pexels.com/video/accounting-of-finances-with-receipts-5981287/"
+                ]
+              }
+            },
+            {
+              "id": "scene_41",
+              "section_id": "s5",
+              "asset": "assets/scene_41.jpg",
+              "start_text": "عد إلى صاحب المتجر. أمامه الآن خياران أساسيان، وربما خيار",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "two opposite shop aisles offering alternatives",
+                "query_alt_en": "single shop showing stock reduction and continuation choices",
+                "must_show": "ممر متجر يتفرع بين رفوف ممتلئة ومساحة يمكن تقليصها للتعبير عن البدائل"
+              }
+            },
+            {
+              "id": "scene_42",
+              "section_id": "s5",
+              "asset": "assets/scene_42.jpg",
+              "start_text": "قبلها، يحدد ماذا سيبيع، وكم سيدفع، وما الإيراد الذي يحتاجه،",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand sorting revised sales plan into folder",
+                "query_alt_en": "owner organizing fresh trading plan before commitment",
+                "must_show": "يد ترتب أوراق خطة مبيعات جديدة قبل توقيع تجديد محدود",
+                "mode": "sequence",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-person-holding-folders-8052418/",
+                  "https://www.pexels.com/video/a-person-reading-an-agreement-8960538/",
+                  "https://www.pexels.com/video/close-up-footage-of-a-person-flipping-pages-of-documents-on-a-folder-7732805/"
+                ]
+              }
+            },
+            {
+              "id": "scene_43",
+              "section_id": "s5",
+              "asset": "assets/scene_43.jpg",
+              "start_text": "قد تكون أصعب لحظة هي تلك التي يقرّ فيها بأن",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "shop keeper standing still facing shutter",
+                "query_alt_en": "faceless person before dark closed storefront",
+                "must_show": "صاحب المتجر من الخلف يواجه بابًا مغلقًا ويتقبل نتيجة قراره السابق"
+              }
+            },
+            {
+              "id": "scene_44",
+              "section_id": "s5",
+              "asset": "assets/scene_44.jpg",
+              "start_text": "ماذا ستقول لصديق جاءك بالقصة نفسها، وبالأرقام نفسها، دون أن",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "one envelope offered toward empty chair",
+                "query_alt_en": "blank business envelope awaiting friend's impartial response",
+                "must_show": "ظرف قرار مفتوح أمام مقعد فارغ لتمثيل سؤال صديق محايد"
+              }
+            },
+            {
+              "id": "scene_45",
+              "section_id": "s5",
+              "asset": "assets/scene_45.jpg",
+              "start_text": "في نهاية قصتنا، لن نعلن أن المتجر أغلق وأن صاحبه",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "dark retail shutter without celebratory outcome",
+                "query_alt_en": "quiet shutter of small stationery store at dusk",
+                "must_show": "متجر مغلق في مشهد محايد لا يفترض نجاح المشروع أو فشله"
+              }
+            },
+            {
+              "id": "scene_46",
+              "section_id": "s5",
+              "asset": "assets/c05.jpg",
+              "start_text": "إذا كنت الآن أمام تجديد يشبه هذا التجديد، فلا تتعجل",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "ما الذي تدفعه الآن؟"
+          },
+          "publishing": {
+            "title": "لماذا تستمر في شيء يخسرك كل يوم؟ | فخ التكلفة الغارقة",
+            "description": "لماذا نستمر في مشروع أو قرار رغم خسائر متكررة؟ نفكك أثر التكلفة الغارقة، ونراجع ما تقوله التجارب العلمية وحدودها، ونناقش متى يكون الاستمرار منطقيًا، ثم نتعرف إلى ثلاثة أسئلة قبل اتخاذ القرار التالي. القصة المستخدمة في الفيلم افتراضية لأغراض الشرح.",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التكلفة_الغارقة",
+              "#اتخاذ_القرار",
+              "#التفكير_الناقد"
+            ]
+          }
+        },
+        "zip_sha256": "80bf9fce37dea365d14174a83755ac9cc445fd508028905f2a6cda4d74e5eb7b",
+        "asset_sha256": {
+          "assets/scene_11.jpg": "7399df2ddf081f6f67bd3974c5ac68e669b2bb59b410056485a2069190a5be3c",
+          "assets/cover.jpg": "60166256a1851d958fa890573a44bca182986dc22beb9cd876b06a48caf941c6",
+          "assets/scene_22.jpg": "497cc31b4707dc7cf170e7d3b4aa943e6de54ed41509750ce29519f24400547d",
+          "assets/scene_31.jpg": "df7db9ce05ec241842c248e8ada8fdfd3457fee97a18ea190c1136b235f03c2c",
+          "assets/scene_09.jpg": "6027e364be65cd0bcb51c3807d5b618af35009b2579abf434347b8aac4f6f11b",
+          "assets/c05.jpg": "36e06b2fcfd5aafccb2f30de62099fd6c73db7474a18447cf560cf16644830df",
+          "assets/scene_14.jpg": "b64322ef8710ca05277676d6ffa27d2ea2db3e0066b9391e960291f2ffdb6822",
+          "assets/scene_45.jpg": "b22f2f1ba37c6ab33fcbbaf739920c83d668096b7d8657f1bd718af007b271cc",
+          "assets/c03.jpg": "14a644b59d1e8ec82e6a82fb05089df940c1eca90ef930c5f88dc8e401996636",
+          "assets/scene_41.jpg": "3ab40c820b8a8aa8226cd74e2c025d2ac4c2b9e0ce58e3d486840617c5be7817",
+          "assets/scene_04.jpg": "6568cb893758e948be4cec798be7588348544843e49147e1e90843dc57b7f0ed",
+          "assets/scene_36.jpg": "adeaebeffa59d8552103ea9ec439aa5152f0238ebdab7e4e2636dbc8cbd2f1c6",
+          "assets/scene_34.jpg": "f656ee7bb4e4cfcd7da157eb1c59fddb56e948a680ded385755fdaeb7073d178",
+          "assets/scene_28.jpg": "06733e5ed95a6a741a4bfe7beb64e0005d187453c9525d64bce977ef96fbbab3",
+          "assets/c04.jpg": "5ae0ef3bdde708e73c3c63c2331fc0203b09541fa38170bba36f7a1c56e8ae08",
+          "assets/scene_42.jpg": "e3722efbd0e9bf86e09f43df4181dc0f64f4554577e652c77e0afea4f9a281a2",
+          "assets/scene_32.jpg": "2ee331c7fe3eb7d19ac67ca1d423bb57d827d495a52c8699afd328c98a66e761",
+          "assets/scene_15.jpg": "7b92336a9abd63a52b4d1d0616cfc96b1aec147de1fb75f50aeaa8b489696383",
+          "assets/scene_29.jpg": "2be3b4c2db73034f6725789586ea68b8aa51fde05b0e7bd44e71bb5bb7b1405e",
+          "assets/scene_25.jpg": "826d513121c6c920d8e62039099108e55030a09023e889324e098f963381c83e",
+          "assets/scene_24.jpg": "eedc25c92169237e1152425f417178e66f19df6f25650b87f79638973841ea98",
+          "assets/scene_20.jpg": "c0452d4ef0e62a97878b640b5e748ea6e877218a9ea265d0e29a23e66e233c5f",
+          "assets/scene_03.jpg": "6566fef0eb7060178e26cf1b16386968b829e85072f6f6533331ace80feb94d5",
+          "assets/scene_39.jpg": "adb87c23a6a1bdabc20587d5c25764f8d8b70595787e9d02af3a962979bb0538",
+          "assets/scene_19.jpg": "cc5fdd4c507cdbdda3f6cca5bbeb9b10e1e32709aaefe3ed7ece39507f0d770b",
+          "assets/scene_37.jpg": "c44134d1994eeaf3a77eb6ec5459384dcf88c0f7af7a61670d8da961c28fb76a",
+          "assets/scene_13.jpg": "26cc6868f7f0088b774a24d44a87ef72b17aa4bf2a75d12b75569fa3c06c391a",
+          "assets/c01.jpg": "53bccba920ba94558cea6c6889069fd9fd9520be4224f613bc3d8eecee6995af",
+          "assets/scene_40.jpg": "f84d816a68fe316274c70a4a0dc4ce42bd7f469a8631a3f5735aeb5536dfd251",
+          "assets/scene_23.jpg": "1676366a3d458dcb71523b18a80c6a013d1aacd4a91b7e405895c30f4b3c8140",
+          "assets/scene_43.jpg": "9995028a99c146367f6905af4b359371d08dcc78bfc81bf9156ea2cc7e5c110b",
+          "assets/scene_08.jpg": "de61528df56c3c9c692af097ef69e45d0989a5d1ecaef902a20f43733eb9086c",
+          "assets/scene_17.jpg": "a7ba05469bd55e507343479d8d2f7a4caffaf7ffd679f0dd387c31ba0c748ece",
+          "assets/scene_26.jpg": "d694b23740667a965dae9cbece84cf5f130083433e538ccfdc1f020f6c41b610",
+          "assets/scene_06.jpg": "c828a7e4a73ae8b652c696040810418d3e9c86e21fb191d037d1d90668e13817",
+          "assets/scene_18.jpg": "2fc3a44e1c3efc0e0b3341c2118f7a71e86af767ba208ea3a6c81f4c63673594",
+          "assets/scene_30.jpg": "f95aabdb4d6af807cb400a95ffc69a457cbaa3bc8ea90cedcccc08dd79a1e7f5",
+          "assets/scene_38.jpg": "537f32025e336d0bde071f518ea178e9943d4a546b985aac5f80ea9cb0af0b6e",
+          "assets/scene_07.jpg": "0654dcbaac3b3cfb5c954f5dabf5ccbb4c7e5049a5ed28ecdf477ae732ac58c0",
+          "assets/scene_44.jpg": "839d7a595b883b018d291c44c8ff7f9c431ecfb67f1f7e2060c8293a5f5227df",
+          "assets/scene_02.jpg": "895b94046f0e180cb51cb13e788052881533ede49a2083d876a35a692d12a1ff",
+          "assets/scene_21.jpg": "993ead248fb290259320bec3118e4107b70b2aa1da79112192cc835d03757a46",
+          "assets/scene_10.jpg": "690d010097b4cb34fc63e63c1ee101d8872643051838094bca92f68013dc15ea",
+          "assets/scene_05.jpg": "6f761b360d0e7cc77b1d5b854702b87094642f591fbded3ece649cc1d3dbeb7a",
+          "assets/scene_33.jpg": "e60a9042ca1d22eb3926c4525d0cd0f920d38aba8bcd5db2b4b717b8687f2cc6",
+          "assets/scene_35.jpg": "87d90d7b98dcd7c0479302e4a09df2b6275f66a5a6c75b0938e47c35b3f9c1c8",
+          "assets/c02.jpg": "76adabf9deba70605679077d7107c941f093b8350f728a824455ac9b1389327e"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "d0ace2c224cc57ad810701b451b12ad3f22e4bde363f06bce0e48b7e80645a75",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIQ9mrqE0KM3iVF0rxQgg9JpwNY6uV5AAIUIQACAtlRUw5E3CH8QBXcPQQ",
+          "sha256": "80bf9fce37dea365d14174a83755ac9cc445fd508028905f2a6cda4d74e5eb7b"
+        }
+      }
     }
   },
-  "current_request_id": "req-281899110e58",
+  "current_request_id": "req-5f8d7bed11a8",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -38805,6 +39644,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-03T17:08:48Z",
+  "updated_at": "2026-11-03T17:13:13Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
