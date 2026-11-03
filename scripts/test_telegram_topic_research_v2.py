@@ -265,7 +265,7 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         assert production_engine_sha is not None
 
         workflow = (workflow_dir / "telegram-editorial-control.yml").read_text(encoding="utf-8")
-        research_engine_sha = "7f1aa72475513192dfd010a70132c6d40a01b375"
+        research_engine_sha = "f5302e03423b7336d788b1207dde8712e0f25dd8"
         self.assertIn(f"ENGINE_SHA: {production_engine_sha}", workflow)
         self.assertIn(f"RESEARCH_ENGINE_SHA: {research_engine_sha}", workflow)
         self.assertNotEqual(production_engine_sha, research_engine_sha)
