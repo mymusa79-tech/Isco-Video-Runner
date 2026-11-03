@@ -44,13 +44,19 @@ class SequenceContractTests(unittest.TestCase):
         result = production_package.validate_manifest(doc)
         self.assertNotIn("mode", result["scenes"][0]["stock"])
 
-    def test_photo_coverr_and_wrong_count_are_rejected_in_sequence(self):
-        for links in ([A, B, PHOTO], [A, B, COVERR], [A, B]):
+    def test_photo_and_wrong_count_are_rejected_in_sequence(self):
+        for links in ([A, B, PHOTO], [A, B]):
             with self.subTest(links=links):
                 doc = manifest("film")
                 doc["scenes"][0]["stock"] = {"urls": links, "mode": "sequence"}
                 with self.assertRaises(Exception):
                     production_package.validate_manifest(doc)
+
+    def test_coverr_video_is_accepted_in_sequence(self):
+        doc = manifest("film")
+        doc["scenes"][0]["stock"] = {"urls": [A, B, COVERR], "mode": "sequence"}
+        result = production_package.validate_manifest(doc)
+        self.assertEqual(result["scenes"][0]["stock"]["mode"], "sequence")
 
 
 class SequenceAssemblyTests(unittest.TestCase):

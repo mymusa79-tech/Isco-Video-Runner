@@ -31,7 +31,7 @@ jobs:
     # cancelled Produce step. The real per-scope budget is on the Produce step below.
     timeout-minutes: 210
     env:
-      ISCO_ENGINE_SHA: 305d7af14afdd53b862087395110db78ddb882f7
+      ISCO_ENGINE_SHA: 51db5962e69fd348b3b4d80578ff1cd1677dd430
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.8-flash-tts
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 305d7af14afdd53b862087395110db78ddb882f7
+          ref: 51db5962e69fd348b3b4d80578ff1cd1677dd430
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
