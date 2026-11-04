@@ -9155,6 +9155,21 @@
       "selected_at": "2026-11-04T14:55:38Z",
       "created_at": "2026-11-04T14:55:38Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-10edede586",
+      "title": "ملاحظة واحدة تمحو كل نجاحك",
+      "normalized_title": "ملاحظة واحدة تمحو كل نجاحك",
+      "market_query": "ملاحظة واحدة تمحو كل نجاحك",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-04T16:23:12Z",
+      "created_at": "2026-11-04T16:23:12Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -39659,9 +39674,202 @@
         "started_at": "2026-11-04T14:58:23Z",
         "finished_at": "2026-11-04T15:05:20Z"
       }
+    },
+    "req-c80020449acd": {
+      "schema_version": 1,
+      "request_id": "req-c80020449acd",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "ملاحظة واحدة تمحو كل نجاحك",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-10edede586",
+      "selected_at": "2026-11-04T16:23:12Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "ملاحظة واحدة تمحو كل نجاحك",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "ملاحظة واحدة تمحو كل نجاحك",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "أشادوا بعملك كله… فتوقفت عند ملاحظة واحدة فقط.\n\nكيف تحوّلت جملة صغيرة إلى حكم على جهد أسبوع كامل؟"
+              },
+              {
+                "id": "s2",
+                "text": "تخيّل مساء الثلاثاء، وأنت على مكتبك تراجع عرض الغد.\n\nتفتح التقييم مرة ثانية. تقرأ: «العرض واضح، والفكرة جيدة». ثم تصل إلى: «المقدمة طويلة قليلًا».\n\nفجأة تسمع صوتًا داخليًا يقول: «إذًا لم يعجبهم شيء».\n\nتعود لتعديل الصفحات كلها، مع أن الملاحظة كانت عن المقدمة وحدها.\n\nوقد تفهم صمتهم عن بقية الصفحات اعتراضًا، فتحذف أمثلة ساعدتك في شرح الفكرة.\n\nوقد تؤجّل نومك لتراجع تفاصيل لم يذكرها أحد، بينما تبقى المقدمة الطويلة دون اختصار.\n\nوربما كان صاحب الملاحظة محقًا؛ فمقدمة طويلة لا تُلغي جودة الفكرة التي عرضتها."
+              },
+              {
+                "id": "s3",
+                "text": "عندما تسمع نقدًا جديدًا، اكتبه حرفيًا، ثم حدّد موضعه بدقة.\n\nعدّل ما انتُقد، واحتفظ بما نجح. لا تجعل سطرًا واحدًا يقرّر كيف ترى جهدك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "هوك بنبرة متوترة صادقة ثم انتقال إلى سرد تمثيلي هادئ وواضح. في S2 يبقى الإيقاع متدرجًا: توتر داخلي عند الجملة الثالثة، ثم شرح سببي بلا وعظ، ثم خفّة إنصاف عند جملة الاعتراض المنصف. في S3 نبرة عملية حاسمة ومطمئنة. لا تُكتب الصلاة أو الهوية أو الأوترو داخل النص المنطوق."
+          },
+          "scenes": [
+            {
+              "id": "sc01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "أشادوا بعملك كله… فتوقفت عند ملاحظة واحدة فقط.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "كيف تحوّلت جملة صغيرة إلى حكم على جهد أسبوع كامل؟",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-a-person-sticking-a-note-in-a-notebook-9683620/"
+                ]
+              }
+            },
+            {
+              "id": "sc03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تخيّل مساء الثلاثاء، وأنت على مكتبك تراجع عرض الغد.",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "تفتح التقييم مرة ثانية.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/a-person-flipping-some-documents-6100897/"
+                ]
+              }
+            },
+            {
+              "id": "sc05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.png",
+              "start_text": "فجأة تسمع صوتًا داخليًا يقول: «إذًا لم يعجبهم شيء».",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "sc06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "تعود لتعديل الصفحات كلها، مع أن الملاحظة كانت عن المقدمة وحدها.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/hand-writing-a-list-5900627/",
+                  "https://www.pexels.com/video/close-up-on-hand-while-writing-10797879/",
+                  "https://www.pexels.com/video/person-writing-on-a-small-paper-with-a-pen-4668329/"
+                ]
+              }
+            },
+            {
+              "id": "sc07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وقد تفهم صمتهم عن بقية الصفحات اعتراضًا، فتحذف أمثلة ساعدتك في شرح الفكرة.",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "sc08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "وقد تؤجّل نومك لتراجع تفاصيل لم يذكرها أحد، بينما تبقى المقدمة الطويلة دون اختصار.",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-person-writing-on-paper-with-a-highlighter-7598829/"
+                ]
+              }
+            },
+            {
+              "id": "sc09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.png",
+              "start_text": "عندما تسمع نقدًا جديدًا، اكتبه حرفيًا، ثم حدّد موضعه بدقة.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_A_background.png",
+            "text": "ملاحظة واحدة فقط"
+          },
+          "publishing": {
+            "title": "لماذا تعلق ملاحظة واحدة أكثر من مديح كثير؟",
+            "description": "في مثال تمثيلي، يتلقى صاحب عرضٍ إشادات بعمله وملاحظة محددة عن مقدمته، ثم ينشغل بتعديل صفحات لم يُطلب تعديلها. نتابع كيف قد تتحول الملاحظة الصغيرة إلى حكم شامل على الجهد، وكيف نحدد الجزء الذي يحتاج إصلاحًا دون أن ننكر ما نجح. شورت من نداء اليقظة عن التعامل مع النقد بوضوح وإنصاف.",
+            "hashtags": [
+              "#النقد",
+              "#التفكير_الزائد",
+              "#تطوير_الذات",
+              "#نداء_اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "4b11204d622846a71eb71741d5de187d834e1acf80465b8f21740e73f5422a84",
+        "asset_sha256": {
+          "assets/scene_05.png": "167ce7427e25a57b887158c5e86c9cd853239bae48b26339241a9bdaa37f80e7",
+          "assets/scene_04.jpg": "083e8db5c04e7b8df36a41e52fe8480a16544e3bf8b9658b0bd7a1c03cb20ba2",
+          "assets/cover_A_background.png": "dcc8efb4c9389325e3a08a28c047ecf2f6874335f696533f6fbb810e406ba29e",
+          "assets/scene_09.png": "fa9ddd8ec01bf53d9ec81c9f46b2eabc815478a832aded07b40700b196606a0f",
+          "assets/scene_03.jpg": "aba5fb51cd68a4a48e7f6a8d30bf63d6e522abab638b66c6279e66de371dcf95",
+          "assets/scene_01.png": "8a411fc1b1fc8eaefd577fb8ba910fdbfdc7983f6a1570a336abdcc91f524b57",
+          "assets/cover_B_background.png": "c861cf0ca029033ab92ecc3f703ee26a6478b14dd75f47d2b1b6d38d1a38b7e9",
+          "assets/scene_08.jpg": "ed639719540a91fbba4b4cdec9836db534a3fc2391c8957777a579c06ac6f0d8",
+          "assets/scene_06.jpg": "23c050e23d0c42944ba3b5e02e79696c396eed671693434c9e6481309701439f",
+          "assets/scene_07.jpg": "a6209cf57008126dd0a8204a9b6d7993bfeb66143b5a5b5ff9cf3b2a0a937ec3",
+          "assets/scene_02.jpg": "e527510cfa852e2312cbbdbe642503d0fc7ec244ac6a77b3333f939ce228cd8d"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "07fb21659a8e310f612fee8b0c3fb6b2a2d0709ebbc193431633fb35e8a7e9ef",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIRLGrrW9WO_VswFgyC_6K5Tm0aRcZrAAKJHwAC7P9YU1N6UgwbhDtZPQQ",
+          "sha256": "4b11204d622846a71eb71741d5de187d834e1acf80465b8f21740e73f5422a84"
+        }
+      }
     }
   },
-  "current_request_id": "req-ae7128dbe495",
+  "current_request_id": "req-c80020449acd",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -40327,6 +40535,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-04T15:05:20Z",
+  "updated_at": "2026-11-04T16:23:12Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
