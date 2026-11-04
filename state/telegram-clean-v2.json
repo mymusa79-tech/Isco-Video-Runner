@@ -9140,6 +9140,21 @@
       "selected_at": "2026-11-04T13:58:15Z",
       "created_at": "2026-11-04T13:58:15Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-61d59d0bcf",
+      "title": "المحادثة التي لم تحدث",
+      "normalized_title": "المحادثة التي لم تحدث",
+      "market_query": "المحادثة التي لم تحدث",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-04T14:55:38Z",
+      "created_at": "2026-11-04T14:55:38Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -39420,9 +39435,216 @@
         "started_at": "2026-11-04T13:59:11Z",
         "finished_at": "2026-11-04T14:43:05Z"
       }
+    },
+    "req-ae7128dbe495": {
+      "schema_version": 1,
+      "request_id": "req-ae7128dbe495",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "المحادثة التي لم تحدث",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-61d59d0bcf",
+      "selected_at": "2026-11-04T14:55:38Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "المحادثة التي لم تحدث",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "title": "المحادثة التي لم تحدث",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "المحادثة التي تهزمك كل ليلة… قد لا تحدث أصلًا. فلماذا تتدرّب على دفاعٍ أمام شخص لم يتكلم؟ تتخيّل أنه يلومك، فتجهّز جوابًا، ثم تخترع اعتراضًا جديدًا."
+              },
+              {
+                "id": "s2",
+                "text": "وبعد دقائق، يصبح السيناريو أطول من الحديث الذي تخشاه. صحيح أن الاستعداد لمواجهة صعبة قد يحميك من الارتباك. لكن حين تعيد الحوار دون معلومة جديدة، فأنت لا تعرف موقفه أكثر؛ فقد تؤجّل نومك وتستنزف انتباهك."
+              },
+              {
+                "id": "s3",
+                "text": "الليلة، عندما تبدأ الجولة في رأسك، اسأل: ما الذي قيل فعلًا، وما الذي توقّعته فقط؟ المحادثة لم تبدأ… لكنك دفعت ثمنها من ليلتك."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "هوك مباشر متوتر دون صراخ، وقفة تنفس قصيرة قبل الصلاة الثابتة؛ بعد الصلاة وصف ملموس يتسارع قليلًا، اعتراض منصف بنبرة متوازنة، وسؤال ختامي هادئ حاسم. لا تُنطق تعليمات الأداء."
+          },
+          "scenes": [
+            {
+              "id": "m01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "المحادثة التي تهزمك",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "m02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "فلماذا تتدرّب على دفاعٍ",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "m03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تتخيّل أنه يلومك",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "m04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "وبعد دقائق، يصبح السيناريو",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "analog clock ticking warm room",
+                "query_alt_en": "close up mechanical clock hands",
+                "must_show": "عقرب ساعة حقيقية يتحرك بوضوح دون رسوم أو كتابات أجنبية",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-an-analog-clock-9291326/",
+                  "https://www.pexels.com/video/close-up-of-an-analog-clock-9160919/"
+                ]
+              }
+            },
+            {
+              "id": "m05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.png",
+              "start_text": "صحيح أن الاستعداد لمواجهة صعبة",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "m06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "لكن حين تعيد الحوار دون معلومة جديدة",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "steaming mug on wooden table",
+                "query_alt_en": "warm cup steam dim interior",
+                "must_show": "كوب شراب دافئ واحد على طاولة خشبية خالية يتصاعد منه البخار دون أشخاص أو شاشات",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-a-hot-drink-6938926/",
+                  "https://www.pexels.com/video/steaming-white-mug-of-coffee-9917676/",
+                  "https://www.pexels.com/video/close-up-video-of-a-hot-mug-7577435/"
+                ]
+              }
+            },
+            {
+              "id": "m07",
+              "section_id": "s3",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "الليلة، عندما تبدأ الجولة",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand opening wooden door handle",
+                "query_alt_en": "warm wooden door opening closeup",
+                "must_show": "يد على المقبض تفتح بابا فعليا دون وجه واضح أو شعار أو انعكاس",
+                "urls": [
+                  "https://www.pexels.com/video/people-hand-legs-door-4010080/",
+                  "https://www.pexels.com/video/a-person-opening-a-door-to-go-outside-3371852/"
+                ]
+              }
+            },
+            {
+              "id": "m08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "ما الذي قيل فعلًا",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "warm sunlight through sheer curtain",
+                "query_alt_en": "soft light entering empty room",
+                "must_show": "ضوء دافئ عبر ستارة خفيفة في غرفة هادئة خالية من الأشخاص والشاشات",
+                "urls": [
+                  "https://www.pexels.com/video/sunlight-through-curtain-in-cozy-room-31035935/",
+                  "https://www.pexels.com/video/sunlight-streaming-through-sheer-curtains-35434114/",
+                  "https://www.pexels.com/video/cozy-indoor-window-with-curtains-at-sunset-36177269/"
+                ]
+              }
+            },
+            {
+              "id": "m09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.png",
+              "start_text": "المحادثة لم تبدأ…",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": null,
+            "text": "مع مَن تتجادل؟"
+          },
+          "publishing": {
+            "title": "المحادثة التي لم تحدث… لماذا تتجادل في رأسك؟",
+            "description": "هل خسرت جزءًا من ليلتك في نقاش لم يبدأ؟ نقترب من الفرق بين الاستعداد لمحادثة صعبة وإعادة حوار متخيّل دون معلومة جديدة، ثم سؤال بسيط يعيدك إلى ما حدث فعلًا.\n\n#نداء_اليقظة #التفكير_الزائد #الحوار_الداخلي #الوعي_الذاتي",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#التفكير_الزائد",
+              "#الحوار_الداخلي",
+              "#الوعي_الذاتي"
+            ]
+          }
+        },
+        "zip_sha256": "c9b5387fba589ce7999e54f9d3640f744dbb7a8f0618f9fd7c814fa386d689e5",
+        "asset_sha256": {
+          "assets/scene_05.png": "92c260ccc17aa9b679078a641b93226ce55d0963d1fba23ec7a3657f11253a9f",
+          "assets/scene_04.jpg": "725138612833bb22ecb4d1fe4eda0fbe071942e720d80dcc38556c2c2b9b5ca9",
+          "assets/scene_09.png": "fc87279510266169a93eff3f19ad5db65540e5e4718c71d8b2759ce3dcf1f8d0",
+          "assets/scene_03.jpg": "2d313d3a49ec00bf76dde719b15580b227631a655718fbcb757b6d046a127209",
+          "assets/scene_01.png": "bc244ec549a23eeeb14b58fa51867f002c45c48cdaddb2130eb70360786cdac1",
+          "assets/scene_08.jpg": "222f3f2e635adbba1b41b78ef4c2c5f82c7b5c5906c02dcd57f182bf1f729f47",
+          "assets/scene_06.jpg": "90cef6c468e0d011bc26655684a5fc889e1fc350bf8a43fed97565392be89116",
+          "assets/scene_07.jpg": "ca1afe0fc9da5f6b167c14e73403024736d2a78ebd158a56991b8c40b548b3b8",
+          "assets/scene_02.jpg": "f69c4ad612d49589db20b78fb939afb0bdc78e8efda827a3e9612a83ca45a43c"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "9fa39fc9c01f57c06fc99782e1a09bca64c7f4d8bf126506d1ea13f63606f270",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIRHWrrR0fuhHQ_aYo0So28WKkoWUVNAAJVHwAC7P9YUzH3mfHBGNmaPQQ",
+          "sha256": "c9b5387fba589ce7999e54f9d3640f744dbb7a8f0618f9fd7c814fa386d689e5"
+        }
+      }
     }
   },
-  "current_request_id": "req-5b22c3b18b9d",
+  "current_request_id": "req-ae7128dbe495",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -40088,6 +40310,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-04T14:53:12Z",
+  "updated_at": "2026-11-04T14:55:39Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
