@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -28,6 +29,12 @@ def render_identity_composition(
 ) -> None:
     """Composite fixed identity inside the narration-owned duration."""
     if fmt == "short":
+        if str(timeline.get("visual_style") or "") in {"bw_cinematic", "color_cinematic"}:
+            # The full cinematic body already has the approved voice, visuals and grade.
+            # No prayer plate, logo intro, subscribe outro or extra soundtrack.
+            if Path(source).resolve() != Path(destination).resolve():
+                shutil.copy2(source, destination)
+            return
         _render_short_identity(source, destination, timeline=timeline)
         return
     assets = identity_asset_paths(
