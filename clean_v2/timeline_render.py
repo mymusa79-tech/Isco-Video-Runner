@@ -180,7 +180,6 @@ def _prayer_fill_chain(width: int, height: int) -> str:
 
 def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping[str, Any]) -> None:
     """Short identity: the prayer picture, then the outro. No logo card between them."""
-    assets = identity_asset_paths("short", template=str(timeline.get("template") or ""))
     has_prayer = any(
         isinstance(event, Mapping) and event.get("kind") == "prayer"
         for event in timeline.get("identity_events", [])
@@ -197,6 +196,7 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         Path(destination).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
         return
+    assets = identity_asset_paths("short", template=str(timeline.get("template") or ""))
     if not has_prayer:
         # Cinematic Monoclip's story is never interrupted. Keep the approved
         # original end-card/subscription sound only in its measured outro.
