@@ -1,0 +1,112 @@
+name: Real Forest - large Cairo Bold 2-3 word caption preview
+on:
+  push:
+    branches: [feature/bw-monoclip-optin-v1]
+    paths: [.github/workflows/monoclip-forest-large-cairo-preview.yml]
+  workflow_dispatch:
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install tools
+        run: |
+          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          python -m pip -q install pillow
+      - name: Download genuine Pexels stock and real Cairo
+        run: |
+          set -euo pipefail
+          mkdir -p qa "$HOME/.local/share/fonts/isco-cairo"
+          curl -fLSsS --retry 2 --max-time 180 'https://videos.pexels.com/video-files/28464399/12391291_1080_1920_30fps.mp4' -o qa/source.mp4
+          curl -fLSsS --retry 2 --max-time 90 'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' -o "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf"
+          test "$(stat -c%s qa/source.mp4)" -gt 1000000
+          test "$(stat -c%s "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf")" -gt 100000
+          fc-cache -f "$HOME/.local/share/fonts/isco-cairo"
+          fc-match -f '%{family}\n' 'Cairo:weight=bold' | head -1 | grep -i Cairo
+      - name: Fit 2-3 words at Cairo Bold enlarged font size
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import ImageFont
+          root=Path('qa')
+          font=Path.home()/'.local/share/fonts/isco-cairo/Cairo.ttf'
+          parts=[
+            (0,4.1,"هل عشت يومًا كاملًا… ولم تنتبه إليه؟"),
+            (4.1,8.4,"تخرج للمشي، لكن ذهنك سبق خطواتك إلى الغد."),
+            (8.4,12.7,"تسأل: متى أنتهي؟ وماذا ينتظرني بعد هذا الطريق؟"),
+            (12.7,17.3,"بينما هنا… يتسلل الضوء بين الأشجار."),
+            (17.3,22.0,"والطريق يتبدّل أمامك، وأنت مشغول بنهايته فقط."),
+            (22.0,27.0,"جرّب أن تُبطئ قليلًا. دع عينك تلحق بخطواتك."),
+            (27.0,34.2,"ربما كان الجمال حاضرًا طوال الوقت… وأنت الذي لم تلتفت إليه."),
+          ]
+          def clock(x):
+            return f"0:{int(x//60):02}:{int(x%60):02}.{int(round((x%1)*100)):02}"
+          allwords=[]
+          lines=[]
+          for sec_idx,(start,end,text) in enumerate(parts):
+            words=text.split()
+            allwords.extend(words)
+            groups=[]
+            while words:
+              remain=len(words)
+              n=2 if remain in (2,4) else min(3,remain)
+              assert n>=2
+              groups.append(words[:n]);words=words[n:]
+            w=[sum(len(v) for v in g) for g in groups]
+            total=sum(w)
+            t=start*31.35/34.2
+            for i,(g,weight) in enumerate(zip(groups,w)):
+              stop=end*31.35/34.2 if i==len(groups)-1 else t+(end-start)*31.35/34.2*weight/total
+              line=' '.join(g)
+              size=110 if sec_idx in (0,6) else 104
+              while size>=80:
+                face=ImageFont.truetype(str(font),size)
+                try: face.set_variation_by_name("Bold")
+                except (ValueError,OSError,AttributeError): pass
+                width=face.getlength(line,direction="rtl",language="ar")
+                if width<=486: break
+                size-=2
+              assert size>=80,(line,width)
+              lines.append(f"Dialogue: 0,{clock(t)},{clock(stop)},Caption,,0,0,0,,"
+                           +r"{\an5\pos(270,687)\fs"+str(size)+r"\bord7\3c&H00120B07&\shad0\fad(60,80)}"+line)
+              t=stop
+          header="""[Script Info]
+          ScriptType: v4.00+
+          WrapStyle: 2
+          ScaledBorderAndShadow: yes
+          PlayResX: 540
+          PlayResY: 960
+          YCbCr Matrix: TV.709
+
+          [V4+ Styles]
+          Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+          Style: Caption,Cairo,104,&H00F5F5F5,&H00F5F5F5,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,20,20,0,1
+
+          [Events]
+          Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+          """
+          (root/'captions.ass').write_text(header+'\n'.join(lines)+'\n',encoding='utf-8')
+          (root/'readme.txt').write_text(f"Real stock visual preview, silent only.\nCairo Bold, 2-3 original words/card. Cards: {len(lines)}; words: {len(allwords)}.\nNo prayer, no outro, no subscribe, no narrator substituted.\n")
+          print((root/'readme.txt').read_text())
+          PY
+      - name: Render actual scene visual preview
+        run: |
+          set -euo pipefail
+          ffmpeg -y -hide_banner -loglevel warning -i qa/source.mp4 \
+            -vf "scale=540:960:flags=lanczos,eq=contrast=1.03:saturation=1.02,ass=qa/captions.ass:fontsdir=$HOME/.local/share/fonts/isco-cairo" \
+            -t 31.35 -r 25 -an -c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p \
+            -movflags +faststart qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4
+          for second in 2 9 17 28; do
+            ffmpeg -y -hide_banner -loglevel error -ss "$second" \
+              -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 -frames:v 1 "qa/frame_$second.png"
+          done
+          ffprobe -v error -show_entries format=duration:stream=width,height,codec_type \
+            -of json qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 > qa/probe.json
+          rm -f qa/source.mp4
+      - name: Upload preview without sharing fonts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: forest-cairo-bold-big-2-to-3-words
+          path: qa/
+          retention-days: 7
+          if-no-files-found: error
