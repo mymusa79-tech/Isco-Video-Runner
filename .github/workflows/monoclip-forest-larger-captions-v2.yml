@@ -1,0 +1,149 @@
+name: "Monoclip forest — larger readable Cairo Bold captions"
+on:
+  push:
+    branches: [feature/bw-monoclip-optin-v1]
+    paths:
+      - .github/workflows/monoclip-forest-larger-captions-v2.yml
+  workflow_dispatch:
+
+jobs:
+  real-fullhd-big-captions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Install pinned free imaging dependencies
+        run: |
+          python -m pip -q install imageio-ffmpeg pillow fonttools
+          ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$HOME/ffmpeg"
+          echo "$HOME" >> "$GITHUB_PATH"
+      - name: Download the uncaptioned original stock and prepare a true Cairo Bold instance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/private-font
+          curl -fLSsS --retry 2 --connect-timeout 15 --max-time 180 \
+            'https://videos.pexels.com/video-files/28464399/12391291_1080_1920_30fps.mp4' \
+            -o out/original.mp4
+          curl -fLSsS --retry 2 --max-time 90 \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
+            -o out/private-font/Cairo-variable.ttf
+          test "$(stat -c%s out/original.mp4)" -gt 1000000
+          python - <<'PY'
+          from pathlib import Path
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib.instancer import instantiateVariableFont
+          d=Path("out/private-font")
+          f=TTFont(str(d/"Cairo-variable.ttf"))
+          axes={a.axisTag for a in f["fvar"].axes}
+          options={"wght":700}
+          if "slnt" in axes: options["slnt"]=0
+          x=instantiateVariableFont(f,options,inplace=False,updateFontNames=True)
+          x.save(str(d/"Cairo-Bold.ttf"))
+          f.close(); x.close()
+          (d/"Cairo-variable.ttf").unlink()
+          PY
+          fc-cache -f out/private-font
+          fc-scan -f '%{family}, %{style}\n' out/private-font/Cairo-Bold.ttf
+      - name: Build ten semantic caption cards about 30 percent larger
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import ImageFont
+          p=Path("out")
+          # The script is identical to the prior 8-card video: only the
+          # segmentation, legibility and reading rhythm change.
+          rows=[
+           (0.00,1.98,("كل هذا الجمال","أمامك…")),
+           (1.98,3.94,("ومع ذلك","لا تراه.")),
+           (3.94,7.83,("لأن ذهنك","يسبق خطواتك دائمًا.")),
+           (7.83,11.72,("تعدّ ما تبقّى","من الطريق،")),
+           (11.72,15.62,("وتنسى أن تنظر","إلى ما حولك.")),
+           (15.62,19.53,("هنا ضوء يتسلّل","بين الأشجار.")),
+           (19.53,23.43,("وهنا لحظة","لا تحتاج منك شيئًا.")),
+           (23.43,27.35,("أبطئ قليلًا…","وانظر جيدًا.")),
+           (27.35,29.49,("لا تجعل الطريق","يفوتك")),
+           (29.49,31.35,("وأنت تعبره.","")),
+          ]
+          font=p/"private-font/Cairo-Bold.ttf"
+          def ass_time(v):
+              centis=int(round(v*100))
+              return f"0:{centis//6000:02d}:{(centis//100)%60:02d}.{centis%100:02d}"
+          def srt_time(v):
+              millis=int(round(v*1000))
+              return f"00:{millis//60000:02d}:{(millis//1000)%60:02d},{millis%1000:03d}"
+          header="""[Script Info]
+          ScriptType: v4.00+
+          WrapStyle: 2
+          ScaledBorderAndShadow: yes
+          PlayResX: 1080
+          PlayResY: 1920
+          YCbCr Matrix: TV.709
+
+          [V4+ Styles]
+          Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+          Style: Body,Cairo,132,&H00F7F7F7,&H00F7F7F7,&H00100D0B,&H00000000,-1,0,0,0,100,100,0,0,1,7,0,2,90,90,380,1
+
+          [Events]
+          Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+          """
+          ass=[];srt=[];texts=[];sizes=[]
+          for i,(begin,end,(a,b)) in enumerate(rows):
+              size=144 if i in (0,1,8,9) else 136
+              while size>=116:
+                  face=ImageFont.truetype(str(font),size)
+                  try: face.set_variation_by_name("Bold")
+                  except (ValueError,OSError,AttributeError):pass
+                  maxwidth=max(face.getlength(t,direction="rtl",language="ar") for t in (a,b) if t)
+                  if maxwidth<=885:break
+                  size-=2
+              assert size>=116,(i,a,b,maxwidth)
+              assert end-begin>1.80,(i,begin,end)
+              phrase=a+(r"\N"+b if b else "")
+              ass.append("Dialogue: 0,"
+                         +ass_time(begin)+","+ass_time(end)
+                         +",Body,,0,0,0,,"
+                         +r"{\an2\pos(540,1450)\fs"+str(size)
+                         +r"\bord8\shad0\fad(100,100)}"+phrase)
+              srt.append(f"{i+1}\n{srt_time(begin)} --> {srt_time(end)}\n{a}"+(f"\n{b}" if b else "")+"\n")
+              texts.append(a+" "+b)
+              sizes.append(size)
+          (p/"captions.ass").write_text(header+"\n".join(ass)+"\n",encoding="utf-8")
+          (p/"captions.srt").write_text("\n".join(srt),encoding="utf-8")
+          (p/"script.txt").write_text("\n".join(texts)+"\n",encoding="utf-8")
+          (p/"font_sizes.txt").write_text("Cairo Bold: "+", ".join(str(x) for x in sizes)+" px\n",encoding="utf-8")
+          print("Caption font sizes:",sizes)
+          PY
+      - name: Render real 1080x1920 footage and verify absence of other video elements
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -y -hide_banner -loglevel error -i out/original.mp4 \
+            -vf "crop=810:1440:135:320,scale=1080:1920:flags=lanczos,eq=contrast=1.04:brightness=-0.018:gamma=1.11:saturation=1.05,ass=out/captions.ass:fontsdir=out/private-font" \
+            -t 31.35 -r 30 -an -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p \
+            -movflags +faststart out/NIDAA_FOREST_LARGE_CAIRO_1080P_SILENT.mp4
+          for second in 2 7 17 28; do
+            ffmpeg -y -hide_banner -loglevel error -ss "$second" \
+              -i out/NIDAA_FOREST_LARGE_CAIRO_1080P_SILENT.mp4 -frames:v 1 \
+              "out/preview_$(printf '%02d' "$second").png"
+          done
+          python - <<'PY'
+          import imageio_ffmpeg,subprocess,json
+          from pathlib import Path
+          path=Path("out/NIDAA_FOREST_LARGE_CAIRO_1080P_SILENT.mp4")
+          rd=imageio_ffmpeg.read_frames(str(path))
+          info=next(rd);rd.close()
+          assert info["size"]==(1080,1920),info
+          assert 31<info["duration"]<31.6,info
+          probe=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),"-hide_banner","-i",str(path)],capture_output=True,text=True)
+          assert "Audio:" not in probe.stderr
+          Path("out/qa_report.json").write_text(json.dumps({"full_hd":True,"silent":True,"duration":info["duration"],"source":"Pexels 28464399","captions":"Cairo Bold, 10 meaning-based cards","prayer":False,"outro":False},indent=2))
+          PY
+          rm -rf out/private-font out/original.mp4
+      - name: Upload actual revised video and caption evidence (never include font files)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: forest-large-cairo-1080p-true-video
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
