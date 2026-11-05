@@ -47,20 +47,24 @@ jobs:
           for sec_idx,(start,end,text) in enumerate(parts):
             words=text.split()
             allwords.extend(words)
+            # Prefer 2 complete words. If a pair exceeds the vertical safe width
+            # even at minimum readable size, split it rather than making type tiny.
             groups=[]
-            triple=None
-            if len(words)%2:
-              probe=ImageFont.truetype(str(font),80)
-              try: probe.set_variation_by_name("Bold")
+            k=0
+            while k<len(words):
+              pair=words[k:k+2]
+              candidate=" ".join(pair)
+              face=ImageFont.truetype(str(font),70)
+              try: face.set_variation_by_name("Bold")
               except (ValueError,OSError,AttributeError): pass
-              triple=min(
-                range(0,len(words)-2,2),
-                key=lambda i: probe.getlength(" ".join(words[i:i+3]),direction="rtl",language="ar"),
-              )
-            cursor=0
-            while cursor<len(words):
-              n=3 if cursor==triple else 2
-              groups.append(words[cursor:cursor+n]);cursor+=n
+              fits=face.getlength(candidate,direction="rtl",language="ar")<=486
+              if len(pair)==2 and not fits:
+                groups.append([words[k]])
+                k+=1
+              else:
+                groups.append(pair)
+                k+=len(pair)
+            assert [word for group in groups for word in group]==words
             w=[sum(len(v) for v in g) for g in groups]
             total=sum(w)
             t=start*31.35/34.2
@@ -76,6 +80,7 @@ jobs:
                 if width<=486: break
                 size-=2
               assert size>=70,(line,width)
+              assert len(g) <= 2, g
               lines.append(f"Dialogue: 0,{clock(t)},{clock(stop)},Caption,,0,0,0,,"
                            +r"{\an5\pos(270,687)\fs"+str(size)+r"\bord7\3c&H00120B07&\shad0\fad(60,80)}"+line)
               t=stop
@@ -109,8 +114,7 @@ jobs:
             ffmpeg -y -hide_banner -loglevel error -ss "$second" \
               -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 -frames:v 1 "qa/frame_$second.png"
           done
-          ffprobe -v error -show_entries format=duration:stream=width,height,codec_type \
-            -of json qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 > qa/probe.json
+          ffmpeg -hide_banner -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 2>&1 | tail -25 > qa/probe.txt
           rm -f qa/source.mp4
       - name: Upload preview without sharing fonts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
