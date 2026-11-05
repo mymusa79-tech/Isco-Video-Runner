@@ -114,7 +114,9 @@ jobs:
             ffmpeg -y -hide_banner -loglevel error -ss "$second" \
               -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 -frames:v 1 "qa/frame_$second.png"
           done
-          ffmpeg -hide_banner -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 2>&1 | tail -25 > qa/probe.txt
+          # ffmpeg -i is informational and exits 1 without an output destination.
+          ffmpeg -hide_banner -i qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4 2>&1 | tail -25 > qa/probe.txt || true
+          test "$(stat -c%s qa/FOREST_CAIRO_BOLD_2_TO_3_WORDS.mp4)" -gt 1000000
           rm -f qa/source.mp4
       - name: Upload preview without sharing fonts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
