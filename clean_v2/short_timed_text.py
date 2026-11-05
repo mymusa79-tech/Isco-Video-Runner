@@ -44,6 +44,9 @@ CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
 SHORT_CAPTION_STROKE = r"\bord7\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"  # navy-black stroke, soft shadow
+BW_PRIMARY_ASS = "&H00F5F5F5"  # neutral white in ASS BGR notation
+BW_OUTLINE_ASS = "&H00000000"
+BW_CAPTION_STROKE = r"\bord5\3c&H00000000&\shad0"
 CAPTION_EXTRUDE_X = 0
 CAPTION_EXTRUDE_Y = 0
 CAPTION_SHADOW_X = 0
@@ -938,6 +941,7 @@ def build_rich_ass(
     *,
     slate_index: int | None = None,
     layout_hints: Sequence[Mapping[str, object]] | None = None,
+    bw_cinematic: bool = False,
 ) -> str:
     validated = validate_progressive_text(events)
     hints = list(layout_hints or build_composition_hints(events))
@@ -948,6 +952,9 @@ def build_rich_ass(
     simple_caption = is_simple_mode()
     caption_style_size = SIMPLE_CAPTION_FONT_SIZE if simple_caption else BODY_FONT_SIZE
     caption_outline = 3 if simple_caption else 4  # the event tags below set the real stroke
+    face_color = BW_PRIMARY_ASS if bw_cinematic else PRIMARY_ASS
+    outline_color = BW_OUTLINE_ASS if bw_cinematic else OUTLINE_ASS
+    caption_stroke = BW_CAPTION_STROKE if bw_cinematic else SHORT_CAPTION_STROKE
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -959,7 +966,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{caption_style_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,-1",
+        f"Style: Caption,{BODY_FONT},{caption_style_size},{face_color},{face_color},{outline_color},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,-1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -977,10 +984,10 @@ def build_rich_ass(
         # Modern Shorts caption: thick dark stroke + soft drop shadow (legible on white paper
         # or sky, where the old thin stroke vanished). Captions stay static: no pop, wipe or karaoke.
         motion = r"\fad(140,200)"
-        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + SHORT_CAPTION_STROKE + motion
+        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + caption_stroke + motion
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{face_tag}\\c{PRIMARY_ASS}}}{plain}"
+            f"{{{face_tag}\\c{face_color}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -992,6 +999,7 @@ def render_progressive_text(
     events: Sequence[Mapping[str, object]],
     srt_path: Path,
     output: Path,
+    bw_cinematic: bool = False,
 ) -> dict[str, Any]:
     validated = validate_progressive_text(events)
     srt = write_progressive_srt(events, Path(srt_path))
@@ -999,7 +1007,7 @@ def render_progressive_text(
     layout_hints = build_composition_hints(events)
     ass_path = Path(srt_path).with_suffix(".rich.ass")
     ass_path.write_text(
-        build_rich_ass(events, slate_index=None, layout_hints=layout_hints),
+        build_rich_ass(events, slate_index=None, layout_hints=layout_hints, bw_cinematic=bw_cinematic),
         encoding="utf-8",
     )
 
@@ -1060,7 +1068,7 @@ def render_progressive_text(
         "max_dark_slates": MAX_DARK_SLATES,
         "accent_rgb": None,
         "accent_enabled": False,
-        "body_rgb": "#F4F2EE",
+        "body_rgb": "#F5F5F5" if bw_cinematic else "#F4F2EE",
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
@@ -1119,6 +1127,11 @@ def apply_short_timed_text(
 ) -> dict[str, Any]:
     """Burn the restored three-event Short text layer onto the final picture."""
     timeline_path = Path(output_dir) / "short-voice-owned-timeline.json"
+    manifest_path = Path(output_dir) / "production.json"
+    bw_cinematic = False
+    if manifest_path.is_file():
+        manifest_doc = json.loads(manifest_path.read_text(encoding="utf-8"))
+        bw_cinematic = manifest_doc.get("visual_style") == "bw_cinematic"
     if (Path(output_dir) / "production.json").is_file():
         from .podcast_captions import build_events
         events, _timing = build_events(Path(output_dir), fmt="short", caption_roles={"hook", "topic", "outro"})
@@ -1149,6 +1162,7 @@ def apply_short_timed_text(
         events=events,
         srt_path=Path(output_dir) / "short-timed-text.srt",
         output=rendered,
+        bw_cinematic=bw_cinematic,
     )
     os.replace(rendered, Path(final_path))
     return {
