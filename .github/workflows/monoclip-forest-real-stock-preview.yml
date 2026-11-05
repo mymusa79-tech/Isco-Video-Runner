@@ -5,6 +5,9 @@ on:
     paths:
       - .github/workflows/monoclip-forest-real-stock-preview.yml
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   forest-stock-qa:
     runs-on: ubuntu-latest
