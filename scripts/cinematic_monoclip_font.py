@@ -6,6 +6,7 @@ before the paid TTS pipeline so a missing font cannot waste voice quota.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -13,10 +14,14 @@ from typing import Any, Mapping
 
 from clean_v2.short_timed_text import ShortTimedTextError, _require_monoclip_cairo_font
 
+# Google Fonts repository commit and exact Git blob SHA verified against the
+# public Cairo path. Never fetch mutable main for production rendering.
 CAIRO_URL = (
-    "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/"
-    "Cairo%5Bslnt%2Cwght%5D.ttf"
+    "https://raw.githubusercontent.com/google/fonts/"
+    "24ddc1f324cac5d9f5aedca126d298f56e3f1640/"
+    "ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"
 )
+CAIRO_GIT_BLOB_SHA = "25641b1c828857698457bcd9f5a102616b4e8033"
 _MIN_FONT_BYTES = 100_000
 _MAX_FONT_BYTES = 3_000_000
 
@@ -57,6 +62,13 @@ def prepare_cinematic_cairo(request: Mapping[str, Any]) -> str:
         size = temporary.stat().st_size
         if not _MIN_FONT_BYTES <= size <= _MAX_FONT_BYTES:
             raise RuntimeError("monoclip_cairo_download_size_invalid")
+        # Verify the exact immutable font bytes using Git's blob object hash.
+        contents = temporary.read_bytes()
+        blob_hash = hashlib.sha1(
+            b"blob " + str(len(contents)).encode("ascii") + b"\\0" + contents
+        ).hexdigest()
+        if blob_hash != CAIRO_GIT_BLOB_SHA:
+            raise RuntimeError("monoclip_cairo_download_checksum_invalid")
         scan = subprocess.run(
             ["fc-scan", "-f", "%{family}", str(temporary)],
             check=True, capture_output=True, text=True, timeout=15,
