@@ -17,6 +17,7 @@ on:
       - scripts/test_bw_monoclip_runtime.py
       - scripts/test_cinematic_monoclip_identity.py
       - scripts/test_cinematic_monoclip_real_ffmpeg.py
+      - scripts/test_cinematic_monoclip_caption_completeness.py
       - .github/workflows/bw-monoclip-optin-tests.yml
   workflow_dispatch:
 
@@ -39,7 +40,7 @@ jobs:
       - name: Compile all changed modules and tests
         run: python -m py_compile clean_v2/production_package.py clean_v2/owner_art.py clean_v2/media.py clean_v2/short_timed_text.py scripts/test_bw_monoclip_optin.py scripts/test_bw_monoclip_runtime.py scripts/test_cinematic_monoclip_identity.py clean_v2/ready_production.py clean_v2/identity_sequence.py clean_v2/pipeline.py clean_v2/timeline_first.py clean_v2/timeline_render.py
       - name: Run BW contract and existing package regression tests (no network)
-        run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_cinematic_monoclip_identity scripts.test_production_package -v
+        run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_cinematic_monoclip_identity scripts.test_cinematic_monoclip_caption_completeness scripts.test_production_package -v
       - name: Install FFmpeg if unavailable
         run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - name: Encode and inspect real synthetic Monoclip videos without API calls
