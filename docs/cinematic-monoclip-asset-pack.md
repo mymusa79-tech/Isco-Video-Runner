@@ -33,6 +33,45 @@ The runtime checks real duration and pinned provenance again after voice timing.
 The ZIP packer only checks the URL syntax; it cannot certify clip identity,
 duration, license, face visibility, text or logos.
 
+## Same editorial and Claude-review sequence as every other approved production
+
+1. The ChatGPT editor finds the **actual original stock video first**, checks the
+   full motion at multiple timestamps and documents its source, exact identifier,
+   duration, frames, license, faces/signage and whether Color or BW is appropriate.
+   A page URL or thumbnail is **not sufficient** to assert visual approval.
+2. Prepare the Arabic `s1/s2/s3` narration, suitable performance direction,
+   required still resource images, original portrait cover and truthful YouTube
+   title/description/tags. Preserve one uninterrupted visual clip through all
+   narration; never splice the three backup stills into the final render.
+3. Submit the **draft** `production.json` and scene/rights evidence to Claude
+   for an **actual editorial review**: hook, linguistic accuracy, useful payoff,
+   cultural boundaries, clip-to-narration fit, reuse history, caption readability,
+   approximate stock length versus anticipated Iapetus voice duration, and
+   original cover/metadata. Claude either returns specific changes or an explicit
+   approval. Do not pre-fill approval when submitting the review draft.
+4. Only **after a real Claude approval** set `"approval":{"status":"approved","reviewer":"Claude"}`
+   in the *final reviewed manifest*; never claim approval on a draft.
+   The JSON field is an **assertion**, not a cryptographic attestation; the importer
+   cannot independently contact Claude or authenticate the review.
+5. Run the offline ZIP packer below. Submit the complete ZIP via Telegram's
+   existing **🎬 إنتاج من ملف جاهز** route. Check the summary and manually click
+   **✅ تأكيد الإنتاج**. This triggers the same Clean V2 production workflow
+   as the normal Short, Film and Podcast, not a separate automatic publishing path.
+6. Clean V2 revalidates the bound ZIP and voice route. The standard
+   `clean-v2-telegram-production.yml` already installs Cairo Bold *before* starting
+   narration. Iapetus Flash TTS is selected for Nidaa Short, never substituted
+   with Charon/Lite. After narration the pipeline validates that one admitted
+   actual stock clip spans all measured speech, composes the video and captions,
+   and produces final QC artifacts. Short stock or missing Cairo fails closed.
+7. Review the *real final MP4* by ear and by frames, including the last caption
+   and last audio sample. Human release and YouTube publication remain manual.
+   A successful synthetic FFmpeg test cannot substitute for reviewing a full
+   Iapetus and real-stock production.
+
+The normal Nidaa Short and both Podcast/Film paths do not gain Monoclip
+behavior unless their approved manifest explicitly opts into the allowed
+`visual_style` field. No bulk migration or default change is permitted.
+
 ## Prepare import ZIP (offline, no API calls)
 
 From the repository root, with Pillow installed:
