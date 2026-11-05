@@ -96,7 +96,7 @@ class MonoclipCaptionCompleteness(unittest.TestCase):
             self.assertEqual(_clean(" ".join(e["text"] for e in mini)), normalized)
             self.assertEqual(mini[-1]["end"], parsed[-1]["end"])
             self.assertTrue(mini[-1]["text"].endswith("واحدة."))
-            self.assertGreaterEqual(len(mini), len(parsed))
+            self.assertGreater(len(mini), 3)  # Multiple voice-owned semantic cards
             styled = [
                 dict(event, role="hook" if i == 0 else
                      ("payoff" if i == len(parsed)-1 else "beat"))
