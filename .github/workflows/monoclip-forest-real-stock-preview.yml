@@ -1,0 +1,56 @@
+name: "Cinematic Monoclip — real Pexels scene QA"
+on:
+  push:
+    branches: [feature/bw-monoclip-optin-v1]
+    paths:
+      - .github/workflows/monoclip-forest-real-stock-preview.yml
+  workflow_dispatch:
+jobs:
+  forest-stock-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install FFmpeg
+        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Obtain original public stock from Pexels (no API credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p forest_qa
+          curl -fLSsS --retry 2 --connect-timeout 15 --max-time 180 \
+            -H 'User-Agent: Mozilla/5.0 (compatible; IscoMonoclipQA/1.0)' \
+            'https://videos.pexels.com/video-files/28464399/12391291_1080_1920_30fps.mp4' \
+            -o forest_qa/source.mp4
+          test "$(stat -c%s forest_qa/source.mp4)" -gt 1000000
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,codec_name \
+            -of json forest_qa/source.mp4 | tee forest_qa/probe.json
+      - name: Downscale genuine motion (do not fabricate or loop frames)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y -i forest_qa/source.mp4 \
+            -vf 'scale=540:960:flags=lanczos,fps=25' \
+            -an -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p \
+            -movflags +faststart forest_qa/forest_motion_original_color.mp4
+          ffmpeg -hide_banner -loglevel error -y \
+            -i forest_qa/forest_motion_original_color.mp4 \
+            -vf 'fps=1/4,scale=202:359:flags=lanczos,tile=4x2' \
+            -frames:v 1 forest_qa/scene_contact_sheet.png
+          ffmpeg -hide_banner -loglevel error -y -ss 1 \
+            -i forest_qa/forest_motion_original_color.mp4 \
+            -vf 'scale=540:960' -frames:v 1 forest_qa/frame_01.png
+          ffmpeg -hide_banner -loglevel error -y -ss 14 \
+            -i forest_qa/forest_motion_original_color.mp4 \
+            -vf 'scale=540:960' -frames:v 1 forest_qa/frame_14.png
+          ffmpeg -hide_banner -loglevel error -y -ss 27 \
+            -i forest_qa/forest_motion_original_color.mp4 \
+            -vf 'scale=540:960' -frames:v 1 forest_qa/frame_27.png
+          rm forest_qa/source.mp4
+      - name: Save source video and contact sheet
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: real-pexels-forest-28464399-visual-qa
+          path: forest_qa/
+          retention-days: 7
+          if-no-files-found: error
