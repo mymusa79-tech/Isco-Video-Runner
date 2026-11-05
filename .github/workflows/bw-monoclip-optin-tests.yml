@@ -18,6 +18,7 @@ on:
       - scripts/test_cinematic_monoclip_identity.py
       - scripts/test_cinematic_monoclip_real_ffmpeg.py
       - scripts/test_cinematic_monoclip_caption_completeness.py
+      - scripts/test_cinematic_monoclip_voice_audio_sync.py
       - .github/workflows/bw-monoclip-optin-tests.yml
   workflow_dispatch:
 
@@ -43,6 +44,17 @@ jobs:
         run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_cinematic_monoclip_identity scripts.test_cinematic_monoclip_caption_completeness scripts.test_production_package -v
       - name: Install FFmpeg if unavailable
         run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Install free Cairo Bold font strictly for visual rendering test
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/fonts/isco-cairo"
+          curl -fLSsS --retry 2 --connect-timeout 15 --max-time 90 \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
+            -o "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf"
+          fc-cache -f "$HOME/.local/share/fonts/isco-cairo"
+          fc-match -f '%{family}\n' 'Cairo:weight=bold' | grep -i Cairo
+      - name: Verify color and BW Monoclip preserve audible carrier and last caption
+        run: python -m unittest scripts.test_cinematic_monoclip_voice_audio_sync -v
       - name: Encode and inspect real synthetic Monoclip videos without API calls
         env:
           MONOCLIP_QA_OUTPUT_DIR: monoclip-qa-output
