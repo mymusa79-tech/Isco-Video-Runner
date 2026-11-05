@@ -12,8 +12,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from clean_v2.media import render_video, probe_duration
+from clean_v2.media import render_video, probe_duration, _require_cinematic_monoclip_whole_video
 
 
 def run(*args):
@@ -81,6 +82,20 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
         if len(data) != 3:
             raise AssertionError(f"cannot decode pixel at {when}s")
         return list(data)
+
+    def test_fail_closed_on_short_or_unverified_whole_stock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            narration, sources = self._fixture(root, "color_cinematic")
+            with mock.patch("clean_v2.media.probe_duration", return_value=3.5):
+                with self.assertRaisesRegex(RuntimeError, "whole_stock_short_for_voice"):
+                    _require_cinematic_monoclip_whole_video(root, sources, 4.1)
+            manifest_path = root / "rights-manifest.json"
+            doc = json.loads(manifest_path.read_text())
+            doc["assets"][1]["stock_pinned"] = False
+            manifest_path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(RuntimeError, "pinned_video_provenance_missing"):
+                _require_cinematic_monoclip_whole_video(root, sources, 4.1)
 
     def test_actual_both_color_and_bw_no_outro_end_to_end(self):
         for style in ("color_cinematic", "bw_cinematic"):
