@@ -210,7 +210,38 @@ def _identity_events(
     require_identity: bool,
     fmt: str = "short",
     template: str = "",
+    cinematic_monoclip: bool = False,
 ) -> list[dict[str, Any]]:
+    if fmt == "short" and cinematic_monoclip:
+        # Only the hook pause and terminal outro are identity units. The
+        # full visual story stays visible between them without a prayer card.
+        required = ("hook", "post_hook_silence", "final_silence")
+        rows = {role: _one_role(units, role) for role in required}
+        if any(row is None for row in rows.values()):
+            if require_identity:
+                raise TimelineFirstError("TIMELINE_FIRST_MONOCLIP_BOUNDS_MISSING")
+            return []
+        hook_end = float(rows["hook"]["end"])
+        pause_end = float(rows["post_hook_silence"]["end"])
+        final_start = float(rows["final_silence"]["start"])
+        final_end = float(rows["final_silence"]["end"])
+        if not (0 <= hook_end <= pause_end < final_start < final_end <= voice_seconds + 0.1):
+            raise TimelineFirstError("TIMELINE_FIRST_MONOCLIP_BOUNDS_INVALID")
+        outro_start = min(max(final_start, final_end - ALA_MAHL_OUTRO_SECONDS), final_end)
+        events = [
+            {"kind": role, "source": "measured_voice_timeline",
+             "start": float(rows[role]["start"]), "end": float(rows[role]["end"])}
+            for role in ("hook", "post_hook_silence")
+        ]
+        events.extend([
+            {"kind": "topic", "source": "measured_voice_timeline",
+             "start": pause_end, "end": final_start},
+            {"kind": "outro", "source": "measured_silence_chunk",
+             "start": outro_start, "end": final_end},
+            {"kind": "final_silence", "source": "measured_silence_chunk",
+             "start": final_start, "end": final_end},
+        ])
+        return events
     if fmt == "short":
         # Shorts carry only prayer + outro: no spoken channel definition or logo card.
         required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "final_silence")
@@ -396,7 +427,12 @@ def build_voice_owned_timeline(
     """Build one shared Short/Film/Podcast timeline owned only by measured audio."""
     root = Path(output_dir)
     from .ready_production import document
-    template = str(document(root).get("template") or "")
+    approved_document = document(root)
+    template = str(approved_document.get("template") or "")
+    cinematic_monoclip = (
+        fmt == "short"
+        and approved_document.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+    )
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
     if template == "ala_mahl" and not 25.0 <= voice_seconds <= 120.0:
         raise TimelineFirstError(f"ALA_MAHL_AUDIO_DURATION_OUTSIDE_25_120 seconds={voice_seconds:.3f}")
@@ -468,6 +504,7 @@ def build_voice_owned_timeline(
         require_identity=require_identity,
         fmt=fmt,
         template=template,
+        cinematic_monoclip=cinematic_monoclip,
     )
     identities = [
         {
