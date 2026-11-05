@@ -76,6 +76,7 @@ class MonoclipIdentityTests(unittest.TestCase):
             source.write_bytes(b"video-and-voice-without-outro")
             timeline = {
                 "template": "micro_story", "voice_seconds_measured": 23.7,
+                "cinematic_monoclip": True,
                 "identity_events": [
                     {"kind": "hook", "start": 0, "end": 5},
                     {"kind": "post_hook_silence", "start": 5, "end": 5.25},
@@ -90,6 +91,17 @@ class MonoclipIdentityTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), source.read_bytes())
             assets.assert_not_called()
             command.assert_not_called()
+
+    def test_legacy_short_cannot_bypass_identity_when_events_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "body.mp4").write_bytes(b"test")
+            with self.assertRaisesRegex(RuntimeError, "short_identity_missing_prayer_or_outro"):
+                timeline_render._render_short_identity(
+                    folder / "body.mp4", folder / "rendered.mp4",
+                    timeline={"template": "micro_story", "identity_events": []},
+                )
+            self.assertFalse((folder / "rendered.mp4").exists())
 
     def test_normal_short_outro_timeline_unchanged(self):
         with_prayer = [
