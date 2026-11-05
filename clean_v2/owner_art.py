@@ -706,7 +706,7 @@ class OwnerArtVisualSource:
 
         doc = json.loads((self._directory / "production.json").read_text(encoding="utf-8"))
         validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
-        bw_cinematic = doc.get("visual_style") == "bw_cinematic"
+        bw_cinematic = doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}  # single-clip guard for either visual finish
         beats = plan["visual_story"]["beats"]
         clips, rights = [], []
         # Estimate each podcast/film shot from the actual text span. Using the full
