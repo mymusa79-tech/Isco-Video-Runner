@@ -5624,16 +5624,22 @@ def _bind_writer_visual_story_with_recovery(
 
 
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
+    from .ready_production import document as _ready_document
+    cinematic_monoclip = (
+        _ready_document(output_dir).get("visual_style") in
+        {"bw_cinematic", "color_cinematic"}
+    )
     report = {
         "schema_version": 1,
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
-        "reason": "fixed_identity_inserted_after_first_sentence_hook",
+        "reason": ("cinematic_monoclip_prayerless"
+                   if cinematic_monoclip else "fixed_identity_inserted_after_first_sentence_hook"),
         "canonical_opener": "",
         "canonical_closer": "",
         "opener": "",
         "closer": "",
-        "prayer_sentence": PRAYER_SENTENCE,
+        "prayer_sentence": "" if cinematic_monoclip else PRAYER_SENTENCE,
         "transitions": [],
         "provider_calls_added": 0,
     }
