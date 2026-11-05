@@ -44,7 +44,7 @@ jobs:
           PY
           fc-cache -f out/private-font
           fc-scan -f '%{family}, %{style}\n' out/private-font/Cairo-Bold.ttf
-      - name: Build ten semantic caption cards about 30 percent larger
+      - name: Build meaningful caption cards at 120–144px without shrinking long phrases
         shell: bash
         run: |
           python - <<'PY'
@@ -56,11 +56,14 @@ jobs:
           rows=[
            (0.00,1.98,("كل هذا الجمال","أمامك…")),
            (1.98,3.94,("ومع ذلك","لا تراه.")),
-           (3.94,7.83,("لأن ذهنك","يسبق خطواتك دائمًا.")),
+           (3.94,5.87,("لأن ذهنك","")),
+           (5.87,7.83,("يسبق خطواتك","دائمًا.")),
            (7.83,11.72,("تعدّ ما تبقّى","من الطريق،")),
            (11.72,15.62,("وتنسى أن تنظر","إلى ما حولك.")),
-           (15.62,19.53,("هنا ضوء يتسلّل","بين الأشجار.")),
-           (19.53,23.43,("وهنا لحظة","لا تحتاج منك شيئًا.")),
+           (15.62,17.58,("هنا ضوء","")),
+           (17.58,19.53,("يتسلّل","بين الأشجار.")),
+           (19.53,21.48,("وهنا لحظة","")),
+           (21.48,23.43,("لا تحتاج","منك شيئًا.")),
            (23.43,27.35,("أبطئ قليلًا…","وانظر جيدًا.")),
            (27.35,29.49,("لا تجعل الطريق","يفوتك")),
            (29.49,31.35,("وأنت تعبره.","")),
@@ -137,7 +140,7 @@ jobs:
           assert 31<info["duration"]<31.6,info
           probe=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),"-hide_banner","-i",str(path)],capture_output=True,text=True)
           assert "Audio:" not in probe.stderr
-          Path("out/qa_report.json").write_text(json.dumps({"full_hd":True,"silent":True,"duration":info["duration"],"source":"Pexels 28464399","captions":"Cairo Bold, 10 meaning-based cards","prayer":False,"outro":False},indent=2))
+          Path("out/qa_report.json").write_text(json.dumps({"full_hd":True,"silent":True,"duration":info["duration"],"source":"Pexels 28464399","captions":"Cairo Bold, meaning-based cards with safe large font","prayer":False,"outro":False},indent=2))
           PY
           rm -rf out/private-font out/original.mp4
       - name: Upload actual revised video and caption evidence (never include font files)
