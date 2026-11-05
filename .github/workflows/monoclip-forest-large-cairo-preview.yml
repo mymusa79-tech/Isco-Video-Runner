@@ -48,11 +48,19 @@ jobs:
             words=text.split()
             allwords.extend(words)
             groups=[]
-            while words:
-              remain=len(words)
-              n=2 if remain in (2,4) else min(3,remain)
-              assert n>=2
-              groups.append(words[:n]);words=words[n:]
+            triple=None
+            if len(words)%2:
+              probe=ImageFont.truetype(str(font),80)
+              try: probe.set_variation_by_name("Bold")
+              except (ValueError,OSError,AttributeError): pass
+              triple=min(
+                range(0,len(words)-2,2),
+                key=lambda i: probe.getlength(" ".join(words[i:i+3]),direction="rtl",language="ar"),
+              )
+            cursor=0
+            while cursor<len(words):
+              n=3 if cursor==triple else 2
+              groups.append(words[cursor:cursor+n]);cursor+=n
             w=[sum(len(v) for v in g) for g in groups]
             total=sum(w)
             t=start*31.35/34.2
