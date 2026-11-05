@@ -55,8 +55,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.local/share/fonts/isco-cairo"
           curl -fLSsS --retry 2 --connect-timeout 15 --max-time 90 \
-            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
+            'https://raw.githubusercontent.com/google/fonts/24ddc1f324cac5d9f5aedca126d298f56e3f1640/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
             -o "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf"
+          test "$(git hash-object "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf")" = '25641b1c828857698457bcd9f5a102616b4e8033'
           fc-cache -f "$HOME/.local/share/fonts/isco-cairo"
           fc-match -f '%{family}\n' 'Cairo:weight=bold' | grep -i Cairo
       - name: Verify color and BW Monoclip preserve audible carrier and last caption
