@@ -829,6 +829,10 @@ def _synthesize_sectioned_voice_pass(
     from .ready_production import document
     ready_doc = document(narration_path.parent)
     approved_performance = ready_doc.get("performance") or {}
+    no_identity_short = (
+        fmt == "short"
+        and ready_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+    )
     cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
@@ -840,7 +844,16 @@ def _synthesize_sectioned_voice_pass(
             )
 
         voice_units: list[tuple[str, str]] = []
-        if fmt in {"short", "film", "podcast"} and index == 1:
+        if fmt == "short" and index == 1 and no_identity_short:
+            # Cinematic Monoclip: preserve original opening narration without
+            # adding the channel prayer, branding, or a subscription interruption.
+            from .identity_sequence import _short_opening_hook
+            hook_text = _short_opening_hook(section_text)
+            voice_units.append(("hook", hook_text))
+            remaining = section_text[len(hook_text):].strip()
+            if remaining:
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
+        elif fmt in {"short", "film", "podcast"} and index == 1:
             prayer_pos = section_text.find(PRAYER_SENTENCE)
             if prayer_pos <= 0:
                 raise RuntimeError("Timeline First requires explicit hook/prayer voice units")
@@ -1125,7 +1138,9 @@ def _synthesize_sectioned_voice_pass(
             )
 
             if fmt in IDENTITY_TIMELINE_FORMATS and index == 1 and role == "hook":
-                timing = identity_timing_profile(fmt)
+                timing = identity_timing_profile(
+                    fmt, template="cinematic_monoclip" if no_identity_short else ""
+                )
                 post_hook_path = chunk_path.parent / "post-hook-silence.wav"
                 _write_silence_like(
                     chunk_path,
@@ -1205,7 +1220,10 @@ def _synthesize_sectioned_voice_pass(
                 )
 
         if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
-            timing = identity_timing_profile(fmt, template=str(ready_doc.get("template") or ""))
+            timing = identity_timing_profile(
+                fmt, template="cinematic_monoclip" if no_identity_short
+                else str(ready_doc.get("template") or "")
+            )
             silence_reference = chunk_paths[-1]
             final_silence = silence_reference.parent / "final-silence.wav"
             _write_silence_like(
@@ -5753,9 +5771,12 @@ def _run_audio_mastering_stage(
     )
     if fmt == "short":
         ala_mahl = voice_timeline.get("template") == "ala_mahl"
-        identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
-                             "topic",
-                             "ala_mahl_outro" if ala_mahl else "short_outro"]
+        if voice_timeline.get("visual_style") in {"bw_cinematic", "color_cinematic"}:
+            identity_sequence = ["hook", "natural_post_hook_breath", "topic", "natural_closer",
+                                 "short_terminal_breath_no_branding"]
+        else:
+            identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
+                                 "topic", "ala_mahl_outro" if ala_mahl else "short_outro"]
     atomic_write_json(
         output_dir / "identity-sequence.json",
         {
@@ -7063,13 +7084,19 @@ def _strip_exact_host_phrase(text: str, phrase: str) -> str:
 
 
 def _apply_brand_signature(
-    sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
+    sections: list[dict[str, Any]], fmt: str, opener: str, closer: str,
+    *, output_dir: Path | None = None,
 ) -> None:
+    monoclip = False
+    if fmt == "short" and output_dir is not None:
+        manifest = _read_json_object(Path(output_dir) / "production.json")
+        monoclip = manifest.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     inject_spoken_identity(
         sections,
         fmt=fmt,
         opener=opener,
         closer=closer,
+        prayer_enabled=not monoclip,
     )
 
 
@@ -7800,7 +7827,8 @@ class CleanV2Pipeline:
                 self._write_runtime_events(output_dir)
                 fmt = str(brief["format"])
                 _apply_brand_signature(
-                    script["sections"], fmt, identity["opener"], identity["closer"]
+                    script["sections"], fmt, identity["opener"], identity["closer"],
+                    output_dir=output_dir,
                 )
                 from clean_v2.contextual_cta import bind_contextual_cta_to_script
 
