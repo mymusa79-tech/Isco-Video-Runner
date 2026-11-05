@@ -5225,9 +5225,11 @@ def render_video(
     # BW is a per-package opt-in. The identity/prayer overlays are applied
     # only AFTER the monochrome body render, so their original colours stay intact.
     bw_cinematic = False
+    cinematic_monoclip = False
     if approved_package and fmt == "short":
         package_doc = json.loads((output_dir / "production.json").read_text(encoding="utf-8"))
         bw_cinematic = package_doc.get("visual_style") == "bw_cinematic"
+        cinematic_monoclip = package_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
     preserve_source_colors = approved_package or fmt == "podcast" or any(
         isinstance(asset, Mapping) and (asset.get("source_actual") in {"ai_still", "stock_still"}
@@ -5307,7 +5309,7 @@ def render_video(
     if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
         visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
         _extend_last_slot_to_terminal(visual_schedule, str(timeline.get("template") or ""), duration)
-        if bw_cinematic:
+        if cinematic_monoclip:
             _require_bw_monoclip_measured_main_slot(visual_schedule)
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
