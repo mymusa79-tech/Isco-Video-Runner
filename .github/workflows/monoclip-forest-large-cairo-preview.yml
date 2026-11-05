@@ -9,10 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Install tools
+      - name: Install tools without OS package downloads
         run: |
-          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          python -m pip -q install pillow
+          python -m pip -q install pillow imageio-ffmpeg
+          ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$HOME/ffmpeg"
+          echo "$HOME" >> "$GITHUB_PATH"
       - name: Download genuine Pexels stock and real Cairo
         run: |
           set -euo pipefail
