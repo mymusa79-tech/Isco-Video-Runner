@@ -6,6 +6,9 @@ on:
       - .github/workflows/monoclip-forest-regrade-captions-review.yml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   real-visual:
     runs-on: ubuntu-latest
