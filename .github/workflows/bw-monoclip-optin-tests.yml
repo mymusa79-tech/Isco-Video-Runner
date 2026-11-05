@@ -43,5 +43,14 @@ jobs:
       - name: Install FFmpeg if unavailable
         run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - name: Encode and inspect real synthetic Monoclip videos without API calls
+        env:
+          MONOCLIP_QA_OUTPUT_DIR: monoclip-qa-output
         run: python -m unittest scripts.test_cinematic_monoclip_real_ffmpeg -v
+      - name: Upload Color and BW synthetic video evidence (not production content)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cinematic-monoclip-synthetic-proof
+          path: monoclip-qa-output/
+          if-no-files-found: error
+          retention-days: 7
 
