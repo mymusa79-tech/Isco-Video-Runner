@@ -188,7 +188,12 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         isinstance(event, Mapping) and event.get("kind") == "outro"
         for event in timeline.get("identity_events", [])
     )
+    monoclip = timeline.get("cinematic_monoclip") is True
+    if monoclip and (has_prayer or has_outro):
+        raise RuntimeError("monoclip_identity_must_not_have_prayer_or_outro")
     if not has_prayer and not has_outro:
+        if not monoclip:
+            raise RuntimeError("short_identity_missing_prayer_or_outro")
         # Dedicated Monoclip: no extra inputs, re-encoding, overlay or SFX.
         # Copy the finished, measured story without introducing an outro.
         if str(timeline.get("template") or "") == "ala_mahl":
