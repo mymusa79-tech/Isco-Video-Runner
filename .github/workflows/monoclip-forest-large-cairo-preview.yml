@@ -100,7 +100,7 @@ jobs:
           Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
           """
           (root/'captions.ass').write_text(header+'\n'.join(lines)+'\n',encoding='utf-8')
-          (root/'readme.txt').write_text(f"Real stock visual preview, silent only.\nCairo Bold, 2-3 original words/card. Cards: {len(lines)}; words: {len(allwords)}.\nNo prayer, no outro, no subscribe, no narrator substituted.\n")
+          (root/'readme.txt').write_text(f"Real stock visual preview, silent only.\nCairo Bold, one or two original words/card with legibility-first layout. Cards: {len(lines)}; words: {len(allwords)}.\nNo prayer, no outro, no subscribe, no narrator substituted.\n")
           print((root/'readme.txt').read_text())
           PY
       - name: Render actual scene visual preview
