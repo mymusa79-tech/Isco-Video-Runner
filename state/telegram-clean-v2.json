@@ -9170,6 +9170,21 @@
       "selected_at": "2026-11-04T16:23:12Z",
       "created_at": "2026-11-04T16:23:12Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-fbb44318de",
+      "title": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+      "normalized_title": "لماذا توجّل حياتك حتي تتحسن الظروف؟",
+      "market_query": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-05T21:58:13Z",
+      "created_at": "2026-11-05T21:58:13Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -39884,9 +39899,974 @@
         "started_at": "2026-11-04T16:24:56Z",
         "finished_at": "2026-11-04T16:36:04Z"
       }
+    },
+    "req-868730f1e0c4": {
+      "schema_version": 1,
+      "request_id": "req-868730f1e0c4",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "long",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-fbb44318de",
+      "selected_at": "2026-11-05T21:58:13Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "film",
+        "title": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+        "production": {
+          "schema_version": 1,
+          "format": "film",
+          "template": "question_answer",
+          "title": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "كم مرة قلت: سأبدأ عندما تتحسن ظروفي؟ ثم انتهى شهر، وتبعه عام، وبقي القرار في مكانه. لكن ماذا لو كانت ظروفك فعلًا لا تسمح؟ سنختبر ثلاثة أسباب للتأجيل، ونرى متى يكون الانتظار حكمة، ومتى يصبح فخًا. وفي النهاية، ستملك اختبارًا عمليًا لقرار تؤجله الآن.\n\nتخيّل رجلًا يعمل في مخزن تجاري، ويريد أن يتعلّم مهارة تساعده على التقدّم لوظيفة أفضل. هذا مثال افتراضي، لكنه يشبه قرارات كثيرة نعرفها. في مساء أحد أيام الخميس، يعود إلى بيته بعد دوام طويل. يضع حقيبته على الكرسي، ويفتح حاسوبًا مستعملًا اشتراه بعد أشهر من الادخار. أمامه أول درس، وفي يده ورقة كتب عليها: «البداية هذا الأسبوع».\n\nفي المرة الأولى كان يفتقر إلى الجهاز. هذا سبب واضح، وقد عالجه. لكن حين أصبح الحاسوب أمامه، قال إنه متعب وسيبدأ بعد انتهاء ضغط العمل. انتهى الضغط نسبيًا، فصار يحتاج إلى دورة أفضل. وجد الدورة، ثم شعر أن لغته لا تكفي، وأن عليه أن يجهّز كل شيء قبل التجربة.\n\nمرّت أسابيع. أصبحت الورقة تحت مجموعة أوراق أخرى، وبقي الدرس الأول غير مكتمل. لم يكن الرجل يقضي يومه بلا عمل، ولا يفتقر إلى الرغبة في تحسين دخله. كان يعمل فعلًا، ويؤدي مسؤولياته. ولهذا يصعب عليه أن يميّز بين العائق الذي يحميه من خطوة متسرعة، والسبب الذي يبعده عن خطوة ممكنة.\n\nقد يكون قرارك مختلفًا: طلب وظيفة، أو تعلّم لغة، أو فتح نقاش مؤجّل، أو وضع خطة للانتقال. لا أطلب منك أن تبدأ الآن. أريد أن نعرف أولًا لماذا ينتقل موعد البداية كل مرة. هل ينقصك مورد حقيقي؟ أم تنتظر ضمانًا مستحيلًا؟ أم أن التأجيل يخلّصك مؤقتًا من شعور لا تريد مواجهته؟ هذه ثلاثة أجوبة، والخلط بينها يغيّر القرار كله."
+              },
+              {
+                "id": "s2",
+                "text": "الجواب الأول: قد يكون العائق حقيقيًا. هذا الاحتمال ليس تفصيلًا نذكره احترامًا للمشاهد ثم نتجاوزه. تخيّل عاملًا يعيل أسرته، ولا يملك مدّخرات تكفي إذا فقد راتبه. نصيحة «اترك الوظيفة واتبع شغفك» قد تضع منزله كله تحت خطر لا يتحمله. هنا تكون حماية الدخل شرطًا سابقًا لأي انتقال.\n\nوهناك شخص ينتظر أوراقًا رسمية قبل سفره، وآخر يرعى أحد أفراد أسرته، وثالث يحتاج إلى استشارة مختص قبل قرار صحي. قد يبدو هؤلاء متأخرين لمن لا يعرف تفاصيل حياتهم. لكن قياس الشجاعة بسرعة القرار وحدها قياس فاسد.\n\nكيف نعرف أن العائق واقعي؟ ابحث عن ثلاثة أشياء: شرط يمكن وصفه، وكلفة يمكن تقديرها، وطريقة لمعرفة متى يتغيّر الوضع. مثلًا: «لن أستقيل قبل توفير مصروف فترة انتقال مناسبة لوضعي». أو «لن أوقّع قبل أن أفهم هذا البند». هنا توجد حدود يمكن فحصها، حتى لو تأخرت النتيجة.\n\nفي المقابل، تقول عبارة «سأتحرك حين تستقر حياتي تمامًا» شيئًا أقل تحديدًا. هل المقصود انخفاض الدين؟ أم انتهاء الالتزامات؟ أم الشعور بالطمأنينة؟ إذا لم تذكر الشرط، فلن تعرف متى تحقق. وقد تقضي وقتًا طويلًا تجمع علامات اطمئنان لا تتفق على معنى واحد منها.\n\nفي استطلاع أمريكي أصدرته الجمعية الأمريكية لعلم النفس في أكتوبر عام ألفين وستة وعشرين، قال ستة وعشرون في المئة من المشاركين إنهم وضعوا مستقبلهم على الانتظار خلال العام الماضي بسبب الضغط أو عدم اليقين أو الشعور بالإرهاق. أجري الاستطلاع على بالغين في الولايات المتحدة؛ فلا يجوز نقل نسبته إلى مجتمعات أخرى، ولا اعتباره دليلًا على أن كل تأجيل سببه نفسي. لكن النتيجة تذكّرنا بشيء مهم: بعض الناس لا ينقصهم الطموح، بل تثقلهم ظروف ملموسة.\n\nلنعد إلى صاحب المخزن. إذا كان لا يستطيع دفع تكلفة تدريب غالٍ، فلا يحتاج إلى لوم إضافي. يمكنه مقارنة برامج أقل تكلفة، أو تأجيل الدفع حتى تتوفر الميزانية. لكن الحاسوب الذي اشتراه موجود الآن. فهل ما زال التدريب كله متوقفًا على المال؟ أم توجد خطوة مجانية أو محدودة يستطيع اختبارها دون المساس بمصاريف البيت؟\n\nالتمييز هنا ليس بين الشجاع والجبان. إنه بين قرار كبير يحتاج حماية، واستعداد صغير قد يكون ممكنًا رغم استمرار العائق."
+              },
+              {
+                "id": "s3",
+                "text": "الجواب الثاني: قد تكون منتظرًا اليقين. أنت لا تريد فقط أن تتعلّم المهارة؛ تريد أن تعرف مسبقًا أنك ستتقنها. لا تريد أن ترسل طلب الوظيفة ثم تنتظر الرد؛ تريد إشارة تضمن أنك لن تُرفض. وتتمنى أن تعرف إن كان المشروع سيستحق التعب قبل أن تختبر فكرته.\n\nبعض هذه الأسئلة ضروري، خصوصًا عندما يكون القرار مكلفًا أو لا يمكن التراجع عنه. لكن اليقين الذي تطلبه قد يتجاوز ما يستطيع أحد تقديمه. لا يمكنك ضمان وظيفة بعد دورة، ولا ضمان نجاح مشروع من أول محاولة. يمكنك، في المقابل، تقليل المجهول: التحدث إلى موظف في المجال، أو مراجعة شروط الوظيفة، أو اختبار المهارة في مهمة قصيرة.\n\nانظر إلى مثالين متشابهين في الظاهر ومختلفين في المخاطرة. شخص يريد أن يستقيل غدًا ليبدأ مشروعًا بدين كبير، ولم يحسب التزاماته. من الحكمة أن يتوقف ويجمع معلومات أكثر. وشخص آخر يريد قضاء نصف ساعة أسبوعيًا في دراسة المجال نفسه، دون قرض أو استقالة. كلاهما يقول: «لست مستعدًا». لكن معنى الاستعداد في الحالة الأولى ليس معناه في الثانية.\n\nالمشكلة تبدأ حين نستعمل مستوى الحذر المطلوب للقفزة الكبيرة كي نمنع حتى التجربة الصغيرة. هذا يشبه أن ترفض فتح خريطة الطريق لأنك لا تعرف بعد إن كنت ستصل إلى نهايته. الخريطة لن تمشي بدلًا منك، لكنها قد تخبرك أين تبدأ وما الذي لا تعرفه.\n\nثم يأتي الجواب الثالث، وهو أقل وضوحًا: ربما يمنحك التأجيل راحة سريعة. تتخيّل إرسال الطلب، فيرتفع توترك. تغلق الصفحة، فتخف حدة الشعور قليلًا. تتذكّر المهمة مساءً، فتقول: غدًا. يرتاح يومك الحالي، بينما ينتقل القرار نفسه إلى يوم آخر.\n\nهذا ليس تفسيرًا اخترعناه من مشهد واحد. في مراجعة بحثية نُشرت عام ألفين وثلاثة عشر، ناقشت الباحثة فوشيا سيروا وزميلها تيموثي بايشل ارتباط التسويف بتنظيم المزاج على المدى القصير. الفكرة أن تجنّب مهمة مزعجة قد يحسّن شعورك في اللحظة، بينما يتحمّل مستقبلك كلفتها. إنها آلية محتملة، وليست حكمًا على شخصية كل من يؤجل.\n\nوفي تحليل بحثي لبيرس ستيل نُشر عام ألفين وسبعة، برزت علاقة التسويف بنفور المهمة، وتأخر المكافأة، والثقة بالقدرة، وعوامل أخرى. هذه روابط بحثية على مستوى مجموعات ودراسات؛ لا تخبرنا وحدها بسبب تأجيل شخص بعينه.\n\nتخيّل صاحب المخزن أمام الدرس الأول مرة أخرى. لا توجد مشكلة في حاسوبه هذه الليلة. لكنه يرى تمرينًا لا يعرف حله، ويخشى أن يكون بطيئًا في التعلم. حين يغلق الحاسوب، يختفي الامتحان الصغير مؤقتًا. لكنه لم يختبر قدرته أصلًا. بهذا يتحول السؤال من «هل أستطيع التعلم؟» إلى «كيف أتجنب احتمال أن أفشل؟».\n\nقد يجتمع نقص المال مع الخوف من الرفض، وقد يزيد الإرهاق الحالتين. ولذلك لن نعالج كل تأجيل بالجملة نفسها. نحن بحاجة إلى فحص الكلفة، والمعلومة الناقصة، والشعور الذي نحاول الهرب منه."
+              },
+              {
+                "id": "s4",
+                "text": "هنا اعتراض يستحق أن نأخذه بجدية: أليس التريث أحيانًا علامة نضج؟ لماذا يبدو الكلام عن البدء وكأنه اتهام لكل من يريد وقتًا إضافيًا؟ الاعتراض صحيح. بعض القرارات لا يجب تسريعها، ومجرد الحماس لا يجعلها آمنة.\n\nشخص يراجع عقد عمل فيه بنود لم يفهمها يحتاج إلى توضيح قبل التوقيع. شخص يخطط لانتقال مدينة وعليه مصاريف أسرة يحتاج إلى حساب واقعي. ومن يشعر بإرهاق شديد قد يحتاج إلى الراحة أو طلب المساعدة، بدل إضافة التزام جديد إلى يوم لا يحتمله. لا يصلح أن نضع كل هؤلاء في خانة التسويف.\n\nلكن ماذا عن الجهة الأخرى؟ قد يتحول الانتظار نفسه إلى عادة لا تنتج معلومات ولا تزيد قدرة. يقرر شخص أن يبحث عن دورة مناسبة. يقضي أسبوعًا يقارن عشرة خيارات، ثم يعود بعد شهر ليقارن عشرة أخرى، دون أن يفتح درسًا تجريبيًا واحدًا. جمع المعلومات هنا له قيمة في البداية. وبعد نقطة معينة، قد يصبح طريقة لتأخير اختبار قدرته.\n\nهناك فرق بين انتظار يغيّر الواقع، وانتظار يكرر المشهد. الأول يضيف مالًا أو معرفة أو أمانًا. الثاني يعيد الأسئلة نفسها كلما اقتربنا من الفعل. ولا يمكن معرفة الفرق من الخارج دائمًا؛ الشخص نفسه يحتاج إلى مراجعة ما كسبه من الفترة الماضية.\n\nوماذا لو فشلت بعد المحاولة؟ عندها يصبح السؤال عن حجم المحاولة. التقديم على وظيفة ليس استقالة. تجربة درس واحد ليست التزامًا بدراسة جامعية. سؤال شخص عن شروط تعاون ليس توقيع عقد.\n\nإذا كان الاختبار منخفض الكلفة وقابلًا للتراجع، فإن التجربة قد تمنح معلومة لا يأتي بها التفكير وحده. وإن كانت كلفته مرتفعة، فصمّم بديلًا أكثر أمانًا أو انتظر شرطًا واضحًا.\n\nلنقل إنك لم تفهم الدرس الأول. هذه ليست نتيجة ممتعة، لكنها معلومة محددة: تحتاج إلى شرح أبسط أو مهارة تمهيدية. أما عدم فتح الدرس أصلًا فلن يخبرك إن كان صعبًا فعلًا. لذلك لا أسألك: لماذا تأخرت كل هذا الوقت؟ أسألك: ماذا غيّر الانتظار هذه المرة، وما الذي ستعرفه إذا جرّبت دون مخاطرة؟"
+              },
+              {
+                "id": "s5",
+                "text": "فلنحوّل النقاش إلى اختبار صغير يمكن القيام به بعد انتهاء الفيلم. لن يضمن نجاحك، ولن يناسب كل قرار. لكنه يساعدك على أن تعرف إن كنت تحتاج إلى انتظار، أم إلى معلومات، أم إلى تجربة آمنة.\n\nأحضر ورقة، واكتب عليها اسم قرار واحد. تجنّب قرارًا مصيريًا لا يجوز التعامل معه باستخفاف. ليكن مثلًا: «هل أتقدم إلى وظيفة أخرى؟» أو «هل أبدأ تعلّم هذه المهارة؟». عندما تكتب اسم القرار، يصبح محددًا بدل أن يظل شعورًا عامًا بأن حياتك متأخرة.\n\nتحت الاسم اكتب الشرط الحقيقي. إن كان المطلوب مبلغًا، فاكتب ما المبلغ ولماذا تحتاجه. وإن كان وقتًا، فاكتب كم ساعة متاحة فعلًا، لا كم ساعة تتمنى امتلاكها. وإن كانت معلومة، فحدّد من يستطيع إعطاءها وما السؤال الذي ستطرحه عليه. لا تكتب «عندما تتحسن الظروف»؛ هذه عبارة يصعب اختبارها.\n\nالآن اكتب تجربة صغيرة لا تضر بعملك أو صحتك أو مسؤولياتك. من يريد تغيير عمله يمكنه قراءة شروط ثلاث وظائف مناسبة، دون أن يقدّم استقالته. ومن يريد مهارة جديدة يمكنه تجربة درس قصير، دون شراء دورة غالية. ومن يفكر في مشروع يمكنه سؤال عملاء محتملين عن المشكلة التي يحاول حلها، قبل استئجار مكان أو اقتراض المال.\n\nبعد ذلك حدد موعدًا للمراجعة، لا موعدًا سحريًا للنجاح. بعد أسبوع مثلًا، انظر إلى الورقة. هل حصلت على معلومة جديدة؟ هل اقتربت من الشرط الواقعي؟ هل اكتشفت أن الخطوة الصغيرة مكلفة أكثر مما توقعت؟ هذه كلها نتائج مفيدة، حتى لو بقي القرار الكبير مؤجلًا.\n\nلنعد للمرة الأخيرة إلى الرجل الذي اشترى الحاسوب. لم يصبح خبيرًا في يوم واحد. في نهاية أسبوع مزدحم، فتح أول درس وأمضى وقتًا قصيرًا في فهم تمرين بسيط. توقف عندما احتاج إلى شرح إضافي، وكتب السؤال الذي سيبحث عن إجابته لاحقًا. هذه ليست قصة نجاح مذهلة؛ إنها مجرد انتقال من التخمين إلى معلومة يمكن البناء عليها.\n\nوربما تكون نتيجتك مختلفة. قد تقرر أن الاستقالة الآن غير آمنة، أو أن المال لا يكفي، أو أن الوقت ضيق فعلًا. حينها يصبح الانتظار خطة ذات شروط، لا شعورًا غامضًا بالوقوف. وربما تكتشف أن بعض الطريق كان متاحًا منذ أشهر، لكنك كنت تتوقع من نفسك أن تعبره دفعة واحدة.\n\nسألنا في البداية: متى تتحسن الظروف؟ والآن أصبح السؤال أدق: ما الذي يجب أن يتحسن تحديدًا؟ وكيف سأعرف أنه تحسن؟ وإذا لم يتحسن بعد، فما المعلومة أو الخطوة الآمنة التي أستطيع الحصول عليها دون أن أخسر ما يجب حمايته؟\n\nلا تحتاج إلى إعلان بداية جديدة كل صباح. تحتاج إلى أن تعرف لماذا تنتظر، وما الذي يبرر أن تنتظر أكثر. عندها لن يكون الغد كلمة تضعها مكان القرار، بل موعدًا له معنى."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "قالب question_answer بخمسة أقسام. s1: سؤال يحمل كلفة واضحة، ثم راوِ قصة العامل بإيقاع حي وتحوّل ملحوظ عند تبدّل الأعذار؛ وقفة عند الأسئلة الثلاثة. s2: موضوعية وتعاطف عند مسؤوليات الأسرة والمال؛ تباطؤ محدود عند رقم الاستطلاع وتوضيح حدوده. s3: ارفع طاقة الفضول في مقارنة الاستقالة بالدرس الصغير، ثم اهدأ عند مشهد إغلاق الطلب والراحة المؤقتة؛ اجعل الدليل واضحًا دون نبرة محاضرة. s4: امنح اعتراض الحذر وزنه، ثم وقفة قبل الفرق بين انتظار يغيّر الواقع وانتظار يكرر نفسه؛ مثال العمل بصوت حي. s5: تعليمات قصيرة واضحة لا وعظ فيها، ثم عودة ملموسة لقصة صاحب الحاسوب ونهاية هادئة حاسمة. لا تُنطق التوجيهات ولا تكرَّر هوية القناة أو الصلاة."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "كم مرة قلت: سأبدأ عندما تتحسن ظروفي؟ ثم",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand putting folder into drawer",
+                "query_alt_en": "drawer with papers at home",
+                "must_show": "تُغلق يد درجًا بداخله ملف قرار؛ بلا وجه أو حروف مقروءة."
+              }
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "سنختبر ثلاثة أسباب للتأجيل، ونرى متى يكون الانتظار",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands holding closed desk drawer",
+                "query_alt_en": "person hesitating near drawer",
+                "must_show": "يد تتوقف فوق درج مغلق بعد قرار مؤجل."
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s1",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "تخيّل رجلًا يعمل في مخزن تجاري، ويريد أن",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "warehouse worker handling packing box",
+                "query_alt_en": "worker arranging boxes indoors",
+                "must_show": "يدان في مخزن ترتبان صندوق عمل دون وجوه واضحة."
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s1",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "في مساء أحد أيام الخميس، يعود إلى بيته",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man arriving home placing bag",
+                "query_alt_en": "person returning from work",
+                "must_show": "يد تضع حقيبة العمل على كرسي داخل منزل متواضع."
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s1",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "أمامه أول درس، وفي يده ورقة كتب عليها:",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands opening used laptop at desk",
+                "query_alt_en": "learning setup with old laptop",
+                "must_show": "يدان تفتحان حاسوبًا قديمًا وأمامهما أول درس بلا نص مقروء."
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s1",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "لكن حين أصبح الحاسوب أمامه، قال إنه متعب",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand closing laptop after work",
+                "query_alt_en": "closing computer during study",
+                "must_show": "يد تغلق الحاسوب بدل متابعة الدرس."
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s1",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "وجد الدورة، ثم شعر أن لغته لا تكفي،",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands looking at notebook and laptop",
+                "query_alt_en": "home learning desk equipment",
+                "must_show": "يد تقارن دفترًا بجهاز مفتوح دون واجهة أو شعار."
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s1",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "أصبحت الورقة تحت مجموعة أوراق أخرى، وبقي الدرس",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand hiding unfinished papers in stack",
+                "query_alt_en": "unfinished paperwork on desk",
+                "must_show": "يد تضع ورقة غير مكتملة تحت أوراق أخرى."
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s1",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "كان يعمل فعلًا، ويؤدي مسؤولياته. ولهذا يصعب عليه",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "warehouse hands organizing storage boxes",
+                "query_alt_en": "warehouse work from behind",
+                "must_show": "يدان تعملان في مخزن وتظهر المسؤولية اليومية."
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s1",
+              "asset": "assets/scene_10.jpg",
+              "start_text": "قد يكون قرارك مختلفًا: طلب وظيفة، أو تعلّم",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands holding job application papers",
+                "query_alt_en": "job documents on table",
+                "must_show": "يد تمسك أوراق وظيفة دون نص مقروء."
+              }
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s1",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "هل ينقصك مورد حقيقي؟ أم تنتظر ضمانًا مستحيلًا؟",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_12",
+              "section_id": "s2",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "الجواب الأول: قد يكون العائق حقيقيًا. هذا الاحتمال",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man sorting household bills on table",
+                "query_alt_en": "family expenses at kitchen table",
+                "must_show": "يدان تراجعان فواتير منزلية بلا أرقام مقروءة."
+              }
+            },
+            {
+              "id": "scene_13",
+              "section_id": "s2",
+              "asset": "assets/scene_13.jpg",
+              "start_text": "نصيحة «اترك الوظيفة واتبع شغفك» قد تضع منزله",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands protecting wallet beside groceries",
+                "query_alt_en": "household essentials and wallet",
+                "must_show": "يد تحافظ على محفظة قرب حاجات منزلية أساسية."
+              }
+            },
+            {
+              "id": "scene_14",
+              "section_id": "s2",
+              "asset": "assets/scene_14.jpg",
+              "start_text": "وهناك شخص ينتظر أوراقًا رسمية قبل سفره، وآخر",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "person checking passport and folder",
+                "query_alt_en": "travel preparation paper documents",
+                "must_show": "يدان ترتبان وثائق سفر مغلقة من دون شعارات."
+              }
+            },
+            {
+              "id": "scene_15",
+              "section_id": "s2",
+              "asset": "assets/scene_15.jpg",
+              "start_text": "كيف نعرف أن العائق واقعي؟ ابحث عن ثلاثة",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "board": {
+                "layout": "steps",
+                "theme": "editorial",
+                "title": "كيف تفحص العائق؟",
+                "items": [
+                  {
+                    "label": "تحديد العائق",
+                    "at_text": "كيف نعرف أن العائق واقعي؟"
+                  },
+                  {
+                    "label": "شرط قابل للفحص",
+                    "at_text": "ابحث عن ثلاثة أشياء: شرط يمكن وصفه، وكلفة يمكن تقديرها، وطريقة لمعرفة متى يتغيّر الوضع."
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_16",
+              "section_id": "s2",
+              "asset": "assets/scene_16.jpg",
+              "start_text": "أو «لن أوقّع قبل أن أفهم هذا البند».",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands reviewing unsigned contract pages",
+                "query_alt_en": "paper agreement before signing",
+                "must_show": "يد تراجع عقدًا قبل التوقيع بلا كتابة مقروءة."
+              }
+            },
+            {
+              "id": "scene_17",
+              "section_id": "s2",
+              "asset": "assets/scene_17.jpg",
+              "start_text": "هل المقصود انخفاض الدين؟ أم انتهاء الالتزامات؟ أم",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_18",
+              "section_id": "s2",
+              "asset": "assets/scene_18.jpg",
+              "start_text": "في استطلاع أمريكي أصدرته الجمعية الأمريكية لعلم النفس",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands reviewing research documents on desk",
+                "query_alt_en": "research papers on desk",
+                "must_show": "يدان تقلبان أوراق بحث عامة في ضوء خافت."
+              }
+            },
+            {
+              "id": "scene_19",
+              "section_id": "s2",
+              "asset": "assets/scene_19.jpg",
+              "start_text": "أجري الاستطلاع على بالغين في الولايات المتحدة؛ فلا",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands closing calculator and notebook",
+                "query_alt_en": "desk calculator after budgeting",
+                "must_show": "يد تضع آلة حساب جانبا بعد مراجعة التكاليف."
+              }
+            },
+            {
+              "id": "scene_20",
+              "section_id": "s2",
+              "asset": "assets/scene_20.jpg",
+              "start_text": "لكن النتيجة تذكّرنا بشيء مهم: بعض الناس لا",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_21",
+              "section_id": "s2",
+              "asset": "assets/scene_21.jpg",
+              "start_text": "يمكنه مقارنة برامج أقل تكلفة، أو تأجيل الدفع",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands comparing course materials on desk",
+                "query_alt_en": "training study materials comparison",
+                "must_show": "يدان تقارنان كتيبات تدريب بلا نصوص مقروءة."
+              }
+            },
+            {
+              "id": "scene_22",
+              "section_id": "s2",
+              "asset": "assets/scene_22.jpg",
+              "start_text": "أم توجد خطوة مجانية أو محدودة يستطيع اختبارها",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands opening free study workbook",
+                "query_alt_en": "open educational booklet indoors",
+                "must_show": "يد تفتح كتيّب تعلم متاحًا دون معلومات شخصية."
+              }
+            },
+            {
+              "id": "scene_23",
+              "section_id": "s3",
+              "asset": "assets/scene_23.jpg",
+              "start_text": "الجواب الثاني: قد تكون منتظرًا اليقين. أنت لا",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hesitant hand over laptop keyboard",
+                "query_alt_en": "person preparing to study",
+                "must_show": "أصابع تتردد قبل بدء التعلم على الحاسوب."
+              }
+            },
+            {
+              "id": "scene_24",
+              "section_id": "s3",
+              "asset": "assets/scene_24.jpg",
+              "start_text": "لا تريد أن ترسل طلب الوظيفة ثم تنتظر",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand pausing above blank application",
+                "query_alt_en": "blank forms and hesitant hand",
+                "must_show": "يد تتردد فوق طلب وظيفة غير مكتمل."
+              }
+            },
+            {
+              "id": "scene_25",
+              "section_id": "s3",
+              "asset": "assets/scene_25.jpg",
+              "start_text": "بعض هذه الأسئلة ضروري، خصوصًا عندما يكون القرار",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_26",
+              "section_id": "s3",
+              "asset": "assets/scene_26.jpg",
+              "start_text": "لا يمكنك ضمان وظيفة بعد دورة، ولا ضمان",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands researching job requirements papers",
+                "query_alt_en": "work application requirements paperwork",
+                "must_show": "يدان تراجعان شروط وظيفة دون واجهة أو نص مقروء."
+              }
+            },
+            {
+              "id": "scene_27",
+              "section_id": "s3",
+              "asset": "assets/scene_27.jpg",
+              "start_text": "انظر إلى مثالين متشابهين في الظاهر ومختلفين في",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands counting savings beside laptop",
+                "query_alt_en": "saving money for new project",
+                "must_show": "يد تحصي موارد مشروع قبل اتخاذ قرار كبير."
+              }
+            },
+            {
+              "id": "scene_28",
+              "section_id": "s3",
+              "asset": "assets/scene_28.jpg",
+              "start_text": "وشخص آخر يريد قضاء نصف ساعة أسبوعيًا في",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands learning skill quietly at desk",
+                "query_alt_en": "adult practicing at home",
+                "must_show": "يد تفتح دفتر تعلم خلال وقت قصير."
+              }
+            },
+            {
+              "id": "scene_29",
+              "section_id": "s3",
+              "asset": "assets/scene_29.jpg",
+              "start_text": "المشكلة تبدأ حين نستعمل مستوى الحذر المطلوب للقفزة",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_30",
+              "section_id": "s3",
+              "asset": "assets/scene_30.jpg",
+              "start_text": "الخريطة لن تمشي بدلًا منك، لكنها قد تخبرك",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand unfolding road map on table",
+                "query_alt_en": "open paper travel map",
+                "must_show": "يد تفتح خريطة ورقية خالية من الأسماء المقروءة."
+              }
+            },
+            {
+              "id": "scene_31",
+              "section_id": "s3",
+              "asset": "assets/scene_31.jpg",
+              "start_text": "تتخيّل إرسال الطلب، فيرتفع توترك. تغلق الصفحة، فتخف",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand closing application on laptop",
+                "query_alt_en": "person pausing computer work",
+                "must_show": "يد تغلق شاشة الطلب عند الشعور بالتردد دون واجهة مقروءة."
+              }
+            },
+            {
+              "id": "scene_32",
+              "section_id": "s3",
+              "asset": "assets/scene_32.jpg",
+              "start_text": "هذا ليس تفسيرًا اخترعناه من مشهد واحد. في",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands turning over research pages",
+                "query_alt_en": "academic papers being reviewed",
+                "must_show": "يد تقلب أوراق مراجعة بحثية عامة دون كتابة."
+              }
+            },
+            {
+              "id": "scene_33",
+              "section_id": "s3",
+              "asset": "assets/scene_33.jpg",
+              "start_text": "الفكرة أن تجنّب مهمة مزعجة قد يحسّن شعورك",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_34",
+              "section_id": "s3",
+              "asset": "assets/scene_34.jpg",
+              "start_text": "وفي تحليل بحثي لبيرس ستيل نُشر عام ألفين",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand drawing small bars on notebook",
+                "query_alt_en": "simple notebook chart drawing",
+                "must_show": "يد ترسم أعمدة بسيطة في دفتر بلا كلمات."
+              }
+            },
+            {
+              "id": "scene_35",
+              "section_id": "s3",
+              "asset": "assets/scene_35.jpg",
+              "start_text": "تخيّل صاحب المخزن أمام الدرس الأول مرة أخرى.",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands staring at unfinished exercise",
+                "query_alt_en": "learning workbook not completed",
+                "must_show": "أصابع تقف عند تمرين تعلم غير مكتمل."
+              }
+            },
+            {
+              "id": "scene_36",
+              "section_id": "s3",
+              "asset": "assets/scene_36.jpg",
+              "start_text": "حين يغلق الحاسوب، يختفي الامتحان الصغير مؤقتًا. لكنه",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands folding notebook instead studying",
+                "query_alt_en": "closing book during study",
+                "must_show": "يدان تغلقان دفترًا وتُبعدانه عن موضع التعلم."
+              }
+            },
+            {
+              "id": "scene_37",
+              "section_id": "s3",
+              "asset": "assets/scene_37.jpg",
+              "start_text": "قد يجتمع نقص المال مع الخوف من الرفض،",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands comparing different task cards",
+                "query_alt_en": "two choices on desk",
+                "must_show": "يدان تضعان بطاقتين خاليتين جنبًا إلى جنب."
+              }
+            },
+            {
+              "id": "scene_38",
+              "section_id": "s4",
+              "asset": "assets/scene_38.jpg",
+              "start_text": "هنا اعتراض يستحق أن نأخذه بجدية: أليس التريث",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_39",
+              "section_id": "s4",
+              "asset": "assets/scene_39.jpg",
+              "start_text": "الاعتراض صحيح. بعض القرارات لا يجب تسريعها، ومجرد",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand reviewing contract with pen",
+                "query_alt_en": "signing documents preparation",
+                "must_show": "يد تقلب صفحة عقد قبل التوقيع."
+              }
+            },
+            {
+              "id": "scene_40",
+              "section_id": "s4",
+              "asset": "assets/scene_40.jpg",
+              "start_text": "شخص يخطط لانتقال مدينة وعليه مصاريف أسرة يحتاج",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands calculating family moving boxes",
+                "query_alt_en": "household relocation planning table",
+                "must_show": "يدان تضعان قائمة أغراض انتقال منزل بوضوح."
+              }
+            },
+            {
+              "id": "scene_41",
+              "section_id": "s4",
+              "asset": "assets/scene_41.jpg",
+              "start_text": "لا يصلح أن نضع كل هؤلاء في خانة",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand resting beside unfinished tasks",
+                "query_alt_en": "tired hand beside paperwork",
+                "must_show": "يد تستريح بجوار أدوات عمل كثيرة دون سرير."
+              }
+            },
+            {
+              "id": "scene_42",
+              "section_id": "s4",
+              "asset": "assets/scene_42.jpg",
+              "start_text": "يقرر شخص أن يبحث عن دورة مناسبة. يقضي",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands repeatedly browsing course notebooks",
+                "query_alt_en": "comparing educational study books",
+                "must_show": "يدان تقارنان دفاتر تدريب متشابهة بلا نص مقروء."
+              }
+            },
+            {
+              "id": "scene_43",
+              "section_id": "s4",
+              "asset": "assets/scene_43.jpg",
+              "start_text": "وبعد نقطة معينة، قد يصبح طريقة لتأخير اختبار",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand marking one item from many",
+                "query_alt_en": "choosing among printed pages",
+                "must_show": "يد تحدّد خيارًا واحدًا وسط عدة أوراق."
+              }
+            },
+            {
+              "id": "scene_44",
+              "section_id": "s4",
+              "asset": "assets/scene_44.jpg",
+              "start_text": "ولا يمكن معرفة الفرق من الخارج دائمًا؛ الشخص",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands holding two separate decision folders",
+                "query_alt_en": "two paper folders on tabletop",
+                "must_show": "يدان ترتبان ملفي قرار منفصلين."
+              }
+            },
+            {
+              "id": "scene_45",
+              "section_id": "s4",
+              "asset": "assets/scene_45.jpg",
+              "start_text": "تجربة درس واحد ليست التزامًا بدراسة جامعية. سؤال",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand completing one practice exercise",
+                "query_alt_en": "simple skill exercise at desk",
+                "must_show": "يد تنجز خطوة تعليمية بسيطة."
+              }
+            },
+            {
+              "id": "scene_46",
+              "section_id": "s4",
+              "asset": "assets/scene_46.jpg",
+              "start_text": "وإن كانت كلفته مرتفعة، فصمّم بديلًا أكثر أمانًا",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands testing small project prototype",
+                "query_alt_en": "working on small handcrafted prototype",
+                "must_show": "يدان تجريان تجربة محدودة على نموذج بسيط."
+              }
+            },
+            {
+              "id": "scene_47",
+              "section_id": "s4",
+              "asset": "assets/scene_47.jpg",
+              "start_text": "أما عدم فتح الدرس أصلًا فلن يخبرك إن",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand opening closed learning folder",
+                "query_alt_en": "opening old study folder",
+                "must_show": "يد تفتح ملف التعلم لاستئناف التقييم."
+              }
+            },
+            {
+              "id": "scene_48",
+              "section_id": "s5",
+              "asset": "assets/scene_48.jpg",
+              "start_text": "فلنحوّل النقاش إلى اختبار صغير يمكن القيام به",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_49",
+              "section_id": "s5",
+              "asset": "assets/scene_49.jpg",
+              "start_text": "أحضر ورقة، واكتب عليها اسم قرار واحد. تجنّب",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands placing plain paper on desk",
+                "query_alt_en": "single blank sheet on desk",
+                "must_show": "يدان تضعان ورقة واحدة أمامهما."
+              }
+            },
+            {
+              "id": "scene_50",
+              "section_id": "s5",
+              "asset": "assets/scene_50.jpg",
+              "start_text": "عندما تكتب اسم القرار، يصبح محددًا بدل أن",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand writing one decision on blank sheet",
+                "query_alt_en": "hand writing personal plan",
+                "must_show": "يد تكتب قرارًا واحدًا دون كلمات أجنبية مقروءة."
+              }
+            },
+            {
+              "id": "scene_51",
+              "section_id": "s5",
+              "asset": "assets/scene_51.jpg",
+              "start_text": "وإن كان وقتًا، فاكتب كم ساعة متاحة فعلًا،",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands checking clock and budget notes",
+                "query_alt_en": "time and money planning desk",
+                "must_show": "يدان تنظران إلى وقت متاح ودفتر ميزانية."
+              }
+            },
+            {
+              "id": "scene_52",
+              "section_id": "s5",
+              "asset": "assets/scene_52.jpg",
+              "start_text": "الآن اكتب تجربة صغيرة لا تضر بعملك أو",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands opening short online lesson",
+                "query_alt_en": "starting laptop lesson at home",
+                "must_show": "يد تبدأ تمرينًا قصيرًا بلا واجهة أو نص مقروء."
+              }
+            },
+            {
+              "id": "scene_53",
+              "section_id": "s5",
+              "asset": "assets/scene_53.jpg",
+              "start_text": "ومن يفكر في مشروع يمكنه سؤال عملاء محتملين",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands asking customer about product sample",
+                "query_alt_en": "showing product sample to another",
+                "must_show": "يدان تقدمان نموذجًا بسيطًا لأخذ رأي دون وجوه."
+              }
+            },
+            {
+              "id": "scene_54",
+              "section_id": "s5",
+              "asset": "assets/scene_54.jpg",
+              "start_text": "هل حصلت على معلومة جديدة؟ هل اقتربت من",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "board": {
+                "layout": "steps",
+                "theme": "editorial",
+                "title": "ماذا تغيّر؟",
+                "items": [
+                  {
+                    "label": "مراجعة الأسبوع",
+                    "at_text": "هل حصلت على معلومة جديدة؟"
+                  },
+                  {
+                    "label": "قرينة قابلة للفحص",
+                    "at_text": "هل اقتربت من الشرط الواقعي؟"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "scene_55",
+              "section_id": "s5",
+              "asset": "assets/scene_55.jpg",
+              "start_text": "لنعد للمرة الأخيرة إلى الرجل الذي اشترى الحاسوب.",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man opening study laptop at home",
+                "query_alt_en": "adult opening computer to study",
+                "must_show": "يد تفتح الحاسوب لبدء درس قصير."
+              }
+            },
+            {
+              "id": "scene_56",
+              "section_id": "s5",
+              "asset": "assets/scene_56.jpg",
+              "start_text": "توقف عندما احتاج إلى شرح إضافي، وكتب السؤال",
+              "motion": "slow_zoom",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hand writing question after trying lesson",
+                "query_alt_en": "study notebook with unfinished question",
+                "must_show": "يد تكتب سؤال متابعة في دفتر بعد تجربة."
+              }
+            },
+            {
+              "id": "scene_57",
+              "section_id": "s5",
+              "asset": "assets/scene_57.jpg",
+              "start_text": "وربما تكون نتيجتك مختلفة. قد تقرر أن الاستقالة",
+              "motion": "slow_zoom",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands reviewing expenses and folders",
+                "query_alt_en": "reviewing household spending plans",
+                "must_show": "يدان تتفحصان نفقات قبل قرار كبير."
+              }
+            },
+            {
+              "id": "scene_58",
+              "section_id": "s5",
+              "asset": "assets/scene_58.jpg",
+              "start_text": "وربما تكتشف أن بعض الطريق كان متاحًا منذ",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_59",
+              "section_id": "s5",
+              "asset": "assets/scene_59.jpg",
+              "start_text": "والآن أصبح السؤال أدق: ما الذي يجب أن",
+              "motion": "slow_pan",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands checking one clear paper note",
+                "query_alt_en": "person holding one decision paper",
+                "must_show": "يد تثبت ورقة قرار واحدة في منتصف طاولة."
+              }
+            },
+            {
+              "id": "scene_60",
+              "section_id": "s5",
+              "asset": "assets/scene_60.jpg",
+              "start_text": "لا تحتاج إلى إعلان بداية جديدة كل صباح.",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover_main.jpg",
+            "text": "إلى متى تنتظر؟"
+          },
+          "publishing": {
+            "title": "لماذا تؤجل حياتك حتى تتحسن الظروف؟ 3 أسباب واختبار عملي",
+            "description": "هل تؤجل قرارًا مهمًا حتى تتحسن الظروف؟ في هذا الفيلم من نداء اليقظة نفحص ثلاثة تفسيرات: عائق واقعي يستحق الانتظار، ورغبة في ضمان لا يمكن الحصول عليه، وراحة مؤقتة يمنحها تأجيل المهمة. نختبر أمثلة من العمل والدخل والتعلم، ونوضح متى يكون التريث حكيمًا، ثم ننتهي باختبار عملي منخفض المخاطرة. \n\nالمراجع البحثية: APA Stress in America 2026؛ Steel (2007) DOI: 10.1037/0033-2909.133.1.65؛ Sirois & Pychyl (2013) DOI: 10.1111/spc3.12011. الاستطلاع أمريكي ولا يجوز تعميم نسبته على مجتمعات أخرى. \n\n#التسويف #اتخاذ_القرار #نداء_اليقظة #تطوير_الذات",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#تأجيل_الحياة",
+              "#التسويف",
+              "#اتخاذ_القرار"
+            ],
+            "tags": [
+              "تأجيل الحياة",
+              "التسويف",
+              "اتخاذ القرار",
+              "نداء اليقظة"
+            ]
+          },
+          "derivative": {
+            "start_text": "ربما يمنحك التأجيل راحة سريعة.",
+            "end_text": "إنها آلية محتملة، وليست حكمًا على شخصية كل من يؤجل.",
+            "hook": "التأجيل يريحك قليلًا",
+            "cover": {
+              "asset": "assets/derived_cover_01.jpg",
+              "text": "لماذا يريحك التأجيل؟"
+            },
+            "publishing": {
+              "title": "لماذا يريحك التأجيل الآن ويتعبك لاحقًا؟",
+              "description": "التأجيل قد يمنح راحة سريعة، لكنه لا يمحو أثر القرار المؤجل. مقتطف من فيلم نداء اليقظة.\n\nالفيلم كاملًا:",
+              "hashtags": [
+                "#التسويف",
+                "#تأجيل_الحياة",
+                "#نداء_اليقظة"
+              ],
+              "tags": [
+                "تأجيل الحياة",
+                "التسويف",
+                "اتخاذ القرار",
+                "نداء اليقظة"
+              ]
+            }
+          },
+          "extra_derivatives": [
+            {
+              "start_text": "التقديم على وظيفة ليس استقالة.",
+              "end_text": "وإن كانت كلفته مرتفعة، فصمّم بديلًا أكثر أمانًا أو انتظر شرطًا واضحًا.",
+              "hook": "هل الفشل يمنع التجربة؟",
+              "cover": {
+                "asset": "assets/derived_cover_02.jpg",
+                "text": "إن فشلت ماذا يحدث؟"
+              },
+              "publishing": {
+                "title": "الخوف من الفشل: كيف تختبر قرارك دون مغامرة كبيرة؟",
+                "description": "الفشل المحتمل لا يعني أن تختار بين المجازفة الكبرى والانسحاب. أحيانًا تكفي تجربة صغيرة مدروسة.\n\nالفيلم كاملًا:",
+                "hashtags": [
+                  "#الخوف_من_الفشل",
+                  "#اتخاذ_القرار",
+                  "#نداء_اليقظة"
+                ],
+                "tags": [
+                  "تأجيل الحياة",
+                  "التسويف",
+                  "اتخاذ القرار",
+                  "نداء اليقظة"
+                ]
+              }
+            }
+          ]
+        },
+        "zip_sha256": "ef3cfce5d4994f331bdf3d4387773bb53381ba9a903c05d456f96e4e8b42d6b3",
+        "asset_sha256": {
+          "assets/scene_11.jpg": "dc1907673cd702beb3896a3b64ec78470232a770385a2fc3fbce1ef95860a6a4",
+          "assets/scene_22.jpg": "4dd99d22faad5f91d0160f0e89c4dbabf1257ef9982c17575d0f0b2b63f51312",
+          "assets/scene_31.jpg": "7baae5de72fb4858dfd9d5b44be47409a20f9cfe73f96c35c4b481149c3e3608",
+          "assets/scene_09.jpg": "6db9bd7e000062ea2703f371af6157a81528f2106e2ce580e24776afc850bfbf",
+          "assets/scene_54.jpg": "10b2f267ffd7cbcf9cda8635b5d00181cd689497f49602305a72d8784a0c6f81",
+          "assets/derived_cover_01.jpg": "a118414fd5e267361cdee94c5ea081bee7f926876a96fa12929c9acbfd66b4b8",
+          "assets/scene_14.jpg": "fd02dd2d4aaea19d3a61539b44358fcca803544ed2f8af5e15daa9e81ab713e6",
+          "assets/scene_45.jpg": "6463f4f04e7734b0afb6e6d6c445d394c76473a3f75cbfee5cc0ad96969d153b",
+          "assets/cover_main.jpg": "d435e9f948e9c295c68ddf1f549dbc63f77d3cc28d08def9c0532059d2ba2860",
+          "assets/scene_41.jpg": "7382e26db8924a1d85550de1b7f3004750fd65774c6980a83ee64a2fe65af233",
+          "assets/scene_57.jpg": "a6551736a7b6a543e65ba74adc4652b5c8da9d897c9d6fa185b06f8ed632753a",
+          "assets/scene_27.jpg": "fbdf947477f62c65d0794223b437583d76e96fe6e68bec9a0fe8eaa419ab4d0a",
+          "assets/scene_04.jpg": "5c5aa96eeb6ff2faaf3c146ed5458caf3a26791446a6d92be5f55f58cb350e58",
+          "assets/scene_36.jpg": "55bce3cffd5af7b77012d51baf3a857b63ed3dac10c7967ab5696e3db30d3bf5",
+          "assets/scene_34.jpg": "1ce70c324fb9886494a3ced3a00098068c4bec34b7d7e4ea0321a3e2f53225dc",
+          "assets/scene_56.jpg": "1898161b93273642cfda0cd2c24121d9ec542b1739399b8b04abed7db442348b",
+          "assets/scene_16.jpg": "dcdd56802be9780c63643a86c83232de4803c7a75a932e9b4268b69d2edafae5",
+          "assets/scene_49.jpg": "286b4080c3f6ac63140db25876d138331f9b1a4ce7e4a0e2da2bb7028384046a",
+          "assets/scene_28.jpg": "8e071effba1cf1ff4d32123daea9689c7cc5c034e75b9fefb928ff2fbeff1809",
+          "assets/scene_42.jpg": "d84788c77d272ab34a4a1ca927d9277886ff9da367c0752cbc4b9d0ab72ae08e",
+          "assets/scene_32.jpg": "47919d6967610191255419ffe8ca43653c32d407dd76ecb576dd911a79c71285",
+          "assets/scene_58.jpg": "620261c09aa892ed2a124ff85c342f0e1506e970804822eafa4915764bee108e",
+          "assets/scene_15.jpg": "65e884b4dd3481abc1afaf1ea7e804ccee2b4d850f2d79d1b8002bc6703f6905",
+          "assets/scene_29.jpg": "3c7645ed1eec72b8b10edff7227f9242822943fcb4e31313a559ca9eb81e4539",
+          "assets/scene_25.jpg": "ebce76849fba8ff4f741e9a4c440870e2c3e40bef31e692dc2d2ccbd086fbbb0",
+          "assets/scene_24.jpg": "2a68312bf83cba8abe838e5dc0a12732d99ea5ddab6b42858f2f7d18220b8fb4",
+          "assets/scene_20.jpg": "a84c953dfdf229459590e607a99bc30fa0a15afb89ae66384e31c1cc9eb0ce25",
+          "assets/scene_53.jpg": "59dfd469f58a8eff593208de68d903188b1e5d497272c2274dc88cb014695a1a",
+          "assets/scene_03.jpg": "1630730f327d0d63e6d26c72c0e2f276244af7da9b14cf64766a162fe0b414ba",
+          "assets/scene_39.jpg": "841a0792dcb80bda3bcf4144b4cb57a7470a039106db72bf6b8c9e34eddc698f",
+          "assets/scene_19.jpg": "c70d93bcf86dde90071fb1be34fa6e53120ea96e6bff757c8a93b361070e6de0",
+          "assets/scene_37.jpg": "74df6a4c982fa16918713ca7c03fd0c2a1ebfa2db6a8a7cfbadd8e1db2913634",
+          "assets/scene_13.jpg": "0887404000edfb6fcba8fb9d3d075a5dc38614622266892ecad48a5464d3b055",
+          "assets/scene_40.jpg": "29c606037181ac75a047a3b66fbcee0618edb653ce73ff98e49f4e4724bb7833",
+          "assets/scene_23.jpg": "903cd449ebd1d646e837b6f8b3a5369275b90da4f44de81252ce83c81cffed08",
+          "assets/scene_43.jpg": "b2269be8ca6df8211556d75c9c60e36aea3396775f237e13df57a7683b699b1e",
+          "assets/scene_47.jpg": "b542775fa4ebdbc26c7363c183971e34048ed33647a0ef0e6ea16a3f0cd52c91",
+          "assets/scene_08.jpg": "90988ef4e4817d9c8f000d5a44688607f55ff13e7da6a3882d71dbc19c1d5dc4",
+          "assets/scene_17.jpg": "cca396aa55a2fed90d732e4a4f9cd1802358965ced5c1a3da3bdaec6a1b17379",
+          "assets/derived_cover_02.jpg": "622729e08aee422b0d58b9f94f7fc64296a4a5a46a9a1d467ae4c65a4fb1dc20",
+          "assets/scene_26.jpg": "037092bad09691aeeff665a85cf255eaa5c2ab3bfc5ada69b7101f099facdfd5",
+          "assets/scene_06.jpg": "d4bbef2fd3d477f1731cb8572139a4b06047bfbd5275385051d15b84af664817",
+          "assets/scene_18.jpg": "4a98927a986bbfa460fe89705f6b67453ec1b44f9aa36548360623ec21c97d9d",
+          "assets/scene_01.jpg": "17afde0069c6c2e6a9886c8c7ecfc9a96383c3b62a201c451f385e9e9f1444dd",
+          "assets/scene_30.jpg": "432f46241a74c6df7d4c430d76d4e3a33bed967e4d940169b3bd4776862f4f6e",
+          "assets/scene_38.jpg": "e0b37982a3d5f428f9c07e05c7580234bc5bb3976b24e97ca321cdbe56cde04d",
+          "assets/scene_48.jpg": "575ebc964d09ed7925f9b9b0c26f64c3b92283cb778805f526540a65684cd88e",
+          "assets/scene_07.jpg": "0f78b0f59d047b5c0f55fc6976843b591c159df264803f5d654665547b920902",
+          "assets/scene_44.jpg": "38121e74b2542854b97fab3484413e2ec7641576dc5cf5d9b454bd5158c524a9",
+          "assets/scene_50.jpg": "cc65d193a59ec6a0eaf2c004c60e9b221d1ff4a1c48d550601b000eccca98c66",
+          "assets/scene_60.jpg": "9b36c0c615317602b32b37e06f109a90ecacfd1ea8a4c067b035946404aab705",
+          "assets/scene_02.jpg": "9df64e0f299baf5acad84a4e70f530afe4b19fa66652fac4e222e0b7a3ba1c3a",
+          "assets/scene_52.jpg": "872f538cde72b268caba07a6b6c021ec92a425bd497fc60bce0f0f61499bc0d7",
+          "assets/scene_21.jpg": "70dce6d7f0723f6b14e28ffb8a9db7468711ea751c8ab2ba0280766a5f997c2e",
+          "assets/scene_10.jpg": "86c0a4a56cbe167c791bbebc6e1e15736865ab6524b0af59c4e56eb2080e60e5",
+          "assets/scene_46.jpg": "17239fe7205dcd964836f6096b24e97fc9e02d32ca0fc7353388720665365944",
+          "assets/scene_12.jpg": "278e8dba00c0d40a4102e0f19ef36334561e85093dcf051ca4957da83081e4c3",
+          "assets/scene_05.jpg": "3a0b8a60a32f0b507898c5bf50d50c7506b19cbf607704b171628e6fdec70820",
+          "assets/scene_33.jpg": "36890cb0c5906dfafb13f76d33b9c487e6da0c628b291c82e64c39a3eb685a0c",
+          "assets/scene_55.jpg": "4c159bf5857012528c2c3e95ab6c913aa372e0928e7943728bf8da93db0a3b52",
+          "assets/scene_51.jpg": "639e938e284321fc4ecffe5d5ca0d7c732183cd79bb739e75c7c6b8e5303c652",
+          "assets/scene_59.jpg": "69690f54f5680066da025dfa2c80cfc25e1b386275ce5c0e07375cf430a495ca",
+          "assets/scene_35.jpg": "504081966601d2a3406290fe072c683148e27bba1f0fa7f446853ed1d71a8e1d"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "041227206e65e24b8238d6f667354ab018d4f4a456dadbca67217e22079c97e4",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIROmrs-9u84Afcm6vrQCd-fHYcNjMyAAI8IgACSEBpU-YZySALWGUUPQQ",
+          "sha256": "ef3cfce5d4994f331bdf3d4387773bb53381ba9a903c05d456f96e4e8b42d6b3"
+        }
+      }
     }
   },
-  "current_request_id": "req-c80020449acd",
+  "current_request_id": "req-868730f1e0c4",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -40552,6 +41532,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-04T22:56:24Z",
+  "updated_at": "2026-11-05T21:58:14Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
