@@ -5,14 +5,37 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from clean_v2.podcast_captions import build_events
 from clean_v2.short_timed_text import (
-    _clean, build_rich_ass, validate_progressive_text, write_progressive_srt,
+    _clean, _cinematic_monoclip_caption_events, _require_monoclip_cairo_font,
+    build_rich_ass, validate_progressive_text, write_progressive_srt,
 )
 
 
 class MonoclipCaptionCompleteness(unittest.TestCase):
+    def test_monoclip_word_cards_are_strictly_two_or_three(self):
+        for count in range(2, 41):
+            with self.subTest(count=count):
+                text = " ".join(f"كلمة{i}" for i in range(count))
+                result = _cinematic_monoclip_caption_events([
+                    {"start": 0.0, "end": float(count), "text": text}
+                ])
+                self.assertTrue(all(2 <= len(e["text"].split()) <= 3 for e in result))
+                self.assertEqual(" ".join(e["text"] for e in result), text)
+                self.assertAlmostEqual(float(result[-1]["end"]), float(count))
+
+    def test_monoclip_rejects_other_font_substitutions(self):
+        completed = mock.Mock(stdout="Noto Sans", stderr="")
+        with mock.patch("clean_v2.short_timed_text.subprocess.run", return_value=completed):
+            from clean_v2.short_timed_text import ShortTimedTextError
+            with self.assertRaisesRegex(ShortTimedTextError, "cairo_bold_font_not_installed"):
+                _require_monoclip_cairo_font()
+        completed.stdout = "Cairo"
+        with mock.patch("clean_v2.short_timed_text.subprocess.run", return_value=completed):
+            _require_monoclip_cairo_font()
+
     def test_three_spoken_sections_keep_every_word_and_final_payoff(self):
         parts = [
             "قد تمشي وسط أجمل منظر... ولا تراه. كيف يحدث ذلك؟",
@@ -44,6 +67,12 @@ class MonoclipCaptionCompleteness(unittest.TestCase):
             self.assertEqual(normalized, _clean(" ".join(parts)))
             self.assertEqual(parsed[-1]["end"], spans[-1][1])
             self.assertTrue(parsed[-1]["text"].endswith("واحدة."))
+            mini = _cinematic_monoclip_caption_events(parsed)
+            self.assertTrue(all(2 <= len(e["text"].split()) <= 3 for e in mini))
+            self.assertEqual(_clean(" ".join(e["text"] for e in mini)), normalized)
+            self.assertEqual(mini[-1]["end"], parsed[-1]["end"])
+            self.assertTrue(mini[-1]["text"].endswith("واحدة."))
+            self.assertGreater(len(mini), len(parsed))
             styled = [
                 dict(event, role="hook" if i == 0 else
                      ("payoff" if i == len(parsed)-1 else "beat"))
