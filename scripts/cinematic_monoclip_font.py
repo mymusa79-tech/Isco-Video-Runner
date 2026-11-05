@@ -65,7 +65,7 @@ def prepare_cinematic_cairo(request: Mapping[str, Any]) -> str:
         # Verify the exact immutable font bytes using Git's blob object hash.
         contents = temporary.read_bytes()
         blob_hash = hashlib.sha1(
-            b"blob " + str(len(contents)).encode("ascii") + b"\\0" + contents
+            b"blob " + str(len(contents)).encode("ascii") + bytes((0,)) + contents
         ).hexdigest()
         if blob_hash != CAIRO_GIT_BLOB_SHA:
             raise RuntimeError("monoclip_cairo_download_checksum_invalid")
