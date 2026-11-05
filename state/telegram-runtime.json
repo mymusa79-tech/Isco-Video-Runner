@@ -1,10 +1,10 @@
 {
   "active": true,
-  "scope": "long",
-  "kind": "long",
-  "topic": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
-  "stage": "🎬 الطويل · 5/6 المونتاج ✅",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42117529532",
+  "scope": "short",
+  "kind": "",
+  "topic": "راتبك ليس لك وحدك",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42129917212",
   "result": "",
-  "updated_at": 1793920177
+  "updated_at": 1793921468
 }
