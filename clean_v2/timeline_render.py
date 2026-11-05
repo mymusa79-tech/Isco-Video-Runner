@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -184,6 +185,18 @@ def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping
         isinstance(event, Mapping) and event.get("kind") == "prayer"
         for event in timeline.get("identity_events", [])
     )
+    has_outro = any(
+        isinstance(event, Mapping) and event.get("kind") == "outro"
+        for event in timeline.get("identity_events", [])
+    )
+    if not has_prayer and not has_outro:
+        # Dedicated Monoclip: no extra inputs, re-encoding, overlay or SFX.
+        # Copy the finished, measured story without introducing an outro.
+        if str(timeline.get("template") or "") == "ala_mahl":
+            raise RuntimeError("ala_mahl_requires_prayer_identity")
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        return
     if not has_prayer:
         # Cinematic Monoclip's story is never interrupted. Keep the approved
         # original end-card/subscription sound only in its measured outro.
