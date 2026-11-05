@@ -80,6 +80,9 @@ def identity_timing_profile(fmt: str, *, template: str = "") -> dict[str, float]
     profile = dict(_TIMING_PROFILES[fmt])
     if fmt == "short" and template == "ala_mahl":
         profile["final_silence_seconds"] = ALA_MAHL_OUTRO_SECONDS
+    elif fmt == "short" and template == "cinematic_monoclip":
+        # No branded outro or prayer card: keep only a brief natural ending.
+        profile["final_silence_seconds"] = 0.35
     return profile
 
 
