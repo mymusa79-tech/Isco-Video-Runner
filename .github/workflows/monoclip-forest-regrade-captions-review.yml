@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Install FFmpeg and Arabic shaping tools without paid providers
         run: |
-          python -m pip -q install imageio-ffmpeg pillow
+          python -m pip -q install imageio-ffmpeg pillow fonttools
           ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$HOME/ffmpeg"
           echo "$HOME" >> "$GITHUB_PATH"
       - name: Fetch genuine original 1080x1920 stock and Cairo locally
@@ -25,8 +25,24 @@ jobs:
           curl -fLSsS --retry 2 --max-time 90 'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' -o qa/private-font/Cairo.ttf
           test "$(stat -c%s qa/real-original.mp4)" -gt 1000000
           test "$(stat -c%s qa/private-font/Cairo.ttf)" -gt 100000
+          python - <<'PY'
+          from pathlib import Path
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib.instancer import instantiateVariableFont
+          root=Path("qa/private-font")
+          variable=root/"Cairo.ttf"
+          font=TTFont(str(variable))
+          available={a.axisTag for a in font["fvar"].axes}
+          axes={"wght":700}
+          if "slnt" in available: axes["slnt"]=0
+          static=instantiateVariableFont(font,axes,inplace=False,updateFontNames=True)
+          static.save(str(root/"Cairo-Bold.ttf"))
+          font.close()
+          static.close()
+          variable.unlink()
+          PY
           fc-cache -f qa/private-font
-          fc-scan -f '%{family}\n' qa/private-font/Cairo.ttf | head -1 | grep -i cairo
+          fc-scan -f '%{family}, %{style}\n' qa/private-font/Cairo-Bold.ttf | head -1 | grep -i cairo
       - name: Author 8 meaningful full-phrase caption cards; preserve all Arabic words
         run: |
           python - <<'PY'
@@ -66,7 +82,7 @@ jobs:
           [Events]
           Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
           """
-          fontfile=root/"private-font/Cairo.ttf"
+          fontfile=root/"private-font/Cairo-Bold.ttf"
           lines=[]
           srt_lines=[]
           script=[]
@@ -105,15 +121,20 @@ jobs:
               -i qa/FOREST_CINEMATIC_COLOR_1080P_REVISED_SILENT.mp4 \
               -frames:v 1 "qa/frame_$(printf '%02d' "$second").png"
           done
-          ffprobe -v error -show_entries format=duration,size:stream=width,height,codec_type \
-            -of json qa/FOREST_CINEMATIC_COLOR_1080P_REVISED_SILENT.mp4 > qa/probe.json
           python - <<'PY'
-          import json
-          r=json.load(open("qa/probe.json"))
-          v=[s for s in r["streams"] if s["codec_type"]=="video"][0]
-          assert (v["width"],v["height"])==(1080,1920), v
-          assert 31.0<float(r["format"]["duration"])<31.6, r
-          assert not any(s["codec_type"]=="audio" for s in r["streams"])
+          import json, subprocess
+          from pathlib import Path
+          import imageio_ffmpeg as iff
+          p=Path("qa/FOREST_CINEMATIC_COLOR_1080P_REVISED_SILENT.mp4")
+          decoder=iff.read_frames(str(p))
+          info=next(decoder)
+          decoder.close()
+          assert tuple(info["size"]) == (1080,1920), info
+          assert 31.0 < info["duration"] < 31.6, info
+          probe=subprocess.run([iff.get_ffmpeg_exe(),"-hide_banner","-i",str(p)],capture_output=True,text=True)
+          assert "Video:" in probe.stderr
+          assert "Audio:" not in probe.stderr
+          Path("qa/probe.json").write_text(json.dumps({"resolution":"1080x1920","duration":info["duration"],"audio":False},indent=2))
           print("verified original stock 1080p visual and no substituted audio")
           PY
           rm -rf qa/private-font qa/real-original.mp4 qa/render.txt
