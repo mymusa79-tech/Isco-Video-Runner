@@ -1131,7 +1131,7 @@ def apply_short_timed_text(
     bw_cinematic = False
     if manifest_path.is_file():
         manifest_doc = json.loads(manifest_path.read_text(encoding="utf-8"))
-        bw_cinematic = manifest_doc.get("visual_style") == "bw_cinematic"
+        bw_cinematic = manifest_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     if (Path(output_dir) / "production.json").is_file():
         from .podcast_captions import build_events
         events, _timing = build_events(Path(output_dir), fmt="short", caption_roles={"hook", "topic", "outro"})
