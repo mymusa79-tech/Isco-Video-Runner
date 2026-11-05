@@ -12,7 +12,11 @@ jobs:
     timeout-minutes: 16
     steps:
       - name: Install FFmpeg
-        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+        run: |
+          if command -v ffmpeg && command -v ffprobe; then exit 0; fi
+          timeout 110s sudo apt-get update -qq
+          timeout 110s sudo apt-get install -y -qq ffmpeg
+          ffmpeg -filters | grep -w subtitles
       - name: Download genuine Pexels footage and Cairo typeface for internal rendering
         shell: bash
         run: |
