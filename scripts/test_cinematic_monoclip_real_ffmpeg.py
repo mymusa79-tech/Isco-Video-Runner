@@ -6,6 +6,7 @@ Pexels/Gemini credentials or paid providers. Synthetic colour bars are NOT conte
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -98,6 +99,16 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
                     self.assertGreater(max(main)-min(main), 18, main)
                     self.assertGreater(max(ending)-min(ending), 40, ending)
                 self.assertFalse((root / ".timeline-body.mp4").exists())
+                evidence_directory = os.environ.get("MONOCLIP_QA_OUTPUT_DIR", "").strip()
+                if evidence_directory:
+                    destination = Path(evidence_directory)
+                    destination.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(output, destination / f"{style}_synthetic.mp4")
+                    for at_seconds, name in ((1.70, "main"), (3.80, "end")):
+                        run("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                            "-ss", str(at_seconds), "-i", str(output),
+                            "-frames:v", "1", "-vf", "scale=270:-2",
+                            str(destination / f"{style}_{name}.png"))
                 report = json.loads((root / "edit-decision-contract.json").read_text())
                 self.assertEqual(len(report["slots"]), 3)
                 self.assertFalse(any(slot.get("section_id") == "__identity__" and
