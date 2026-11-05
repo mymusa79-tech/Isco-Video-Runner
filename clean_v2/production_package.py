@@ -172,10 +172,10 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
-    bw_cinematic = doc.get("visual_style") == "bw_cinematic"
+    cinematic_monoclip = doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     if "visual_style" in doc:
-        if not bw_cinematic or fmt != "short" or doc["template"] == "ala_mahl":
-            _error("visual_style=bw_cinematic متاح لشورت نداء فقط.")
+        if not cinematic_monoclip or fmt != "short" or doc["template"] == "ala_mahl":
+            _error("Cinematic Monoclip متاح لشورت نداء فقط: bw_cinematic أو color_cinematic.")
         if "stock_policy" in doc:
             _error("BW Monoclip: احذف stock_policy؛ البدائل ليست تسلسلاً.")
     _text(doc["title"], "title", 120)
@@ -235,7 +235,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         if key in {"A", "B"} and fmt != "podcast":
             _error("توجيهات A/B للبودكاست فقط.")
     editing = _object(doc["editing"], {"music"}, {"track_id", "asset", "delay_seconds"}, field="editing")
-    if bw_cinematic and editing.get("music") != "none":
+    if cinematic_monoclip and editing.get("music") != "none":
         _error("BW Monoclip: لا موسيقى في الشورت السينمائي.")
     music_asset = None
     if editing["music"] == "none":
@@ -357,7 +357,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):
         _error("يجب أن تغطي الصور جميع أقسام النص.")
-    if bw_cinematic:
+    if cinematic_monoclip:
         # Preserve the three-section Short contract: still / one long video / still.
         if len(scenes) != 3 or [scene["section_id"] for scene in scenes] != ["s1", "s2", "s3"]:
             _error("BW Monoclip: مشهد واحد لكل قسم s1/s2/s3.")
