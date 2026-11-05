@@ -128,7 +128,15 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
         plan["short_template"] = doc["template"]
     script = validate_script({"title": doc["title"], "sections": sections}, plan)
     opener, closer = _brand_signature() if fmt == "film" else ("", "")
-    inject_spoken_identity(script["sections"], fmt=fmt, opener=opener, closer=closer)
+    # Cinematic Monoclip is explicitly prayer-free from the first imported
+    # artifact onward; never insert prayer only to strip it again downstream.
+    cinematic_monoclip = fmt == "short" and doc.get("visual_style") in {
+        "bw_cinematic", "color_cinematic"
+    }
+    inject_spoken_identity(
+        script["sections"], fmt=fmt, opener=opener, closer=closer,
+        prayer_enabled=not cinematic_monoclip,
+    )
     assert_spoken_identity(script["sections"], fmt=fmt, opener=opener, closer=closer)
     # There is no CTA relocation/rewriting in ZIP mode. A CTA can be part of the
     # approved text, at the location the author chose.
@@ -142,7 +150,8 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     atomic_write_json(out_dir / "brief.json", dict(brief))
     atomic_write_json(out_dir / "narrative-identity.json", {
         "schema_version": 1, "source": "approved-zip-existing-format-identity", "status": "pass",
-        "opener": opener, "closer": closer, "prayer_sentence": PRAYER_SENTENCE,
+        "opener": opener, "closer": closer,
+        "prayer_sentence": "" if cinematic_monoclip else PRAYER_SENTENCE,
         "transitions": [], "provider_calls_added": 0,
     })
     (out_dir / "narration.txt").write_text("\n\n".join(s["narration"] for s in script["sections"]) + "\n", encoding="utf-8")
