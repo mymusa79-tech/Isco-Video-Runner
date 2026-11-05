@@ -5196,6 +5196,19 @@ def _build_section_body_segments(
     return segments
 
 
+def _require_bw_monoclip_measured_main_slot(slots: list[dict[str, Any]]) -> None:
+    """Never hide a short BW main clip with a cloned last frame at final render."""
+    main = [slot for slot in slots if slot.get("section_id") == "s2" and slot.get("kind") == "topic"]
+    if len(main) != 1:
+        raise RuntimeError("bw_cinematic_main_slot_missing_or_split")
+    length = probe_duration(Path(main[0]["path"]))
+    required = float(main[0]["duration_seconds"])
+    if length + 0.08 < required:
+        raise RuntimeError(
+            f"bw_cinematic_main_clip_short_for_measured_timeline:{length:.2f}<{required:.2f}"
+        )
+
+
 def render_video(
     narration_path: Path,
     visual_paths: list[Path],
@@ -5294,6 +5307,8 @@ def render_video(
     if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
         visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
         _extend_last_slot_to_terminal(visual_schedule, str(timeline.get("template") or ""), duration)
+        if bw_cinematic:
+            _require_bw_monoclip_measured_main_slot(visual_schedule)
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
         if approved_package and fmt in {"film", "podcast", "short"}:
