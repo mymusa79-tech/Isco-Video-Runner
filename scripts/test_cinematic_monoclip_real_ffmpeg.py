@@ -1,4 +1,4 @@
-"""Real offline FFmpeg smoke: Color/BW Monoclip, exact voice end, no outro.
+"""Real offline FFmpeg smoke: one continuous pinned shot, exact voice end, no outro.
 
 This exercises clean_v2.media.render_video on real synthetic video/audio, without
 Pexels/Gemini credentials or paid providers. Synthetic colour bars are NOT content.
@@ -33,7 +33,7 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
     def _fixture(self, root, style):
         srcs = [root / "hook.mp4", root / "main.mp4", root / "payoff.mp4"]
         self._make_lavfi(srcs[0], "color=c=yellow:size=270x480:rate=30", 1.3)
-        self._make_lavfi(srcs[1], "color=c=red:size=270x480:rate=30,fade=t=in:st=0:d=0.4", 3.0)
+        self._make_lavfi(srcs[1], "color=c=red:size=270x480:rate=30,fade=t=in:st=0:d=0.4", 4.6)
         self._make_lavfi(srcs[2], "color=c=cyan:size=270x480:rate=30", 1.4)
         wav = root / "narration.wav"
         run("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -49,6 +49,7 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
                 "role": "hook" if i == 0 else "body",
                 "source_actual": "owner_art" if i != 1 else "stock_video",
                 "provider": "owner_art" if i != 1 else "pexels",
+                **({"media_kind": "video", "stock_pinned": True} if i == 1 else {}),
                 "owner_asset": f"assets/scene_0{i+1}.png",
                 "owner_transition": "cut",
             }
@@ -90,14 +91,20 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
                 self.assertTrue(output.is_file())
                 self.assertGreater(output.stat().st_size, 2048)
                 self.assertAlmostEqual(probe_duration(output), 4.1, delta=0.18)
+                opening = self._pixel(output, 0.65)
                 main = self._pixel(output, 1.70)
                 ending = self._pixel(output, 3.80)
                 if style == "bw_cinematic":
+                    self.assertLessEqual(max(opening)-min(opening), 6, opening)
                     self.assertLessEqual(max(main)-min(main), 6, main)
                     self.assertLessEqual(max(ending)-min(ending), 6, ending)
+                    self.assertLess(opening[0], 140, opening)
+                    self.assertLess(ending[0], 140, ending)
                 else:
-                    self.assertGreater(max(main)-min(main), 18, main)
-                    self.assertGreater(max(ending)-min(ending), 40, ending)
+                    self.assertGreater(opening[0], opening[1] * 1.4, opening)
+                    self.assertGreater(main[0], main[1] * 1.4, main)
+                    self.assertGreater(ending[0], ending[1] * 1.4, ending)
+                    self.assertLess(ending[2], 80, ending)  # not a cyan still at payoff
                 self.assertFalse((root / ".timeline-body.mp4").exists())
                 evidence_directory = os.environ.get("MONOCLIP_QA_OUTPUT_DIR", "").strip()
                 if evidence_directory:
@@ -110,7 +117,7 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
                             "-frames:v", "1", "-vf", "scale=270:-2",
                             str(destination / f"{style}_{name}.png"))
                 report = json.loads((root / "edit-decision-contract.json").read_text())
-                self.assertEqual(len(report["slots"]), 3)
+                self.assertEqual(len(report["slots"]), 1)  # same shot from hook to payoff
                 self.assertFalse(any(slot.get("section_id") == "__identity__" and
                                      slot.get("start", 0) >= 3.15
                                      for slot in report["slots"]))
