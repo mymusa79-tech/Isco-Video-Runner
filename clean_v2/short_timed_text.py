@@ -1000,11 +1000,20 @@ def render_progressive_text(
     srt_path: Path,
     output: Path,
     bw_cinematic: bool = False,
+    monoclip: bool = False,
 ) -> dict[str, Any]:
     validated = validate_progressive_text(events)
+    if monoclip:
+        _require_monoclip_cairo_font()
     srt = write_progressive_srt(events, Path(srt_path))
     slate_index = None
     layout_hints = build_composition_hints(events)
+    if monoclip:
+        for hint, item in zip(layout_hints, validated):
+            # Same Cairo Bold as normal Nidaa Short; intentionally ~20% larger.
+            hint["font_size"] = 212 if item.role in {"hook", "payoff"} else 200
+            hint["x"] = 540
+            hint["y"] = 1260
     ass_path = Path(srt_path).with_suffix(".rich.ass")
     ass_path.write_text(
         build_rich_ass(events, slate_index=None, layout_hints=layout_hints, bw_cinematic=bw_cinematic),
@@ -1077,7 +1086,8 @@ def render_progressive_text(
         "body_wrap_words": BODY_WRAP_WORDS,
         "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
-        "caption_max_words": CAPTION_MAX_WORDS,
+        "caption_max_words": 3 if monoclip else CAPTION_MAX_WORDS,
+        "cinematic_monoclip_caption_mode": "two_or_three_words_cairo_bold_large" if monoclip else None,
         "caption_y": CAPTION_Y,
         "caption_x": CAPTION_X,
         "composition_schema_version": COMPOSITION_SCHEMA_VERSION,
@@ -1118,6 +1128,74 @@ def render_progressive_text(
 
 
 
+
+def _cinematic_monoclip_caption_events(
+    events: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Keep ALL spoken words; show two or three words at once, never a sentence card.
+
+    Fractional word timings are estimated inside the measured narration phrase,
+    not claimed to be forced-aligned. Preserve section/phrase pauses and order.
+    A one-word entire narration is invalid for this special editorial format.
+    """
+    tokens: list[tuple[str, float, float]] = []
+    for event in events:
+        words = str(event.get("text") or "").strip().split()
+        if not words:
+            continue
+        start = float(event["start"])
+        end = float(event["end"])
+        if end <= start:
+            raise ShortTimedTextError("monoclip_caption_source_timing_invalid")
+        # Arabic phrase words receive proportional timing, without rewriting speech.
+        weights = [max(1, len(_clean(word))) for word in words]
+        total = sum(weights)
+        cursor = start
+        for i, (word, weight) in enumerate(zip(words, weights)):
+            stop = end if i == len(words) - 1 else cursor + (end - start) * weight / total
+            tokens.append((word, cursor, stop))
+            cursor = stop
+    if len(tokens) < 2:
+        raise ShortTimedTextError("monoclip_caption_needs_at_least_two_spoken_words")
+    result: list[dict[str, object]] = []
+    cursor = 0
+    while cursor < len(tokens):
+        remaining = len(tokens) - cursor
+        # No orphaned one-word card: 7 -> 3+2+2; 4 -> 2+2.
+        count = 2 if remaining == 4 or remaining == 2 else min(3, remaining)
+        if count < 2:
+            raise ShortTimedTextError("monoclip_caption_single_word_card_forbidden")
+        group = tokens[cursor:cursor + count]
+        result.append({
+            "start": round(group[0][1], 3),
+            "end": round(group[-1][2], 3),
+            "text": " ".join(word for word, _start, _end in group),
+            "role": "beat",
+        })
+        cursor += count
+    if _clean(" ".join(x["text"] for x in result)) != _clean(
+        " ".join(str(event.get("text") or "") for event in events)
+    ):
+        raise ShortTimedTextError("monoclip_caption_words_mismatch")
+    if any(not 2 <= len(str(event["text"]).split()) <= 3 for event in result):
+        raise ShortTimedTextError("monoclip_caption_must_have_two_or_three_words")
+    return result
+
+
+def _require_monoclip_cairo_font() -> None:
+    """No silent substitution with Noto or another Arabic font on this preset."""
+    try:
+        probe = subprocess.run(
+            ["fc-match", "-f", "%{family}", "Cairo:weight=bold"],
+            check=True, capture_output=True, text=True, timeout=15,
+            env=_secret_free_subprocess_env(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ShortTimedTextError("monoclip_cairo_bold_font_not_installed") from exc
+    if "cairo" not in probe.stdout.casefold():
+        raise ShortTimedTextError("monoclip_cairo_bold_font_not_installed")
+
+
 def apply_short_timed_text(
     *,
     output_dir: Path,
@@ -1129,12 +1207,16 @@ def apply_short_timed_text(
     timeline_path = Path(output_dir) / "short-voice-owned-timeline.json"
     manifest_path = Path(output_dir) / "production.json"
     bw_cinematic = False
+    cinematic_monoclip = False
     if manifest_path.is_file():
         manifest_doc = json.loads(manifest_path.read_text(encoding="utf-8"))
-        bw_cinematic = manifest_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+        cinematic_monoclip = manifest_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+        bw_cinematic = cinematic_monoclip
     if (Path(output_dir) / "production.json").is_file():
         from .podcast_captions import build_events
         events, _timing = build_events(Path(output_dir), fmt="short", caption_roles={"hook", "topic", "outro"})
+        if cinematic_monoclip:
+            events = _cinematic_monoclip_caption_events(events)
         events = [dict(e, role="hook" if i == 0 else ("payoff" if i == len(events)-1 else "beat"))
                   for i, e in enumerate(events)]
     elif timeline_path.is_file():
@@ -1163,6 +1245,7 @@ def apply_short_timed_text(
         srt_path=Path(output_dir) / "short-timed-text.srt",
         output=rendered,
         bw_cinematic=bw_cinematic,
+        monoclip=cinematic_monoclip,
     )
     os.replace(rendered, Path(final_path))
     return {
