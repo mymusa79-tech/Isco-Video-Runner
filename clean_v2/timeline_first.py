@@ -456,6 +456,8 @@ def build_voice_owned_timeline(
         "duration_repair_attempts": 0,
         "provider_calls_added": 0,
     }
+    if cinematic_monoclip:
+        base["cinematic_monoclip"] = True  # explicit opt-in for prayer/outro-free render
     if voice_seconds > maximum + 1e-6:
         blocked = {
             **base,
