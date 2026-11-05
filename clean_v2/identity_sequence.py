@@ -566,6 +566,7 @@ def inject_spoken_identity(
     fmt: str,
     opener: str = "",
     closer: str = "",
+    prayer_enabled: bool = True,
 ) -> None:
     """Keep the approved spoken order: hook -> prayer -> channel definition -> topic.
 
@@ -594,6 +595,13 @@ def inject_spoken_identity(
             if phrase:
                 narration = " ".join(narration.replace(phrase, " ").split()).strip()
         section["narration"] = narration
+
+    # Cinematic Monoclip deliberately has no prayer interrupt or intro card.
+    # The writer owns the whole hook; the original normal-Short path is untouched.
+    if fmt == "short" and not prayer_enabled:
+        if not str(sections[0].get("narration") or "").strip():
+            raise RuntimeError("cinematic_monoclip_hook_missing")
+        return
 
     first = str(sections[0].get("narration") or "").strip()
     hook = _opening_hook_for(fmt, first)
