@@ -733,9 +733,13 @@ class OwnerArtVisualSource:
             if beat.get("owner_stock"):
                 pinned = bool(beat["owner_stock"].get("url") or beat["owner_stock"].get("urls"))
                 if pinned:
-                    admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index,
-                                                            template=str(doc.get("template") or ""),
-                                                            bw_cinematic=bw_cinematic)
+                    # Preserve the exact legacy pinned-stock call shape for old packs.
+                    # Monoclip alone opts into the strict full-duration video guard.
+                    pinned_options = {"bw_cinematic": True} if bw_cinematic else {}
+                    admitted, reason = self._try_pinned(
+                        beat, asset, output_dir, fmt, seconds, index,
+                        template=str(doc.get("template") or ""), **pinned_options,
+                    )
                 else:
                     admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
