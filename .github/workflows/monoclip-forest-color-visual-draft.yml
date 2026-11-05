@@ -1,0 +1,96 @@
+name: "Cinematic Monoclip — forest color visual draft"
+on:
+  push:
+    branches: [feature/bw-monoclip-optin-v1]
+    paths:
+      - .github/workflows/monoclip-forest-color-visual-draft.yml
+  workflow_dispatch:
+
+jobs:
+  visual-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - name: Install FFmpeg
+        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Download genuine Pexels footage and Cairo typeface for internal rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p visual_draft/fonts
+          curl -fLSsS --retry 2 --max-time 180 \
+            'https://videos.pexels.com/video-files/28464399/12391291_1080_1920_30fps.mp4' \
+            -o visual_draft/original.mp4
+          curl -fLSsS --retry 2 --max-time 90 \
+            'https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
+            -o visual_draft/fonts/Cairo.ttf
+          test "$(stat -c%s visual_draft/original.mp4)" -gt 1000000
+          test "$(stat -c%s visual_draft/fonts/Cairo.ttf)" -gt 100000
+          fc-scan --format '%{family}\n' visual_draft/fonts/Cairo.ttf | head -1 | grep -i Cairo
+      - name: Write the real Arabic story captions in Cairo Bold (no logo or outro)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("visual_draft")
+          segments=[
+            (0.0,4.10,"هل عشت يومًا كاملًا…\\Nولم تنتبه إليه؟"),
+            (4.10,8.40,"تخرج للمشي،\\Nلكن ذهنك سبق خطواتك إلى الغد."),
+            (8.40,12.70,"تسأل: متى أنتهي؟\\Nوماذا ينتظرني بعد هذا الطريق؟"),
+            (12.70,17.30,"بينما هنا…\\Nيتسلل الضوء بين الأشجار."),
+            (17.30,22.00,"والطريق يتبدّل أمامك،\\Nوأنت مشغول بنهايته فقط."),
+            (22.00,27.00,"جرّب أن تُبطئ قليلًا.\\Nدع عينك تلحق بخطواتك."),
+            (27.00,34.20,"ربما كان الجمال حاضرًا طوال الوقت…\\Nوأنت الذي لم تلتفت إليه."),
+          ]
+          def fmt(t):
+              m=int(t//60); s=int(t%60); c=int(round(t%1*100))
+              return f"0:{m:02d}:{s:02d}.{c:02d}"
+          styles="""[Script Info]
+          ScriptType: v4.00+
+          WrapStyle: 2
+          ScaledBorderAndShadow: yes
+          PlayResX: 540
+          PlayResY: 960
+          YCbCr Matrix: TV.709
+          
+          [V4+ Styles]
+          Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+          Style: Body,Cairo,33,&H00F5F5F5,&H00F5F5F5,&H00050B11,&H00000000,-1,0,0,0,100,100,0,0,1,3,0,2,38,38,162,1
+          Style: Hook,Cairo,43,&H00FFFFFF,&H00FFFFFF,&H00050B11,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,2,32,32,165,1
+          Style: Payoff,Cairo,35,&H00FFFFFF,&H00FFFFFF,&H00050B11,&H00000000,-1,0,0,0,100,100,0,0,1,3,0,2,35,35,165,1
+          
+          [Events]
+          Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+          """
+          lines=[]
+          for i,(start,end,text) in enumerate(segments):
+              role="Hook" if i==0 else ("Payoff" if i==len(segments)-1 else "Body")
+              lines.append(f"Dialogue: 0,{fmt(start)},{fmt(end)},{role},,0,0,0,,{{\\fad(150,150)}}{text}")
+          (root/"captions.ass").write_text(styles+"\n".join(lines)+"\n",encoding="utf-8")
+          PY
+      - name: Render 34-second actual forest footage visual preview (silent, not final video)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -y -hide_banner -loglevel warning \
+            -i visual_draft/original.mp4 \
+            -vf "scale=540:960:flags=lanczos,eq=contrast=1.05:brightness=-0.02:saturation=1.04,tpad=start_mode=clone:start_duration=1.25:stop_mode=clone:stop_duration=1.40,trim=duration=34.20,setpts=PTS-STARTPTS,subtitles=visual_draft/captions.ass:fontsdir=visual_draft/fonts" \
+            -t 34.20 -an -r 25 -c:v libx264 -crf 20 -preset medium -pix_fmt yuv420p \
+            -movflags +faststart visual_draft/NIDAA_COLOR_MONOCLIP_FOREST_VISUAL_PREVIEW.mp4
+          for second in 2 10 20 30; do
+            ffmpeg -y -hide_banner -loglevel error -ss "$second" \
+              -i visual_draft/NIDAA_COLOR_MONOCLIP_FOREST_VISUAL_PREVIEW.mp4 \
+              -frames:v 1 "visual_draft/preview_$(printf '%02d' "$second").png"
+          done
+          ffprobe -v error -show_entries format=duration,size:stream=codec_type,width,height \
+            -of json visual_draft/NIDAA_COLOR_MONOCLIP_FOREST_VISUAL_PREVIEW.mp4 \
+            > visual_draft/render_probe.json
+          cat visual_draft/render_probe.json
+          rm -rf visual_draft/original.mp4 visual_draft/fonts
+      - name: Upload real Pexels visual draft without any font files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: forest-color-monoclip-visual-draft-no-voice
+          path: visual_draft/
+          retention-days: 7
+          if-no-files-found: error
