@@ -5,11 +5,17 @@ on:
     branches: [feature/bw-monoclip-optin-v1]
     paths:
       - clean_v2/production_package.py
+      - clean_v2/ready_production.py
+      - clean_v2/identity_sequence.py
+      - clean_v2/pipeline.py
+      - clean_v2/timeline_first.py
+      - clean_v2/timeline_render.py
       - clean_v2/owner_art.py
       - clean_v2/media.py
       - clean_v2/short_timed_text.py
       - scripts/test_bw_monoclip_optin.py
       - scripts/test_bw_monoclip_runtime.py
+      - scripts/test_cinematic_monoclip_identity.py
       - .github/workflows/bw-monoclip-optin-tests.yml
   workflow_dispatch:
 
@@ -30,6 +36,6 @@ jobs:
       - name: Install local test dependencies only
         run: python -m pip install 'Pillow==12.3.0'
       - name: Compile all changed modules and tests
-        run: python -m py_compile clean_v2/production_package.py clean_v2/owner_art.py clean_v2/media.py clean_v2/short_timed_text.py scripts/test_bw_monoclip_optin.py scripts/test_bw_monoclip_runtime.py
+        run: python -m py_compile clean_v2/production_package.py clean_v2/owner_art.py clean_v2/media.py clean_v2/short_timed_text.py scripts/test_bw_monoclip_optin.py scripts/test_bw_monoclip_runtime.py scripts/test_cinematic_monoclip_identity.py clean_v2/ready_production.py clean_v2/identity_sequence.py clean_v2/pipeline.py clean_v2/timeline_first.py clean_v2/timeline_render.py
       - name: Run BW contract and existing package regression tests (no network)
-        run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_production_package -v
+        run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_cinematic_monoclip_identity scripts.test_production_package -v
