@@ -5209,6 +5209,12 @@ def render_video(
     width, height = ((1080, 1920) if portrait else (1920, 1080))
     output_dir = Path(output_path).parent
     approved_package = (output_dir / "production.json").is_file()
+    # BW is a per-package opt-in. The identity/prayer overlays are applied
+    # only AFTER the monochrome body render, so their original colours stay intact.
+    bw_cinematic = False
+    if approved_package and fmt == "short":
+        package_doc = json.loads((output_dir / "production.json").read_text(encoding="utf-8"))
+        bw_cinematic = package_doc.get("visual_style") == "bw_cinematic"
     assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
     preserve_source_colors = approved_package or fmt == "podcast" or any(
         isinstance(asset, Mapping) and (asset.get("source_actual") in {"ai_still", "stock_still"}
@@ -5452,7 +5458,12 @@ def render_video(
             input_index += 1
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = "null"
-        if not preserve_source_colors:
+        if bw_cinematic:
+            # Last creative grade on the whole content video, after source
+            # palette-matching and owner-art colorbalance; before identity
+            # composition and the later subtitle burn.
+            master_look = "hue=s=0"
+        elif not preserve_source_colors:
             master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
             master_look = (
                 f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
