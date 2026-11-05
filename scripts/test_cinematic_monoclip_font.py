@@ -93,5 +93,47 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
             self.assertFalse((root / ".local/share/fonts/isco-cairo/Cairo.ttf").exists())
 
 
+    def test_wrapper_prepares_font_before_any_production_execution(self):
+        from scripts import run_telegram_control_production as wrapper
+
+        calls = []
+        with mock.patch.dict("os.environ", {
+            "CONTROL_PLANE_PRODUCTION_ENABLED": "true",
+            "ISCO_CONTROL_REQUEST_PATH": "/tmp/nonexistent-control-request.json",
+            "ISCO_CONTROL_REQUEST_SHA256": "f" * 64,
+            "ISCO_CONTROL_RELEASE_TAG": "local-unpublished-test",
+        }), mock.patch.object(
+            wrapper, "load_control_request", return_value=owner_request()
+        ), mock.patch(
+            "scripts.cinematic_monoclip_font.prepare_cinematic_cairo",
+            side_effect=lambda _: calls.append("font"),
+        ), mock.patch.object(
+            wrapper, "execute_bundle",
+            side_effect=lambda *a, **kw: (calls.append("execute"), (_ for _ in ()).throw(RuntimeError("stop_before_paid_production")))[1],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop_before_paid_production"):
+                wrapper.main()
+        self.assertEqual(calls, ["font", "execute"])
+
+    def test_telegram_confirmation_shows_prayerless_opt_in_only(self):
+        from scripts.telegram_clean_v2_control import render_owner_pack_confirmation
+        from scripts.test_production_package import manifest
+
+        doc = manifest()
+        normal = render_owner_pack_confirmation({
+            "owner_pack": {"production": doc, "zip_sha256": "f" * 64}
+        })
+        self.assertIn("تُضاف هوية النوع الحالية والصلاة", normal)
+        doc["visual_style"] = "color_cinematic"
+        doc["scenes"][1]["stock"] = {
+            "url": "https://www.pexels.com/video/a-man-walking-down-a-path-in-the-woods-28464399/"
+        }
+        mono = render_owner_pack_confirmation({
+            "owner_pack": {"production": doc, "zip_sha256": "f" * 64}
+        })
+        self.assertIn("بلا صلاة أو انترو أو أوترو", mono)
+        self.assertNotIn("تُضاف هوية النوع الحالية والصلاة", mono)
+
+
 if __name__ == "__main__":
     unittest.main()
