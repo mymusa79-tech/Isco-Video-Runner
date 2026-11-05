@@ -1010,8 +1010,8 @@ def render_progressive_text(
     layout_hints = build_composition_hints(events)
     if monoclip:
         for hint, item in zip(layout_hints, validated):
-            # Same Cairo Bold as normal Nidaa Short; intentionally ~20% larger.
-            hint["font_size"] = 212 if item.role in {"hook", "payoff"} else 200
+            # Editorially approved larger Cairo Bold semantic cards: 124–152px.
+            hint["font_size"] = 152 if item.role in {"hook", "payoff"} else 144
             hint["x"] = 540
             hint["y"] = 1260
     ass_path = Path(srt_path).with_suffix(".rich.ass")
@@ -1086,8 +1086,8 @@ def render_progressive_text(
         "body_wrap_words": BODY_WRAP_WORDS,
         "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
-        "caption_max_words": 3 if monoclip else CAPTION_MAX_WORDS,
-        "cinematic_monoclip_caption_mode": "two_or_three_words_cairo_bold_large" if monoclip else None,
+        "caption_max_words": 8 if monoclip else CAPTION_MAX_WORDS,
+        "cinematic_monoclip_caption_mode": "voice_owned_semantic_phrase_cairo_bold_large" if monoclip else None,
         "caption_y": CAPTION_Y,
         "caption_x": CAPTION_X,
         "composition_schema_version": COMPOSITION_SCHEMA_VERSION,
@@ -1132,14 +1132,15 @@ def render_progressive_text(
 def _cinematic_monoclip_caption_events(
     events: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
-    """Keep ALL spoken words; show two or three words at once, never a sentence card.
+    """Keep all voice-owned Arabic words in legible, meaningful 2-line cards.
 
-    Fractional word timings are estimated inside the measured narration phrase,
-    not claimed to be forced-aligned. Preserve section/phrase pauses and order.
-    A one-word entire narration is invalid for this special editorial format.
+    Source event durations are measured audio timing, but individual word
+    positions are proportional estimates (not forced alignment). Prefer
+    punctuation and original audio-unit boundaries, and reject a singleton
+    final card. Do not invent, omit, reorder, or paraphrase the locked script.
     """
-    tokens: list[tuple[str, float, float]] = []
-    for event in events:
+    tokens: list[tuple[str, float, float, int]] = []
+    for event_index, event in enumerate(events):
         words = str(event.get("text") or "").strip().split()
         if not words:
             continue
@@ -1147,34 +1148,69 @@ def _cinematic_monoclip_caption_events(
         end = float(event["end"])
         if end <= start:
             raise ShortTimedTextError("monoclip_caption_source_timing_invalid")
-        # Arabic phrase words receive proportional timing, without rewriting speech.
         weights = [max(1, len(_clean(word))) for word in words]
         total = sum(weights)
         cursor = start
         for i, (word, weight) in enumerate(zip(words, weights)):
             stop = end if i == len(words) - 1 else cursor + (end - start) * weight / total
-            tokens.append((word, cursor, stop))
+            tokens.append((word, cursor, stop, event_index))
             cursor = stop
     if len(tokens) < 2:
         raise ShortTimedTextError("monoclip_caption_needs_at_least_two_spoken_words")
+
     result: list[dict[str, object]] = []
-    # Prefer spacious, consistently LARGE two-word cards. When the word count
-    # is odd, use just one three-word card at the shortest possible phrase.
-    # This keeps Cairo Bold legible instead of shrinking long 3-word captions.
-    three_start: int | None = None
-    if len(tokens) % 2:
-        three_start = min(
-            range(0, len(tokens) - 2, 2),
-            key=lambda i: sum(len(_clean(word)) for word, _a, _b in tokens[i:i + 3]),
-        )
     cursor = 0
     while cursor < len(tokens):
-        count = 3 if cursor == three_start else 2
+        remaining = len(tokens) - cursor
+        candidates: list[tuple[float, int]] = []
+        for count in range(2, min(8, remaining) + 1):
+            if remaining - count == 1:
+                continue
+            group = tokens[cursor:cursor + count]
+            phrase = " ".join(item[0] for item in group)
+            rows, size = _caption_rows_and_size(
+                phrase, fmt="short", font_size=144,
+            )
+            # Tested reference preview uses approximately 120–144px Cairo Bold.
+            if size < 124 or any(_caption_width(row, size) > _CAPTION_MAX_WIDTH["short"] for row in rows):
+                continue
+            duration = group[-1][2] - group[0][1]
+            if duration > 5.5 and remaining > count:
+                continue
+            end_word = group[-1][0]
+            sentence_end = end_word.endswith(("؟", "!", ".", "…", "؛"))
+            original_boundary = (
+                cursor + count == len(tokens)
+                or group[-1][3] != tokens[cursor + count][3]
+            )
+            long_pause = (
+                cursor + count < len(tokens)
+                and tokens[cursor + count][1] - group[-1][2] >= 0.25
+            )
+            # Prefer a full thought, a deliberate pause, and a calm 2–4s rhythm.
+            score = (
+                3.5 * int(sentence_end)
+                + 2.0 * int(original_boundary)
+                + 1.5 * int(long_pause)
+                - 0.4 * abs(count - 6)
+                - 0.23 * abs(duration - 3.0)
+            )
+            if duration < 1.2 and remaining > count:
+                score -= 2.5
+            candidates.append((score, count))
+        if candidates:
+            count = max(candidates, key=lambda choice: (choice[0], choice[1]))[1]
+        else:
+            # Unusually long Arabic words: preserve text and split rather than
+            # shrinking or silently deleting a word.
+            count = min(remaining, 2 if remaining != 3 else 3)
+            if remaining - count == 1:
+                count = remaining
         group = tokens[cursor:cursor + count]
         result.append({
             "start": round(group[0][1], 3),
             "end": round(group[-1][2], 3),
-            "text": " ".join(word for word, _start, _end in group),
+            "text": " ".join(item[0] for item in group),
             "role": "beat",
         })
         cursor += count
@@ -1182,8 +1218,8 @@ def _cinematic_monoclip_caption_events(
         " ".join(str(event.get("text") or "") for event in events)
     ):
         raise ShortTimedTextError("monoclip_caption_words_mismatch")
-    if any(not 2 <= len(str(event["text"]).split()) <= 3 for event in result):
-        raise ShortTimedTextError("monoclip_caption_must_have_two_or_three_words")
+    if any(not 2 <= len(str(event["text"]).split()) <= 8 for event in result):
+        raise ShortTimedTextError("monoclip_caption_phrase_length_invalid")
     return result
 
 
