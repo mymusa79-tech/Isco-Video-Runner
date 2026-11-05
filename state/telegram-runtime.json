@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "long",
   "kind": "",
-  "topic": "ملاحظة واحدة تمحو كل نجاحك",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/41866930230",
-  "result": "success",
-  "updated_at": 1793810161
+  "topic": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42117529532",
+  "result": "",
+  "updated_at": 1793915991
 }
