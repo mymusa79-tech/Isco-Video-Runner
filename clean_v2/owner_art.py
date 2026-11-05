@@ -724,6 +724,10 @@ class OwnerArtVisualSource:
             sections = {beat["section_id"]}
             if doc["template"] == "ala_mahl":
                 sections = {b["section_id"] for b in beats if b["owner_asset"] == beat["owner_asset"]}
+            if bw_cinematic and beat["section_id"] == "s2":
+                # The real Monoclip stock now covers hook, topic AND payoff.
+                # Never admit a clip sized only for s2 and freeze its end frame.
+                sections = {b["section_id"] for b in beats}
             stock_note: dict[str, Any] = {}
             seconds = podcast_seconds.get(beat["id"], sum(float((estimates or {}).get(sid) or 60) for sid in sections) + 1)
             if beat.get("owner_stock"):
