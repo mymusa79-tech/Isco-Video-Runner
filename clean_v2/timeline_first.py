@@ -213,9 +213,9 @@ def _identity_events(
     cinematic_monoclip: bool = False,
 ) -> list[dict[str, Any]]:
     if fmt == "short" and cinematic_monoclip:
-        # Only the hook pause and terminal outro are identity units. The
-        # full visual story stays visible between them without a prayer card.
-        required = ("hook", "post_hook_silence", "final_silence")
+        # Uninterrupted hook -> main story -> spoken payoff, no prayer, logo,
+        # subscribe end card, click sound, or synthesized terminal silence.
+        required = ("hook", "post_hook_silence")
         rows = {role: _one_role(units, role) for role in required}
         if any(row is None for row in rows.values()):
             if require_identity:
@@ -223,25 +223,16 @@ def _identity_events(
             return []
         hook_end = float(rows["hook"]["end"])
         pause_end = float(rows["post_hook_silence"]["end"])
-        final_start = float(rows["final_silence"]["start"])
-        final_end = float(rows["final_silence"]["end"])
-        if not (0 <= hook_end <= pause_end < final_start < final_end <= voice_seconds + 0.1):
+        if not (0 < hook_end <= pause_end < voice_seconds + 0.001):
             raise TimelineFirstError("TIMELINE_FIRST_MONOCLIP_BOUNDS_INVALID")
-        outro_start = min(max(final_start, final_end - ALA_MAHL_OUTRO_SECONDS), final_end)
-        events = [
+        return [
             {"kind": role, "source": "measured_voice_timeline",
              "start": float(rows[role]["start"]), "end": float(rows[role]["end"])}
-            for role in ("hook", "post_hook_silence")
-        ]
-        events.extend([
-            {"kind": "topic", "source": "measured_voice_timeline",
-             "start": pause_end, "end": final_start},
-            {"kind": "outro", "source": "measured_silence_chunk",
-             "start": outro_start, "end": final_end},
-            {"kind": "final_silence", "source": "measured_silence_chunk",
-             "start": final_start, "end": final_end},
-        ])
-        return events
+            for role in required
+        ] + [{
+            "kind": "topic", "source": "measured_voice_timeline",
+            "start": pause_end, "end": voice_seconds,
+        }]
     if fmt == "short":
         # Shorts carry only prayer + outro: no spoken channel definition or logo card.
         required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "final_silence")
