@@ -1,6 +1,7 @@
 """No-cost, isolated Cairo installation tests for approved Monoclip only."""
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +14,10 @@ from scripts.cinematic_monoclip_font import (
 )
 
 MISSING = ShortTimedTextError("monoclip_cairo_bold_font_not_installed")
+FAKE_FONT = b"x" * 150000
+FAKE_GIT_BLOB_SHA = hashlib.sha1(
+    b"blob " + str(len(FAKE_FONT)).encode("ascii") + bytes((0,)) + FAKE_FONT
+).hexdigest()
 
 
 def owner_request(style="color_cinematic"):
@@ -52,7 +57,7 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
 
             def fake_run(argv, **kwargs):
                 if argv[0] == "curl":
-                    Path(argv[-1]).write_bytes(b"x" * 150000)
+                    Path(argv[-1]).write_bytes(FAKE_FONT)
                     return subprocess.CompletedProcess(argv, 0)
                 if argv[0] == "fc-scan":
                     return subprocess.CompletedProcess(argv, 0, stdout="Cairo")
@@ -65,7 +70,9 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
                 side_effect=[MISSING, None],
             ) as check, mock.patch(
                 "scripts.cinematic_monoclip_font.subprocess.run", side_effect=fake_run
-            ) as command:
+            ) as command, mock.patch(
+                "scripts.cinematic_monoclip_font.CAIRO_GIT_BLOB_SHA", FAKE_GIT_BLOB_SHA
+            ):
                 self.assertEqual(prepare_cinematic_cairo(owner_request("bw_cinematic")), "prepared")
                 self.assertEqual(command.call_count, 3)
                 self.assertEqual(check.call_count, 2)
@@ -79,7 +86,7 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
 
             def bad_run(argv, **kwargs):
                 if argv[0] == "curl":
-                    Path(argv[-1]).write_bytes(b"x" * 150000)
+                    Path(argv[-1]).write_bytes(FAKE_FONT)
                     return subprocess.CompletedProcess(argv, 0)
                 if argv[0] == "fc-scan":
                     return subprocess.CompletedProcess(argv, 0, stdout="Noto Sans")
@@ -87,8 +94,31 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
 
             with mock.patch("scripts.cinematic_monoclip_font.Path.home", return_value=root), mock.patch(
                 "scripts.cinematic_monoclip_font._require_monoclip_cairo_font", side_effect=MISSING
-            ), mock.patch("scripts.cinematic_monoclip_font.subprocess.run", side_effect=bad_run):
+            ), mock.patch("scripts.cinematic_monoclip_font.subprocess.run", side_effect=bad_run
+            ), mock.patch(
+                "scripts.cinematic_monoclip_font.CAIRO_GIT_BLOB_SHA", FAKE_GIT_BLOB_SHA
+            ):
                 with self.assertRaisesRegex(RuntimeError, "download_family_invalid"):
+                    prepare_cinematic_cairo(owner_request())
+            self.assertFalse((root / ".local/share/fonts/isco-cairo/Cairo.ttf").exists())
+
+
+    def test_corrupt_font_fails_immutable_blob_checksum(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def fake_download(argv, **kwargs):
+                if argv[0] == "curl":
+                    Path(argv[-1]).write_bytes(FAKE_FONT)
+                    return subprocess.CompletedProcess(argv, 0)
+                raise AssertionError("Corrupt font cannot reach fc-scan or installation")
+
+            with mock.patch("scripts.cinematic_monoclip_font.Path.home", return_value=root), mock.patch(
+                "scripts.cinematic_monoclip_font._require_monoclip_cairo_font", side_effect=MISSING
+            ), mock.patch(
+                "scripts.cinematic_monoclip_font.subprocess.run", side_effect=fake_download
+            ):
+                with self.assertRaisesRegex(RuntimeError, "download_checksum_invalid"):
                     prepare_cinematic_cairo(owner_request())
             self.assertFalse((root / ".local/share/fonts/isco-cairo/Cairo.ttf").exists())
 
