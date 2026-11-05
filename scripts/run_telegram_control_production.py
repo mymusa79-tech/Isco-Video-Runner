@@ -40,6 +40,12 @@ def main() -> None:
     request_path = Path(request_value)
 
     request = load_control_request(request_path, expected)
+    # Asset preparation belongs before any Gemini TTS use. Older formats are
+    # untouched; only explicitly opted-in Monoclip can install Cairo here.
+    from scripts.cinematic_monoclip_font import prepare_cinematic_cairo
+    cairo_state = prepare_cinematic_cairo(request)
+    if cairo_state != "not_applicable":
+        print(f"Cinematic Monoclip Cairo preflight: {cairo_state}")
     runtime_root = Path(os.environ.get("RUNNER_TEMP") or ".") / "isco-control-runtime" / str(request.get("request_id") or "request")
     output = execute_bundle(request, runtime_root=runtime_root).resolve()
     final_video = output / "final.mp4"
