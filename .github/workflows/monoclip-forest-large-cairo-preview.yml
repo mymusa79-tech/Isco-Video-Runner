@@ -4,6 +4,9 @@ on:
     branches: [feature/bw-monoclip-optin-v1]
     paths: [.github/workflows/monoclip-forest-large-cairo-preview.yml]
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   preview:
     runs-on: ubuntu-latest
