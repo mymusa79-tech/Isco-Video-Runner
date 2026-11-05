@@ -32,7 +32,7 @@ class CinematicMonoclipActualRenderTests(unittest.TestCase):
     def _fixture(self, root, style):
         srcs = [root / "hook.mp4", root / "main.mp4", root / "payoff.mp4"]
         self._make_lavfi(srcs[0], "color=c=yellow:size=270x480:rate=30", 1.3)
-        self._make_lavfi(srcs[1], "testsrc2=size=270x480:rate=30", 3.0)
+        self._make_lavfi(srcs[1], "color=c=red:size=270x480:rate=30,fade=t=in:st=0:d=0.4", 3.0)
         self._make_lavfi(srcs[2], "color=c=cyan:size=270x480:rate=30", 1.4)
         wav = root / "narration.wav"
         run("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
