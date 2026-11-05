@@ -558,15 +558,17 @@ class OwnerArtVisualSource:
         return (final, row), ""
 
     def _try_pinned(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
-                    seconds: float, index: int, template: str = ""):
+                    seconds: float, index: int, template: str = "", bw_cinematic: bool = False):
         """Try up to three editor-approved stock links in priority order, then the approved image."""
         stock = beat["owner_stock"]
         if stock.get("mode") == "sequence":
+            if bw_cinematic:
+                return None, "bw_cinematic_sequence_forbidden"
             return self._try_pinned_sequence(beat, asset, output_dir, fmt, seconds, index)
         urls = stock.get("urls") or [stock.get("url")]
         reasons = []
         for rank, url in enumerate(urls, start=1):
-            admitted, reason = self._try_pinned_one(beat, asset, output_dir, fmt, seconds, index, str(url))
+            admitted, reason = self._try_pinned_one(beat, asset, output_dir, fmt, seconds, index, str(url), bw_cinematic=bw_cinematic)
             if admitted is not None:
                 clip, row = admitted
                 row["pinned_choice_rank"] = rank
@@ -578,7 +580,7 @@ class OwnerArtVisualSource:
         # chained as a sequence instead of dropping to still art. Only for short
         # Nidaa / film (the formats that accept stock.mode="sequence"); blocked or
         # missing links never trigger it and the approved image stays the fallback.
-        if (len(urls) == 3 and fmt in {"short", "film"} and template != "ala_mahl"
+        if (not bw_cinematic and len(urls) == 3 and fmt in {"short", "film"} and template != "ala_mahl"
                 and any(r["reason"] == "pinned_clip_too_short_for_scene" for r in reasons)
                 and all(r["reason"] in {"pinned_clip_too_short_for_scene", "pinned_clip_too_short"}
                         for r in reasons)):
@@ -595,7 +597,7 @@ class OwnerArtVisualSource:
         return None, "pinned_alternatives_exhausted:" + ",".join(row["reason"] for row in reasons)
 
     def _try_pinned_one(self, beat: Mapping[str, Any], asset: Path, output_dir: Path, fmt: str,
-                        seconds: float, index: int, url: str):
+                        seconds: float, index: int, url: str, *, bw_cinematic: bool = False):
         """The exact Pexels/Pixabay video or photo the editor linked, or (None, reason) -> approved image.
 
         Fetched by id, no search. Three-link packages retry a video that cannot
@@ -616,6 +618,8 @@ class OwnerArtVisualSource:
         work.mkdir(parents=True, exist_ok=True)
         final = Path(output_dir) / f"visual-stock-{beat['id']}.mp4"
         photo = cand["media_kind"] == "photo"
+        if bw_cinematic and photo:
+            return None, "bw_cinematic_requires_video"
         source = work / ("source.jpg" if photo else "source.mp4")
         preflight = getattr(self._inner, "media_preflight", None)
         extra: dict[str, Any] = {}
@@ -635,14 +639,14 @@ class OwnerArtVisualSource:
                 length = probe_duration(clip)
                 if length < PINNED_MIN_SECONDS:
                     return None, "pinned_clip_too_short"
-                if clip_is_grayscale(clip, length=length):
+                if not bw_cinematic and clip_is_grayscale(clip, length=length):
                     return None, "pinned_clip_grayscale"
                 # For three-link scene packages an admitted stock choice must cover
                 # the entire estimated slot. Do not quietly append the owner
                 # fallback photo while a stock URL was successfully selected.
                 # Retry the next link instead. Single-URL legacy packs retain
                 # the original video-then-owner-image continuation behavior.
-                if (len(beat.get("owner_stock", {}).get("urls", [])) == 3
+                if ((bw_cinematic or len(beat.get("owner_stock", {}).get("urls", [])) == 3)
                         and beat.get("owner_stock", {}).get("mode") != "sequence"
                         and length + 0.08 < seconds):
                     return None, "pinned_clip_too_short_for_scene"
@@ -702,6 +706,7 @@ class OwnerArtVisualSource:
 
         doc = json.loads((self._directory / "production.json").read_text(encoding="utf-8"))
         validate_manifest(doc, {str(p.relative_to(self._directory)) for p in self._directory.rglob("*") if p.is_file()})
+        bw_cinematic = doc.get("visual_style") == "bw_cinematic"
         beats = plan["visual_story"]["beats"]
         clips, rights = [], []
         # Estimate each podcast/film shot from the actual text span. Using the full
@@ -725,7 +730,8 @@ class OwnerArtVisualSource:
                 pinned = bool(beat["owner_stock"].get("url") or beat["owner_stock"].get("urls"))
                 if pinned:
                     admitted, reason = self._try_pinned(beat, asset, output_dir, fmt, seconds, index,
-                                                            template=str(doc.get("template") or ""))
+                                                            template=str(doc.get("template") or ""),
+                                                            bw_cinematic=bw_cinematic)
                 else:
                     admitted, reason = self._try_stock(beat, plan, output_dir, fmt)
                 if admitted is not None:
@@ -739,6 +745,8 @@ class OwnerArtVisualSource:
                                    **({"stock_pinned_requested": True} if pinned else {}),
                                    "approved_fallback_asset": beat["owner_asset"], "owner_approved": False})
                     continue
+                if bw_cinematic and beat["section_id"] == "s2":
+                    raise RuntimeError("bw_cinematic_main_clip_unavailable:" + str(reason)[:160])
                 stock_note = {"stock_requested": True, "stock_fallback_reason": reason,
                               **({"stock_pinned_requested": True} if pinned else {})}
             board_note: dict[str, Any] = {}
