@@ -94,7 +94,14 @@ class MonoclipCairoPreflightTests(unittest.TestCase):
 
 
     def test_wrapper_prepares_font_before_any_production_execution(self):
-        from scripts import run_telegram_control_production as wrapper
+        # The isolated free/no-network Monoclip job does not install Engine.
+        # Broader repository CI checks this orchestration when Engine exists.
+        try:
+            from scripts import run_telegram_control_production as wrapper
+        except ModuleNotFoundError as exc:
+            if exc.name == "isco_video_agent":
+                self.skipTest("Optional Engine is absent in dedicated offline CI")
+            raise
 
         calls = []
         with mock.patch.dict("os.environ", {
