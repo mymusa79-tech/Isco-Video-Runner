@@ -16,7 +16,10 @@ from pathlib import Path
 from unittest import mock
 
 from clean_v2.media import render_video, probe_duration
-from clean_v2.short_timed_text import apply_short_timed_text, _clean
+from clean_v2.short_timed_text import (
+    ShortTimedTextError, _clean, _require_monoclip_cairo_font,
+    apply_short_timed_text,
+)
 from clean_v2.timeline_render import render_identity_composition
 from scripts.test_cinematic_monoclip_real_ffmpeg import (
     CinematicMonoclipActualRenderTests,
@@ -41,6 +44,16 @@ class CinematicMonoclipNarrationAndCaptionsTests(unittest.TestCase):
         self.assertGreater(max(abs(x) for x in values), 250)
 
     def test_real_audio_video_color_bw_with_full_last_caption(self):
+        # The dedicated Monoclip CI installs Cairo and MUST run this render.
+        # Generic repository CI does not install extra fonts; report a truthful
+        # skip rather than treating absent system fonts as a renderer defect.
+        # Production itself must still fail closed (no Noto substitution).
+        try:
+            _require_monoclip_cairo_font()
+        except ShortTimedTextError as exc:
+            if str(exc) == "monoclip_cairo_bold_font_not_installed":
+                self.skipTest("Cairo Bold unavailable; dedicated Monoclip CI installs and tests it")
+            raise
         helper = CinematicMonoclipActualRenderTests()
         for style in ("color_cinematic", "bw_cinematic"):
             with self.subTest(style=style), tempfile.TemporaryDirectory() as folder:
