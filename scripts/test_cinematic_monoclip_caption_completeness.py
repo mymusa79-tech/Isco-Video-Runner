@@ -15,16 +15,40 @@ from clean_v2.short_timed_text import (
 
 
 class MonoclipCaptionCompleteness(unittest.TestCase):
-    def test_monoclip_word_cards_are_strictly_two_or_three(self):
+    def test_monoclip_caption_cards_use_meaningful_phrases(self):
         for count in range(2, 41):
             with self.subTest(count=count):
                 text = " ".join(f"كلمة{i}" for i in range(count))
                 result = _cinematic_monoclip_caption_events([
                     {"start": 0.0, "end": float(count), "text": text}
                 ])
-                self.assertTrue(all(2 <= len(e["text"].split()) <= 3 for e in result))
+                self.assertTrue(all(2 <= len(e["text"].split()) <= 8 for e in result))
                 self.assertEqual(" ".join(e["text"] for e in result), text)
                 self.assertAlmostEqual(float(result[-1]["end"]), float(count))
+
+    def test_words_are_retained_with_voice_owned_natural_pauses(self):
+        events = [
+            {"start": 0.0, "end": 4.0, "text": "قد تمر بجانب أجمل المشاهد ولا تراها."},
+            {"start": 4.7, "end": 8.3, "text": "لأن عقلك سبقك إلى آخر الطريق."},
+            {"start": 8.7, "end": 12.2, "text": "أبطئ قليلًا وانظر إلى ما حولك."},
+        ]
+        result = _cinematic_monoclip_caption_events(events)
+        self.assertEqual(
+            " ".join(event["text"] for event in result),
+            " ".join(event["text"] for event in events),
+        )
+        self.assertEqual(result[-1]["end"], 12.2)
+        self.assertTrue(result[-1]["text"].endswith("حولك."))
+        self.assertLessEqual(len(result), 6)
+        self.assertTrue(all(event["end"] > event["start"] for event in result))
+
+    def test_approved_big_cairo_text_keeps_two_rows_and_no_outro(self):
+        from clean_v2.short_timed_text import _caption_rows_and_size
+        text = "وتنسى أن تنظر إلى ما حولك."
+        rows, size = _caption_rows_and_size(text, fmt="short", font_size=144)
+        self.assertLessEqual(len(rows), 2)
+        self.assertGreaterEqual(size, 120)
+        self.assertEqual(" ".join(rows), text)
 
     def test_monoclip_rejects_other_font_substitutions(self):
         completed = mock.Mock(stdout="Noto Sans", stderr="")
@@ -68,7 +92,7 @@ class MonoclipCaptionCompleteness(unittest.TestCase):
             self.assertEqual(parsed[-1]["end"], spans[-1][1])
             self.assertTrue(parsed[-1]["text"].endswith("واحدة."))
             mini = _cinematic_monoclip_caption_events(parsed)
-            self.assertTrue(all(2 <= len(e["text"].split()) <= 3 for e in mini))
+            self.assertTrue(all(2 <= len(e["text"].split()) <= 8 for e in mini))
             self.assertEqual(_clean(" ".join(e["text"] for e in mini)), normalized)
             self.assertEqual(mini[-1]["end"], parsed[-1]["end"])
             self.assertTrue(mini[-1]["text"].endswith("واحدة."))
