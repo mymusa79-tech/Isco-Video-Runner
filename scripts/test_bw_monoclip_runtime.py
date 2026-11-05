@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from clean_v2 import owner_art
+from clean_v2 import media, owner_art
 from scripts.test_bw_monoclip_optin import bw_manifest, PEXELS_VIDEO, OTHER_VIDEO
 
 
@@ -83,6 +83,17 @@ class BwRuntimeTests(unittest.TestCase):
             self.assertIn("pinned_alternatives_exhausted", reason)
             self.assertEqual(attempt.call_count, 3)
             sequence.assert_not_called()
+
+    def test_final_measured_slot_cannot_hold_last_video_frame(self):
+        schedule = [{"path": Path("main.mp4"), "section_id": "s2",
+                     "kind": "topic", "duration_seconds": 26.0}]
+        with mock.patch.object(media, "probe_duration", return_value=25.0):
+            with self.assertRaisesRegex(RuntimeError, "bw_cinematic_main_clip_short_for_measured_timeline"):
+                media._require_bw_monoclip_measured_main_slot(schedule)
+        with mock.patch.object(media, "probe_duration", return_value=27.0):
+            media._require_bw_monoclip_measured_main_slot(schedule)
+        with self.assertRaisesRegex(RuntimeError, "bw_cinematic_main_slot_missing_or_split"):
+            media._require_bw_monoclip_measured_main_slot([])
 
     def test_missing_bw_s2_video_is_fatal(self):
         document = bw_manifest()
