@@ -1158,13 +1158,18 @@ def _cinematic_monoclip_caption_events(
     if len(tokens) < 2:
         raise ShortTimedTextError("monoclip_caption_needs_at_least_two_spoken_words")
     result: list[dict[str, object]] = []
+    # Prefer spacious, consistently LARGE two-word cards. When the word count
+    # is odd, use just one three-word card at the shortest possible phrase.
+    # This keeps Cairo Bold legible instead of shrinking long 3-word captions.
+    three_start: int | None = None
+    if len(tokens) % 2:
+        three_start = min(
+            range(0, len(tokens) - 2, 2),
+            key=lambda i: sum(len(_clean(word)) for word, _a, _b in tokens[i:i + 3]),
+        )
     cursor = 0
     while cursor < len(tokens):
-        remaining = len(tokens) - cursor
-        # No orphaned one-word card: 7 -> 3+2+2; 4 -> 2+2.
-        count = 2 if remaining == 4 or remaining == 2 else min(3, remaining)
-        if count < 2:
-            raise ShortTimedTextError("monoclip_caption_single_word_card_forbidden")
+        count = 3 if cursor == three_start else 2
         group = tokens[cursor:cursor + count]
         result.append({
             "start": round(group[0][1], 3),
