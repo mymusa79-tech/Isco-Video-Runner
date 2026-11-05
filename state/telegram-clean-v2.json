@@ -9185,6 +9185,21 @@
       "selected_at": "2026-11-05T21:58:13Z",
       "created_at": "2026-11-05T21:58:13Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-d0e014ead3",
+      "title": "راتبك ليس لك وحدك",
+      "normalized_title": "راتبك ليس لك وحدك",
+      "market_query": "راتبك ليس لك وحدك",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-05T23:29:44Z",
+      "created_at": "2026-11-05T23:29:44Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -40881,9 +40896,303 @@
         "started_at": "2026-11-05T21:59:42Z",
         "finished_at": "2026-11-05T23:25:44Z"
       }
+    },
+    "req-e9d97297a6e7": {
+      "schema_version": 1,
+      "request_id": "req-e9d97297a6e7",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "راتبك ليس لك وحدك",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-d0e014ead3",
+      "selected_at": "2026-11-05T23:29:44Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "راتبك ليس لك وحدك",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "inner_dialogue",
+          "title": "راتبك ليس لك وحدك",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "قبل أن تلمس راتبك، يكون الجميع قد وزّعه بالفعل. وتعود من العمل منهكًا، ولا أحد يسألك كيف تحتمل."
+              },
+              {
+                "id": "s2",
+                "text": "في الطريق إلى البيت تقول لنفسك: هؤلاء أهلي، ولن أتركهم وحدهم. تدخل، تضع مفاتيحك، وتسمع طلبًا جديدًا قبل أن تخلع عنك تعب اليوم. أنت تساعد لأنك تحبهم، لكنك تخشى أن تقول: طاقتي لم تعد تكفي. شيئًا فشيئًا، يبدأ الواجب الذي اخترته يتحوّل إلى استياء تكتمه. ثم تجد نفسك تتردد أمام باب العمل صباحًا، مع أنك تعرف لماذا تذهب. وربما لم ينتبه أهلك أصلًا لما تمر به؛ فالتعب الصامت لا يُسمع."
+              },
+              {
+                "id": "s3",
+                "text": "ابدأ بجملة هادئة: «أنا معكم، لكنني مرهق، ونحتاج أن نتحدث عمّا أستطيع تحمّله». قد لا يتغيّر كل شيء اليوم، لكنك أخيرًا منحت تعبك حقّ الكلام."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "الهوك جملتان مباشرتان؛ الأولى حادة بمشهد محسوس دون غضب على الأسرة، والثانية أكثر تعبًا مع وقفة قصيرة بعد «منهكًا». في التحول تبدأ بنبرة حديث النفس عند «هؤلاء أهلي»، وتدفأ عند المحبة، ثم تتوتر تدريجيًا عند «طاقتي لم تعد تكفي». اخفض الصوت قليلًا عند «استياء تكتمه»، ثم شدّ إيقاع «تتردد أمام باب العمل» مع إحساس التردد الحقيقي. «وربما لم ينتبه أهلك» تُقال بإنصاف لا اتهام. في الخطوة قُل الجملة المكتوبة كأنك تتدرب على مصارحة من تحب، بهدوء وحزم، ثم نهاية أمل صغير لا وعد. أداء متنوع، بلا وعظ أو صوت واحد رتيب؛ تنفس طبيعي."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "قبل أن تلمس راتبك",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s1",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "وتعود من العمل منهكًا",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands working over laptop in soft dusk light",
+                "query_alt_en": "typing hands computer at office dusk",
+                "must_show": "أيدٍ تعمل على الحاسوب أو لوحة مفاتيح في نهاية يوم عمل؛ لا وجه واضح ولا شاشة مقروءة",
+                "urls": [
+                  "https://www.pexels.com/video/man-typing-on-laptop-keyboard-on-table-in-top-view-18835847/",
+                  "https://pixabay.com/videos/keyboard-typing-writing-notebook-10822/",
+                  "https://pixabay.com/videos/laptop-typing-hand-sunset-work-261228/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "في الطريق إلى البيت",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "back view man returning from work",
+                "query_alt_en": "man walking away with backpack indoors",
+                "must_show": "رجل من الخلف يسير عائدًا بحقيبة أو يدخل مدخلًا محايدًا؛ بلا لافتة واضحة ولا شعار",
+                "urls": [
+                  "https://www.pexels.com/video/man-wearing-back-up-entering-room-9460727/",
+                  "https://www.pexels.com/video/a-man-wearing-a-backpack-7824434/",
+                  "https://www.pexels.com/photo/elegant-businessman-in-suit-walking-along-concrete-building-4571589/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "تدخل، تضع مفاتيحك",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hand entering house with keys",
+                "query_alt_en": "hand holding keys near door handle",
+                "must_show": "يد تمسك مفاتيح المنزل أو تفتح بابًا؛ بلا وجه ولا عنوان ولا علامة",
+                "urls": [
+                  "https://pixabay.com/videos/key-door-house-to-open-closure-125777/",
+                  "https://www.pexels.com/photo/hand-holding-keys-to-a-new-house-real-estate-residential-27522902/",
+                  "https://www.pexels.com/photo/hand-holding-antique-key-against-rustic-door-29784569/"
+                ]
+              }
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "وتسمع طلبًا جديدًا",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "hands setting modest dinner table",
+                "query_alt_en": "placing plates at home in evening",
+                "must_show": "أيدٍ تقدم طبقًا أو ترتب طاولة بيتية متواضعة؛ لا وجوه ولا كؤوس نبيذ",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-shot-of-food-on-the-table-8160671/",
+                  "https://www.pexels.com/video/people-setting-a-table-8877780/",
+                  "https://www.pexels.com/video/person-putting-plate-on-a-table-5899638/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.png",
+              "start_text": "لكنك تخشى أن تقول",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "شيئًا فشيئًا، يبدأ الواجب",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "restless hand over table after work",
+                "query_alt_en": "tapping pen and clenched hand closeup",
+                "must_show": "قبضة أو أصابع متوترة على طاولة، أو قلم ينقر؛ دون وجه واضح أو نص أجنبي",
+                "urls": [
+                  "https://www.pexels.com/photo/hand-ready-to-punch-7926711/",
+                  "https://www.pexels.com/video/knocking-on-table-6143543/",
+                  "https://www.pexels.com/video/low-angle-shot-of-a-man-tapping-the-table-using-a-pen-7792299/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s2",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "ثم تجد نفسك تتردد أمام باب العمل",
+              "motion": "slow_pan",
+              "transition": "cut",
+              "stock": {
+                "query_en": "back view man approaching office entrance",
+                "query_alt_en": "man walking alone in office hallway",
+                "must_show": "رجل من الخلف يقترب من مبنى عمل أو يسير داخله، بلا وجه ظاهر ولا شعار",
+                "urls": [
+                  "https://www.pexels.com/video/businessman-in-full-suit-walking-up-the-stairs-9613985/",
+                  "https://www.pexels.com/video/man-walking-office-alone-4435565/",
+                  "https://www.pexels.com/video/back-view-of-man-walking-in-street-5636206/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s2",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "وربما لم ينتبه أهلك",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "silent clenched hands on wooden table",
+                "query_alt_en": "hesitant hands resting at table",
+                "must_show": "يدان ساكنتان أو مقبوضتان أمام طاولة في لحظة صمت؛ بلا وجه أو هاتف بنص مقروء",
+                "urls": [
+                  "https://www.pexels.com/photo/persons-hands-wearing-beige-long-sleeves-5742292/",
+                  "https://www.pexels.com/photo/close-up-view-of-a-person-clenching-his-hands-7673586/",
+                  "https://www.pexels.com/photo/a-close-up-shot-of-a-person-s-hand-5506869/"
+                ]
+              }
+            },
+            {
+              "id": "scene_10",
+              "section_id": "s3",
+              "asset": "assets/scene_10.png",
+              "start_text": "ابدأ بجملة هادئة",
+              "motion": "hold",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_11",
+              "section_id": "s3",
+              "asset": "assets/scene_11.jpg",
+              "start_text": "أنا معكم",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "expressive hands in quiet conversation",
+                "query_alt_en": "person explaining with palms across table",
+                "must_show": "أيدٍ فقط تتبادل إيماءات حديث دون ظهور الوجوه أو كتابات واضحة؛ تُستبعد أي لقطة عمل جماعي لا تحقق ذلك",
+                "urls": [
+                  "https://www.pexels.com/photo/photo-of-man-sitting-beside-wooden-table-6326394/",
+                  "https://www.pexels.com/photo/persons-hands-on-the-brown-wooden-table-5742281/"
+                ]
+              }
+            },
+            {
+              "id": "scene_12",
+              "section_id": "s3",
+              "asset": "assets/scene_12.jpg",
+              "start_text": "قد لا يتغيّر كل شيء اليوم",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "hands relaxing after difficult conversation",
+                "query_alt_en": "open palms near each other at table",
+                "must_show": "أيدٍ متقاربة أو ساكنة على طاولة بعد حديث، دون تلامس رومانسي أو وجوه أو بياض استوديو صارخ",
+                "urls": [
+                  "https://www.pexels.com/photo/a-person-in-white-long-sleeve-shirt-holding-hands-6144026/",
+                  "https://www.pexels.com/video/coworkers-putting-hands-together-at-a-table-8290542/",
+                  "https://www.pexels.com/photo/person-s-hands-on-the-table-beside-a-cup-of-coffee-7255296/"
+                ]
+              }
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.png",
+            "text": "من يسمع تعبك؟"
+          },
+          "publishing": {
+            "title": "راتبك ليس لك وحدك… فمن يسأل عن تعبك؟",
+            "description": "قد تعود من العمل منهكًا، ثم تصمت لأن أهلك يعتمدون عليك. هذا الشورت عن الفرق بين مسؤولية تختارها بحب، واستنزاف لا تجرؤ على الاعتراف به، وعن جملة صغيرة تبدأ بها حوارًا هادئًا دون خصام أو تخلي.\n\n#نداء_اليقظة #الإرهاق_النفسي #ضغوط_العمل #مسؤولية_الأسرة",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الإرهاق_النفسي",
+              "#ضغوط_العمل",
+              "#مسؤولية_الأسرة"
+            ],
+            "tags": [
+              "الإرهاق النفسي",
+              "تعب الوظيفة",
+              "مسؤولية الأهل",
+              "ضغط العمل",
+              "الصمت",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "8ce0e3e9d4032e7b55744c3d22f9e0864765547644dd936090428406992ffec5",
+        "asset_sha256": {
+          "assets/scene_11.jpg": "4230923db55c51c14e7c131f9b0c71af0d62223ad72a1427b51dc1689568ba4c",
+          "assets/cover.png": "91d313300c42149c2470a8c348b7e5148e0f08f5119b26c60eecfb98c086bc62",
+          "assets/scene_09.jpg": "616d7aaffc3df036f24802f51c9acf264822c9d314feef4fa5b8edd092fc2404",
+          "assets/scene_04.jpg": "5772d7aace3d60efa0e665aee0d306f43fdb92d2128f046acb8d4db0b2024e1e",
+          "assets/scene_03.jpg": "d31997f95dc468e429a642554de1910def60c197d4a45d8c7c9ac48675c51339",
+          "assets/scene_01.png": "3e3a465f8e1d8356df63f8e0bb98a9752393c2a894e99afe1e40eb6e6c032dec",
+          "assets/scene_06.png": "88a45b4246b618c62fa7cc9c06673e23478a9dcbfc8e92dd635ccf288bc84743",
+          "assets/scene_08.jpg": "223d6104da4c0b118433c52c5fb7efc28b345f9f5f3f7da3878d36a2ed7ae57d",
+          "assets/scene_07.jpg": "32896c2c49430d7ca557bae2efd0e9c69986b5de4f37ad6632ed242413f88e6e",
+          "assets/scene_02.jpg": "b25b6c9e0455811b1261262b0f594da00bb65392205cb1cc2c4fd34d8a7a5ce2",
+          "assets/scene_12.jpg": "5308addf9b42ff05f761ecdb02a031e42ccc15e75ee81007a286ff52c92055c6",
+          "assets/scene_05.jpg": "21e860ad3b5edeeb6719b201fa2831be06aadaa214059c96a2d71c38c55ae48f",
+          "assets/scene_10.png": "831cf4e9edcbd12fe950f54512d18c23d787af4355fa8ce5334857d0726cbe4b"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "9fd864e170dfa5aa9b2bd6ea40e3dde98951c46a42001b8d2cbc3bb47793c6cd",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIRRWrtEUvPbG5dEUT4rlqcxcvRKbYxAAJmIgACSEBpU2b9BkR_f3WfPQQ",
+          "sha256": "8ce0e3e9d4032e7b55744c3d22f9e0864765547644dd936090428406992ffec5"
+        }
+      }
     }
   },
-  "current_request_id": "req-868730f1e0c4",
+  "current_request_id": "req-e9d97297a6e7",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -41549,6 +41858,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-05T23:25:44Z",
+  "updated_at": "2026-11-05T23:29:44Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
