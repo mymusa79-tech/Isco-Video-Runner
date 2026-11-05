@@ -15,7 +15,7 @@ def fixture_video():
     return {
         "provider": "pexels", "media_kind": "video", "asset_id": "28464399",
         "download_url": "https://example.invalid/stock.mp4",
-        "source_url": PEXELS_VIDEO, "creator": "fixture",
+        "source_url": PEXELS_VIDEO, "creator": "fixture", "creator_url": "",
     }
 
 
