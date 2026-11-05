@@ -60,14 +60,14 @@ jobs:
               stop=end*31.35/34.2 if i==len(groups)-1 else t+(end-start)*31.35/34.2*weight/total
               line=' '.join(g)
               size=110 if sec_idx in (0,6) else 104
-              while size>=80:
+              while size>=70:
                 face=ImageFont.truetype(str(font),size)
                 try: face.set_variation_by_name("Bold")
                 except (ValueError,OSError,AttributeError): pass
                 width=face.getlength(line,direction="rtl",language="ar")
                 if width<=486: break
                 size-=2
-              assert size>=80,(line,width)
+              assert size>=70,(line,width)
               lines.append(f"Dialogue: 0,{clock(t)},{clock(stop)},Caption,,0,0,0,,"
                            +r"{\an5\pos(270,687)\fs"+str(size)+r"\bord7\3c&H00120B07&\shad0\fad(60,80)}"+line)
               t=stop
