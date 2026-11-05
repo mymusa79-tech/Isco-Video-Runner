@@ -6,6 +6,9 @@ on:
       - .github/workflows/monoclip-forest-color-visual-draft.yml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   visual-draft:
     runs-on: ubuntu-latest
