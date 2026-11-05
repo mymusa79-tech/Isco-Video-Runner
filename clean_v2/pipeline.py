@@ -904,7 +904,10 @@ def _synthesize_sectioned_voice_pass(
         else:
             remaining = section_text
             closer = " ".join(str(identity_closer or "").split()).strip()
-            if fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
+            if cinematic_monoclip:
+                # Last words remain the narrative payoff, not a branded outro.
+                voice_units.extend(("topic", part) for part in _bounded_voice_chunks(remaining))
+            elif fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
                 topic_text = remaining[: -len(closer)].strip()
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
                 voice_units.append(("outro", closer))
@@ -1212,7 +1215,8 @@ def _synthesize_sectioned_voice_pass(
                     }
                 )
 
-        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
+        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections) and not cinematic_monoclip:
+            # No Monoclip end card, tail silence, or cloned end frame.
             timing = identity_timing_profile(fmt, template=str(ready_doc.get("template") or ""))
             silence_reference = chunk_paths[-1]
             final_silence = silence_reference.parent / "final-silence.wav"
@@ -4618,13 +4622,23 @@ def _run_legacy_cinematic_layer(
     from clean_v2.visual_cta import apply_visual_cta_assets
 
     from .ready_production import document
-    visual_cta_report = {"status": "skipped_ala_mahl", "provider_calls_added": 0} if document(output_dir).get("template") == "ala_mahl" else apply_visual_cta_assets(
-        output_dir=output_dir,
-        final_path=final_path,
-        narration_path=narration_path,
-        script=script,
-        fmt=fmt,
+    _visual_doc = document(output_dir)
+    _is_monoclip = (
+        fmt == "short"
+        and _visual_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     )
+    if _is_monoclip:
+        visual_cta_report = {"status": "skipped_cinematic_monoclip_no_outro", "provider_calls_added": 0}
+    elif _visual_doc.get("template") == "ala_mahl":
+        visual_cta_report = {"status": "skipped_ala_mahl", "provider_calls_added": 0}
+    else:
+        visual_cta_report = apply_visual_cta_assets(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            script=script,
+            fmt=fmt,
+        )
 
     return {
         **report,
@@ -5773,7 +5787,7 @@ def _run_audio_mastering_stage(
             in {"bw_cinematic", "color_cinematic"}
         )
         identity_sequence = (
-            ["hook", "natural_post_hook_breath", "topic", "short_outro"]
+            ["hook", "natural_post_hook_breath", "topic", "natural_end_no_outro"]
             if cinematic_monoclip
             else ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
                   "topic", "ala_mahl_outro" if ala_mahl else "short_outro"]
