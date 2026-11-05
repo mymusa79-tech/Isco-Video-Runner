@@ -2085,13 +2085,19 @@ def render_owner_pack_confirmation(request: dict[str, Any]) -> str:
     if pack.get("production"):
         doc = pack["production"]
         words = sum(len(production_package.spoken_text(production_package.section_text(s)).split()) for s in doc["script"]["sections"])
+        cinematic = (
+            doc["format"] == "short"
+            and doc.get("visual_style") in {"color_cinematic", "bw_cinematic"}
+        )
         derivative = (f"{1 + len(doc.get('extra_derivatives') or [])} شورتات مشتقة محددة في الحزمة" if doc.get("extra_derivatives") else "مقطع مرشّح محدد في الحزمة") if doc.get("derivative") else "محاولة اختيار مقطع موجود؛ التخطي عند عدم صلاحيته"
         return "\n".join([
             "✅ استلمت حزمة ZIP الجاهزة", f"العنوان: {doc['title']}",
             f"النوع: {doc['format']} — القالب: {doc['template']}",
-            f"النص: {words} كلمة — الصور: {len(doc['scenes'])} مشهدًا بترتيب معتمد.",
+            (f"النص: {words} كلمة — فيديو ستوك حقيقي واحد يغطي النص كاملًا."
+             if cinematic else f"النص: {words} كلمة — الصور: {len(doc['scenes'])} مشهدًا بترتيب معتمد."),
             "الحزمة معلّمة بمراجعة Claude؛ التأكيد التالي هو اعتمادك أنت.",
-            "النص والصور والأصوات ثابتة. تُضاف هوية النوع الحالية والصلاة فقط.",
+            ("السينمائي: بلا صلاة أو انترو أو أوترو أو اشتراك أو موسيقى؛ ينتهي مع آخر كلمة."
+             if cinematic else "النص والصور والأصوات ثابتة. تُضاف هوية النوع الحالية والصلاة فقط."),
             *( [f"الشورت المشتق: {derivative}. فشله لا يمنع تسليم الفيديو الأساسي."] if doc['format'] != 'short' else [] ),
             f"بصمة ZIP: {pack['zip_sha256'][:16]}",
             "لم يبدأ الإنتاج بعد. اضغط «✅ تأكيد الإنتاج» للبدء.",
