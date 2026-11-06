@@ -1,9 +1,9 @@
 {
   "film": [
     "hypothesis_test",
-    "hypothesis_test",
     "story_analysis",
     "paradox",
+    "question_answer",
     "question_answer"
   ],
   "schema_version": 1,
