@@ -210,7 +210,29 @@ def _identity_events(
     require_identity: bool,
     fmt: str = "short",
     template: str = "",
+    cinematic_monoclip: bool = False,
 ) -> list[dict[str, Any]]:
+    if fmt == "short" and cinematic_monoclip:
+        # Uninterrupted hook -> main story -> spoken payoff, no prayer, logo,
+        # subscribe end card, click sound, or synthesized terminal silence.
+        required = ("hook", "post_hook_silence")
+        rows = {role: _one_role(units, role) for role in required}
+        if any(row is None for row in rows.values()):
+            if require_identity:
+                raise TimelineFirstError("TIMELINE_FIRST_MONOCLIP_BOUNDS_MISSING")
+            return []
+        hook_end = float(rows["hook"]["end"])
+        pause_end = float(rows["post_hook_silence"]["end"])
+        if not (0 < hook_end <= pause_end < voice_seconds + 0.001):
+            raise TimelineFirstError("TIMELINE_FIRST_MONOCLIP_BOUNDS_INVALID")
+        return [
+            {"kind": role, "source": "measured_voice_timeline",
+             "start": float(rows[role]["start"]), "end": float(rows[role]["end"])}
+            for role in required
+        ] + [{
+            "kind": "topic", "source": "measured_voice_timeline",
+            "start": pause_end, "end": voice_seconds,
+        }]
     if fmt == "short":
         # Shorts carry only prayer + outro: no spoken channel definition or logo card.
         required = ("hook", "post_hook_silence", "prayer", "post_prayer_silence", "final_silence")
@@ -396,7 +418,12 @@ def build_voice_owned_timeline(
     """Build one shared Short/Film/Podcast timeline owned only by measured audio."""
     root = Path(output_dir)
     from .ready_production import document
-    template = str(document(root).get("template") or "")
+    approved_document = document(root)
+    template = str(approved_document.get("template") or "")
+    cinematic_monoclip = (
+        fmt == "short"
+        and approved_document.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+    )
     voice_seconds = _positive(probe_duration(Path(narration_path)), "voice_seconds")
     if template == "ala_mahl" and not 25.0 <= voice_seconds <= 120.0:
         raise TimelineFirstError(f"ALA_MAHL_AUDIO_DURATION_OUTSIDE_25_120 seconds={voice_seconds:.3f}")
@@ -429,6 +456,8 @@ def build_voice_owned_timeline(
         "duration_repair_attempts": 0,
         "provider_calls_added": 0,
     }
+    if cinematic_monoclip:
+        base["cinematic_monoclip"] = True  # explicit opt-in for prayer/outro-free render
     if voice_seconds > maximum + 1e-6:
         blocked = {
             **base,
@@ -468,6 +497,7 @@ def build_voice_owned_timeline(
         require_identity=require_identity,
         fmt=fmt,
         template=template,
+        cinematic_monoclip=cinematic_monoclip,
     )
     identities = [
         {

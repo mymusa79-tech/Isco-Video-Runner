@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -179,7 +180,68 @@ def _prayer_fill_chain(width: int, height: int) -> str:
 
 def _render_short_identity(source: Path, destination: Path, *, timeline: Mapping[str, Any]) -> None:
     """Short identity: the prayer picture, then the outro. No logo card between them."""
+    has_prayer = any(
+        isinstance(event, Mapping) and event.get("kind") == "prayer"
+        for event in timeline.get("identity_events", [])
+    )
+    has_outro = any(
+        isinstance(event, Mapping) and event.get("kind") == "outro"
+        for event in timeline.get("identity_events", [])
+    )
+    monoclip = timeline.get("cinematic_monoclip") is True
+    if monoclip and (has_prayer or has_outro):
+        raise RuntimeError("monoclip_identity_must_not_have_prayer_or_outro")
+    if not has_prayer and not has_outro:
+        if not monoclip:
+            raise RuntimeError("short_identity_missing_prayer_or_outro")
+        # Dedicated Monoclip: no extra inputs, re-encoding, overlay or SFX.
+        # Copy the finished, measured story without introducing an outro.
+        if str(timeline.get("template") or "") == "ala_mahl":
+            raise RuntimeError("ala_mahl_requires_prayer_identity")
+        Path(destination).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        return
     assets = identity_asset_paths("short", template=str(timeline.get("template") or ""))
+    if not has_prayer:
+        # Cinematic Monoclip's story is never interrupted. Keep the approved
+        # original end-card/subscription sound only in its measured outro.
+        if str(timeline.get("template") or "") == "ala_mahl":
+            raise RuntimeError("ala_mahl_requires_prayer_identity")
+        outro_asset = assets["outro"]
+        if not outro_asset.is_file() or outro_asset.stat().st_size <= 1024:
+            raise RuntimeError("identity asset missing: outro")
+        seconds = float(timeline["voice_seconds_measured"])
+        outro = _event(timeline, "outro")
+        start, end = float(outro["start"]), float(outro["end"])
+        if not (0 <= start < end <= seconds + 0.08):
+            raise RuntimeError("monoclip outro bounds invalid")
+        length = end - start
+        filters = (
+            f"[1:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            f"crop=1080:1920,setsar=1,fps=30,"
+            f"tpad=stop_mode=clone:stop_duration={length:.3f},"
+            f"trim=duration={length:.3f},"
+            f"setpts=PTS-STARTPTS+{start:.3f}/TB[outro];"
+            f"[0:v][outro]overlay=0:0:enable='gte(t,{start:.3f})'[vout];"
+            f"[1:a]atrim=duration={length:.3f},asetpts=PTS-STARTPTS,"
+            f"adelay={int(round(start * 1000))}:all=1,volume=0.7,"
+            f"aformat=sample_rates=48000:channel_layouts=mono[aoutro];"
+            f"[0:a]aformat=sample_rates=48000:channel_layouts=mono[avoice];"
+            f"[avoice][aoutro]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,"
+            f"alimiter=limit=0.84:level=disabled[aout]"
+        )
+        subprocess.run([
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(source), "-i", str(outro_asset),
+            "-filter_complex", filters,
+            "-map", "[vout]", "-map", "[aout]",
+            "-t", f"{seconds:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart", str(destination),
+        ], check=True, timeout=1800)
+        return
+
     for kind in ("prayer", "outro"):
         if not assets[kind].is_file() or assets[kind].stat().st_size <= 1024:
             raise RuntimeError(f"identity asset missing: {kind}")

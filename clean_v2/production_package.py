@@ -162,7 +162,7 @@ def spoken_text(text: str) -> str:
 
 def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str, Any]:
     doc = _object(value, {"schema_version", "format", "template", "title", "approval", "script", "performance",
-                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "extra_derivatives", "roles", "stock_policy"}, field="production.json")
+                          "scenes", "editing", "captions", "cover", "publishing"}, {"derivative", "extra_derivatives", "roles", "stock_policy", "visual_style"}, field="production.json")
     if type(doc["schema_version"]) is not int or doc["schema_version"] != 1:
         _error("schema_version يجب أن يساوي 1.")
     fmt = doc["format"]
@@ -172,6 +172,12 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
+    cinematic_monoclip = doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+    if "visual_style" in doc:
+        if not cinematic_monoclip or fmt != "short" or doc["template"] == "ala_mahl":
+            _error("Cinematic Monoclip متاح لشورت نداء فقط: bw_cinematic أو color_cinematic.")
+        if "stock_policy" in doc:
+            _error("BW Monoclip: احذف stock_policy؛ البدائل ليست تسلسلاً.")
     _text(doc["title"], "title", 120)
     approval = _object(doc["approval"], {"status", "reviewer"}, field="approval")
     if approval != {"status": "approved", "reviewer": "Claude"}:
@@ -229,6 +235,8 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         if key in {"A", "B"} and fmt != "podcast":
             _error("توجيهات A/B للبودكاست فقط.")
     editing = _object(doc["editing"], {"music"}, {"track_id", "asset", "delay_seconds"}, field="editing")
+    if cinematic_monoclip and editing.get("music") != "none":
+        _error("BW Monoclip: لا موسيقى في الشورت السينمائي.")
     music_asset = None
     if editing["music"] == "none":
         if len(editing) != 1:
@@ -349,6 +357,23 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):
         _error("يجب أن تغطي الصور جميع أقسام النص.")
+    if cinematic_monoclip:
+        # Preserve the three-section Short contract: still / one long video / still.
+        if len(scenes) != 3 or [scene["section_id"] for scene in scenes] != ["s1", "s2", "s3"]:
+            _error("BW Monoclip: مشهد واحد لكل قسم s1/s2/s3.")
+        if "stock" in scenes[0] or "stock" in scenes[2]:
+            _error("BW Monoclip: s1 وs3 صور ثابتة فقط.")
+        main_stock = scenes[1].get("stock")
+        if not isinstance(main_stock, dict) or "mode" in main_stock:
+            _error("BW Monoclip: s2 يحتاج ستوك فيديو مثبتًا بلا mode=sequence.")
+        main_urls = main_stock.get("urls") if "urls" in main_stock else [main_stock.get("url")]
+        if not isinstance(main_urls, list) or not (1 <= len(main_urls) <= 3):
+            _error("BW Monoclip: s2 يقبل 1–3 روابط فيديو بديلة.")
+        try:
+            if any(parse_stock_url(url)[1] != "video" for url in main_urls):
+                _error("BW Monoclip: s2 يحتاج روابط فيديو، لا صور ستوك.")
+        except (ValueError, TypeError):
+            _error("BW Monoclip: رابط فيديو s2 غير صالح.")
     # Image uniqueness is independent of the optional MP3 attachment.
     # Never count a music bed as an Ala Mahl scene image.
     if ala_mahl and len({scene["asset"] for scene in scenes}) != len(scenes):

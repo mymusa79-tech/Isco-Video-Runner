@@ -829,6 +829,10 @@ def _synthesize_sectioned_voice_pass(
     from .ready_production import document
     ready_doc = document(narration_path.parent)
     approved_performance = ready_doc.get("performance") or {}
+    cinematic_monoclip = (
+        fmt == "short"
+        and ready_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+    )
     cta_topic_units = 0
 
     for index, item in enumerate(sections, start=1):
@@ -840,7 +844,11 @@ def _synthesize_sectioned_voice_pass(
             )
 
         voice_units: list[tuple[str, str]] = []
-        if fmt in {"short", "film", "podcast"} and index == 1:
+        if cinematic_monoclip and index == 1:
+            # The entire approved opening scene is the hook: no prayer voice,
+            # no branded opening, no new narrator sentence.
+            voice_units.append(("hook", section_text))
+        elif fmt in {"short", "film", "podcast"} and index == 1:
             prayer_pos = section_text.find(PRAYER_SENTENCE)
             if prayer_pos <= 0:
                 raise RuntimeError("Timeline First requires explicit hook/prayer voice units")
@@ -896,7 +904,10 @@ def _synthesize_sectioned_voice_pass(
         else:
             remaining = section_text
             closer = " ".join(str(identity_closer or "").split()).strip()
-            if fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
+            if cinematic_monoclip:
+                # Last words remain the narrative payoff, not a branded outro.
+                voice_units.extend(("topic", part) for part in _bounded_voice_chunks(remaining))
+            elif fmt in {"film", "podcast"} and index == len(sections) and closer and remaining.endswith(closer):
                 topic_text = remaining[: -len(closer)].strip()
                 voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
                 voice_units.append(("outro", closer))
@@ -1204,7 +1215,8 @@ def _synthesize_sectioned_voice_pass(
                     }
                 )
 
-        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections):
+        if fmt in IDENTITY_TIMELINE_FORMATS and index == len(sections) and not cinematic_monoclip:
+            # No Monoclip end card, tail silence, or cloned end frame.
             timing = identity_timing_profile(fmt, template=str(ready_doc.get("template") or ""))
             silence_reference = chunk_paths[-1]
             final_silence = silence_reference.parent / "final-silence.wav"
@@ -4610,13 +4622,23 @@ def _run_legacy_cinematic_layer(
     from clean_v2.visual_cta import apply_visual_cta_assets
 
     from .ready_production import document
-    visual_cta_report = {"status": "skipped_ala_mahl", "provider_calls_added": 0} if document(output_dir).get("template") == "ala_mahl" else apply_visual_cta_assets(
-        output_dir=output_dir,
-        final_path=final_path,
-        narration_path=narration_path,
-        script=script,
-        fmt=fmt,
+    _visual_doc = document(output_dir)
+    _is_monoclip = (
+        fmt == "short"
+        and _visual_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     )
+    if _is_monoclip:
+        visual_cta_report = {"status": "skipped_cinematic_monoclip_no_outro", "provider_calls_added": 0}
+    elif _visual_doc.get("template") == "ala_mahl":
+        visual_cta_report = {"status": "skipped_ala_mahl", "provider_calls_added": 0}
+    else:
+        visual_cta_report = apply_visual_cta_assets(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            script=script,
+            fmt=fmt,
+        )
 
     return {
         **report,
@@ -5616,16 +5638,22 @@ def _bind_writer_visual_story_with_recovery(
 
 
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
+    from .ready_production import document as _ready_document
+    cinematic_monoclip = (
+        _ready_document(output_dir).get("visual_style") in
+        {"bw_cinematic", "color_cinematic"}
+    )
     report = {
         "schema_version": 1,
         "source": "clean-v2-short-fixed-identity",
         "status": "pass",
-        "reason": "fixed_identity_inserted_after_first_sentence_hook",
+        "reason": ("cinematic_monoclip_prayerless"
+                   if cinematic_monoclip else "fixed_identity_inserted_after_first_sentence_hook"),
         "canonical_opener": "",
         "canonical_closer": "",
         "opener": "",
         "closer": "",
-        "prayer_sentence": PRAYER_SENTENCE,
+        "prayer_sentence": "" if cinematic_monoclip else PRAYER_SENTENCE,
         "transitions": [],
         "provider_calls_added": 0,
     }
@@ -5753,9 +5781,17 @@ def _run_audio_mastering_stage(
     )
     if fmt == "short":
         ala_mahl = voice_timeline.get("template") == "ala_mahl"
-        identity_sequence = ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
-                             "topic",
-                             "ala_mahl_outro" if ala_mahl else "short_outro"]
+        from .ready_production import document as _ready_document
+        cinematic_monoclip = (
+            _ready_document(output_dir).get("visual_style")
+            in {"bw_cinematic", "color_cinematic"}
+        )
+        identity_sequence = (
+            ["hook", "natural_post_hook_breath", "topic", "natural_end_no_outro"]
+            if cinematic_monoclip
+            else ["hook", "natural_post_hook_breath", "prayer_with_approved_picture",
+                  "topic", "ala_mahl_outro" if ala_mahl else "short_outro"]
+        )
     atomic_write_json(
         output_dir / "identity-sequence.json",
         {
@@ -7063,13 +7099,15 @@ def _strip_exact_host_phrase(text: str, phrase: str) -> str:
 
 
 def _apply_brand_signature(
-    sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
+    sections: list[dict[str, Any]], fmt: str, opener: str, closer: str,
+    *, prayer_enabled: bool = True,
 ) -> None:
     inject_spoken_identity(
         sections,
         fmt=fmt,
         opener=opener,
         closer=closer,
+        prayer_enabled=prayer_enabled,
     )
 
 
@@ -7799,8 +7837,15 @@ class CleanV2Pipeline:
                 )
                 self._write_runtime_events(output_dir)
                 fmt = str(brief["format"])
+                from .ready_production import document as _ready_document
+                _monoclip = (
+                    fmt == "short"
+                    and _ready_document(output_dir).get("visual_style") in
+                        {"bw_cinematic", "color_cinematic"}
+                )
                 _apply_brand_signature(
-                    script["sections"], fmt, identity["opener"], identity["closer"]
+                    script["sections"], fmt, identity["opener"], identity["closer"],
+                    prayer_enabled=not _monoclip,
                 )
                 from clean_v2.contextual_cta import bind_contextual_cta_to_script
 

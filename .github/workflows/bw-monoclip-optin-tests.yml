@@ -1,0 +1,83 @@
+name: BW Monoclip Opt-In - Offline Safety Tests
+
+on:
+  push:
+    branches: [main, feature/bw-monoclip-optin-v1]
+    paths:
+      - clean_v2/production_package.py
+      - clean_v2/ready_production.py
+      - clean_v2/identity_sequence.py
+      - clean_v2/pipeline.py
+      - clean_v2/timeline_first.py
+      - clean_v2/timeline_render.py
+      - clean_v2/owner_art.py
+      - clean_v2/media.py
+      - clean_v2/short_timed_text.py
+      - scripts/test_bw_monoclip_optin.py
+      - scripts/test_bw_monoclip_runtime.py
+      - scripts/test_cinematic_monoclip_identity.py
+      - scripts/test_cinematic_monoclip_real_ffmpeg.py
+      - scripts/test_cinematic_monoclip_caption_completeness.py
+      - scripts/test_cinematic_monoclip_voice_audio_sync.py
+      - scripts/test_cinematic_monoclip_zip_and_voice.py
+      - scripts/test_cinematic_monoclip_release_gate.py
+      - .github/workflows/clean-v2-telegram-production.yml
+      - .github/workflows/telegram-clean-v2-control.yml
+      - scripts/telegram_clean_v2_control.py
+      - scripts/prepare_cinematic_monoclip_zip.py
+      - .github/workflows/bw-monoclip-optin-tests.yml
+  pull_request:
+    paths:
+      - clean_v2/**
+      - scripts/test_cinematic_monoclip_release_gate.py
+      - scripts/test_cinematic_monoclip_zip_and_voice.py
+      - scripts/telegram_clean_v2_control.py
+      - .github/workflows/bw-monoclip-optin-tests.yml
+      - .github/workflows/clean-v2-telegram-production.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bw-monoclip-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install local test dependencies only
+        run: python -m pip install 'Pillow==12.3.0'
+      - name: Compile all changed modules and tests
+        run: python -m py_compile clean_v2/production_package.py clean_v2/owner_art.py clean_v2/media.py clean_v2/short_timed_text.py scripts/test_bw_monoclip_optin.py scripts/test_bw_monoclip_runtime.py scripts/test_cinematic_monoclip_identity.py scripts/prepare_cinematic_monoclip_zip.py scripts/test_cinematic_monoclip_zip_and_voice.py scripts/test_cinematic_monoclip_release_gate.py scripts/telegram_clean_v2_control.py clean_v2/ready_production.py clean_v2/identity_sequence.py clean_v2/pipeline.py clean_v2/timeline_first.py clean_v2/timeline_render.py
+      - name: Run BW contract and existing package regression tests (no network)
+        run: python -m unittest scripts.test_bw_monoclip_optin scripts.test_bw_monoclip_runtime scripts.test_cinematic_monoclip_identity scripts.test_cinematic_monoclip_caption_completeness scripts.test_cinematic_monoclip_zip_and_voice scripts.test_cinematic_monoclip_release_gate scripts.test_production_package -v
+      - name: Install FFmpeg if unavailable
+        run: command -v ffmpeg && command -v ffprobe || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Install free Cairo Bold font strictly for visual rendering test
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/fonts/isco-cairo"
+          curl -fLSsS --retry 2 --connect-timeout 15 --max-time 90 \
+            'https://raw.githubusercontent.com/google/fonts/24ddc1f324cac5d9f5aedca126d298f56e3f1640/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf' \
+            -o "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf"
+          test "$(git hash-object "$HOME/.local/share/fonts/isco-cairo/Cairo.ttf")" = '25641b1c828857698457bcd9f5a102616b4e8033'
+          fc-cache -f "$HOME/.local/share/fonts/isco-cairo"
+          fc-match -f '%{family}\n' 'Cairo:weight=bold' | grep -i Cairo
+      - name: Verify color and BW Monoclip preserve audible carrier and last caption
+        run: python -m unittest scripts.test_cinematic_monoclip_voice_audio_sync -v
+      - name: Encode and inspect real synthetic Monoclip videos without API calls
+        env:
+          MONOCLIP_QA_OUTPUT_DIR: monoclip-qa-output
+        run: python -m unittest scripts.test_cinematic_monoclip_real_ffmpeg -v
+      - name: Upload Color and BW synthetic video evidence (not production content)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cinematic-monoclip-synthetic-proof
+          path: monoclip-qa-output/
+          if-no-files-found: error
+          retention-days: 7

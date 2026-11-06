@@ -5196,6 +5196,54 @@ def _build_section_body_segments(
     return segments
 
 
+def _require_bw_monoclip_measured_main_slot(slots: list[dict[str, Any]]) -> None:
+    """Never hide a short BW main clip with a cloned last frame at final render."""
+    main = [slot for slot in slots if slot.get("section_id") == "s2" and slot.get("kind") == "topic"]
+    if len(main) != 1:
+        raise RuntimeError("bw_cinematic_main_slot_missing_or_split")
+    length = probe_duration(Path(main[0]["path"]))
+    required = float(main[0]["duration_seconds"])
+    if length + 0.08 < required:
+        raise RuntimeError(
+            f"bw_cinematic_main_clip_short_for_measured_timeline:{length:.2f}<{required:.2f}"
+        )
+
+
+
+def _require_cinematic_monoclip_whole_video(
+    output_dir: Path, visual_paths: list[Path], narration_seconds: float,
+) -> Path:
+    """Use ONE pinned stock shot across hook, topic and payoff, without restarts.
+
+    The three spoken sections still define the voice and captions. Legacy
+    hook/payoff review stills must not replace the real moving shot.
+    """
+    ids = _pacing_section_ids(output_dir, visual_paths)
+    if ids is None or len(ids) != len(visual_paths) or ids.count("s2") != 1:
+        raise RuntimeError("cinematic_monoclip_single_stock_section_missing")
+    if set(ids) != {"s1", "s2", "s3"}:
+        raise RuntimeError("cinematic_monoclip_three_section_contract_missing")
+    clip = Path(visual_paths[ids.index("s2")])
+    assets = (_rights_manifest_payload(output_dir) or {}).get("assets") or []
+    source = [
+        row for row in assets
+        if isinstance(row, Mapping) and str(row.get("local_file") or "") == clip.name
+    ]
+    if (len(source) != 1
+            or source[0].get("provider") not in {"pexels", "pixabay"}
+            or source[0].get("stock_pinned") is not True
+            or source[0].get("media_kind") != "video"):
+        raise RuntimeError("cinematic_monoclip_pinned_video_provenance_missing")
+    if not clip.is_file():
+        raise RuntimeError("cinematic_monoclip_stock_file_missing")
+    length = probe_duration(clip)
+    if length + 0.08 < narration_seconds:
+        raise RuntimeError(
+            f"cinematic_monoclip_whole_stock_short_for_voice:{length:.3f}<{narration_seconds:.3f}"
+        )
+    return clip
+
+
 def render_video(
     narration_path: Path,
     visual_paths: list[Path],
@@ -5209,6 +5257,14 @@ def render_video(
     width, height = ((1080, 1920) if portrait else (1920, 1080))
     output_dir = Path(output_path).parent
     approved_package = (output_dir / "production.json").is_file()
+    # BW is a per-package opt-in. The identity/prayer overlays are applied
+    # only AFTER the monochrome body render, so their original colours stay intact.
+    bw_cinematic = False
+    cinematic_monoclip = False
+    if approved_package and fmt == "short":
+        package_doc = json.loads((output_dir / "production.json").read_text(encoding="utf-8"))
+        bw_cinematic = package_doc.get("visual_style") == "bw_cinematic"
+        cinematic_monoclip = package_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
     assets = (_rights_manifest_payload(output_dir) or {}).get("assets", [])
     preserve_source_colors = approved_package or fmt == "podcast" or any(
         isinstance(asset, Mapping) and (asset.get("source_actual") in {"ai_still", "stock_still"}
@@ -5241,7 +5297,20 @@ def render_video(
         and opening_report.get("mode") == "legacy_first_30_three_audited_shots"
         and len(visual_paths) >= 3
     )
-    if opening_enabled:
+    if cinematic_monoclip:
+        if not timeline or timeline.get("cinematic_monoclip") is not True:
+            raise RuntimeError("cinematic_monoclip_voice_timeline_required")
+        if any(
+            str(event.get("kind")) in {"prayer", "outro", "final_silence", "channel_identity"}
+            for event in timeline.get("identity_events", [])
+            if isinstance(event, Mapping)
+        ):
+            raise RuntimeError("cinematic_monoclip_identity_forbidden")
+        source = _require_cinematic_monoclip_whole_video(
+            output_dir, [Path(item) for item in visual_paths], duration,
+        )
+        paths, durations = [source], [duration]
+    elif opening_enabled:
         slots = opening_report.get("slots") or []
         if not isinstance(slots, list) or len(slots) != 3:
             raise RuntimeError("opening director render requires exactly three audited slots")
@@ -5285,16 +5354,18 @@ def render_video(
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     visual_schedule: list[dict[str, Any]] = []
-    if timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
+    if not cinematic_monoclip and timeline and timeline.get("identity_events") and timeline.get("section_events") and _pacing_section_ids(output_dir, paths) is not None:
         visual_schedule = _voice_owned_visual_schedule(output_dir, paths, timeline)
         _extend_last_slot_to_terminal(visual_schedule, str(timeline.get("template") or ""), duration)
+        if cinematic_monoclip:
+            _require_bw_monoclip_measured_main_slot(visual_schedule)
         paths = [slot["path"] for slot in visual_schedule]
         durations = [slot["duration_seconds"] for slot in visual_schedule]
         if approved_package and fmt in {"film", "podcast", "short"}:
             from .board_scene import rerender_scheduled
 
             rerender_scheduled(output_dir, visual_schedule, assets, fmt)  # explainer boards: exact slot, never raises
-    elif fmt == "short":
+    elif fmt == "short" and not cinematic_monoclip:
         short_section_ids = _pacing_section_ids(Path(output_path).parent, paths)
         paths, durations = _enforce_short_hook_shot_cap(
             paths,
@@ -5452,7 +5523,12 @@ def render_video(
             input_index += 1
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = "null"
-        if not preserve_source_colors:
+        if bw_cinematic:
+            # Last creative grade on the whole content video, after source
+            # palette-matching and owner-art colorbalance; before identity
+            # composition and the later subtitle burn.
+            master_look = "hue=s=0"
+        elif not preserve_source_colors:
             master_lut = _write_master_look_lut(work_dir / "navy-gold-master-v6.cube", fmt=fmt)
             master_look = (
                 f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"

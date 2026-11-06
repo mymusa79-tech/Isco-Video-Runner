@@ -44,6 +44,9 @@ CAPTION_X = 540
 YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO = 0.15
 CAPTION_SAFE_BOTTOM_Y = int(1920 * (1.0 - YOUTUBE_BOTTOM_UI_EXCLUSION_RATIO))
 SHORT_CAPTION_STROKE = r"\bord7\3c&H00140B07&\4c&H00000000&\4a&H70&\shad4\blur0.8"  # navy-black stroke, soft shadow
+BW_PRIMARY_ASS = "&H00F5F5F5"  # neutral white in ASS BGR notation
+BW_OUTLINE_ASS = "&H00000000"
+BW_CAPTION_STROKE = r"\bord5\3c&H00000000&\shad0"
 CAPTION_EXTRUDE_X = 0
 CAPTION_EXTRUDE_Y = 0
 CAPTION_SHADOW_X = 0
@@ -938,6 +941,7 @@ def build_rich_ass(
     *,
     slate_index: int | None = None,
     layout_hints: Sequence[Mapping[str, object]] | None = None,
+    bw_cinematic: bool = False,
 ) -> str:
     validated = validate_progressive_text(events)
     hints = list(layout_hints or build_composition_hints(events))
@@ -948,6 +952,9 @@ def build_rich_ass(
     simple_caption = is_simple_mode()
     caption_style_size = SIMPLE_CAPTION_FONT_SIZE if simple_caption else BODY_FONT_SIZE
     caption_outline = 3 if simple_caption else 4  # the event tags below set the real stroke
+    face_color = BW_PRIMARY_ASS if bw_cinematic else PRIMARY_ASS
+    outline_color = BW_OUTLINE_ASS if bw_cinematic else OUTLINE_ASS
+    caption_stroke = BW_CAPTION_STROKE if bw_cinematic else SHORT_CAPTION_STROKE
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -959,7 +966,7 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{caption_style_size},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,-1",
+        f"Style: Caption,{BODY_FONT},{caption_style_size},{face_color},{face_color},{outline_color},&H00000000,-1,0,0,0,100,100,0,0,1,{caption_outline},0,5,70,70,0,-1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -977,10 +984,10 @@ def build_rich_ass(
         # Modern Shorts caption: thick dark stroke + soft drop shadow (legible on white paper
         # or sky, where the old thin stroke vanished). Captions stay static: no pop, wipe or karaoke.
         motion = r"\fad(140,200)"
-        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + SHORT_CAPTION_STROKE + motion
+        face_tag = rf"\an5\pos({x},{y})\fs{font_size}" + caption_stroke + motion
         lines.append(
             f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{face_tag}\\c{PRIMARY_ASS}}}{plain}"
+            f"{{{face_tag}\\c{face_color}}}{plain}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -992,14 +999,24 @@ def render_progressive_text(
     events: Sequence[Mapping[str, object]],
     srt_path: Path,
     output: Path,
+    bw_cinematic: bool = False,
+    monoclip: bool = False,
 ) -> dict[str, Any]:
     validated = validate_progressive_text(events)
+    if monoclip:
+        _require_monoclip_cairo_font()
     srt = write_progressive_srt(events, Path(srt_path))
     slate_index = None
     layout_hints = build_composition_hints(events)
+    if monoclip:
+        for hint, item in zip(layout_hints, validated):
+            # Editorially approved larger Cairo Bold semantic cards: 124–152px.
+            hint["font_size"] = 152 if item.role in {"hook", "payoff"} else 144
+            hint["x"] = 540
+            hint["y"] = 1260
     ass_path = Path(srt_path).with_suffix(".rich.ass")
     ass_path.write_text(
-        build_rich_ass(events, slate_index=None, layout_hints=layout_hints),
+        build_rich_ass(events, slate_index=None, layout_hints=layout_hints, bw_cinematic=bw_cinematic),
         encoding="utf-8",
     )
 
@@ -1060,7 +1077,7 @@ def render_progressive_text(
         "max_dark_slates": MAX_DARK_SLATES,
         "accent_rgb": None,
         "accent_enabled": False,
-        "body_rgb": "#F4F2EE",
+        "body_rgb": "#F5F5F5" if bw_cinematic else "#F4F2EE",
         "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
@@ -1069,7 +1086,8 @@ def render_progressive_text(
         "body_wrap_words": BODY_WRAP_WORDS,
         "max_caption_lines": MAX_CAPTION_LINES,
         "caption_min_words": CAPTION_MIN_WORDS,
-        "caption_max_words": CAPTION_MAX_WORDS,
+        "caption_max_words": 8 if monoclip else CAPTION_MAX_WORDS,
+        "cinematic_monoclip_caption_mode": "voice_owned_semantic_phrase_cairo_bold_large" if monoclip else None,
         "caption_y": CAPTION_Y,
         "caption_x": CAPTION_X,
         "composition_schema_version": COMPOSITION_SCHEMA_VERSION,
@@ -1110,6 +1128,115 @@ def render_progressive_text(
 
 
 
+
+def _cinematic_monoclip_caption_events(
+    events: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Keep all voice-owned Arabic words in legible, meaningful 2-line cards.
+
+    Source event durations are measured audio timing, but individual word
+    positions are proportional estimates (not forced alignment). Prefer
+    punctuation and original audio-unit boundaries, and reject a singleton
+    final card. Do not invent, omit, reorder, or paraphrase the locked script.
+    """
+    tokens: list[tuple[str, float, float, int]] = []
+    for event_index, event in enumerate(events):
+        words = str(event.get("text") or "").strip().split()
+        if not words:
+            continue
+        start = float(event["start"])
+        end = float(event["end"])
+        if end <= start:
+            raise ShortTimedTextError("monoclip_caption_source_timing_invalid")
+        weights = [max(1, len(_clean(word))) for word in words]
+        total = sum(weights)
+        cursor = start
+        for i, (word, weight) in enumerate(zip(words, weights)):
+            stop = end if i == len(words) - 1 else cursor + (end - start) * weight / total
+            tokens.append((word, cursor, stop, event_index))
+            cursor = stop
+    if len(tokens) < 2:
+        raise ShortTimedTextError("monoclip_caption_needs_at_least_two_spoken_words")
+
+    result: list[dict[str, object]] = []
+    cursor = 0
+    while cursor < len(tokens):
+        remaining = len(tokens) - cursor
+        candidates: list[tuple[float, int]] = []
+        for count in range(2, min(8, remaining) + 1):
+            if remaining - count == 1:
+                continue
+            group = tokens[cursor:cursor + count]
+            phrase = " ".join(item[0] for item in group)
+            rows, size = _caption_rows_and_size(
+                phrase, fmt="short", font_size=144,
+            )
+            # Tested reference preview uses approximately 120–144px Cairo Bold.
+            if size < 124 or any(_caption_width(row, size) > _CAPTION_MAX_WIDTH["short"] for row in rows):
+                continue
+            duration = group[-1][2] - group[0][1]
+            if duration > 5.5 and remaining > count:
+                continue
+            end_word = group[-1][0]
+            sentence_end = end_word.endswith(("؟", "!", ".", "…", "؛"))
+            original_boundary = (
+                cursor + count == len(tokens)
+                or group[-1][3] != tokens[cursor + count][3]
+            )
+            long_pause = (
+                cursor + count < len(tokens)
+                and tokens[cursor + count][1] - group[-1][2] >= 0.25
+            )
+            # Prefer a full thought, a deliberate pause, and a calm 2–4s rhythm.
+            score = (
+                3.5 * int(sentence_end)
+                + 2.0 * int(original_boundary)
+                + 1.5 * int(long_pause)
+                - 0.4 * abs(count - 6)
+                - 0.23 * abs(duration - 3.0)
+            )
+            if duration < 1.2 and remaining > count:
+                score -= 2.5
+            candidates.append((score, count))
+        if candidates:
+            count = max(candidates, key=lambda choice: (choice[0], choice[1]))[1]
+        else:
+            # Unusually long Arabic words: preserve text and split rather than
+            # shrinking or silently deleting a word.
+            count = min(remaining, 2 if remaining != 3 else 3)
+            if remaining - count == 1:
+                count = remaining
+        group = tokens[cursor:cursor + count]
+        result.append({
+            "start": round(group[0][1], 3),
+            "end": round(group[-1][2], 3),
+            "text": " ".join(item[0] for item in group),
+            "role": "beat",
+        })
+        cursor += count
+    if _clean(" ".join(x["text"] for x in result)) != _clean(
+        " ".join(str(event.get("text") or "") for event in events)
+    ):
+        raise ShortTimedTextError("monoclip_caption_words_mismatch")
+    if any(not 2 <= len(str(event["text"]).split()) <= 8 for event in result):
+        raise ShortTimedTextError("monoclip_caption_phrase_length_invalid")
+    return result
+
+
+def _require_monoclip_cairo_font() -> None:
+    """No silent substitution with Noto or another Arabic font on this preset."""
+    try:
+        probe = subprocess.run(
+            ["fc-match", "-f", "%{family}", "Cairo:weight=bold"],
+            check=True, capture_output=True, text=True, timeout=15,
+            env=_secret_free_subprocess_env(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ShortTimedTextError("monoclip_cairo_bold_font_not_installed") from exc
+    if "cairo" not in probe.stdout.casefold():
+        raise ShortTimedTextError("monoclip_cairo_bold_font_not_installed")
+
+
 def apply_short_timed_text(
     *,
     output_dir: Path,
@@ -1119,9 +1246,18 @@ def apply_short_timed_text(
 ) -> dict[str, Any]:
     """Burn the restored three-event Short text layer onto the final picture."""
     timeline_path = Path(output_dir) / "short-voice-owned-timeline.json"
+    manifest_path = Path(output_dir) / "production.json"
+    bw_cinematic = False
+    cinematic_monoclip = False
+    if manifest_path.is_file():
+        manifest_doc = json.loads(manifest_path.read_text(encoding="utf-8"))
+        cinematic_monoclip = manifest_doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
+        bw_cinematic = cinematic_monoclip
     if (Path(output_dir) / "production.json").is_file():
         from .podcast_captions import build_events
         events, _timing = build_events(Path(output_dir), fmt="short", caption_roles={"hook", "topic", "outro"})
+        if cinematic_monoclip:
+            events = _cinematic_monoclip_caption_events(events)
         events = [dict(e, role="hook" if i == 0 else ("payoff" if i == len(events)-1 else "beat"))
                   for i, e in enumerate(events)]
     elif timeline_path.is_file():
@@ -1149,6 +1285,8 @@ def apply_short_timed_text(
         events=events,
         srt_path=Path(output_dir) / "short-timed-text.srt",
         output=rendered,
+        bw_cinematic=bw_cinematic,
+        monoclip=cinematic_monoclip,
     )
     os.replace(rendered, Path(final_path))
     return {
