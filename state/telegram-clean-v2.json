@@ -9230,6 +9230,21 @@
       "selected_at": "2026-11-06T12:27:28Z",
       "created_at": "2026-11-06T12:27:28Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-c87537d750",
+      "title": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+      "normalized_title": "لماذا تحكم علي نفسك قبل ان تكتمل؟",
+      "market_query": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-06T18:29:13Z",
+      "created_at": "2026-11-06T18:29:13Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -42768,9 +42783,132 @@
         "started_at": "2026-11-06T12:37:40Z",
         "finished_at": "2026-11-06T13:32:22Z"
       }
+    },
+    "req-ce8d54b41c43": {
+      "schema_version": 1,
+      "request_id": "req-ce8d54b41c43",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-c87537d750",
+      "selected_at": "2026-11-06T18:29:13Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "visual_style": "bw_cinematic",
+          "template": "why_reframe",
+          "title": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "أول ضغطة على الطين لا تصنع وعاءً. فلماذا تطلب من نفسك أن تنجح من أول محاولة؟"
+              },
+              {
+                "id": "s2",
+                "text": "تضغط الطين فيتشقق، وتميل الحافة، ويبدو بعيدًا عن الوعاء الذي تتخيله. ثم تدور العجلة، وتعدّل اليد شيئًا صغيرًا، فيقترب الشكل قليلًا. المهارة تعمل بالطريقة نفسها: لاحظ ما الذي مال، وغيّر شيئًا واحدًا، ثم أعد المحاولة. كل محاولة تعطيك معلومة جديدة إذا انتبهت إليها."
+              },
+              {
+                "id": "s3",
+                "text": "لا تحكم على قدرتك اليوم. اختر خطأً واحدًا، صححه في المحاولة التالية، وقارن النتيجة بعد أسبوع."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "افتتاح مباشر مع وقفة قصيرة بعد «وعاءً». في الوسط توتر خفيف عند التشقق وميل الحافة، ثم انتقال إلى إيقاع أوضح عند تعديل الحركة وتدرج التشكّل. اختم بنبرة عملية ثابتة عند تصحيح خطأ واحد. يُنطق النص وحده دون وصف الأداء؛ لا صلاة ولا مقدمة ولا خاتمة دعائية."
+          },
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "publishing": {
+            "title": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+            "description": "لماذا نحكم على محاولتنا الأولى قبل أن تتشكّل النتيجة؟ يوضح مثال تشكيل الطين كيف تساعدنا ملاحظة الخطأ وتعديل حركة واحدة على التقدم خطوة بخطوة، بدل الاستسلام أو تكرار المحاولة دون تعلّم.\n\n#نداء_اليقظة #تطوير_الذات #التعلم #التغيير",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#تطوير_الذات",
+              "#التعلم",
+              "#التغيير"
+            ]
+          },
+          "scenes": [
+            {
+              "id": "clay_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "أول ضغطة على الطين",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "clay_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.png",
+              "start_text": "تضغط الطين فيتشقق، وتميل",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/female-hands-working-with-clay-5564308/",
+                "query_en": "hands shaping wet clay pottery",
+                "query_alt_en": "potter fingers shaping clay wheel",
+                "must_show": "حركة متصلة لتشكيل الطين بالأيدي، دون وجه أو نص أو شعار؛ يحافظ القص العمودي على الحدث"
+              }
+            },
+            {
+              "id": "clay_03",
+              "section_id": "s3",
+              "asset": "assets/scene_03.png",
+              "start_text": "لا تحكم على قدرتك",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "cover": {
+            "asset": "assets/cover.png",
+            "text": "فشلت من أول محاولة؟"
+          },
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          }
+        },
+        "zip_sha256": "5acff737ffe6617de240fff01171ed5d13862209687b652adbcb1e4c8f92bf65",
+        "asset_sha256": {
+          "assets/cover.png": "837f5ef0eacff23888baf211dab5bea73f2250129e087a493955079c3fcee73e",
+          "assets/scene_03.png": "e48260aa0f2e95d554306eeff138e876f1eee76724a69c6719e75f5030283598",
+          "assets/scene_01.png": "0cba231a894357ef8bc3a79db0b3a79419405fdc274f9cada3ec6ae282a3fbe7",
+          "assets/scene_02.png": "bf226068472eb16d97a083e277e307932954975c2fca1547c4f3239b48e381b7"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "6985634cdf75137f8e13b581b7392ce5e7aa2a8db8499db316e0ee9239e0bee3",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIRdWruHFdxHHaRyuzhHQ3AcRJpMcBXAALtHgACSEBxU2qi833rjegVPQQ",
+          "sha256": "5acff737ffe6617de240fff01171ed5d13862209687b652adbcb1e4c8f92bf65"
+        }
+      }
     }
   },
-  "current_request_id": "req-dd572a8b07de",
+  "current_request_id": "req-ce8d54b41c43",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -43436,6 +43574,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-06T13:32:22Z",
+  "updated_at": "2026-11-06T18:29:13Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
