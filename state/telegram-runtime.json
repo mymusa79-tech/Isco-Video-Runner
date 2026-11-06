@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "لماذا يريدونك كما كنت؟ | خارج النص",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42219076231",
-  "result": "success",
-  "updated_at": 1793971939
+  "topic": "لماذا تحكم على نفسك قبل أن تكتمل؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42271341710",
+  "result": "",
+  "updated_at": 1793989857
 }
