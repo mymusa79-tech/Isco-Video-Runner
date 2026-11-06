@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "لماذا تؤجّل حياتك حتى تتحسن الظروف؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42197368067",
-  "result": "success",
-  "updated_at": 1793962498
+  "topic": "لماذا يريدونك كما كنت؟ | خارج النص",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42219076231",
+  "result": "",
+  "updated_at": 1793968667
 }
