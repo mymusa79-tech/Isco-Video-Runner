@@ -42741,9 +42741,9 @@
           "assets/derivative_cover_2.jpg": "8618b970f9041622ee696365e2aae578cbd437f2c39c6481f220bc3d5c0b5c21"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-11-06T12:37:17Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-11-06T12:37:21Z",
       "request_sha256": "bbbf38c79f388033c5cb3abf3ba3708c2b81a98a07cc9060e821513a0695f8cb",
       "owner_art": {
         "zip": {
@@ -43420,6 +43420,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-06T12:37:17Z",
+  "updated_at": "2026-11-06T12:37:21Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
