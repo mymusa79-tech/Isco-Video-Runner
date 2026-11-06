@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا يريدونك كما كنت؟ | خارج النص",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42219076231",
   "result": "",
-  "updated_at": 1793968667
+  "updated_at": 1793968753
 }
