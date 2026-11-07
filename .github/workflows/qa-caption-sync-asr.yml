@@ -48,6 +48,26 @@ jobs:
           else
             gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir run-artifact
           fi
+      - name: Print artifact index and audio units (diagnostic)
+        run: |
+          find run-artifact -type f | sed 's/^/FILE /' | head -150
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path("run-artifact")
+          for name in ("timeline-first.json", "voice-sections.json", "final-master-qc.json"):
+              for path in sorted(root.rglob(name)):
+                  data = json.loads(path.read_text(encoding="utf-8"))
+                  print("==", path)
+                  if name == "timeline-first.json":
+                      for unit in data.get("audio_units", []):
+                          print({k: unit.get(k) for k in ("role", "section_id", "chunk", "start", "end", "duration_seconds", "file")})
+                      print({k: v for k, v in data.items() if k != "audio_units" and not isinstance(v, (list, dict))})
+                  elif name == "voice-sections.json":
+                      for sec in data.get("sections", []):
+                          print(sec.get("id"), [(c.get("chunk"), len(str(c.get("text", "")).split())) for c in sec.get("chunks", [])])
+                  else:
+                      print(json.dumps(data, ensure_ascii=False)[:1500])
+          PY
       - name: Compare captions with the heard words
         env:
           MODEL: ${{ inputs.model }}
