@@ -9260,6 +9260,21 @@
       "selected_at": "2026-11-07T01:04:48Z",
       "created_at": "2026-11-07T01:04:48Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-a5ccd0ab6b",
+      "title": "الإتقان المبكر يؤخر الصورة",
+      "normalized_title": "الاتقان المبكر يوخر الصورة",
+      "market_query": "الإتقان المبكر يؤخر الصورة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-07T10:40:57Z",
+      "created_at": "2026-11-07T10:40:57Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -43087,9 +43102,141 @@
         "started_at": "2026-11-07T01:06:32Z",
         "finished_at": "2026-11-07T01:09:54Z"
       }
+    },
+    "req-cbb54b963f0e": {
+      "schema_version": 1,
+      "request_id": "req-cbb54b963f0e",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الإتقان المبكر يؤخر الصورة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-a5ccd0ab6b",
+      "selected_at": "2026-11-07T10:40:57Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الإتقان المبكر يؤخر الصورة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "why_reframe",
+          "visual_style": "color_cinematic",
+          "title": "الإتقان المبكر يؤخر الصورة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "تمرّ الفرشاة على الورق مرة أخرى، والرسمة ما زالت في بدايتها. متى يتحوّل الإتقان إلى فخ؟"
+              },
+              {
+                "id": "s2",
+                "text": "حين تصقل الطبقة الأولى قبل أن تظهر الصورة، لا تتقدم. تعيد اللمسة نفسها لأن الخطأ فيها مرئي، وتؤجل ما يعطي العمل معناه. المسودة الأولى مكان الاكتشاف، والكمال يأتي بعد أن يكتمل الشكل."
+              },
+              {
+                "id": "s3",
+                "text": "قبل أن تعيد لمسة، اسأل: هل تقرّبني من اكتمال الصورة؟ إن لم تفعل، فاتركها وانتقل. الصورة تظهر حين تتقدم."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "ابدأ فورًا بنبرة فضول مشدود وواضحة، لا هادئة مسطّحة ولا تمثيلية. في S1 اجعل الجملة الأولى وصفًا حيًّا لما تراه العين، ثم خذ وقفة تنفّس قصيرة قبل «متى يتحوّل الإتقان إلى فخ؟» مع صعود استفهامي طبيعي. في S2 اجعل الإيقاع أسرع قليلًا عند «تعيد اللمسة نفسها»، ثم اخفض النبرة بصدق عند «وتؤجل ما يعطي العمل معناه»، واجعل «الكمال يأتي بعد أن يكتمل الشكل» هادئة مطمئنة. في S3 أبطئ بوضوح، واجعل السؤال عمليًا لا توبيخًا، وقل «فاتركها وانتقل» بحسم دافئ، واختتم «الصورة تظهر حين تتقدم» بثقة راسخة دون خطابة. فواصل قصيرة فقط داخل الكلام، لا صمت افتتاحيًا أو ختاميًا، ولا إلقاء وعظيًا. الأداء فصيح طبيعي متغيّر. لا تغيّر الصوت المعتمد، ولا تضف صلاة أو هوية أو موسيقى أو CTA."
+          },
+          "scenes": [
+            {
+              "id": "painting_hook",
+              "section_id": "s1",
+              "asset": "assets/scene_01.png",
+              "start_text": "تمرّ الفرشاة على الورق",
+              "motion": "hold",
+              "transition": "cut"
+            },
+            {
+              "id": "painting_meaning",
+              "section_id": "s2",
+              "asset": "assets/scene_02.png",
+              "start_text": "حين تصقل الطبقة الأولى",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "url": "https://www.pexels.com/video/close-up-of-hand-painting-with-brush-37322214/",
+                "query_en": "hand painting brush on paper closeup",
+                "query_alt_en": "watercolor artist hand painting vertical closeup",
+                "must_show": "يد واحدة ترسم على ورق بفرشاة، الرسمة في بدايتها، بلا وجه أو نص أجنبي أو شعارات، وحركة مستمرة طوال السرد"
+              }
+            },
+            {
+              "id": "painting_resolution",
+              "section_id": "s3",
+              "asset": "assets/scene_03.png",
+              "start_text": "قبل أن تعيد لمسة،",
+              "motion": "hold",
+              "transition": "cut"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.png",
+            "text": "متى يصبح الإتقان فخًا؟"
+          },
+          "publishing": {
+            "title": "متى يصبح الإتقان فخًا؟ | لا تصقل الطبقة الأولى",
+            "description": "تعيد اللمسة نفسها لأن الخطأ فيها مرئي، فتتأخر الصورة كلها. متى يصبح السعي إلى الإتقان فخًا؟ وكيف تعرف أن التعديل التالي يقرّبك من اكتمال العمل أو يؤخره؟\n\n#الكمالية #السعي_إلى_الكمال #تطوير_الذات #نداء_اليقظة",
+            "hashtags": [
+              "#الكمالية",
+              "#السعي_إلى_الكمال",
+              "#تطوير_الذات",
+              "#نداء_اليقظة"
+            ],
+            "tags": [
+              "الكمالية",
+              "السعي إلى الكمال",
+              "المثالية",
+              "الإفراط في التعديل",
+              "فخ الكمال",
+              "إنجاز العمل",
+              "نداء اليقظة"
+            ]
+          }
+        },
+        "zip_sha256": "3b12479bb557188c100f6eea37266a77d8623e9a964a74d6ecf42876f361759b",
+        "asset_sha256": {
+          "assets/cover.png": "b33fded81c6c47ba56149509488b9e57d87b9ef783ebd68da4feac12d5ba35b3",
+          "assets/scene_03.png": "167f0ffd4c761fdec48c1d27fe0756c2291d9a79ee086f55a2e18958547a2638",
+          "assets/scene_01.png": "460d302ae9f133b7cebd9e61b03c8a2ebb98ea27d9d1d2bfa8f263187cb5da9e",
+          "assets/scene_02.png": "0a2bc383cb136398ee87c798364909d5fdfff093817da7ac703ed922f07f00b0"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "21976eb7681699c71b94f725f130cf13b0af2b952d356d874022069e910e9de8",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAIRj2rvAAEe1yhr4Dx4kvcKYXIQGJx5jQACliAAAiuBeVNdWSEFS-bEoj0E",
+          "sha256": "3b12479bb557188c100f6eea37266a77d8623e9a964a74d6ecf42876f361759b"
+        }
+      }
     }
   },
-  "current_request_id": "req-20a48a237fa9",
+  "current_request_id": "req-cbb54b963f0e",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -43755,6 +43902,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-07T01:09:54Z",
+  "updated_at": "2026-11-07T10:40:57Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
