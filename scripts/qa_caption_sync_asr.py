@@ -107,8 +107,17 @@ def load_cards(folder: Path) -> list[dict[str, Any]]:
 def transcribe(video: Path, model_name: str) -> list[dict[str, Any]]:
     from faster_whisper import WhisperModel  # imported lazily: not needed for the offline tests
 
+    import subprocess
+
+    import numpy as np  # a faster-whisper dependency
+
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    audio = np.frombuffer(raw, dtype=np.float32)  # decoded here: avoids the PyAV open() version mismatch
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(str(video), language="ar", word_timestamps=True)
+    segments, _info = model.transcribe(audio, language="ar", word_timestamps=True)
     return [{"word": w.word, "start": w.start, "end": w.end} for s in segments for w in (s.words or [])]
 
 
