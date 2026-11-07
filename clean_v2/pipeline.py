@@ -1238,6 +1238,11 @@ def _synthesize_sectioned_voice_pass(
                 }
             )
 
+        if len(chunk_paths) == 1 and chunk_paths[0] != section_path:
+            # A single chunk can live in NN-chunks/ (identity sections). Monoclip adds no final
+            # silence, so nothing joins it: without this copy the section file never exists and
+            # the narration silently loses the whole last section.
+            shutil.copyfile(chunk_paths[0], section_path)
         if len(chunk_paths) > 1:
             joined_section = audio_dir / f".{index:02d}-chunk-join.wav"
             joined_list = joined_section.with_suffix(".txt")
