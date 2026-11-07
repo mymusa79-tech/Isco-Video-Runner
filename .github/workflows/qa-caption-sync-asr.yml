@@ -33,7 +33,7 @@ jobs:
       - name: Offline unit tests for the comparison logic
         run: python -m unittest scripts.test_qa_caption_sync_asr -v
       - name: Install speech model runtime (diagnostic only)
-        run: python -m pip install 'faster-whisper==1.1.0'
+        run: python -m pip install 'faster-whisper==1.1.0' requests
       - name: Download the production run artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,6 +50,7 @@ jobs:
         env:
           MODEL: ${{ inputs.model }}
         run: |
+          set -o pipefail
           python scripts/qa_caption_sync_asr.py --artifact-dir run-artifact --out qa-out --model "$MODEL" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
