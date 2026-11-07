@@ -33,7 +33,9 @@ jobs:
       - name: Offline unit tests for the comparison logic
         run: python -m unittest scripts.test_qa_caption_sync_asr -v
       - name: Install speech model runtime (diagnostic only)
-        run: python -m pip install 'faster-whisper==1.1.0'
+        run: python -m pip install 'faster-whisper==1.1.0' requests
+      - name: Install FFmpeg if unavailable
+        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - name: Download the production run artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,10 +48,39 @@ jobs:
           else
             gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir run-artifact
           fi
+      - name: Print artifact index and audio units (diagnostic)
+        run: |
+          find run-artifact -type f | sed 's/^/FILE /' | head -150
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path("run-artifact")
+          for name in ("timeline-first.json", "voice-sections.json", "final-master-qc.json"):
+              for path in sorted(root.rglob(name)):
+                  data = json.loads(path.read_text(encoding="utf-8"))
+                  print("==", path)
+                  if name == "timeline-first.json":
+                      for unit in data.get("audio_units", []):
+                          print({k: unit.get(k) for k in ("role", "section_id", "chunk", "start", "end", "duration_seconds", "file")})
+                      print({k: v for k, v in data.items() if k != "audio_units" and not isinstance(v, (list, dict))})
+                  elif name == "voice-sections.json":
+                      for sec in data.get("sections", []):
+                          print(sec.get("id"), [(c.get("chunk"), len(str(c.get("text", "")).split())) for c in sec.get("chunks", [])])
+                  else:
+                      print(json.dumps(data, ensure_ascii=False)[:1500])
+          PY
+      - name: Print audio durations and mastering reports (diagnostic)
+        run: |
+          for f in $(find run-artifact -name '*.wav' -o -name 'final.mp4' | sort); do
+            echo "DUR $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f") $f"
+          done
+          for n in audio-mastering.json short-audio-polish.json topic-audio-polish.json voice-owned-timeline.json short-voice-owned-timeline.json; do
+            for f in $(find run-artifact -name "$n"); do echo "== $f"; head -c 2500 "$f"; echo; done
+          done
       - name: Compare captions with the heard words
         env:
           MODEL: ${{ inputs.model }}
         run: |
+          set -o pipefail
           python scripts/qa_caption_sync_asr.py --artifact-dir run-artifact --out qa-out --model "$MODEL" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

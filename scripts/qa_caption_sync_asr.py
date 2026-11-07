@@ -104,16 +104,39 @@ def load_cards(folder: Path) -> list[dict[str, Any]]:
     return cards
 
 
+def probe_seconds(path: Path) -> float | None:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        return round(float(out), 2)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def transcribe(video: Path, model_name: str) -> list[dict[str, Any]]:
     from faster_whisper import WhisperModel  # imported lazily: not needed for the offline tests
 
+    import subprocess
+
+    import numpy as np  # a faster-whisper dependency
+
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    audio = np.frombuffer(raw, dtype=np.float32)  # decoded here: avoids the PyAV open() version mismatch
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(str(video), language="ar", word_timestamps=True)
+    segments, _info = model.transcribe(audio, language="ar", word_timestamps=True)
     return [{"word": w.word, "start": w.start, "end": w.end} for s in segments for w in (s.words or [])]
 
 
 def to_markdown(report: dict[str, Any]) -> str:
-    lines = [f"status: **{report['status']}**  match_ratio: {report['match_ratio']}",
+    lines = [f"video: {report.get('video')} ({report.get('video_seconds')}s)",
+             f"status: **{report['status']}**  match_ratio: {report['match_ratio']}",
              f"median start error: {report.get('median_start_error')}s  max: {report.get('max_abs_start_error')}s  flagged: {report.get('flagged_cards')}",
              "", "| card | text | card start | heard start | error | flag |", "|---|---|---|---|---|---|"]
     for row in report["cards"]:
@@ -130,11 +153,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--model", default="medium")
     args = parser.parse_args(argv)
-    video = next(iter(sorted(args.artifact_dir.rglob("*.mp4"))), None)
-    if video is None:
+    cards = load_cards(args.artifact_dir)
+    candidates = sorted(args.artifact_dir.rglob("*.mp4"))
+    if not candidates:
         raise SystemExit("no .mp4 found in the downloaded artifact")
-    report = compare(load_cards(args.artifact_dir), transcribe(video, args.model))
-    report["video"] = video.name
+    card_end = max(float(c["end"]) for c in cards)
+    listing = [(path, probe_seconds(path)) for path in candidates]
+    sys.stdout.write("mp4 candidates (card end %.2fs): %s\n" % (card_end, [(str(p.relative_to(args.artifact_dir)), d) for p, d in listing]))
+    video, video_seconds = min(listing, key=lambda item: abs((item[1] or 1e9) - card_end))
+    heard = transcribe(video, args.model)
+    sys.stdout.write("heard words (start end word):\n" + "\n".join(f"{w['start']:.2f} {w['end']:.2f} {w['word']}" for w in heard) + "\n")
+    report = compare(cards, heard)
+    report["heard_words"] = [{"word": w["word"], "start": round(w["start"], 2), "end": round(w["end"], 2)} for w in heard]
+    report["video"] = str(video.relative_to(args.artifact_dir))
+    report["video_seconds"] = video_seconds
+    report["candidates"] = [{"file": str(p.relative_to(args.artifact_dir)), "seconds": d} for p, d in listing]
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "caption_sync_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     (args.out / "caption_sync_report.md").write_text(to_markdown(report), encoding="utf-8")
