@@ -68,6 +68,14 @@ jobs:
                   else:
                       print(json.dumps(data, ensure_ascii=False)[:1500])
           PY
+      - name: Print audio durations and mastering reports (diagnostic)
+        run: |
+          for f in $(find run-artifact -name '*.wav' -o -name 'final.mp4' | sort); do
+            echo "DUR $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f") $f"
+          done
+          for n in audio-mastering.json short-audio-polish.json topic-audio-polish.json voice-owned-timeline.json short-voice-owned-timeline.json; do
+            for f in $(find run-artifact -name "$n"); do echo "== $f"; head -c 2500 "$f"; echo; done
+          done
       - name: Compare captions with the heard words
         env:
           MODEL: ${{ inputs.model }}
