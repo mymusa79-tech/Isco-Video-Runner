@@ -161,7 +161,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     listing = [(path, probe_seconds(path)) for path in candidates]
     sys.stdout.write("mp4 candidates (card end %.2fs): %s\n" % (card_end, [(str(p.relative_to(args.artifact_dir)), d) for p, d in listing]))
     video, video_seconds = min(listing, key=lambda item: abs((item[1] or 1e9) - card_end))
-    report = compare(cards, transcribe(video, args.model))
+    heard = transcribe(video, args.model)
+    sys.stdout.write("heard words (start end word):\n" + "\n".join(f"{w['start']:.2f} {w['end']:.2f} {w['word']}" for w in heard) + "\n")
+    report = compare(cards, heard)
+    report["heard_words"] = [{"word": w["word"], "start": round(w["start"], 2), "end": round(w["end"], 2)} for w in heard]
     report["video"] = str(video.relative_to(args.artifact_dir))
     report["video_seconds"] = video_seconds
     report["candidates"] = [{"file": str(p.relative_to(args.artifact_dir)), "seconds": d} for p, d in listing]
