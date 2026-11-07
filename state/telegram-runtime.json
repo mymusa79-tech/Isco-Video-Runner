@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "short",
   "kind": "",
-  "topic": "لماذا تحكم على نفسك قبل أن تكتمل؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42271341710",
-  "result": "success",
-  "updated_at": 1793990055
+  "topic": "الإتقان المبكر يؤخر الصورة",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42322175011",
+  "result": "",
+  "updated_at": 1794013599
 }
