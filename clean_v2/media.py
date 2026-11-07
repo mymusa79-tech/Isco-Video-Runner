@@ -3751,6 +3751,11 @@ def concat_wav_parts(inputs: list[Path], output: Path) -> Path:
     """Concatenate PCM WAV parts using the legacy Engine's ffmpeg concat shape."""
     if not inputs:
         raise ValueError("concat_wav_parts requires at least one input")
+    # ffmpeg's concat demuxer silently ends the list at a missing file and still exits 0, which
+    # produced a narration without its last section. Never let a missing part pass.
+    missing = [str(path) for path in inputs if not Path(path).is_file() or Path(path).stat().st_size == 0]
+    if missing:
+        raise FileNotFoundError(f"concat_wav_parts missing or empty input: {missing}")
     output.parent.mkdir(parents=True, exist_ok=True)
     listfile = output.with_name(f".{output.stem}.concat.txt")
     try:
