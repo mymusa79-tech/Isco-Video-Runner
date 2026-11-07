@@ -1,0 +1,57 @@
+name: QA - Caption sync vs speech (manual, diagnostic only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run id of the production run that holds the final MP4 and short-timed-text.json"
+        required: true
+      artifact_name:
+        description: "Artifact name (leave empty to download all artifacts of the run)"
+        required: false
+        default: ""
+      model:
+        description: "faster-whisper model"
+        required: false
+        default: "medium"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  caption-sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Offline unit tests for the comparison logic
+        run: python -m unittest scripts.test_qa_caption_sync_asr -v
+      - name: Install speech model runtime (diagnostic only)
+        run: python -m pip install 'faster-whisper==1.1.0'
+      - name: Download the production run artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          mkdir -p run-artifact
+          if [ -n "$ARTIFACT_NAME" ]; then
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir run-artifact
+          else
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir run-artifact
+          fi
+      - name: Compare captions with the heard words
+        env:
+          MODEL: ${{ inputs.model }}
+        run: |
+          python scripts/qa_caption_sync_asr.py --artifact-dir run-artifact --out qa-out --model "$MODEL" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: caption-sync-report
+          path: qa-out
