@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "الإتقان المبكر يؤخر الصورة",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42365277999",
-  "result": "success",
-  "updated_at": 1794048530
+  "topic": "راتب أعلى أم راحة بال؟ كيف تختار عملك؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42416718643",
+  "result": "",
+  "updated_at": 1794087455
 }
