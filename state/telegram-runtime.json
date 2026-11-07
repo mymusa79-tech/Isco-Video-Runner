@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "راتب أعلى أم راحة بال؟ كيف تختار عملك؟",
-  "stage": "🎙️ خارج النص · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42416718643",
-  "result": "",
-  "updated_at": 1794090087
+  "result": "success",
+  "updated_at": 1794090272
 }
