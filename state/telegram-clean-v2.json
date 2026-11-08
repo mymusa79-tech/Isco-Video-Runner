@@ -44146,8 +44146,8 @@
           "assets/episode_still.jpg": "17c8624335839b0b3c03795441e1a4a64d79833c9545c06af8925c0a8985b7e1"
         }
       },
-      "status": "awaiting_confirmation",
-      "confirmed_at": null,
+      "status": "confirmed_pending_dispatch",
+      "confirmed_at": "2026-11-08T22:01:34Z",
       "dispatched_at": null,
       "request_sha256": "715a3830b96a0e4c77ac0432e3df89b32b5ac0cbd975fe9408d52c14e9072d63",
       "owner_art": {
@@ -44155,7 +44155,8 @@
           "file_id": "BQACAgQAAxkBAAIRqmrw8JbIl8iIYIruIISBumydw7hPAAIpHwACt72JU5HDr8gXzptjPQQ",
           "sha256": "9e9cc709b0224c92bb4d94c1295dc755d3e5b636ed52ec279b5f083a4d90f12f"
         }
-      }
+      },
+      "run_mode": "simple"
     }
   },
   "current_request_id": "req-edd9186271fc",
@@ -44824,6 +44825,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-08T21:59:15Z",
+  "updated_at": "2026-11-08T22:01:35Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
