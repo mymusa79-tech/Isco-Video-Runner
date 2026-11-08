@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا تنتهي بعض الصداقات دون خلاف؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42528110507",
   "result": "",
-  "updated_at": 1794175319
+  "updated_at": 1794175393
 }
