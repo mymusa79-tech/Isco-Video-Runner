@@ -45554,9 +45554,9 @@
           "assets/episode_still.jpg": "3c1532f12d605b62c8512b5bfdbdba79792174414c6acac3980acbbed6553f44"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-11-09T02:25:41Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-11-09T02:25:45Z",
       "request_sha256": "8f385808ba26ac7b2db6b177ad27ea58aa8ab4b5ae08b470d8aeeafdbafeeb1e",
       "owner_art": {
         "zip": {
@@ -46233,6 +46233,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-09T02:25:42Z",
+  "updated_at": "2026-11-09T02:25:45Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
