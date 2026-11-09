@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا تسبب الرسائل القصيرة سوء فهم كبيرًا؟ | خارج النص",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42544495779",
   "result": "",
-  "updated_at": 1794186895
+  "updated_at": 1794186990
 }
