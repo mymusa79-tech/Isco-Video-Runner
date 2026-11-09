@@ -1,10 +1,10 @@
 {
-  "active": false,
+  "active": true,
   "scope": "podcast",
   "kind": "",
-  "topic": "لماذا ندفع مقابل اشتراكات لا نستخدمها؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42550879364",
-  "result": "success",
-  "updated_at": 1794193185
+  "topic": "لماذا نقول «سنتقابل قريبًا» ثم لا نلتقي؟ | خارج النص",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42643505762",
+  "result": "",
+  "updated_at": 1794237600
 }
