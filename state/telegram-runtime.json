@@ -1,10 +1,10 @@
 {
-  "active": true,
+  "active": false,
   "scope": "podcast",
-  "kind": "podcast",
+  "kind": "",
   "topic": "لماذا نصوّر اللحظات الجميلة بدل أن نعيشها؟",
-  "stage": "🎙️ خارج النص · 6/6 الفحص النهائي ✅",
+  "stage": "اكتمل التشغيل",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42535926553",
-  "result": "",
-  "updated_at": 1794182984
+  "result": "success",
+  "updated_at": 1794183222
 }
