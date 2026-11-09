@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا ندفع مقابل اشتراكات لا نستخدمها؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42550879364",
   "result": "",
-  "updated_at": 1794191165
+  "updated_at": 1794191227
 }
