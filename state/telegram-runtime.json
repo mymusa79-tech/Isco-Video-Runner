@@ -1,10 +1,10 @@
 {
   "active": false,
-  "scope": "podcast",
+  "scope": "long",
   "kind": "",
-  "topic": "لماذا نقول «سنتقابل قريبًا» ثم لا نلتقي؟ | خارج النص",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/42643505762",
-  "result": "success",
-  "updated_at": 1794239527
+  "topic": "",
+  "stage": "توقف التشغيل",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43104721236",
+  "result": "failure",
+  "updated_at": 1794433100
 }
