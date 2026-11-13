@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا تبدو عادات كل جيل غريبة للجيل الآخر؟ | خارج النص",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43512883501",
   "result": "",
-  "updated_at": 1794606095
+  "updated_at": 1794606191
 }
