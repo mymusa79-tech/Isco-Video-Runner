@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "long",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "",
-  "stage": "توقف التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43508055644",
-  "result": "failure",
-  "updated_at": 1794604386
+  "topic": "لماذا تبدو عادات كل جيل غريبة للجيل الآخر؟ | خارج النص",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43512883501",
+  "result": "",
+  "updated_at": 1794606095
 }
