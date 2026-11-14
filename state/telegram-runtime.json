@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "short",
   "kind": "",
-  "topic": "لماذا نتخذ أسوأ قراراتنا بعد منتصف الليل؟ | خارج النص",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43539077024",
-  "result": "success",
-  "updated_at": 1794620588
+  "topic": "الرسالة التي كادت تنهي صداقة",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43542627472",
+  "result": "",
+  "updated_at": 1794620851
 }
