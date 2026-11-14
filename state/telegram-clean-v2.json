@@ -9440,6 +9440,21 @@
       "selected_at": "2026-11-14T01:09:43Z",
       "created_at": "2026-11-14T01:09:43Z",
       "source": "owner_script"
+    },
+    {
+      "idea_id": "idea-b2908dcee7",
+      "title": "الرسالة التي كادت تنهي صداقة",
+      "normalized_title": "الرسالة التي كادت تنهي صداقة",
+      "market_query": "الرسالة التي كادت تنهي صداقة",
+      "knowledge_query_en": "",
+      "reason": "نص جاهز كتبه المالك",
+      "market_score": 0,
+      "market_evidence": {},
+      "research_pack": [],
+      "selected": true,
+      "selected_at": "2026-11-14T01:46:29Z",
+      "created_at": "2026-11-14T01:46:29Z",
+      "source": "owner_script"
     }
   ],
   "sessions": {
@@ -48522,9 +48537,249 @@
         "started_at": "2026-11-14T01:12:15Z",
         "finished_at": "2026-11-14T01:43:10Z"
       }
+    },
+    "req-335c1b1fecb1": {
+      "schema_version": 1,
+      "request_id": "req-335c1b1fecb1",
+      "source": "clean_v2_telegram_owner_script",
+      "scope": "short",
+      "approved_by_user": true,
+      "approved_topic": "الرسالة التي كادت تنهي صداقة",
+      "research_pack": [
+        {
+          "source_title": "نص كتبه المالك",
+          "source_type": "owner_authored",
+          "claim_scope": "النص بكامله من كتابة المالك ومسؤوليته؛ لا يُضاف إليه شيء."
+        }
+      ],
+      "idea_id": "idea-b2908dcee7",
+      "selected_at": "2026-11-14T01:46:29Z",
+      "owner_pack": {
+        "schema_version": 1,
+        "format": "short",
+        "title": "الرسالة التي كادت تنهي صداقة",
+        "production": {
+          "schema_version": 1,
+          "format": "short",
+          "template": "micro_story",
+          "title": "الرسالة التي كادت تنهي صداقة",
+          "approval": {
+            "status": "approved",
+            "reviewer": "Claude"
+          },
+          "script": {
+            "sections": [
+              {
+                "id": "s1",
+                "text": "انتظرت صديقك ساعة… ثم كتبت: «لا تكلّمني مجددًا».\n\nلكن ماذا حدث بين موعد ضائع وقرار بإنهاء الصداقة؟"
+              },
+              {
+                "id": "s2",
+                "text": "اتفقتما على اللقاء عند السادسة. خرجت من عملك مبكرًا، ووقفت تنتظر أمام المكان.\n\nمرّت عشر دقائق، ثم نصف ساعة، ثم ساعة كاملة.\n\nلا اتصال، ولا رسالة تخبرك بأنه سيتأخر.\n\nومع كل نظرة إلى هاتفك، كبرت في داخلك فكرة واحدة: «وقتك لا يعني له شيئًا».\n\nوحين وصلت رسالته أخيرًا: «آسف، تأخرت»، لم تسأله ماذا حدث.\n\nكتبت فورًا كلمات تقطع ما بينكما.\n\nكان غضبك مفهومًا. لكن المشكلة التي أردت طرحها اختفت خلف جملة قد تجعل الخلاف أكبر."
+              },
+              {
+                "id": "s3",
+                "text": "توقّف قبل الإرسال.\n\nقل ما حدث وما أزعجك: «انتظرتك ساعة بلا خبر. تضايقت لأنك لم تُخبرني. ماذا حدث؟».\n\nربما لا يقنعك عذره. لكنك تستطيع اتخاذ قرارك بعدما تعرف السبب، لا وأنت تتخيّله."
+              }
+            ]
+          },
+          "performance": {
+            "direction": "ابدأ بتوتر حقيقي وقرار متسرع في الهوك، ثم سرد واضح بإيقاع متدرج، يتباطأ قليلًا عند عبارة «وقتك لا يعني له شيئًا». لا تسوّغ اختفاء الصديق ولا تدن الغضب نفسه. شدّد على انتقال المشكلة من موقف إلى قطيعة محتملة. في الختام نبرة حاسمة وطبيعية غير وعظية. صمت قصير قبل «توقّف قبل الإرسال». بلا مبالغة أو صراخ."
+          },
+          "scenes": [
+            {
+              "id": "scene_01",
+              "section_id": "s1",
+              "asset": "assets/scene_01.jpg",
+              "start_text": "انتظرت صديقك ساعة…",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_02",
+              "section_id": "s2",
+              "asset": "assets/scene_02.jpg",
+              "start_text": "اتفقتما على اللقاء عند السادسة.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man waiting outside cafe dusk back view",
+                "query_alt_en": "man standing outside cafe evening from behind",
+                "must_show": "رجل من الخلف ينتظر أمام مقهى عند الغسق؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/elderly-man-standing-outside-the-restaurant-waiting-for-someone-5642501/",
+                  "https://www.pexels.com/video/a-man-using-his-phone-while-waiting-7339414/",
+                  "https://www.pexels.com/video/man-using-smartphone-9531116/"
+                ]
+              }
+            },
+            {
+              "id": "scene_03",
+              "section_id": "s2",
+              "asset": "assets/scene_03.jpg",
+              "start_text": "مرّت عشر دقائق،",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man checking wristwatch dusk closeup",
+                "query_alt_en": "man's hands checking wristwatch evening closeup",
+                "must_show": "ساعة معصم رجل عند ضوء الغروب؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-checking-the-time-on-his-wristwatch-5642507/",
+                  "https://www.pexels.com/video/a-man-looking-at-the-time-5631762/",
+                  "https://www.pexels.com/video/a-person-looking-at-his-digital-watch-4431068/"
+                ]
+              }
+            },
+            {
+              "id": "scene_04",
+              "section_id": "s2",
+              "asset": "assets/scene_04.jpg",
+              "start_text": "ومع كل نظرة إلى هاتفك،",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            },
+            {
+              "id": "scene_05",
+              "section_id": "s2",
+              "asset": "assets/scene_05.jpg",
+              "start_text": "وحين وصلت رسالته أخيرًا:",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "phone lights up on table evening",
+                "query_alt_en": "man's hands near glowing phone table evening",
+                "must_show": "هاتف يضيء على طاولة بلا واجهة مقروءة؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-of-mobile-device-with-text-notification-34786856/",
+                  "https://www.pexels.com/video/iphone-on-a-desk-stand-hello-19162466/",
+                  "https://www.pexels.com/video/laptop-and-cellphone-on-a-table-3992184/"
+                ]
+              }
+            },
+            {
+              "id": "scene_06",
+              "section_id": "s2",
+              "asset": "assets/scene_06.jpg",
+              "start_text": "كتبت فورًا كلمات تقطع ما بينكما.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man thumbs typing phone fast night",
+                "query_alt_en": "man's hands rapidly typing smartphone at night",
+                "must_show": "إبهاما رجل يكتبان بسرعة وشاشة غير مقروءة؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/a-man-texting-on-his-cellphone-8246977/",
+                  "https://www.pexels.com/video/man-texting-on-his-smartphone-4435253/",
+                  "https://www.pexels.com/video/faceless-man-typing-on-a-phone-4926070/"
+                ]
+              }
+            },
+            {
+              "id": "scene_07",
+              "section_id": "s2",
+              "asset": "assets/scene_07.jpg",
+              "start_text": "لكن المشكلة التي أردت طرحها",
+              "motion": "hold",
+              "transition": "dissolve",
+              "stock": {
+                "query_en": "man sitting alone bench dusk back view",
+                "query_alt_en": "man sitting on park bench evening from behind",
+                "must_show": "رجل جالس على مقعد من الخلف عند الغسق، بلا هاتف؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/lonely-man-on-waterfront-bench-with-city-view-40824308/",
+                  "https://www.pexels.com/video/a-man-is-sitting-on-a-bench-looking-at-the-sunset-17152993/",
+                  "https://www.pexels.com/video/person-sitting-alone-on-bench-12022226/"
+                ]
+              }
+            },
+            {
+              "id": "scene_08",
+              "section_id": "s3",
+              "asset": "assets/scene_08.jpg",
+              "start_text": "توقّف قبل الإرسال.",
+              "motion": "hold",
+              "transition": "cut",
+              "stock": {
+                "query_en": "man thumb stops above phone screen evening",
+                "query_alt_en": "man's hands lower smartphone after hesitation at night",
+                "must_show": "إبهام رجل يتوقف عن الإرسال ثم يخفض الهاتف؛ رجل أو يدا رجل، بلا وجه ظاهر، بلا نساء، بلا نص أو شعار",
+                "urls": [
+                  "https://www.pexels.com/video/close-up-video-of-hands-5843675/",
+                  "https://www.pexels.com/video/hands-trading-on-mobile-app-at-night-35886692/",
+                  "https://www.pexels.com/video/young-man-text-messaging-with-smartphone-outdoors-5386540/"
+                ]
+              }
+            },
+            {
+              "id": "scene_09",
+              "section_id": "s3",
+              "asset": "assets/scene_09.jpg",
+              "start_text": "ربما لا يقنعك عذره.",
+              "motion": "slow_zoom",
+              "transition": "dissolve"
+            }
+          ],
+          "editing": {
+            "music": "none"
+          },
+          "captions": {
+            "font": "Cairo Bold",
+            "max_lines": 2,
+            "enabled": true
+          },
+          "cover": {
+            "asset": "assets/cover.jpg",
+            "text": "رسالة تنهي الصداقة؟"
+          },
+          "publishing": {
+            "title": "قبل أن ترسل رسالة غاضبة… تذكّر هذا الموقف",
+            "description": "انتظر صديقه ساعة دون اتصال أو اعتذار، فكتب رسالة كادت تنهي الصداقة. قصة قصيرة عن الفرق بين العتاب الواضح والكلمات التي يفرضها الغضب، وكيف تؤجل الإرسال حتى تفهم ما حدث.\n\n#نداء_اليقظة #الغضب #الصداقة #العلاقات #رسائل",
+            "hashtags": [
+              "#نداء_اليقظة",
+              "#الغضب",
+              "#الصداقة",
+              "#العلاقات",
+              "#رسائل"
+            ],
+            "tags": [
+              "الغضب",
+              "الرسائل الغاضبة",
+              "التحكم في الغضب",
+              "العلاقات",
+              "الصداقة",
+              "نداء اليقظة",
+              "كيف ترد عند الغضب"
+            ]
+          }
+        },
+        "zip_sha256": "70e25d3377c07871d10af1ebf9d20df79ddad9b06356035f1b77b44b63b0dc92",
+        "asset_sha256": {
+          "assets/cover.jpg": "5d35334183f64fb4d41c826614aaa4bda2c51bc6672fbb42973ed6f479771c09",
+          "assets/scene_01.jpg": "d08abf7178f010b2963b894c65c21645d50b68ef94b97ab9c00ecb041206e4d9",
+          "assets/scene_02.jpg": "6fdddfabbe8e6f5734e1823a0a867d3f470cc6a8dd29f0839d5b7773bb0f8c36",
+          "assets/scene_03.jpg": "596d8ca4b61e1d39cd966f3af1f3f719dd39e58df303a94b12273b7a2d51e21f",
+          "assets/scene_04.jpg": "23874cccefde199224c6fbffe4c3ea96c8dcd44cd74040da5935bcf3f9edd816",
+          "assets/scene_05.jpg": "daba138edb65f32c20cb9a1c7c82cd5594b5f7ab407770dd97887bd813be0c18",
+          "assets/scene_06.jpg": "017b3979ad254d5733677de23e0ec30189c0df989e00965e30852a9c304e18e2",
+          "assets/scene_07.jpg": "fa38b3894175f201eae2a2aeeb5c9ba7286c252d8d8a3963fe91e72e15e5604e",
+          "assets/scene_08.jpg": "e592712a3cd167a22797a1961d45458b3bb10e5367381b032790450313b59159",
+          "assets/scene_09.jpg": "810afc5f0440506d4180c1d2f15c5a9ca0050d1e17d6ec125b2b230ace437027"
+        }
+      },
+      "status": "awaiting_confirmation",
+      "confirmed_at": null,
+      "dispatched_at": null,
+      "request_sha256": "5b891a14ab1dcffe38049dc605664283584e72cfb174e26d3e8200850aebf242",
+      "owner_art": {
+        "zip": {
+          "file_id": "BQACAgQAAxkBAAISN2r3vVwc9ampkVA8RAABE2Arp3kxWgAChSAAAi00uVO8k9D0kuO8dz0E",
+          "sha256": "70e25d3377c07871d10af1ebf9d20df79ddad9b06356035f1b77b44b63b0dc92"
+        }
+      }
     }
   },
-  "current_request_id": "req-54a758362ff0",
+  "current_request_id": "req-335c1b1fecb1",
   "youtube_snapshots": [
     {
       "captured_at": "2026-09-24T13:20:43Z",
@@ -49190,6 +49445,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-14T01:43:10Z",
+  "updated_at": "2026-11-14T01:46:29Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
