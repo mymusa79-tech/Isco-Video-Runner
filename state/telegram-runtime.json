@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "short",
+  "active": true,
+  "scope": "podcast",
   "kind": "",
-  "topic": "الرسالة التي كادت تنهي صداقة",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/43542627472",
-  "result": "success",
-  "updated_at": 1794621455
+  "topic": "لماذا نركض لإرضاء الجميع إلا أنفسنا؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/44154836210",
+  "result": "",
+  "updated_at": 1794942383
 }
