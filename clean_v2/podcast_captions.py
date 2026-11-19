@@ -85,8 +85,15 @@ def _read_json(path: Path) -> Any:
         return None
 
 
+SPEECH_ONSET_LEAD_SECONDS = 0.05  # the next caption appears this long before the voice resumes
+
+
 def _silence_midpoints(audio: Path) -> list[float]:
-    """Pause centres (seconds, relative to the file) found in one chunk's audio."""
+    """Cut points (seconds, relative to the file), one per pause found in one chunk's audio.
+
+    A cut sits just before the voice resumes, not in the middle of the pause: a midpoint put
+    the next caption on screen about half a pause (up to ~0.4 s) before it was spoken.
+    """
     try:
         completed = subprocess.run(
             [
@@ -101,7 +108,7 @@ def _silence_midpoints(audio: Path) -> list[float]:
         return []
     starts = [float(v) for v in re.findall(r"silence_start:\s*(-?[0-9.]+)", completed.stderr)]
     ends = [float(v) for v in re.findall(r"silence_end:\s*(-?[0-9.]+)", completed.stderr)]
-    return [(max(s, 0.0) + e) / 2 for s, e in zip(starts, ends) if e > s]
+    return [max(max(s, 0.0), e - SPEECH_ONSET_LEAD_SECONDS) for s, e in zip(starts, ends) if e > s]
 
 
 def align_boundaries(weights: Sequence[int], duration: float, pauses: Sequence[float]) -> list[float]:
