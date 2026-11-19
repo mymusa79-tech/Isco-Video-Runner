@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from clean_v2 import podcast_captions as pc
@@ -43,6 +44,15 @@ def _make_run(root: Path) -> None:
 
 
 class AlignmentTests(unittest.TestCase):
+    def test_pause_cut_sits_at_speech_onset_not_mid_pause(self) -> None:
+        stderr = "silence_start: 2.0\nsilence_end: 3.0 | silence_duration: 1.0\nsilence_start: 5.0\nsilence_end: 5.02 | silence_duration: 0.02\n"
+        completed = mock.Mock(stderr=stderr)
+        with mock.patch.object(pc.subprocess, "run", return_value=completed):
+            cuts = pc._silence_midpoints(Path("x.wav"))
+        self.assertAlmostEqual(cuts[0], 3.0 - pc.SPEECH_ONSET_LEAD_SECONDS)
+        self.assertGreaterEqual(cuts[1], 5.0)  # never before the pause starts
+        self.assertLessEqual(cuts[1], 5.02)
+
     def test_cuts_snap_to_close_pauses_and_stay_ordered(self) -> None:
         cuts = pc.align_boundaries([3, 5, 2], 9.0, [2.75, 7.25])
         self.assertEqual(cuts[0], 0.0)
@@ -75,8 +85,8 @@ class EventTests(unittest.TestCase):
             self.assertTrue(all(2.0 <= e["start"] and e["end"] <= 11.0 for e in events))
             self.assertNotIn("اللهم", json.dumps(events, ensure_ascii=False))
             self.assertNotIn("التعليقات", json.dumps(events, ensure_ascii=False))
-            self.assertAlmostEqual(events[0]["end"], 2.0 + 2.75, delta=0.15)
-            self.assertAlmostEqual(events[1]["end"], 2.0 + 7.25, delta=0.15)
+            self.assertAlmostEqual(events[0]["end"], 2.0 + 2.95, delta=0.15)  # cut just before the voice resumes (pause ends at 3.0 s)
+            self.assertAlmostEqual(events[1]["end"], 2.0 + 7.45, delta=0.15)
 
     def test_missing_chunk_text_is_a_soft_failure_not_a_guess(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
