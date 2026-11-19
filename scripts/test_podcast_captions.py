@@ -178,26 +178,25 @@ class BarTests(unittest.TestCase):
             if line.startswith("Dialogue: 3,"):  # text centred on the card centre whatever the row count
                 self.assertIn(r"\an5\move(960," + str(pc.BAR_CENTER_Y + 10) + ",960," + str(pc.BAR_CENTER_Y) + ",0,200)", line)
 
-    def test_podcast_wears_the_navy_card_with_speaker_colours(self) -> None:
-        from clean_v2 import film_captions
-
+    def test_podcast_wears_unboxed_outlined_text_with_speaker_colours(self) -> None:
         ass = pc.build_ass(self.EVENTS)
-        self.assertEqual(len([line for line in ass.splitlines() if ",Caption,card," in line]), 2)
-        self.assertEqual(len([line for line in ass.splitlines() if ",Caption,rim," in line]), 2)
-        self.assertIn(f"Style: Caption,Cairo,{film_captions.CARD_FONT_SIZE},", ass)
+        self.assertEqual(len([line for line in ass.splitlines() if ",Caption,card," in line]), 0)
+        self.assertNotIn(r"\p1", ass)
+        self.assertIn(f"Style: Film,Cairo,{pc.FONT_SIZE},", ass)
         self.assertIn(r"\c&H4BA2C9&", ass)  # speaker A keeps gold
         self.assertIn(r"\c&HEFF3F5&", ass)  # speaker B keeps warm white
-        self.assertEqual(len([line for line in ass.splitlines() if line.startswith("Dialogue: 3,")]), 3)
 
-    def test_podcast_card_text_is_cairo_bold_and_the_card_stays_clear_of_player_controls(self) -> None:
+    def test_card_text_is_cairo_bold_and_the_card_stays_clear_of_player_controls(self) -> None:
         import re
 
-        ass = pc.build_ass(self.EVENTS)
+        ass = pc.build_card_ass(self.EVENTS)
         style = next(line for line in ass.splitlines() if line.startswith("Style: Caption,"))
+        plain_style = next(line for line in pc.build_ass(self.EVENTS).splitlines() if line.startswith("Style: Film,"))
+        self.assertEqual(plain_style.split(",")[7], "-1")
         self.assertEqual(style.split(",")[7], "-1")  # Bold flag on: libass asks for the 700 instance
         events = [{"start": 0.0, "end": 6.0, "speaker": "B",
                    "text": "ربما تتحمل الخسارة المالية، لكنك تخشى السؤال: ماذا حدث لمشروعك؟ وما الذي سيتغير بعد ذلك؟"}]
-        bar = next(line for line in pc.build_ass(events).splitlines() if ",Caption,card," in line)
+        bar = next(line for line in pc.build_card_ass(events).splitlines() if ",Caption,card," in line)
         ys = [int(v) for v in re.findall(r"\d+", bar.split(r"\p1}")[1].split(r"{\p0}")[0])][1::2]
         self.assertLessEqual(max(ys), 1080 - 100)
 

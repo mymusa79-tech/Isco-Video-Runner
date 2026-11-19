@@ -639,7 +639,14 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
                 "comments": 5,
             },
         }
-        with mock.patch.object(control, "fetch_channel_snapshot", return_value=current):
+        class _FrozenDatetime(control.datetime):
+            # The snapshots are dated 24 Sep 2026; the 45-day retention must be judged from that day, not today.
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 24, 10, 0, 5, tzinfo=tz)
+
+        with mock.patch.object(control, "fetch_channel_snapshot", return_value=current), \
+                mock.patch.object(control, "datetime", _FrozenDatetime):
             stats = control.channel_stats(state)
         self.assertEqual(stats["views_today"], 200)
         self.assertEqual(stats["views_7d"], 500)
