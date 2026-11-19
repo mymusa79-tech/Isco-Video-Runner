@@ -1,6 +1,6 @@
-"""Film spoken captions, voice-timed: unboxed warm-white text with a dark outline.
+"""Film spoken captions, voice-timed: navy rounded card with a gold hairline, warm-white text.
 
-The navy card with a gold hairline now belongs to the Podcast (see podcast_captions.build_card_ass).
+The unboxed outlined text now belongs to the Podcast (see build_plain_ass).
 
 Only measured hook/topic audio units participate; fixed prayer, definition,
 identity and outro windows stay clear. This does not add inference providers.
@@ -20,8 +20,8 @@ from .short_timed_text import (
 )
 
 SCHEMA_VERSION = 1
-FONT_SIZE = 90  # unboxed design (worn by Film); was 66, mobile viewers asked for larger
-CARD_FONT_SIZE = 84  # card design (worn by the Podcast): card geometry scales with this size
+FONT_SIZE = 90  # unboxed design (worn by the Podcast at its own size); was 66, mobile viewers asked for larger
+CARD_FONT_SIZE = 84  # card design (worn by Film): card geometry scales with this size
 WHITE_ASS = "&H00EEF2F4"  # warm off-white
 GOLD_ASS = "&H004BA2C9"  # restrained identity gold
 OUTLINE_ASS = "&H00261A11"  # dark navy
@@ -101,13 +101,13 @@ def validate_srt_text(text: str, expected_cues: int) -> None:
 
 
 def validate_ass_text(text: str, expected_cues: int) -> None:
-    """The ASS sidecar must carry one Dialogue per cue with the Film style and ordered times."""
+    """The ASS sidecar must carry one text Dialogue per cue (Film card) with ordered times."""
     import re
 
-    rows = [line for line in text.splitlines() if line.startswith("Dialogue:")]
+    rows = [line for line in text.splitlines() if line.startswith("Dialogue: 3,") and ",Caption,line," in line]
     if len(rows) != expected_cues:
         raise FilmCaptionError("film_caption_ass_cue_count_mismatch")
-    stamp = re.compile(r"^Dialogue: 0,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Film,")
+    stamp = re.compile(r"^Dialogue: 3,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Caption,line,")
     last_end = -1.0
     for row in rows:
         match = stamp.match(row)
@@ -122,8 +122,10 @@ def validate_ass_text(text: str, expected_cues: int) -> None:
 
 
 def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
-    """Film captions: unboxed warm-white single-narrator text with a dark outline."""
-    return build_plain_ass(events, speaker_colours=False, font_size=FONT_SIZE, fmt="film")
+    """Film captions: navy card with a gold hairline, warm-white single-narrator text."""
+    from .podcast_captions import build_card_ass
+
+    return build_card_ass(events, font_size=CARD_FONT_SIZE, speaker_colours=False)
 
 
 def build_plain_ass(events: Sequence[Mapping[str, Any]], *, speaker_colours: bool = False,
@@ -257,7 +259,7 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         "subtitles_keep_spoken_board_windows": True,
         "font": BODY_FONT, "font_actually_used": font,
         "max_rows": MAX_ROWS, "position": "cinematic_bottom_safe_area",
-        "style": "unboxed_offwhite_with_sparse_gold_word_no_podcast_card",
+        "style": "navy_card_gold_hairline_warm_white_text",
         "timing": mode,
         "quality": quality,
         "visual_caption_quality": visual_quality,
