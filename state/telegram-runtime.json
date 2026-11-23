@@ -1,10 +1,10 @@
 {
   "active": true,
   "scope": "podcast",
-  "kind": "",
+  "kind": "podcast",
   "topic": "لماذا أقرر التغيير كل أحد ثم أتركه كل خميس؟",
-  "stage": "بدأ الإنتاج",
+  "stage": "🎙️ خارج النص · 1/6 التخطيط ✅",
   "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/45225277475",
   "result": "",
-  "updated_at": 1795454049
+  "updated_at": 1795455077
 }
