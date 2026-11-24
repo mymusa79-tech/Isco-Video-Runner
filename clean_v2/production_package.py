@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .owner_pack import LONG_TYPES, SHORT_TYPES, OwnerPackError
+
+STORY_TEMPLATE = "story"  # single-narrator story film: ordinary format "film", its own contract below
+STORY_WORDS = (350, 550)  # about 2.5-4.5 minutes spoken: well short of a podcast episode
+STORY_SCENES = (6, 8)
 from .pinned_stock import parse_stock_url
 
 MAX_ZIP_BYTES = 18 * 1024 * 1024  # below Telegram's standard getFile limit
@@ -169,7 +173,7 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
     if "stock_policy" in doc and doc["stock_policy"] != THREE_LINK_STOCK_POLICY:
         _error("stock_policy: استخدم three_urls_per_scene أو احذف الحقل للحزم القديمة.")
     three_per_scene = doc.get("stock_policy") == THREE_LINK_STOCK_POLICY
-    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": LONG_TYPES, "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
+    allowed = {"short": (*SHORT_TYPES, "ala_mahl"), "film": (*LONG_TYPES, STORY_TEMPLATE), "podcast": ("dialogue_qa", "ala_mahl_dialogue")}
     if not isinstance(fmt, str) or fmt not in allowed or doc["template"] not in allowed[fmt]:
         _error("النوع أو القالب غير مدعوم.")
     cinematic_monoclip = doc.get("visual_style") in {"bw_cinematic", "color_cinematic"}
@@ -207,9 +211,9 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
             if len(section["text"].strip()) < 20 or re.search(r"(?<!\S)[AB]:", section["text"]):
                 _error("قسم السرد يحتاج 20 حرفًا على الأقل، دون أدوار A/B.")
         texts[section["id"]] = section_text(section)
-    from .identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION
+    from .identity_sequence import PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION, STORY_CHANNEL_DEFINITION
     whole = " ".join(texts.values())
-    if any(phrase in whole for phrase in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION)):
+    if any(phrase in whole for phrase in (PRAYER_SENTENCE, SHORT_CHANNEL_DEFINITION, SHORT_CHANNEL_DEFINITION_LEGACY, LONG_CHANNEL_DEFINITION, STORY_CHANNEL_DEFINITION)):
         _error("احذف الهوية الثابتة والصلاة من النص؛ يضيفهما المسار الحالي مرة واحدة.")
     if not re.search(r"[.!؟!]", texts["s1"]):
         _error("ضع علامة ترقيم بعد جملة الهوك الأولى.")
@@ -357,6 +361,18 @@ def validate_manifest(value: Any, available: set[str] | None = None) -> dict[str
         _error("أول صورة في على مهل يجب أن تبدأ من بداية s1.")
     if not ala_mahl and covered != set(texts):
         _error("يجب أن تغطي الصور جميع أقسام النص.")
+    if doc["template"] == STORY_TEMPLATE:
+        # Story film: one narrator, generated stills only, a short scripted length. It rides the
+        # ordinary film pipeline, so nothing here may weaken the film contract; it only narrows it.
+        story_words = len(spoken_text(" ".join(texts.values())).split())
+        if not STORY_WORDS[0] <= story_words <= STORY_WORDS[1]:
+            _error(f"القصة تحتاج {STORY_WORDS[0]}–{STORY_WORDS[1]} كلمة منطوقة؛ الحالي {story_words}.")
+        if not STORY_SCENES[0] <= len(scenes) <= STORY_SCENES[1]:
+            _error(f"القصة تحتاج {STORY_SCENES[0]}–{STORY_SCENES[1]} صور؛ الحالي {len(scenes)}.")
+        if "stock_policy" in doc or any("stock" in scene or "board" in scene for scene in scenes):
+            _error("القصة صور ثابتة مولّدة فقط: بلا stock ولا board.")
+        if len({scene["asset"] for scene in scenes}) != len(scenes):
+            _error("القصة تحتاج صورة مختلفة لكل مشهد؛ لا تكرر ملف الصورة.")
     if cinematic_monoclip:
         # Preserve the three-section Short contract: still / one long video / still.
         if len(scenes) != 3 or [scene["section_id"] for scene in scenes] != ["s1", "s2", "s3"]:
