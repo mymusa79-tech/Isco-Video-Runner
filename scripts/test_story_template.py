@@ -130,6 +130,62 @@ class StoryIdentityTests(unittest.TestCase):
         )
 
 
+class StoryVoiceTests(unittest.TestCase):
+    """The story narrator is the Nidaa voice (Iapetus), same as the Nidaa Shorts."""
+
+    def test_story_uses_the_story_voice_mode_and_ordinary_film_keeps_its_mode(self):
+        from clean_v2.pipeline import _voice_performance_mode_for_brief
+        brief = {"format": "film"}
+        plan = {"narrative_format": "story_analysis"}
+        self.assertEqual(_voice_performance_mode_for_brief(brief, plan, ready_template="story"), "nidaa_story")
+        self.assertEqual(_voice_performance_mode_for_brief(brief, plan, ready_template=""), "story_analysis")
+        self.assertEqual(_voice_performance_mode_for_brief(brief, {"narrative_format": "paradox"}), "paradox")
+
+    def test_story_mode_speaks_with_iapetus_and_other_film_modes_keep_charon(self):
+        import os
+        import wave
+        from unittest.mock import patch
+
+        from clean_v2.media import (GEMINI38_NARRATOR_STYLE, GEMINI38_NIDAA_SHORT_PROVIDER,
+                                    GEMINI38_PERFORMANCE_STYLES, GeminiOnlyVoiceSynthesizer)
+        events = []
+
+        def fake(_key, _text, path, **kw):
+            events.append(kw)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(path), "wb") as wav:
+                wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(24000)
+                wav.writeframes(b"\0\0" * 6000)
+            return Path(path)
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"CLEAN_V2_TTS_CACHE_PATH": ""}), \
+                patch("clean_v2.media._gemini38_synthesize", side_effect=fake):
+            synth = GeminiOnlyVoiceSynthesizer("test-api-key")
+            synth.synthesize("كتب أحمد كلمة حاضر.", Path(tmp) / "a.wav", performance_mode="nidaa_story",
+                             performance_direction={"direction": "راوٍ هادئ بلهجة خليجية."})
+            self.assertEqual(synth.last_provider, GEMINI38_NIDAA_SHORT_PROVIDER)
+            self.assertEqual(synth.voice_roles["narrator"], "Iapetus")
+            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
+            synth.synthesize("اللهم صل وسلم.", Path(tmp) / "b.wav", performance_mode="nidaa_short_identity")
+            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
+            synth.synthesize("نص فيلم عادي.", Path(tmp) / "c.wav", performance_mode="story_analysis")
+            self.assertEqual(synth.voice_roles["narrator"], "Charon")
+            self.assertEqual(events[-1]["primary_voice"], "Charon")
+        style = GEMINI38_PERFORMANCE_STYLES["nidaa_story"]
+        self.assertNotEqual(style, GEMINI38_NARRATOR_STYLE)
+        self.assertNotIn("Charon", style)
+
+    def test_story_voice_is_not_available_on_the_lite_model(self):
+        from unittest.mock import patch
+
+        from clean_v2.media import GEMINI38_LITE_TTS_MODEL, GeminiOnlyVoiceSynthesizer
+        with tempfile.TemporaryDirectory() as tmp, patch("clean_v2.media._gemini38_synthesize") as call:
+            synth = GeminiOnlyVoiceSynthesizer("test-api-key", tts_model=GEMINI38_LITE_TTS_MODEL)
+            with self.assertRaises(RuntimeError):
+                synth.synthesize("نص.", Path(tmp) / "x.wav", performance_mode="nidaa_story")
+            call.assert_not_called()
+
+
 class StoryRenderTests(unittest.TestCase):
     """Synthetic WAV + real ffmpeg through the whole pipeline: proves wiring, not how it sounds or looks."""
 
@@ -176,6 +232,8 @@ class StoryRenderTests(unittest.TestCase):
             self.assertEqual(spoken.count(STORY_CHANNEL_DEFINITION), 1)
             self.assertEqual(spoken.count(LONG_CHANNEL_DEFINITION), 0)
             self.assertTrue(any(k.get("performance_direction") for _, k in voice.spoken))
+            modes = {k.get("performance_mode") for _, k in voice.spoken}
+            self.assertEqual(modes, {"nidaa_story", "nidaa_short_identity"})
             timeline = json.loads((output / "timeline-first.json").read_text())
             self.assertIn("channel_identity", [e["kind"] for e in timeline["identity_events"]])
             self.assertEqual(json.loads((output / "plan.json").read_text())["narrative_format"], "story_analysis")

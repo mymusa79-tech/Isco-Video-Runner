@@ -1006,7 +1006,7 @@ def _synthesize_sectioned_voice_pass(
                     # continue using their approved voices and identity rules.
                     if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
-                    elif requested_performance_mode.startswith("nidaa_short_"):
+                    elif requested_performance_mode.startswith("nidaa_short_") or requested_performance_mode == "nidaa_story":
                         # Prayer and spoken logo retain Iapetus with neutral style;
                         # no voice switch at the identity boundary.
                         effective_performance_mode = "nidaa_short_identity"
@@ -1545,6 +1545,9 @@ def _voice_performance_mode_for_brief(
     if fmt == "podcast":
         return ("ala_mahl_podcast_dialogue" if ready_template == "ala_mahl_dialogue"
                 else "podcast_listener_proxy_qa")
+    if ready_template == "story":
+        # Story film: the Nidaa voice (Iapetus) with its own story style; see media.GEMINI38_NIDAA_STORY_MODE.
+        return "nidaa_story"
     selected = str((plan or {}).get("narrative_format") or "").strip()
     return selected if selected in LONGFORM_NARRATIVE_FORMATS else "direct_cinematic"
 

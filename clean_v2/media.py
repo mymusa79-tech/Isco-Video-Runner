@@ -121,11 +121,21 @@ GEMINI38_NIDAA_SHORT_STYLES = {
     ),
 }
 
+# Story film (production.json template "story"): narrated by the owner-approved Nidaa voice (Iapetus,
+# the same voice as the Nidaa Shorts). Style is its own: a story narrator, not the brisk Short delivery.
+GEMINI38_NIDAA_STORY_MODE = "nidaa_story"
+GEMINI38_NIDAA_STORY_STYLE = (
+    "Story narration in natural Arabic (Gulf colloquial when the text is colloquial): warm, close and "
+    "unhurried but never sleepy; observational, with small pauses at real turns and a slight lift when "
+    "the narrator turns to the listener. No announcer tone, no sermon, no acting of separate characters."
+)
+
 GEMINI38_PERFORMANCE_STYLES = {
     **{
         mode: GEMINI38_NIDAA_SHORT_BASE_STYLE + detail
         for mode, detail in GEMINI38_NIDAA_SHORT_STYLES.items()
     },
+    GEMINI38_NIDAA_STORY_MODE: GEMINI38_NIDAA_STORY_STYLE,
     "why_reframe": (
         "Same Charon identity. Clear and lightly incisive: open the mistaken frame with controlled tension, "
         "then become warmer and steadier as the useful reframe lands. Never salesy or preachy."
@@ -740,7 +750,8 @@ class GeminiOnlyVoiceSynthesizer:
         is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
         # The exact same text can be spoken by a different voice only when the
         # Nidaa Short mode is explicitly selected. Never infer it from length.
-        short_profile = str(performance_mode or "").startswith("nidaa_short_")
+        short_profile = (str(performance_mode or "").startswith("nidaa_short_")
+                         or str(performance_mode or "") == GEMINI38_NIDAA_STORY_MODE)
         ala_mahl_podcast = str(performance_mode or "") == GEMINI38_ALA_MAHL_PODCAST_PROFILE
         if ala_mahl_podcast and is_lite:
             raise RuntimeError("Ala Mahl podcast Iapetus/Charon voice roster requires Flash TTS")
