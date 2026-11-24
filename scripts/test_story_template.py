@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 from clean_v2 import owner_pack, production_package as package
-from clean_v2.identity_sequence import LONG_CHANNEL_DEFINITION, PRAYER_SENTENCE, STORY_CHANNEL_DEFINITION
+from clean_v2.identity_sequence import (LONG_CHANNEL_DEFINITION, PRAYER_SENTENCE, STORY_CHANNEL_DEFINITION,
+                                        STORY_NO_DEFINITION_OPENER)
 from scripts.test_production_package import archive_bytes, imported_pack, manifest
 
 
@@ -99,16 +100,19 @@ class StoryIdentityTests(unittest.TestCase):
             identity = json.loads((root / "narrative-identity.json").read_text())
             return script, plan, identity
 
-    def test_story_gets_the_short_definition_not_the_long_one(self):
+    def test_story_has_no_spoken_channel_definition(self):
         script, plan, identity = self._build(story_manifest())
         joined = " ".join(s["narration"] for s in script["sections"])
         self.assertEqual(joined.count(PRAYER_SENTENCE), 1)
-        self.assertEqual(joined.count(STORY_CHANNEL_DEFINITION), 1)
+        self.assertEqual(joined.count(STORY_CHANNEL_DEFINITION), 0)
         self.assertEqual(joined.count(LONG_CHANNEL_DEFINITION), 0)
-        self.assertEqual(identity["opener"], STORY_CHANNEL_DEFINITION)
+        self.assertEqual(identity["opener"], STORY_NO_DEFINITION_OPENER)
         self.assertEqual(plan["narrative_format"], "story_analysis")
         first = script["sections"][0]["narration"]
-        self.assertLess(first.index(PRAYER_SENTENCE), first.index(STORY_CHANNEL_DEFINITION))
+        self.assertGreater(first.index(PRAYER_SENTENCE), 0)
+        from clean_v2.identity_sequence import channel_definition
+        self.assertEqual(channel_definition("film", STORY_NO_DEFINITION_OPENER), "")
+        self.assertEqual(channel_definition("film", ""), LONG_CHANNEL_DEFINITION)
 
     def test_ordinary_film_is_unchanged(self):
         script, plan, identity = self._build(manifest("film"))
@@ -121,7 +125,7 @@ class StoryIdentityTests(unittest.TestCase):
         doc = story_manifest()
         script, _, identity = self._build(copy.deepcopy(doc))
         joined = " ".join(s["narration"] for s in script["sections"])
-        for phrase in (PRAYER_SENTENCE, STORY_CHANNEL_DEFINITION, identity["closer"]):
+        for phrase in (PRAYER_SENTENCE, identity["closer"]):
             if phrase:
                 joined = joined.replace(phrase, "")
         self.assertEqual(
@@ -131,7 +135,7 @@ class StoryIdentityTests(unittest.TestCase):
 
 
 class StoryVoiceTests(unittest.TestCase):
-    """The story narrator is the Nidaa voice (Iapetus), same as the Nidaa Shorts."""
+    """The story narrator is Algenib on Flash TTS (owner choice, 24 Nov 2026)."""
 
     def test_story_uses_the_story_voice_mode_and_ordinary_film_keeps_its_mode(self):
         from clean_v2.pipeline import _voice_performance_mode_for_brief
@@ -141,12 +145,12 @@ class StoryVoiceTests(unittest.TestCase):
         self.assertEqual(_voice_performance_mode_for_brief(brief, plan, ready_template=""), "story_analysis")
         self.assertEqual(_voice_performance_mode_for_brief(brief, {"narrative_format": "paradox"}), "paradox")
 
-    def test_story_mode_speaks_with_iapetus_and_other_film_modes_keep_charon(self):
+    def test_story_mode_speaks_with_algenib_on_flash_and_other_film_modes_keep_charon(self):
         import os
         import wave
         from unittest.mock import patch
 
-        from clean_v2.media import (GEMINI38_NARRATOR_STYLE, GEMINI38_NIDAA_SHORT_PROVIDER,
+        from clean_v2.media import (GEMINI38_NARRATOR_STYLE, GEMINI38_STORY_PROVIDER,
                                     GEMINI38_PERFORMANCE_STYLES, GeminiOnlyVoiceSynthesizer)
         events = []
 
@@ -163,11 +167,13 @@ class StoryVoiceTests(unittest.TestCase):
             synth = GeminiOnlyVoiceSynthesizer("test-api-key")
             synth.synthesize("كتب أحمد كلمة حاضر.", Path(tmp) / "a.wav", performance_mode="nidaa_story",
                              performance_direction={"direction": "راوٍ هادئ بلهجة خليجية."})
-            self.assertEqual(synth.last_provider, GEMINI38_NIDAA_SHORT_PROVIDER)
-            self.assertEqual(synth.voice_roles["narrator"], "Iapetus")
-            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
-            synth.synthesize("اللهم صل وسلم.", Path(tmp) / "b.wav", performance_mode="nidaa_short_identity")
-            self.assertEqual(events[-1]["primary_voice"], "Iapetus")
+            self.assertEqual(synth.last_provider, GEMINI38_STORY_PROVIDER)
+            self.assertEqual(synth.voice_roles["narrator"], "Algenib")
+            self.assertEqual(events[-1]["primary_voice"], "Algenib")
+            self.assertEqual(synth.tts_model, "gemini-3.8-flash-tts")
+            synth.synthesize("اللهم صل وسلم.", Path(tmp) / "b.wav", performance_mode="nidaa_story_identity")
+            self.assertEqual(events[-1]["primary_voice"], "Algenib")
+            self.assertEqual(synth.last_provider, GEMINI38_STORY_PROVIDER)
             synth.synthesize("نص فيلم عادي.", Path(tmp) / "c.wav", performance_mode="story_analysis")
             self.assertEqual(synth.voice_roles["narrator"], "Charon")
             self.assertEqual(events[-1]["primary_voice"], "Charon")
@@ -186,10 +192,51 @@ class StoryVoiceTests(unittest.TestCase):
             call.assert_not_called()
 
 
+class StoryCaptionTests(unittest.TestCase):
+    """Story wears the خارج النص caption look (outlined, unboxed); ordinary film keeps the navy card."""
+
+    def _burn(self, story: bool):
+        import shutil
+        import subprocess
+
+        from clean_v2.film_captions import apply_film_captions
+        real = Path(__file__).parent / "fixtures" / "film_real_run_v25_2"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("timeline-first.json", "voice-sections.json"):
+                shutil.copy(real / name, root / name)
+            if story:
+                from clean_v2.identity_sequence import STORY_NO_DEFINITION_OPENER
+                (root / "narrative-identity.json").write_text(
+                    json.dumps({"opener": STORY_NO_DEFINITION_OPENER}), encoding="utf-8")
+            final = root / "final.mp4"
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                            "-i", "color=c=0x223344:size=1920x1080:rate=30:duration=4",
+                            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "4",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(final)],
+                           check=True, timeout=120)
+            report = apply_film_captions(output_dir=root, final_path=final)
+            ass = (root / "film-captions.ass").read_text(encoding="utf-8")
+            return report, ass
+
+    def test_story_uses_the_outlined_podcast_look(self):
+        report, ass = self._burn(True)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["style"], "podcast_outlined_unboxed_warm_white_text")
+        self.assertIn("Style: Film,Cairo", ass)
+        self.assertIn(",78,", ass)
+        self.assertNotIn(",Caption,line,", ass)
+
+    def test_ordinary_film_keeps_the_card(self):
+        report, ass = self._burn(False)
+        self.assertEqual(report["style"], "navy_card_gold_hairline_warm_white_text")
+        self.assertIn(",Caption,line,", ass)
+
+
 class StoryRenderTests(unittest.TestCase):
     """Synthetic WAV + real ffmpeg through the whole pipeline: proves wiring, not how it sounds or looks."""
 
-    def test_story_film_renders_with_the_story_definition_and_voice_direction(self):
+    def test_story_film_renders_without_channel_definition_and_with_voice_direction(self):
         import hashlib
         import os
         from unittest import mock
@@ -202,7 +249,7 @@ class StoryRenderTests(unittest.TestCase):
         from scripts.test_ready_production_e2e import LocalVoice
 
         doc = story_manifest()
-        doc["performance"] = {"direction": "راوٍ واحد هادئ بلهجة خليجية طبيعية."}
+        doc["performance"] = {"direction": "راوٍ واحد هادئ بعربية فصيحة بسيطة."}
         pack = imported_pack(doc)
         brief = {"approved_by_user": True, "approved_topic": doc["title"], "format": "film", "language": "ar",
                  "audience": "Arabic-speaking adults", "editorial_intent": "نص معتمد", "research_pack": [],
@@ -229,13 +276,16 @@ class StoryRenderTests(unittest.TestCase):
             media = inspect_final(output / "final.mp4")
             self.assertEqual((media["width"], media["height"]), (1920, 1080))
             spoken = " ".join(text for text, _ in voice.spoken)
-            self.assertEqual(spoken.count(STORY_CHANNEL_DEFINITION), 1)
+            self.assertEqual(spoken.count(STORY_CHANNEL_DEFINITION), 0)
             self.assertEqual(spoken.count(LONG_CHANNEL_DEFINITION), 0)
             self.assertTrue(any(k.get("performance_direction") for _, k in voice.spoken))
             modes = {k.get("performance_mode") for _, k in voice.spoken}
-            self.assertEqual(modes, {"nidaa_story", "nidaa_short_identity"})
+            self.assertEqual(modes, {"nidaa_story", "nidaa_story_identity"})
             timeline = json.loads((output / "timeline-first.json").read_text())
-            self.assertIn("channel_identity", [e["kind"] for e in timeline["identity_events"]])
+            kinds = [e["kind"] for e in timeline["identity_events"]]
+            self.assertNotIn("channel_identity", kinds)
+            self.assertIn("prayer", kinds)
+            self.assertIn("topic", kinds)
             self.assertEqual(json.loads((output / "plan.json").read_text())["narrative_format"], "story_analysis")
             self.assertEqual(before, {n: hashlib.sha256((art / n).read_bytes()).hexdigest() for n in before})
             stock.acquire.assert_not_called(); router.route.assert_not_called()

@@ -18,6 +18,9 @@ LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من
 # One short neutral sentence keeps the same spoken position (hook -> prayer -> definition) so the
 # timeline and logo card still find their identity unit.
 STORY_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نحكي عن أيامنا كما هي."
+# Owner decision (24 Nov 2026): the story film has no spoken channel definition, only hook -> prayer -> topic.
+# ready_production passes this marker as the opener; channel_definition() turns it into "" for the film.
+STORY_NO_DEFINITION_OPENER = "__story_no_channel_definition__"
 PODCAST_CHANNEL_DEFINITION = "بودكاست من نداء اليقظة"
 # Podcast only: the Writer authors a short, topic-specific bridge that leads into the
 # prayer ("B: <bridge>. [[PRAYER]] B: <answer...>"). The host owns the prayer text itself
@@ -524,6 +527,8 @@ def channel_definition(fmt: str, opener: str = "") -> str:
         # available as metadata but is intentionally not inserted into speech.
         return PODCAST_CHANNEL_DEFINITION
     candidate = " ".join(str(opener or "").split()).strip()
+    if fmt == "film" and candidate == STORY_NO_DEFINITION_OPENER:
+        return ""
     return candidate or LONG_CHANNEL_DEFINITION
 
 

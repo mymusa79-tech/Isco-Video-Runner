@@ -277,6 +277,14 @@ def _identity_events(
             or post_prayer_silence is None
             or final_silence is None
         )
+    elif fmt == "film" and identity is None and pre_topic_silence is None:
+        # Story film: hook -> prayer -> topic, no spoken channel definition.
+        missing = (
+            hook is None
+            or prayer is None
+            or post_prayer_silence is None
+            or final_silence is None
+        )
     else:
         missing = (
             hook is None
@@ -302,6 +310,8 @@ def _identity_events(
     if fmt == "podcast":
         # V8 podcast flow: prayer breath ends exactly where B begins answering.
         # The body music window therefore opens on the first answer sample.
+        topic_start = float(post_prayer_silence["end"])
+    elif fmt == "film" and identity is None and pre_topic_silence is None:
         topic_start = float(post_prayer_silence["end"])
     else:
         if identity is None or pre_topic_silence is None:
@@ -354,7 +364,7 @@ def _identity_events(
             },
         ]
     )
-    if fmt != "podcast":
+    if fmt != "podcast" and identity is not None and pre_topic_silence is not None:
         events.extend(
             [
                 {

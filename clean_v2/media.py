@@ -121,13 +121,18 @@ GEMINI38_NIDAA_SHORT_STYLES = {
     ),
 }
 
-# Story film (production.json template "story"): narrated by the owner-approved Nidaa voice (Iapetus,
-# the same voice as the Nidaa Shorts). Style is its own: a story narrator, not the brisk Short delivery.
+# Story film (production.json template "story"): owner-chosen voice Algenib on Flash TTS, one narrator
+# for every unit (identity units use mode "nidaa_story_identity" with the same voice and neutral style).
 GEMINI38_NIDAA_STORY_MODE = "nidaa_story"
+GEMINI38_NIDAA_STORY_IDENTITY_MODE = "nidaa_story_identity"
+GEMINI38_STORY_PRIMARY_VOICE = "Algenib"
+GEMINI38_STORY_PROVIDER = "gemini-3.8-flash:Algenib"
+GEMINI38_STORY_REFERENCE_PROFILE = "gemini-3.8-flash-tts:Algenib"
 GEMINI38_NIDAA_STORY_STYLE = (
-    "Story narration in natural Arabic (Gulf colloquial when the text is colloquial): warm, close and "
-    "unhurried but never sleepy; observational, with small pauses at real turns and a slight lift when "
-    "the narrator turns to the listener. No announcer tone, no sermon, no acting of separate characters."
+    "Story narration in clear, simple Modern Standard Arabic, spoken the way a person tells something true "
+    "to one listener: warm, close and felt, never an announcer. Slow down on the heavy moments and leave a "
+    "real pause at every turn and before the key sentence; let the voice drop a little on small losses and "
+    "lift slightly when speaking to the listener. No theatrical acting, no sermon, no sleepy drag."
 )
 
 GEMINI38_PERFORMANCE_STYLES = {
@@ -750,17 +755,20 @@ class GeminiOnlyVoiceSynthesizer:
         is_lite = self.tts_model == GEMINI38_LITE_TTS_MODEL
         # The exact same text can be spoken by a different voice only when the
         # Nidaa Short mode is explicitly selected. Never infer it from length.
-        short_profile = (str(performance_mode or "").startswith("nidaa_short_")
-                         or str(performance_mode or "") == GEMINI38_NIDAA_STORY_MODE)
+        short_profile = str(performance_mode or "").startswith("nidaa_short_")
+        story_profile = str(performance_mode or "") in {GEMINI38_NIDAA_STORY_MODE, GEMINI38_NIDAA_STORY_IDENTITY_MODE}
         ala_mahl_podcast = str(performance_mode or "") == GEMINI38_ALA_MAHL_PODCAST_PROFILE
         if ala_mahl_podcast and is_lite:
             raise RuntimeError("Ala Mahl podcast Iapetus/Charon voice roster requires Flash TTS")
         if short_profile and is_lite:
             raise RuntimeError("Nidaa Short Iapetus is approved on Flash TTS only; lite is not a substitute")
+        if story_profile and is_lite:
+            raise RuntimeError("Story narration (Algenib) is approved on Flash TTS only; lite is not a substitute")
         # Consistent Iapetus timbre for every Nidaa Short voice unit.
         # Identity units use neutral performance metadata, NOT a second voice.
         primary_voice = (
             GEMINI38_NIDAA_SHORT_PRIMARY_VOICE if short_profile
+            else GEMINI38_STORY_PRIMARY_VOICE if story_profile
             else GEMINI38_LITE_PRIMARY_VOICE if is_lite
             else self.EXPECTED_PRIMARY_VOICE
         )
@@ -768,10 +776,12 @@ class GeminiOnlyVoiceSynthesizer:
                             else self.EXPECTED_QUESTIONER_VOICE)
         provider = (
             GEMINI38_NIDAA_SHORT_PROVIDER if short_profile
+            else GEMINI38_STORY_PROVIDER if story_profile
             else GEMINI38_LITE_PROVIDER if is_lite else GEMINI38_PROVIDER
         )
         reference_profile = (
             GEMINI38_NIDAA_SHORT_REFERENCE_PROFILE if short_profile
+            else GEMINI38_STORY_REFERENCE_PROFILE if story_profile
             else GEMINI38_ALA_MAHL_REFERENCE_PROFILE if ala_mahl_podcast
             else GEMINI38_LITE_REFERENCE_PROFILE if is_lite else GEMINI38_REFERENCE_PROFILE
         )
@@ -779,7 +789,7 @@ class GeminiOnlyVoiceSynthesizer:
         self.voice_roles = _spoken_voice_roles(
             transcript, questioner_voice=questioner_voice, primary_voice=primary_voice
         )
-        if short_profile and self.voice_roles.get("mode") == "single_narrator":
+        if (short_profile or story_profile) and self.voice_roles.get("mode") == "single_narrator":
             self.voice_roles["narrator"] = primary_voice
         self.last_provider = None
         self.fallback_used = self.tts_model != GEMINI38_TTS_MODEL
@@ -795,7 +805,7 @@ class GeminiOnlyVoiceSynthesizer:
         # New short profiles bind the exact final metadata style. Legacy
         # bindings are passed unchanged, preserving long/podcast/old cache keys.
         style_binding = {}
-        if short_profile:
+        if short_profile or story_profile:
             style = GEMINI38_PERFORMANCE_STYLES.get(
                 str(performance_mode or ""), GEMINI38_NARRATOR_STYLE
             )

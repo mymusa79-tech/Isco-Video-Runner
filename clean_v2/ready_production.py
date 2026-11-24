@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .contracts import atomic_write_json, validate_plan, validate_script
-from .identity_sequence import PRAYER_SENTENCE, STORY_CHANNEL_DEFINITION, assert_spoken_identity, inject_spoken_identity, _first_sentence
+from .identity_sequence import PRAYER_SENTENCE, STORY_NO_DEFINITION_OPENER, assert_spoken_identity, inject_spoken_identity, _first_sentence
 from .production_package import section_text, spoken_text, validate_manifest
 
 
@@ -133,7 +133,7 @@ def build_artifacts(pack: Mapping[str, Any], brief: Mapping[str, Any], out_dir: 
     opener, closer = _brand_signature() if fmt == "film" else ("", "")
     if fmt == "film" and doc["template"] == "story":
         # Same spoken slot as the film definition, but the short story sentence (see identity_sequence).
-        opener = STORY_CHANNEL_DEFINITION
+        opener = STORY_NO_DEFINITION_OPENER
     # Cinematic Monoclip is explicitly prayer-free from the first imported
     # artifact onward; never insert prayer only to strip it again downstream.
     cinematic_monoclip = fmt == "short" and doc.get("visual_style") in {

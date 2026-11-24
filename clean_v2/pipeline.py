@@ -41,6 +41,7 @@ from .contracts import (
 from .media import (
     GEMINI38_LITE_PROVIDER,
     GEMINI38_NIDAA_SHORT_PROVIDER,
+    GEMINI38_STORY_PROVIDER,
     GEMINI38_TTS_MODEL,
     VoiceInfrastructureError,
     concat_wav_parts,
@@ -477,7 +478,7 @@ IDENTITY_TIMELINE_FORMATS = frozenset({"short", "film", "podcast"})
 # metadata overhead is included, so this leaves real headroom above that.
 LONGFORM_SCRIPT_MAX_TOKENS = 18000
 GEMINI38_VOICE_PROVIDER = "gemini-3.8:Charon"
-_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER, GEMINI38_NIDAA_SHORT_PROVIDER})
+_GEMINI38_ALLOWED_VOICE_PROVIDERS = frozenset({GEMINI38_VOICE_PROVIDER, GEMINI38_LITE_PROVIDER, GEMINI38_NIDAA_SHORT_PROVIDER, GEMINI38_STORY_PROVIDER})
 
 
 def _write_silence_like(reference: Path, destination: Path, seconds: float) -> Path:
@@ -880,6 +881,14 @@ def _synthesize_sectioned_voice_pass(
                         section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
                     )
                 )
+            elif fmt == "film" and not " ".join(str(identity_definition or "").split()).strip():
+                # Story film: hook -> prayer -> topic, no spoken channel definition.
+                voice_units.extend([("hook", hook_text), ("prayer", PRAYER_SENTENCE)])
+                voice_units.extend(
+                    ("topic", item) for item in _bounded_voice_chunks(
+                        section_text[prayer_pos + len(PRAYER_SENTENCE):].strip()
+                    )
+                )
             else:
                 definition = " ".join(str(identity_definition or "").split()).strip()
                 definition_pos = section_text.find(definition) if definition else -1
@@ -1006,7 +1015,10 @@ def _synthesize_sectioned_voice_pass(
                     # continue using their approved voices and identity rules.
                     if chunk_role in {"hook", "topic", "cta_topic", "promo_short", "outro"} and not is_fixed_identity_outro:
                         effective_performance_mode = requested_performance_mode
-                    elif requested_performance_mode.startswith("nidaa_short_") or requested_performance_mode == "nidaa_story":
+                    elif requested_performance_mode == "nidaa_story":
+                        # Story: prayer and closer keep the story voice with neutral style.
+                        effective_performance_mode = "nidaa_story_identity"
+                    elif requested_performance_mode.startswith("nidaa_short_"):
                         # Prayer and spoken logo retain Iapetus with neutral style;
                         # no voice switch at the identity boundary.
                         effective_performance_mode = "nidaa_short_identity"
