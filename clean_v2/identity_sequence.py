@@ -13,6 +13,11 @@ PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
 SHORT_CHANNEL_DEFINITION = "هنا نداء اليقظة؛ وعيٌ أوضح للحياة اليومية."
 SHORT_CHANNEL_DEFINITION_LEGACY = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
 LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
+# Story films (production.json template "story"): the long film definition is Modern Standard Arabic
+# and talks about "practical steps", which clashes with a colloquial narrator and with a plain story.
+# One short neutral sentence keeps the same spoken position (hook -> prayer -> definition) so the
+# timeline and logo card still find their identity unit.
+STORY_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نحكي عن أيامنا كما هي."
 PODCAST_CHANNEL_DEFINITION = "بودكاست من نداء اليقظة"
 # Podcast only: the Writer authors a short, topic-specific bridge that leads into the
 # prayer ("B: <bridge>. [[PRAYER]] B: <answer...>"). The host owns the prayer text itself
