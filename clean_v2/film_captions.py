@@ -121,6 +121,38 @@ def validate_ass_text(text: str, expected_cues: int) -> None:
         last_end = end
 
 
+def _is_story(root: Path) -> bool:
+    """Story film (owner decision 24 Nov 2026): wears the خارج النص caption look, single narrator."""
+    import json
+    from .identity_sequence import STORY_NO_DEFINITION_OPENER
+
+    try:
+        identity = json.loads((Path(root) / "narrative-identity.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(identity, Mapping) and identity.get("opener") == STORY_NO_DEFINITION_OPENER
+
+
+def validate_plain_ass_text(text: str, expected_cues: int) -> None:
+    import re
+
+    rows = [line for line in text.splitlines() if line.startswith("Dialogue: 0,") and ",Film,," in line]
+    if len(rows) != expected_cues:
+        raise FilmCaptionError("film_caption_ass_cue_count_mismatch")
+    stamp = re.compile(r"^Dialogue: 0,(\d+):(\d{2}):(\d{2})\.(\d{2}),(\d+):(\d{2}):(\d{2})\.(\d{2}),Film,,")
+    last_end = -1.0
+    for row in rows:
+        match = stamp.match(row)
+        if not match:
+            raise FilmCaptionError("film_caption_ass_malformed")
+        g = [int(x) for x in match.groups()]
+        start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 100
+        end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 100
+        if end <= start or start < last_end - 0.02:
+            raise FilmCaptionError("film_caption_ass_time_order")
+        last_end = end
+
+
 def build_ass(events: Sequence[Mapping[str, Any]]) -> str:
     """Film captions: navy card with a gold hairline, warm-white single-narrator text."""
     from .podcast_captions import build_card_ass
@@ -219,8 +251,16 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
     )
     ass_path = root / "film-captions.ass"
     srt_path = root / "film-captions.srt"
-    ass_text, srt_text = build_ass(events), build_srt(all_spoken_events)
-    validate_ass_text(ass_text, len(events))
+    story = _is_story(root)
+    if story:
+        from .podcast_captions import FONT_SIZE as PODCAST_FONT_SIZE
+
+        ass_text = build_plain_ass(events, speaker_colours=True, font_size=PODCAST_FONT_SIZE, fmt="podcast")
+        srt_text = build_srt(all_spoken_events)
+        validate_plain_ass_text(ass_text, len(events))
+    else:
+        ass_text, srt_text = build_ass(events), build_srt(all_spoken_events)
+        validate_ass_text(ass_text, len(events))
     validate_srt_text(srt_text, len(all_spoken_events))
     ass_path.write_text(ass_text, encoding="utf-8")
     srt_path.write_text(srt_text, encoding="utf-8")
@@ -259,7 +299,7 @@ def apply_film_captions(*, output_dir: Path, final_path: Path) -> dict[str, Any]
         "subtitles_keep_spoken_board_windows": True,
         "font": BODY_FONT, "font_actually_used": font,
         "max_rows": MAX_ROWS, "position": "cinematic_bottom_safe_area",
-        "style": "navy_card_gold_hairline_warm_white_text",
+        "style": "podcast_outlined_unboxed_warm_white_text" if story else "navy_card_gold_hairline_warm_white_text",
         "timing": mode,
         "quality": quality,
         "visual_caption_quality": visual_quality,
