@@ -18,8 +18,8 @@ from typing import Any, Mapping
 from .owner_pack import LONG_TYPES, SHORT_TYPES, OwnerPackError
 
 STORY_TEMPLATE = "story"  # single-narrator story film: ordinary format "film", its own contract below
-STORY_WORDS = (350, 700)
-STORY_SCENES = (6, 12)
+STORY_WORDS = (350, 550)  # about 2.5-4.5 minutes spoken: well short of a podcast episode
+STORY_SCENES = (6, 8)
 from .pinned_stock import parse_stock_url
 
 MAX_ZIP_BYTES = 18 * 1024 * 1024  # below Telegram's standard getFile limit

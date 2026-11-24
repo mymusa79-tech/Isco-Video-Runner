@@ -49,7 +49,7 @@ class StoryImportTests(unittest.TestCase):
     def test_story_film_is_accepted(self):
         doc = story_manifest()
         words = len(package.spoken_text(" ".join(package.section_text(s) for s in doc["script"]["sections"])).split())
-        self.assertTrue(350 <= words <= 700, words)
+        self.assertTrue(350 <= words <= 550, words)
         checked = package.inspect_archive(archive_bytes(doc))
         self.assertEqual(checked["manifest"]["template"], "story")
         self.assertEqual(checked["manifest"]["format"], "film")
@@ -61,12 +61,12 @@ class StoryImportTests(unittest.TestCase):
             package.inspect_archive(archive_bytes(doc))
 
     def test_story_rejects_too_few_or_too_many_scenes(self):
-        for plan in ((1, 1, 1, 1, 1), (3, 3, 3, 3, 1)):
+        for plan in ((1, 1, 1, 1, 1), (2, 2, 2, 2, 1)):
             with self.subTest(plan=plan), self.assertRaises(owner_pack.OwnerPackError):
                 package.inspect_archive(archive_bytes(story_manifest(scene_plan=plan)))
 
     def test_story_rejects_wrong_length(self):
-        for per_section in (8, 40):
+        for per_section in (8, 24, 40):
             with self.subTest(per_section=per_section), self.assertRaises(owner_pack.OwnerPackError):
                 package.inspect_archive(archive_bytes(story_manifest(words_per_section=per_section)))
 
