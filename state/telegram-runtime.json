@@ -1,10 +1,10 @@
 {
-  "active": false,
-  "scope": "podcast",
+  "active": true,
+  "scope": "long",
   "kind": "",
-  "topic": "لماذا أقرر التغيير كل أحد ثم أتركه كل خميس؟",
-  "stage": "اكتمل التشغيل",
-  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/45225277475",
-  "result": "success",
-  "updated_at": 1795456924
+  "topic": "التسويف: لماذا تعرف ما يجب عليك فعله ولا تبدأ؟",
+  "stage": "بدأ الإنتاج",
+  "run_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/45681522411",
+  "result": "",
+  "updated_at": 1795633510
 }
