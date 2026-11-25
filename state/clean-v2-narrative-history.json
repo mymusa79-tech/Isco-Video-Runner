@@ -1,10 +1,10 @@
 {
   "film": [
-    "hypothesis_test",
     "story_analysis",
     "paradox",
     "question_answer",
-    "question_answer"
+    "question_answer",
+    "story_analysis"
   ],
   "schema_version": 1,
   "short": [
