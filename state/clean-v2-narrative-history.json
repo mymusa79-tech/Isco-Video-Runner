@@ -1,9 +1,9 @@
 {
   "film": [
-    "story_analysis",
     "paradox",
     "question_answer",
     "question_answer",
+    "story_analysis",
     "story_analysis"
   ],
   "schema_version": 1,
