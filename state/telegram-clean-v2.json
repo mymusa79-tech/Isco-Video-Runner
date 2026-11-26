@@ -51018,9 +51018,9 @@
           "assets/d2.jpg": "b52c3f60c9d32aa6de26827557c85a99cd2e271ae0f3d3d7fdede94b17476db1"
         }
       },
-      "status": "confirmed_pending_dispatch",
+      "status": "dispatched",
       "confirmed_at": "2026-11-26T12:02:57Z",
-      "dispatched_at": null,
+      "dispatched_at": "2026-11-26T12:03:01Z",
       "request_sha256": "26d47826353a2822f0a4480e00dcc3b0e0090f32713f2dfc2fd5e6a5e8ee2e8f",
       "owner_art": {
         "zip": {
@@ -51697,6 +51697,6 @@
       }
     }
   ],
-  "updated_at": "2026-11-26T12:02:57Z",
+  "updated_at": "2026-11-26T12:03:01Z",
   "provider_cooldown_until": "2026-10-24T15:41:16.845631Z"
 }
